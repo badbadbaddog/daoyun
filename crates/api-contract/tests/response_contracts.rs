@@ -1,5 +1,6 @@
 use api_contract::{
-    ApiResponse, ErrorBody, ErrorCode, ErrorResponse, PageResponse, RequestId, error_codes,
+    ApiResponse, BoardSummary, BoardTone, ErrorBody, ErrorCode, ErrorResponse, PageResponse,
+    RequestId, error_codes,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -68,6 +69,34 @@ fn error_response_omits_fields_until_a_field_error_exists() {
 #[test]
 fn not_ready_error_code_is_stable() {
     assert_eq!(error_codes::NOT_READY, "system.not_ready");
+}
+
+#[test]
+fn board_summary_serializes_the_public_contract() {
+    let board_id =
+        Uuid::parse_str("019fc5d1-2b9e-7ca2-a539-4ee7b3ed1257").expect("fixture must be a UUID");
+    let board = BoardSummary {
+        id: board_id,
+        slug: "engineering".to_owned(),
+        name: "工程实践".to_owned(),
+        description: "Rust、架构与部署".to_owned(),
+        icon: "code".to_owned(),
+        tone: BoardTone::Green,
+        topic_count: 284,
+    };
+
+    assert_eq!(
+        serde_json::to_value(board).expect("board summary must serialize"),
+        json!({
+            "id": board_id,
+            "slug": "engineering",
+            "name": "工程实践",
+            "description": "Rust、架构与部署",
+            "icon": "code",
+            "tone": "green",
+            "topic_count": 284
+        })
+    );
 }
 
 fn fixed_request_id() -> RequestId {

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod boards;
 mod health;
 mod rejection;
 
@@ -21,24 +22,31 @@ const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
 // Source: https://docs.rs/utoipa/5.5.0/utoipa/derive.OpenApi.html
 #[derive(OpenApi)]
 #[openapi(
-    paths(health::live, health::ready),
+    paths(boards::list, health::live, health::ready),
     components(schemas(
         api_contract::ApiResponse<api_contract::HealthData>,
+        api_contract::BoardSummary,
+        api_contract::BoardTone,
         api_contract::HealthData,
         api_contract::HealthStatus,
         api_contract::ErrorBody,
         api_contract::ErrorCode,
         api_contract::ErrorResponse,
         api_contract::PageMeta,
+        api_contract::PageResponse<api_contract::BoardSummary>,
         api_contract::RequestId,
         api_contract::ResponseMeta
     )),
-    tags((name = "health", description = "Process health and dependency readiness"))
+    tags(
+        (name = "boards", description = "Public community boards"),
+        (name = "health", description = "Process health and dependency readiness")
+    )
 )]
 struct ApiDoc;
 
 pub fn app(database: Database) -> Router {
     Router::new()
+        .merge(boards::router())
         .merge(health::router())
         .route("/api/v1/openapi.json", get(openapi))
         // Source: https://docs.rs/axum/0.8.9/axum/struct.Router.html#method.fallback

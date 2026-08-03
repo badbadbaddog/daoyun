@@ -6,9 +6,11 @@ use utoipa::ToSchema;
 use crate::{RequestId, ResponseMeta};
 
 pub mod error_codes {
+    pub const DATABASE_UNAVAILABLE: &str = "system.database_unavailable";
     pub const METHOD_NOT_ALLOWED: &str = "system.method_not_allowed";
     pub const NOT_READY: &str = "system.not_ready";
     pub const ROUTE_NOT_FOUND: &str = "system.route_not_found";
+    pub const VALIDATION_FAILED: &str = "request.validation_failed";
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
