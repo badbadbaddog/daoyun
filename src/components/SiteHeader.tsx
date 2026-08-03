@@ -1,4 +1,5 @@
 import { Bell, Moon, Plus, Search, Sun } from "lucide-react"
+import { useEffect, useRef } from "react"
 
 import { BrandMark } from "./BrandMark"
 
@@ -17,6 +18,22 @@ export function SiteHeader({
   onCompose,
   onToggleTheme,
 }: SiteHeaderProps) {
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    function focusSearch(event: KeyboardEvent) {
+      if (event.key.toLocaleLowerCase() !== "k" || (!event.ctrlKey && !event.metaKey)) {
+        return
+      }
+
+      event.preventDefault()
+      searchInputRef.current?.focus()
+    }
+
+    window.addEventListener("keydown", focusSearch)
+    return () => window.removeEventListener("keydown", focusSearch)
+  }, [])
+
   return (
     <header className="site-header">
       <div className="site-header__inner">
@@ -30,13 +47,14 @@ export function SiteHeader({
           <Search size={17} aria-hidden="true" />
           <span className="sr-only">搜索社区内容</span>
           <input
+            ref={searchInputRef}
             type="search"
             aria-label="搜索社区内容"
+            aria-keyshortcuts="Control+K Meta+K"
             placeholder="搜索主题、板块或成员"
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
           />
-          <kbd>⌘ K</kbd>
         </label>
 
         <div className="header-actions">
