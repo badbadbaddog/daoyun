@@ -386,6 +386,53 @@ img {
   font-size: 10px;
 }
 
+.board-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 5px 9px;
+}
+
+.board-loading > span:not(.sr-only) {
+  height: 32px;
+  border-radius: 6px;
+  background: var(--surface-soft);
+  animation: board-loading-pulse 1.4s ease-in-out infinite;
+}
+
+.board-load-error,
+.board-empty {
+  margin: 0;
+  padding: 10px 12px;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.board-load-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.board-load-error button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--brand-strong);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@keyframes board-loading-pulse {
+  50% {
+    opacity: 0.52;
+  }
+}
+
 .board-icon {
   width: 25px;
   height: 25px;
@@ -1232,6 +1279,8 @@ img {
   *::before,
   *::after {
     scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }

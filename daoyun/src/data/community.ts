@@ -1,11 +1,4 @@
-import type { Board, Topic } from "../types/community"
-
-export const boards: Board[] = [
-  { id: "engineering", name: "工程实践", description: "Rust、架构与部署", icon: "code", count: 284 },
-  { id: "product", name: "产品设计", description: "体验、视觉与运营", icon: "layout", count: 156 },
-  { id: "creators", name: "创作者", description: "摄影、写作与独立站", icon: "aperture", count: 98 },
-  { id: "commons", name: "社区广场", description: "日常讨论与新成员", icon: "messages", count: 431 },
-]
+import type { Topic } from "../types/community"
 export const topics: Topic[] = [
   {
     id: "topic-1",
