@@ -1,6 +1,6 @@
 use api_contract::{
-    ApiResponse, BoardSummary, BoardTone, ErrorBody, ErrorCode, ErrorResponse, PageResponse,
-    RequestId, error_codes,
+    ApiResponse, BoardSummary, BoardTone, ErrorBody, ErrorCode, ErrorResponse, InstallationStatus,
+    PageResponse, RequestId, error_codes,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -96,6 +96,18 @@ fn board_summary_serializes_the_public_contract() {
             "tone": "green",
             "topic_count": 284
         })
+    );
+}
+
+#[test]
+fn installation_status_serializes_the_public_contract() {
+    let status = InstallationStatus {
+        is_initialized: false,
+    };
+
+    assert_eq!(
+        serde_json::to_value(status).expect("installation status must serialize"),
+        json!({ "is_initialized": false })
     );
 }
 

@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod boards;
+mod installation;
 
 use std::{error::Error, fmt, time::Duration};
 

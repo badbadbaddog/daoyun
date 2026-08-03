@@ -2,6 +2,7 @@
 
 mod board;
 mod error;
+mod installation;
 mod pagination;
 mod request_id;
 
@@ -10,6 +11,7 @@ use utoipa::ToSchema;
 
 pub use board::{BoardSummary, BoardTone};
 pub use error::{ErrorBody, ErrorCode, ErrorResponse, FieldErrors, error_codes};
+pub use installation::InstallationStatus;
 pub use pagination::{PageMeta, PageResponse};
 pub use request_id::RequestId;
 
