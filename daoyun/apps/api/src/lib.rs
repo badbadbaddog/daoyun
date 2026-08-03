@@ -12,6 +12,7 @@ use axum::{
     response::Response,
     routing::get,
 };
+use infrastructure::Database;
 use utoipa::OpenApi;
 use uuid::Uuid;
 
@@ -36,7 +37,7 @@ const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
 )]
 struct ApiDoc;
 
-pub fn app() -> Router {
+pub fn app(database: Database) -> Router {
     Router::new()
         .merge(health::router())
         .route("/api/v1/openapi.json", get(openapi))
@@ -44,6 +45,7 @@ pub fn app() -> Router {
         .fallback(rejection::not_found)
         // Source: https://docs.rs/axum/0.8.9/axum/struct.Router.html#method.method_not_allowed_fallback
         .method_not_allowed_fallback(rejection::method_not_allowed)
+        .with_state(database)
         // Source: https://docs.rs/axum/0.8.9/axum/middleware/fn.from_fn.html
         .layer(middleware::from_fn(assign_request_id))
 }

@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use std::{error::Error, fmt};
+use std::{error::Error, fmt, time::Duration};
 
 use sqlx::{
     PgPool,
@@ -25,6 +25,7 @@ impl Database {
     pub async fn connect_and_migrate(database_url: &str) -> Result<Self, DatabaseError> {
         let pool = PgPoolOptions::new()
             .max_connections(10)
+            .acquire_timeout(Duration::from_secs(3))
             .connect(database_url)
             .await?;
         let database = Self::from_pool(pool);

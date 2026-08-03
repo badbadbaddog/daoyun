@@ -7,6 +7,7 @@ use crate::{RequestId, ResponseMeta};
 
 pub mod error_codes {
     pub const METHOD_NOT_ALLOWED: &str = "system.method_not_allowed";
+    pub const NOT_READY: &str = "system.not_ready";
     pub const ROUTE_NOT_FOUND: &str = "system.route_not_found";
 }
 
