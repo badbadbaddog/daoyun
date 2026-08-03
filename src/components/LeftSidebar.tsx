@@ -1,6 +1,6 @@
-import { Aperture, Bookmark, Code2, Compass, Home, LayoutGrid, MessageSquareText, Users } from "lucide-react"
+import { Aperture, Bookmark, Code2, Compass, Home, LayoutGrid, MessageSquareText, RefreshCw, Users } from "lucide-react"
 
-import { boards } from "../data/community"
+import type { Board } from "../types/community"
 
 const boardIcons = {
   code: Code2,
@@ -9,7 +9,13 @@ const boardIcons = {
   messages: MessageSquareText,
 } as const
 
-export function LeftSidebar() {
+interface LeftSidebarProps {
+  boards: Board[]
+  loadStatus: "loading" | "ready" | "error"
+  onRetry: () => void
+}
+
+export function LeftSidebar({ boards, loadStatus, onRetry }: LeftSidebarProps) {
   return (
     <aside className="left-sidebar" aria-label="社区导航">
       <nav className="sidebar-nav">
@@ -35,15 +41,36 @@ export function LeftSidebar() {
         <span>社区板块</span>
         <a href="#boards">全部</a>
       </div>
-      <nav className="sidebar-nav sidebar-nav--boards" id="boards">
-        {boards.map((board) => {
-          const Icon = boardIcons[board.icon as keyof typeof boardIcons]
+      <nav className="sidebar-nav sidebar-nav--boards" id="boards" aria-label="社区板块" aria-busy={loadStatus === "loading"}>
+        {loadStatus === "loading" && (
+          <div className="board-loading" role="status">
+            <span className="sr-only">正在加载板块</span>
+            {Array.from({ length: 4 }, (_, index) => <span aria-hidden="true" key={index} />)}
+          </div>
+        )}
+
+        {loadStatus === "error" && (
+          <div className="board-load-error" role="alert">
+            <span>板块加载失败</span>
+            <button type="button" onClick={onRetry} aria-label="重试加载板块" title="重试">
+              <RefreshCw size={14} />
+              <span>重试</span>
+            </button>
+          </div>
+        )}
+
+        {loadStatus === "ready" && boards.length === 0 && (
+          <p className="board-empty" role="status">暂无公开板块</p>
+        )}
+
+        {loadStatus === "ready" && boards.map((board) => {
+          const Icon = boardIcons[board.icon] ?? MessageSquareText
 
           return (
-            <a className="sidebar-link sidebar-link--board" href={`#${board.id}`} key={board.id} title={board.description}>
+            <a className="sidebar-link sidebar-link--board" href={`#board-${board.slug}`} key={board.id} title={board.description}>
               <span className="board-icon"><Icon size={16} /></span>
               <span>{board.name}</span>
-              <small>{board.count}</small>
+              <small>{board.topicCount}</small>
             </a>
           )
         })}

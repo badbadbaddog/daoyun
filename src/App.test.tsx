@@ -1,11 +1,35 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { App } from "./App"
+import { listBoards } from "./api/boards"
+import type { Board } from "./types/community"
+
+vi.mock("./api/boards", () => ({
+  listBoards: vi.fn(),
+}))
+
+const boardFixtures: Board[] = [
+  {
+    id: "019fc630-0000-7000-8000-000000000001",
+    slug: "engineering",
+    name: "工程实践",
+    description: "Rust、架构与部署",
+    icon: "code",
+    tone: "green",
+    topicCount: 12,
+  },
+]
+
+beforeEach(() => {
+  vi.mocked(listBoards).mockReset()
+  vi.mocked(listBoards).mockReturnValue(new Promise(() => {}))
+})
 
 afterEach(() => {
   cleanup()
+  vi.clearAllMocks()
   localStorage.clear()
   delete document.documentElement.dataset.theme
 })
@@ -81,5 +105,44 @@ describe("DaoYun community home", () => {
     fireEvent.keyDown(window, { key: "k", ctrlKey: true })
 
     expect(screen.getByRole("searchbox", { name: "搜索社区内容" })).toHaveFocus()
+  })
+
+  it("renders boards loaded from the public API", async () => {
+    vi.mocked(listBoards).mockResolvedValue(boardFixtures)
+
+    render(<App />)
+
+    const boardNavigation = screen.getByRole("navigation", { name: "社区板块" })
+    expect(await within(boardNavigation).findByText("工程实践")).toBeInTheDocument()
+    expect(within(boardNavigation).getByText("12")).toBeInTheDocument()
+  })
+
+  it("shows board loading and empty states", async () => {
+    const pendingRequest = new Promise<Board[]>(() => {})
+    vi.mocked(listBoards).mockReturnValueOnce(pendingRequest).mockResolvedValueOnce([])
+
+    const { rerender } = render(<App />)
+
+    expect(screen.getByRole("status")).toHaveTextContent("正在加载板块")
+
+    rerender(<App key="empty-boards" />)
+
+    expect(await screen.findByText("暂无公开板块")).toHaveAttribute("role", "status")
+  })
+
+  it("retries the board request after a loading failure", async () => {
+    const user = userEvent.setup()
+    vi.mocked(listBoards)
+      .mockRejectedValueOnce(new Error("unavailable"))
+      .mockResolvedValueOnce(boardFixtures)
+
+    render(<App />)
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("板块加载失败")
+    await user.click(screen.getByRole("button", { name: "重试加载板块" }))
+
+    const boardNavigation = screen.getByRole("navigation", { name: "社区板块" })
+    expect(await within(boardNavigation).findByText("工程实践")).toBeInTheDocument()
+    expect(listBoards).toHaveBeenCalledTimes(2)
   })
 })

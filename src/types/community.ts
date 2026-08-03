@@ -1,4 +1,6 @@
 export type FeedFilter = "latest" | "hot" | "featured" | "following"
+export type BoardIcon = "code" | "layout" | "aperture" | "messages"
+export type BoardTone = "green" | "blue" | "amber" | "rose"
 
 export interface Topic {
   id: string
@@ -20,8 +22,10 @@ export interface Topic {
 }
 export interface Board {
   id: string
+  slug: string
   name: string
   description: string
-  icon: string
-  count: number
+  icon: BoardIcon
+  tone: BoardTone
+  topicCount: number
 }

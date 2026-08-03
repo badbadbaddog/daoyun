@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 
+import { listBoards } from "./api/boards"
 import { FeedTabs } from "./components/FeedTabs"
 import { LeftSidebar } from "./components/LeftSidebar"
 import { MobileNavigation } from "./components/MobileNavigation"
@@ -8,9 +9,10 @@ import { SiteHeader } from "./components/SiteHeader"
 import { TopicComposer } from "./components/TopicComposer"
 import { TopicFeed } from "./components/TopicFeed"
 import { topics } from "./data/community"
-import type { FeedFilter } from "./types/community"
+import type { Board, FeedFilter } from "./types/community"
 
 type Theme = "light" | "dark"
+type BoardLoadStatus = "loading" | "ready" | "error"
 
 function getInitialTheme(): Theme {
   return localStorage.getItem("daoyun-theme") === "dark" ? "dark" : "light"
@@ -21,11 +23,33 @@ export function App() {
   const [query, setQuery] = useState("")
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const [composerOpen, setComposerOpen] = useState(false)
+  const [boards, setBoards] = useState<Board[]>([])
+  const [boardLoadStatus, setBoardLoadStatus] = useState<BoardLoadStatus>("loading")
+  const [boardRequestVersion, setBoardRequestVersion] = useState(0)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
     localStorage.setItem("daoyun-theme", theme)
   }, [theme])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setBoardLoadStatus("loading")
+
+    listBoards(controller.signal).then((loadedBoards) => {
+      if (!controller.signal.aborted) {
+        setBoards(loadedBoards)
+        setBoardLoadStatus("ready")
+      }
+    }).catch(() => {
+      if (!controller.signal.aborted) {
+        setBoards([])
+        setBoardLoadStatus("error")
+      }
+    })
+
+    return () => controller.abort()
+  }, [boardRequestVersion])
 
   const visibleTopics = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN")
@@ -56,7 +80,11 @@ export function App() {
       />
 
       <div className="page-shell">
-        <LeftSidebar />
+        <LeftSidebar
+          boards={boards}
+          loadStatus={boardLoadStatus}
+          onRetry={() => setBoardRequestVersion((version) => version + 1)}
+        />
         <main className="main-column">
           <FeedTabs active={activeFeed} onChange={setActiveFeed} />
           <TopicFeed topics={visibleTopics} onCompose={() => setComposerOpen(true)} />
