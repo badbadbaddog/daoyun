@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+mod boards;
+
 use std::{error::Error, fmt, time::Duration};
 
 use sqlx::{
@@ -7,6 +9,8 @@ use sqlx::{
     migrate::{Migrate, MigrateError, Migrator},
     postgres::PgPoolOptions,
 };
+
+pub use boards::BoardRecord;
 
 // Source: https://docs.rs/sqlx/0.9.0/sqlx/macro.migrate.html
 pub static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");

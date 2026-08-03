@@ -9,6 +9,7 @@ publish = false
 api-contract.workspace = true
 axum.workspace = true
 infrastructure.workspace = true
+serde.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
