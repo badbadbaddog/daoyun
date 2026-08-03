@@ -10,7 +10,8 @@
 - 发布主题弹窗。
 - 浅色和深色模式。
 - Axum API 进程与存活、就绪健康检查。
-- 统一成功响应 envelope 和 UUID v7 `request_id`。
+- 统一成功、错误和游标分页响应 envelope，并使用 UUID v7 `request_id`。
+- 未匹配路由和不支持方法返回结构化错误码。
 - OpenAPI 3.1 契约文档。
 - Vitest、Cargo Test、Clippy 和生产构建门禁。
 

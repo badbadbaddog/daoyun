@@ -1,7 +1,5 @@
-use api_contract::{ApiResponse, HealthData, HealthStatus};
+use api_contract::{ApiResponse, HealthData, HealthStatus, RequestId};
 use axum::{Extension, Json, Router, routing::get};
-
-use crate::RequestId;
 
 pub(crate) fn router() -> Router {
     Router::new()
@@ -30,7 +28,7 @@ pub(crate) async fn live(
 ) -> Json<ApiResponse<HealthData>> {
     Json(ApiResponse::new(
         HealthData::new(HealthStatus::Live, env!("CARGO_PKG_VERSION")),
-        request_id.0,
+        request_id,
     ))
 }
 
@@ -55,6 +53,6 @@ pub(crate) async fn ready(
 ) -> Json<ApiResponse<HealthData>> {
     Json(ApiResponse::new(
         HealthData::new(HealthStatus::Ready, env!("CARGO_PKG_VERSION")),
-        request_id.0,
+        request_id,
     ))
 }
