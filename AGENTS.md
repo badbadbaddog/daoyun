@@ -14,6 +14,13 @@
 - Use semantic CSS tokens from `src/styles.css`; do not hard-code theme colors in components.
 - Use Lucide icons for interface controls.
 
+## Backend Stack
+
+- Rust 1.94.1, Axum 0.8, Tokio 1.53, Serde, utoipa 5.5.
+- Keep public DTOs in `crates/api-contract`; do not expose persistence models.
+- Every versioned business response must carry the same `request_id` in its envelope and `x-request-id` header; raw OpenAPI documents carry the header only.
+- Define and test the OpenAPI contract with every public endpoint.
+
 ## Commands
 
 - Install: `pnpm install`
@@ -21,6 +28,10 @@
 - Test: `pnpm test`
 - Type check: `pnpm typecheck`
 - Build: `pnpm build`
+- Rust test: `cargo test --workspace`
+- Rust format: `cargo fmt --all -- --check`
+- Rust lint: `cargo clippy --workspace --all-targets -- -D warnings`
+- API develop: `cargo run -p daoyun-api`
 
 ## UI Boundaries
 
