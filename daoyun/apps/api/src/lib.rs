@@ -2,6 +2,7 @@
 
 mod boards;
 mod health;
+mod installation;
 mod rejection;
 
 use api_contract::RequestId;
@@ -22,13 +23,15 @@ const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
 // Source: https://docs.rs/utoipa/5.5.0/utoipa/derive.OpenApi.html
 #[derive(OpenApi)]
 #[openapi(
-    paths(boards::list, health::live, health::ready),
+    paths(boards::list, health::live, health::ready, installation::status),
     components(schemas(
         api_contract::ApiResponse<api_contract::HealthData>,
+        api_contract::ApiResponse<api_contract::InstallationStatus>,
         api_contract::BoardSummary,
         api_contract::BoardTone,
         api_contract::HealthData,
         api_contract::HealthStatus,
+        api_contract::InstallationStatus,
         api_contract::ErrorBody,
         api_contract::ErrorCode,
         api_contract::ErrorResponse,
@@ -39,7 +42,8 @@ const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
     )),
     tags(
         (name = "boards", description = "Public community boards"),
-        (name = "health", description = "Process health and dependency readiness")
+        (name = "health", description = "Process health and dependency readiness"),
+        (name = "installation", description = "Initial instance setup state")
     )
 )]
 struct ApiDoc;
@@ -48,6 +52,7 @@ pub fn app(database: Database) -> Router {
     Router::new()
         .merge(boards::router())
         .merge(health::router())
+        .merge(installation::router())
         .route("/api/v1/openapi.json", get(openapi))
         // Source: https://docs.rs/axum/0.8.9/axum/struct.Router.html#method.fallback
         .fallback(rejection::not_found)

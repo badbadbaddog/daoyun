@@ -37,6 +37,34 @@ async fn readiness_rejects_a_database_with_missing_migrations(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn installation_status_reads_the_database_singleton(pool: PgPool) {
+    let database = Database::from_pool(pool.clone());
+
+    assert!(
+        !database
+            .installation_status()
+            .await
+            .expect("fresh installation status must be readable")
+    );
+
+    sqlx::query(
+        "UPDATE system_state \
+         SET is_initialized = TRUE, initialized_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP \
+         WHERE singleton",
+    )
+    .execute(&pool)
+    .await
+    .expect("fixture must mark the installation initialized");
+
+    assert!(
+        database
+            .installation_status()
+            .await
+            .expect("initialized status must be readable")
+    );
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
 async fn public_boards_are_ordered_paginated_and_visibility_filtered(pool: PgPool) {
     let fixtures = [
         (
