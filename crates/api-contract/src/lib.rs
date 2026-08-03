@@ -1,7 +1,15 @@
 #![forbid(unsafe_code)]
 
+mod error;
+mod pagination;
+mod request_id;
+
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+
+pub use error::{ErrorBody, ErrorCode, ErrorResponse, FieldErrors, error_codes};
+pub use pagination::{PageMeta, PageResponse};
+pub use request_id::RequestId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[schema(bound = "T: utoipa::ToSchema")]
@@ -11,19 +19,23 @@ pub struct ApiResponse<T> {
 }
 
 impl<T> ApiResponse<T> {
-    pub fn new(data: T, request_id: impl Into<String>) -> Self {
+    pub fn new(data: T, request_id: RequestId) -> Self {
         Self {
             data,
-            meta: ResponseMeta {
-                request_id: request_id.into(),
-            },
+            meta: ResponseMeta::new(request_id),
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ResponseMeta {
-    pub request_id: String,
+    pub request_id: RequestId,
+}
+
+impl ResponseMeta {
+    pub fn new(request_id: RequestId) -> Self {
+        Self { request_id }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
