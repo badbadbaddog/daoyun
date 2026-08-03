@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import { FeedTabs } from "./components/FeedTabs"
 import { LeftSidebar } from "./components/LeftSidebar"
@@ -10,11 +10,22 @@ import { TopicFeed } from "./components/TopicFeed"
 import { topics } from "./data/community"
 import type { FeedFilter } from "./types/community"
 
+type Theme = "light" | "dark"
+
+function getInitialTheme(): Theme {
+  return localStorage.getItem("daoyun-theme") === "dark" ? "dark" : "light"
+}
+
 export function App() {
   const [activeFeed, setActiveFeed] = useState<FeedFilter>("latest")
   const [query, setQuery] = useState("")
-  const [darkMode, setDarkMode] = useState(false)
+  const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const [composerOpen, setComposerOpen] = useState(false)
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    localStorage.setItem("daoyun-theme", theme)
+  }, [theme])
 
   const visibleTopics = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN")
@@ -31,17 +42,13 @@ export function App() {
   }, [activeFeed, query])
 
   function toggleTheme() {
-    setDarkMode((current) => {
-      const next = !current
-      document.documentElement.dataset.theme = next ? "dark" : "light"
-      return next
-    })
+    setTheme((current) => current === "dark" ? "light" : "dark")
   }
 
   return (
     <div className="app" id="top">
       <SiteHeader
-        darkMode={darkMode}
+        darkMode={theme === "dark"}
         query={query}
         onQueryChange={setQuery}
         onCompose={() => setComposerOpen(true)}

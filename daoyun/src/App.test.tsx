@@ -1,10 +1,14 @@
-import { cleanup, render, screen, within } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { App } from "./App"
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  localStorage.clear()
+  delete document.documentElement.dataset.theme
+})
 
 describe("DaoYun community home", () => {
   it("renders the community identity and primary feed", () => {
@@ -51,5 +55,31 @@ describe("DaoYun community home", () => {
 
     await user.click(screen.getByRole("button", { name: "关闭发布窗口" }))
     expect(screen.queryByRole("dialog", { name: "发布新主题" })).not.toBeInTheDocument()
+  })
+
+  it("restores the saved dark theme", () => {
+    localStorage.setItem("daoyun-theme", "dark")
+
+    render(<App />)
+
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark")
+    expect(screen.getByRole("button", { name: "切换浅色模式" })).toBeInTheDocument()
+  })
+
+  it("persists the selected theme", async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole("button", { name: "切换深色模式" }))
+
+    expect(localStorage.getItem("daoyun-theme")).toBe("dark")
+  })
+
+  it("focuses search with the platform search shortcut", () => {
+    render(<App />)
+
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true })
+
+    expect(screen.getByRole("searchbox", { name: "搜索社区内容" })).toHaveFocus()
   })
 })
