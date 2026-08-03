@@ -13,12 +13,14 @@
 - 统一成功、错误和游标分页响应 envelope，并使用 UUID v7 `request_id`。
 - 未匹配路由和不支持方法返回结构化错误码。
 - OpenAPI 3.1 契约文档。
+- PostgreSQL 迁移、安装状态单例和数据库感知的就绪检查。
 - Vitest、Cargo Test、Clippy 和生产构建门禁。
 
 ## 环境要求
 
 - pnpm 9.12.3。
 - Rust 1.94.1，项目通过 `rust-toolchain.toml` 固定版本。
+- PostgreSQL 16 或更高版本。
 - Windows 使用 MSVC 目标时需安装 Visual Studio C++ Build Tools；Linux 需提供系统 C/C++ 链接器。
 
 ## 运行 Web
@@ -33,6 +35,7 @@ pnpm dev
 ## 运行 API
 
 ```powershell
+$env:DATABASE_URL = "postgresql://<user>:<password>@127.0.0.1:5432/<database>"
 cargo run -p daoyun-api
 ```
 
@@ -42,10 +45,13 @@ cargo run -p daoyun-api
 - 就绪检查：`GET /api/v1/health/ready`
 - OpenAPI：`GET /api/v1/openapi.json`
 - 可通过 `DAOYUN_BIND_ADDR` 修改监听地址。
+- API 启动时执行嵌入式迁移；数据库不可连接或迁移失败时不会开始监听。
+- `live` 只检查进程，`ready` 检查数据库连接和迁移版本；依赖异常时返回 `503 system.not_ready`。
 
 ## 验证
 
 ```powershell
+$env:DATABASE_URL = "postgresql://<user>:<password>@127.0.0.1:5432/<database>"
 cargo test --workspace
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
@@ -59,6 +65,8 @@ pnpm build
 ```text
 apps/api/            Axum HTTP 进程、路由和中间件
 crates/api-contract/ 公共请求响应 DTO 与 OpenAPI Schema
+crates/infrastructure/ PostgreSQL 连接、迁移和就绪检查
+migrations/          可回滚的 PostgreSQL Schema 迁移
 src/                 React 公开 Web
 ```
 

@@ -1,3 +1,4 @@
+use infrastructure::Database;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -6,12 +7,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
+    let database_url = std::env::var("DATABASE_URL").map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "DATABASE_URL is required")
+    })?;
+    let database = Database::connect_and_migrate(&database_url).await?;
+
     let bind_address =
         std::env::var("DAOYUN_BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_owned());
     let listener = tokio::net::TcpListener::bind(&bind_address).await?;
     tracing::info!(address = %bind_address, "DaoYun API listening");
 
     // Source: https://docs.rs/axum/0.8.9/axum/fn.serve.html
-    axum::serve(listener, daoyun_api::app()).await?;
+    axum::serve(listener, daoyun_api::app(database)).await?;
     Ok(())
 }

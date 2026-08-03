@@ -65,6 +65,11 @@ fn error_response_omits_fields_until_a_field_error_exists() {
     );
 }
 
+#[test]
+fn not_ready_error_code_is_stable() {
+    assert_eq!(error_codes::NOT_READY, "system.not_ready");
+}
+
 fn fixed_request_id() -> RequestId {
     RequestId::from(
         Uuid::parse_str("019fc59d-f66c-7501-9e2a-3670d0904ea6").expect("fixture must be a UUID"),
