@@ -1,34 +1,58 @@
-import { ArrowUpRight, BarChart3, Flame, MessageSquare, Radio, Users } from "lucide-react"
+import { ArrowUpRight, Flame, LogIn, MessageSquare, UserRound } from "lucide-react"
 
-import { topics } from "../data/community"
+import type { AuthSession } from "../api/auth"
+import type { Topic } from "../types/community"
+import { UserAvatar } from "./UserAvatar"
 
 interface RightSidebarProps {
+  topics: Topic[]
+  session: AuthSession | null
   onCompose: () => void
+  onLogin: () => void
+  onOpenTopic: (topicId: string) => void
 }
 
-export function RightSidebar({ onCompose }: RightSidebarProps) {
-  const hotTopics = topics.filter((topic) => topic.hot).slice(0, 3)
+export function RightSidebar({ topics, session, onCompose, onLogin, onOpenTopic }: RightSidebarProps) {
+  const hotTopics = topics.slice(0, 3)
 
   return (
     <aside className="right-sidebar" aria-label="社区信息">
       <section className="profile-panel panel">
-        <div className="profile-panel__head">
-          <img src="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=128&q=80" alt="林屿" />
-          <div>
-            <strong>林屿</strong>
-            <span>@linyu</span>
+        {session ? (
+          <>
+            <a className="profile-panel__head" href={`#user/${session.user.username}`} aria-label="查看我的个人主页">
+              <UserAvatar
+                username={session.user.username}
+                displayName={session.user.displayName}
+                avatarUrl={null}
+              />
+              <div>
+                <strong>{session.user.displayName}</strong>
+                <span>@{session.user.username}</span>
+              </div>
+              <span className="online-label"><span />当前账户</span>
+            </a>
+            <div className="profile-panel__actions">
+              <a className="secondary-button" href={`#user/${session.user.username}`}>个人主页</a>
+              <button className="primary-button" type="button" onClick={onCompose} aria-label="从个人面板发布新主题">
+                <MessageSquare size={16} aria-hidden="true" />
+                发布主题
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="profile-panel__guest">
+            <span className="profile-panel__guest-icon" aria-hidden="true"><UserRound size={20} /></span>
+            <div>
+              <strong>访客</strong>
+              <span>尚未登录</span>
+            </div>
+            <button className="secondary-button" type="button" onClick={onLogin}>
+              <LogIn size={15} aria-hidden="true" />
+              登录
+            </button>
           </div>
-          <span className="online-label"><span />在线</span>
-        </div>
-        <div className="profile-metrics">
-          <span><strong>24</strong>主题</span>
-          <span><strong>386</strong>获赞</span>
-          <span><strong>118</strong>关注</span>
-        </div>
-        <button className="primary-button profile-compose" type="button" onClick={onCompose} aria-label="从个人面板发布新主题">
-          <MessageSquare size={16} />
-          发布主题
-        </button>
+        )}
       </section>
 
       <section className="panel hot-panel">
@@ -37,27 +61,22 @@ export function RightSidebar({ onCompose }: RightSidebarProps) {
           <a href="#hot">更多<ArrowUpRight size={13} /></a>
         </div>
         <ol className="hot-list">
-          {hotTopics.map((topic, index) => (
+          {hotTopics.length > 0 ? hotTopics.map((topic, index) => (
             <li key={topic.id}>
               <span>{index + 1}</span>
-              <a href={`#${topic.id}`}>{topic.title}</a>
+              <a
+                href={`#topic/${topic.id}`}
+                onClick={(event) => {
+                  event.preventDefault()
+                  onOpenTopic(topic.id)
+                }}
+              >
+                {topic.title}
+              </a>
             </li>
-          ))}
+          )) : <li className="hot-list__empty">暂无公开主题</li>}
         </ol>
       </section>
-
-      <section className="panel stats-panel">
-        <div className="panel-heading">
-          <div><BarChart3 size={17} /><h2>社区概况</h2></div>
-        </div>
-        <div className="stats-grid">
-          <span><Users size={15} /><strong>12,680</strong><small>成员</small></span>
-          <span><MessageSquare size={15} /><strong>48,291</strong><small>主题</small></span>
-          <span><Radio size={15} /><strong>286</strong><small>在线</small></span>
-        </div>
-      </section>
-
-      <p className="right-footer">© 2026 刀云 · 社区准则 · 隐私</p>
     </aside>
   )
 }

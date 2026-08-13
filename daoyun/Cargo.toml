@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/api", "crates/api-contract", "crates/infrastructure"]
+members = ["apps/api", "crates/api-contract", "crates/infrastructure", "crates/plugin-host"]
 resolver = "3"
 
 [workspace.package]
@@ -9,17 +9,39 @@ rust-version = "1.94"
 
 [workspace.dependencies]
 api-contract = { path = "crates/api-contract" }
+aes-gcm = { version = "=0.11.0", default-features = false, features = ["aes", "alloc", "getrandom", "zeroize"] }
+argon2 = { version = "0.5.3", features = ["zeroize"] }
 axum = "0.8.9"
+base64 = "0.22.1"
+email_address = { version = "0.2.9", default-features = false }
 infrastructure = { path = "crates/infrastructure" }
+rand_core = { version = "0.6.4", features = ["getrandom"] }
+reqwest = { version = "=0.13.4", default-features = false, features = ["blocking", "rustls"] }
+redis = { version = "=1.5.0", default-features = false, features = ["connection-manager", "tokio-rustls-comp", "tls-rustls-webpki-roots"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-sqlx = { version = "=0.9.0", default-features = false, features = ["runtime-tokio", "postgres", "migrate", "macros", "uuid", "tls-rustls-ring-webpki"] }
-tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread"] }
+sha2 = "0.10.9"
+subtle = "2.6.1"
+sqlx = { version = "=0.9.0", default-features = false, features = ["runtime-tokio", "postgres", "migrate", "macros", "uuid", "time", "tls-rustls-ring-webpki"] }
+time = { version = "0.3.47", features = ["formatting"] }
+totp-rs = { version = "=6.0.0", default-features = false, features = ["gen_secret", "otpauth", "std", "zeroize"] }
+url = "2.5.8"
+tokio = { version = "1.53.1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+image = { version = "0.25.8", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+jsonwebtoken = { version = "=11.0.0", default-features = false, features = ["aws_lc_rs"] }
+object_store = { version = "0.14.1", default-features = false }
+opentelemetry = { version = "=0.32.0", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "=0.32.0", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace"] }
+opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = ["trace"] }
+passkey-auth = { version = "=0.1.3", default-features = false }
+plugin-host = { path = "crates/plugin-host" }
 tower = { version = "0.5.3", features = ["util"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 utoipa = { version = "5.5.0", features = ["uuid"] }
 uuid = { version = "1.24.0", features = ["serde", "v7"] }
+zeroize = "1.9.0"
+wasmtime = { version = "=47.0.3", default-features = false, features = ["component-model", "cranelift", "runtime", "std"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

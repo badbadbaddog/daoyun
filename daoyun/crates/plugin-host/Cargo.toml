@@ -1,0 +1,17 @@
+[package]
+name = "plugin-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+wasmtime.workspace = true
+
+[dev-dependencies]
+wat = "=1.245.1"
+
+[lints]
+workspace = true

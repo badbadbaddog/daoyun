@@ -1,4 +1,5 @@
 import type { Board, BoardIcon, BoardTone } from "../types/community"
+import type { components } from "./generated"
 
 const BOARD_ENDPOINT = "/api/v1/boards?limit=50"
 const boardIcons = new Set<BoardIcon>(["code", "layout", "aperture", "messages"])
@@ -6,23 +7,8 @@ const boardTones = new Set<BoardTone>(["green", "blue", "amber", "rose"])
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
-interface BoardSummaryDto {
-  id: string
-  slug: string
-  name: string
-  description: string
-  icon: string
-  tone: BoardTone
-  topic_count: number
-}
-
-interface BoardPageDto {
-  data: BoardSummaryDto[]
-  meta: {
-    request_id: string
-    next_cursor: string | null
-  }
-}
+type BoardSummaryDto = components["schemas"]["BoardSummary"]
+type BoardPageDto = components["schemas"]["PageResponse_BoardSummary"]
 
 export async function listBoards(signal?: AbortSignal): Promise<Board[]> {
   const response = await fetch(BOARD_ENDPOINT, {

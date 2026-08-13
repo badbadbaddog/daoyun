@@ -2,9 +2,12 @@ node_modules/
 dist/
 target/
 coverage/
+backups/
 .env
 .env.*
 !.env.example
 *.log
 playwright-report/
 test-results/
+.tmp/
+target_dlltool_probe*.s

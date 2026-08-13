@@ -6,26 +6,44 @@
   "packageManager": "pnpm@9.12.3",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "api:local": "node scripts/start-local-api.mjs",
+    "seed:local": "node scripts/seed-local-test-accounts.mjs",
     "build": "tsc -b && vite build",
+    "generate:api": "node scripts/generate-api-client.mjs",
+    "verify:membership": "node scripts/verify-membership-assets.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -b --pretty false"
+    "typecheck": "tsc -b --pretty false",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:typecheck": "tsc -p tsconfig.playwright.json --noEmit"
   },
   "dependencies": {
+    "@daoyun/design-tokens": "workspace:*",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.12.1",
+    "@playwright/test": "1.62.1",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.5.2",
+    "@types/node": "22.20.1",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "@vitejs/plugin-react": "^4.3.4",
     "jsdom": "^25.0.1",
+    "openapi-typescript": "7.13.0",
     "typescript": "~5.7.2",
-    "vite": "^5.4.21",
-    "vitest": "^2.1.8"
+    "vite": "^6.4.3",
+    "vitest": "^3.2.6"
+  },
+  "pnpm": {
+    "overrides": {
+      "js-yaml": "4.3.1",
+      "nanoid": "3.3.17"
+    }
   }
 }

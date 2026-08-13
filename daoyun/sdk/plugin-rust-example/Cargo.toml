@@ -1,0 +1,15 @@
+[package]
+name = "daoyun-plugin-rust-example"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Source: https://docs.rs/wit-bindgen/0.58.0/wit_bindgen/macro.generate.html
+wit-bindgen = { version = "=0.58.0", default-features = false, features = ["macros", "realloc", "std"] }
+
+[workspace]

@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: daoyun
+      POSTGRES_USER: daoyun
+      POSTGRES_PASSWORD: daoyun_dev
+    ports:
+      - "55433:5432"
+    volumes:
+      - daoyun-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U daoyun -d daoyun"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://daoyun:daoyun_dev@postgres:5432/daoyun
+      DAOYUN_BIND_ADDR: 0.0.0.0:3000
+      DAOYUN_COOKIE_SECURE: "false"
+      DAOYUN_ATTACHMENT_ROOT: /var/lib/daoyun/attachments
+      RUST_LOG: info
+    ports:
+      - "3000:3000"
+    volumes:
+      - daoyun-attachments:/var/lib/daoyun/attachments
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "--fail",
+          "--silent",
+          "http://127.0.0.1:3000/api/v1/health/live",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  daoyun-postgres:
+  daoyun-attachments:
