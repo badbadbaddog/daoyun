@@ -1,0 +1,13 @@
+package daoyun:plugin@0.1.0;
+
+interface types {
+  enum operation {
+    content-transform,
+    ui-render,
+  }
+}
+
+world plugin {
+  use types.{operation};
+  export invoke: func(operation: operation, payload: list<u8>) -> list<u8>;
+}

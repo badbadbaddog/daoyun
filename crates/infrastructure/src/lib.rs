@@ -1,7 +1,24 @@
 #![forbid(unsafe_code)]
 
+mod admin;
+mod attachments;
+mod auth;
+mod authorization;
 mod boards;
+mod governance;
 mod installation;
+mod membership;
+mod messages;
+mod mfa;
+mod notifications;
+mod operations;
+mod outbox;
+mod passkeys;
+mod plugins;
+mod relations;
+mod storage;
+mod topics;
+mod users;
 
 use std::{error::Error, fmt, time::Duration};
 
@@ -11,7 +28,100 @@ use sqlx::{
     postgres::PgPoolOptions,
 };
 
+pub use admin::{
+    AdminAuditRecord, AdminBoardDeletionImpactRecord, AdminBoardRecord, AdminConfigError,
+    BrandAssetError, BrandAssetRecord, BrandLinkRecord, CreateAdminBoardRecord,
+    GovernancePolicyRecord, ListAdminAuditError, ListAdminAuditFilter, ListRiskAlertsError,
+    RiskAlertRecord, SiteBrandingRecord, UpdateAdminBoardRecord, UpdateRiskAlertError,
+    UpdateSiteBrandingRecord,
+};
+pub use attachments::{
+    AttachmentCleanupError, AttachmentCleanupResultRecord, AttachmentError, AttachmentRecord,
+    CreateAttachmentInput, ListAttachmentsError, MAX_ATTACHMENT_BYTES,
+};
+pub use auth::{
+    BindExternalIdentityError, ChangePasswordError, DeviceSessionRecord, ExternalIdentityError,
+    ExternalIdentityRecord, ExternalIdentityUserRecord, LoginUserRecord, NewExternalIdentityRecord,
+    NewSessionRecord, NewUserRecord, RecentAuthenticationRecord, RegisterUserError,
+    SecurityAuditEvent, SessionRecord, SessionUserRecord, UnlinkExternalIdentityError,
+};
+pub use authorization::{
+    AuthorizationPermissionRecord, AuthorizationRoleAssignmentRecord, AuthorizationRoleRecord,
+    CreateAuthorizationAssignmentRecord, CreateAuthorizationRoleRecord,
+    ListAuthorizationAssignmentsError, MutateAuthorizationAssignmentError,
+    MutateAuthorizationRoleError, UpdateAuthorizationRoleRecord, permission_keys,
+};
 pub use boards::BoardRecord;
+pub use governance::{
+    ContentReportCreationRecord, ContentReportDetailRecord, ContentReportRecord,
+    CreateContentReportError, GetContentReportDetailError, ListContentReportsError,
+    ModerateContentReportError, ModerateContentReportRecord, ModerateReportUserRecord,
+    NewContentReportRecord, ReportAuthorContextRecord, ReportContentContextRecord,
+    ReportContextItemRecord, ReportHandlingRecordRecord, ReportHistoryItemRecord,
+    ReportModerationResultRecord, ReportModerationUserResultRecord, UpdateContentReportError,
+    UpdateContentReportRecord,
+};
+pub use installation::{InitializeInstallationError, InstallationAdministrator};
+pub use membership::{
+    AppendPointsLedgerError, GrantMembershipMedalError, GrantMembershipMedalResult,
+    MembershipAccountRecord, MembershipLedgerResult, MembershipLevelRuleRecord,
+    MembershipMedalRecord, MembershipMedalRuleRecord, UpdateMembershipLevelRuleError,
+    UpdateMembershipLevelRuleRecord, UpdateMembershipMedalRuleError,
+    UpdateMembershipMedalRuleRecord,
+};
+pub use messages::{
+    ArchiveConversationError, ConversationLastMessageRecord, ConversationReadStateRecord,
+    ConversationSummaryRecord, CreateConversationError, DirectMessageRecord,
+    ListConversationsError, ListDirectMessagesError, MarkConversationReadError,
+    NewDirectMessageRecord, SendDirectMessageError, SendDirectMessageResult,
+};
+pub use mfa::{
+    MfaChallengeRecord, MfaChallengeUserRecord, MfaError, MfaRecoveryCodeRecord,
+    MfaSecurityMutationError, MfaStatusRecord, MfaTotpRecord, MfaVerificationRecord,
+    NewMfaChallengeRecord,
+};
+pub use notifications::{
+    ListNotificationsError, NotificationMutationError, NotificationRecord,
+    NotificationUnreadCountRecord,
+};
+pub use operations::{
+    ListOperationsAlertsError, MutateOperationsAlertError, OperationsAlertRecord,
+    OperationsAlertRuleRecord, OperationsAlertTransitionRecord, OperationsMetricValues,
+    OperationsSummaryRecord, UpdateOperationsAlertRuleRecord,
+};
+pub use outbox::{
+    ClaimedOutboxEvent, NewOutboxEvent, OutboxError, OutboxEventDisposition, OutboxEventRecord,
+};
+pub use passkeys::{
+    DeletePasskeyError, NewPasskeyChallengeRecord, NewPasskeyCredentialRecord,
+    PasskeyChallengeKind, PasskeyCredentialRecord, PasskeyUserRecord, RegisterPasskeyError,
+};
+pub use plugins::{
+    InstallPluginRecord, ListPluginsError, PluginExecutableRecord, PluginInvokeError,
+    PluginMutationError, PluginRecord, UpdatePluginStatusRecord,
+};
+pub use relations::{
+    BookmarkMutationError, BookmarkStateRecord, ListBookmarksError, PostLikeMutationError,
+    PostLikeStateRecord,
+};
+pub use topics::{
+    CreateReplyError, CreateReplyResult, CreateTopicError, CreateTopicResult, IdempotencyInput,
+    ListPublicRepliesError, ListPublicTopicsError, ListTopicRevisionsError, NewReplyRecord,
+    NewTagRecord, NewTopicRecord, PublicReplyRecord, PublicTagRecord, PublicTagUsageRecord,
+    PublicTopicDetailRecord, PublicTopicFilters, PublicTopicRecord, ReplyMutationError,
+    ReplyRevisionRecord, TopicDeleteError, TopicModerationError, TopicModerationResultRecord,
+    TopicRevisionRecord, TopicSort, UpdateReplyRecord, UpdateReplyResult, UpdateTopicError,
+    UpdateTopicRecord, UpdateTopicResult,
+};
+pub use users::{
+    AdminUserContentRecord, AdminUserDetailRecord, AdminUserReadError, AdminUserRoleRecord,
+    AdminUserStatusUpdateRecord, AdminUserSummaryRecord, BlockMutationError, BlockStateRecord,
+    FollowMutationError, FollowStateRecord, ListUserRelationsError, PublicUserProfileRecord,
+    PublicUserSummaryRecord, UpdateAdminUserStatusError, UpdateAdminUserStatusRecord,
+    UpdateUserProfileError, UpdateUserProfileRecord, UserProfileViewerRecord, UserRelationKind,
+};
+
+use storage::AttachmentStore;
 
 // Source: https://docs.rs/sqlx/0.9.0/sqlx/macro.migrate.html
 pub static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
@@ -19,11 +129,15 @@ pub static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 #[derive(Clone, Debug)]
 pub struct Database {
     pool: PgPool,
+    attachment_store: AttachmentStore,
 }
 
 impl Database {
     pub fn from_pool(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            attachment_store: AttachmentStore::from_environment(),
+        }
     }
 
     // Source: https://docs.rs/sqlx/0.9.0/sqlx/postgres/type.PgPoolOptions.html#method.connect

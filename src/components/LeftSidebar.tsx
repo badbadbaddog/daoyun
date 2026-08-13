@@ -1,5 +1,6 @@
 import { Aperture, Bookmark, Code2, Compass, Home, LayoutGrid, MessageSquareText, RefreshCw, Users } from "lucide-react"
 
+import type { BrandLink } from "../api/admin"
 import type { Board } from "../types/community"
 
 const boardIcons = {
@@ -13,9 +14,10 @@ interface LeftSidebarProps {
   boards: Board[]
   loadStatus: "loading" | "ready" | "error"
   onRetry: () => void
+  navigationLinks: BrandLink[]
 }
 
-export function LeftSidebar({ boards, loadStatus, onRetry }: LeftSidebarProps) {
+export function LeftSidebar({ boards, loadStatus, onRetry, navigationLinks }: LeftSidebarProps) {
   return (
     <aside className="left-sidebar" aria-label="社区导航">
       <nav className="sidebar-nav">
@@ -36,6 +38,15 @@ export function LeftSidebar({ boards, loadStatus, onRetry }: LeftSidebarProps) {
           <span>收藏</span>
         </a>
       </nav>
+
+      {navigationLinks.length > 0 && (
+        <>
+          <div className="sidebar-section-heading"><span>站点导航</span></div>
+          <nav className="sidebar-nav sidebar-nav--custom" aria-label="站点导航">
+            {navigationLinks.map((link) => <a className="sidebar-link" href={link.url} key={`${link.label}-${link.url}`}><Compass size={17} aria-hidden="true" /><span>{link.label}</span></a>)}
+          </nav>
+        </>
+      )}
 
       <div className="sidebar-section-heading">
         <span>社区板块</span>

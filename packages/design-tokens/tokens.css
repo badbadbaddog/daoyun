@@ -1,0 +1,94 @@
+:root {
+  color-scheme: light;
+  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
+  font-synthesis: none;
+  --background: #f7f8f7;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-soft: #f0f3f1;
+  --surface-hover: #edf2ef;
+  --text: #17201c;
+  --text-soft: #637069;
+  --text-faint: #526158;
+  --border: #dfe5e1;
+  --border-strong: #cbd4cf;
+  --brand: #176a4d;
+  --brand-strong: #0e5039;
+  --brand-soft: #e5f2ec;
+  --accent: #c85516;
+  --accent-soft: #fceee6;
+  --blue: #2168a7;
+  --blue-soft: #e8f1fa;
+  --amber: #9a5b0a;
+  --amber-soft: #fbf0dc;
+  --rose: #a6415a;
+  --rose-soft: #faeaf0;
+  --orange: #c85516;
+  --shadow: 0 8px 24px rgb(24 42 33 / 7%);
+  --radius: 8px;
+  --header-height: 58px;
+  --topic-row-min-height: 132px;
+  --topic-row-gap: 11px;
+  --topic-row-padding-top: 18px;
+  --topic-row-padding-right: 14px;
+  --topic-row-padding-bottom: 16px;
+  --topic-row-padding-left: 18px;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #111512;
+  --surface: #171c19;
+  --surface-raised: #1b211d;
+  --surface-soft: #202722;
+  --surface-hover: #253029;
+  --text: #f2f5f3;
+  --text-soft: #a8b3ad;
+  --text-faint: #7e8a84;
+  --border: #303a34;
+  --border-strong: #414d46;
+  --brand: #55bf93;
+  --brand-strong: #82d2ae;
+  --brand-soft: #183b2d;
+  --accent: #ef965f;
+  --accent-soft: #3e281d;
+  --blue: #78b7e9;
+  --blue-soft: #193349;
+  --amber: #e5ad58;
+  --amber-soft: #3d2f1b;
+  --rose: #e398a9;
+  --rose-soft: #422633;
+  --orange: #ef965f;
+  --shadow: 0 10px 28px rgb(0 0 0 / 24%);
+}
+
+:root[data-brand-preset="compact"],
+:root[data-list-density="compact"] {
+  --header-height: 54px;
+  --topic-row-min-height: 116px;
+  --topic-row-gap: 9px;
+  --topic-row-padding-top: 14px;
+  --topic-row-padding-right: 12px;
+  --topic-row-padding-bottom: 12px;
+  --topic-row-padding-left: 14px;
+}
+
+:root[data-brand-preset="high_contrast"] {
+  --border: #8b9790;
+  --border-strong: #536158;
+  --text-soft: #35433b;
+  --text-faint: #4e5b53;
+}
+
+:root[data-theme="dark"][data-brand-preset="high_contrast"] {
+  --border: #829087;
+  --border-strong: #b5c1b9;
+  --text-soft: #d3ddd7;
+  --text-faint: #bdc9c1;
+}
+
+@media (max-width: 900px) {
+  :root {
+    --header-height: 54px;
+  }
+}

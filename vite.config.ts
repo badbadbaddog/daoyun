@@ -12,5 +12,11 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: "./src/test/setup.ts",
     css: true,
+    include: [
+      "src/**/*.{test,spec}.?(c|m)[jt]s?(x)",
+      "e2e/**/*.test.ts",
+      "scripts/**/*.test.mjs",
+    ],
+    exclude: ["**/node_modules/**", "**/dist/**", "**/.git/**", "e2e/**/*.spec.ts"],
   },
 })

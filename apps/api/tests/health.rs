@@ -15,6 +15,31 @@ async fn live_health_returns_a_correlated_success_envelope() {
     assert_health_response(test_app(), "/api/v1/health/live", "live").await;
 }
 
+#[tokio::test]
+async fn api_responses_include_baseline_security_headers() {
+    let response = test_app()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/health/live")
+                .body(Body::empty())
+                .expect("request must be valid"),
+        )
+        .await
+        .expect("router must respond");
+
+    assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+    assert_eq!(response.headers()["x-frame-options"], "DENY");
+    assert_eq!(response.headers()["referrer-policy"], "no-referrer");
+    assert_eq!(
+        response.headers()["content-security-policy"],
+        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+    );
+    assert_eq!(
+        response.headers()["permissions-policy"],
+        "camera=(), geolocation=(), microphone=()"
+    );
+}
+
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
 async fn ready_health_returns_a_correlated_success_envelope(pool: PgPool) {
     assert_health_response(

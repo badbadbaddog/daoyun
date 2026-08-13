@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS topic_tags;
+DROP TABLE IF EXISTS tags;

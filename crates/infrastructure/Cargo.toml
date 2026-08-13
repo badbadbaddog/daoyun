@@ -5,11 +5,22 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
-[dependencies]
-sqlx.workspace = true
+[features]
+default = []
+s3 = ["dep:object_store", "object_store/aws"]
 
-[dev-dependencies]
+[dependencies]
+email_address.workspace = true
+image.workspace = true
+object_store = { workspace = true, optional = true }
+sha2.workspace = true
+sqlx.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+time.workspace = true
 tokio.workspace = true
+url.workspace = true
+uuid.workspace = true
 
 [lints]
 workspace = true
