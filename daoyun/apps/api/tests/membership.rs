@@ -70,6 +70,37 @@ async fn membership_catalog_returns_stable_keys_and_assets(pool: PgPool) {
     }
 }
 
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn growth_levels_return_published_dynamic_configuration(pool: PgPool) {
+    let response = daoyun_api::app(Database::from_pool(pool))
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/membership/levels")
+                .body(Body::empty())
+                .expect("request must be valid"),
+        )
+        .await
+        .expect("router must respond");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let request_id = response.headers()["x-request-id"]
+        .to_str()
+        .expect("request id must be text")
+        .to_owned();
+    let payload = response_json(response).await;
+    assert_eq!(payload["meta"]["request_id"], request_id);
+    let levels = payload["data"]
+        .as_array()
+        .expect("growth levels must be an array");
+    assert_eq!(levels.len(), 6);
+    assert!(Uuid::parse_str(levels[0]["id"].as_str().expect("level id must be text")).is_ok());
+    assert_eq!(levels[0]["internal_key"], "lv_1");
+    assert_eq!(levels[0]["level_order"], 1);
+    assert_eq!(levels[0]["display_name"], "Lv1");
+    assert_eq!(levels[0]["required_experience"], 0);
+    assert_eq!(levels[5]["internal_key"], "lv_6");
+}
+
 #[tokio::test]
 async fn openapi_documents_membership_catalog() {
     let response = daoyun_api::app(unavailable_database())
@@ -89,6 +120,131 @@ async fn openapi_documents_membership_catalog() {
     assert!(document["components"]["schemas"]["Medal"].is_object());
     assert!(document["paths"]["/api/v1/users/me/membership"]["get"].is_object());
     assert!(document["components"]["schemas"]["MembershipAccount"].is_object());
+    assert!(document["paths"]["/api/v1/membership/levels"]["get"].is_object());
+    assert!(document["paths"]["/api/v1/users/me/experience"]["get"].is_object());
+    assert!(document["components"]["schemas"]["GrowthLevel"].is_object());
+    assert!(document["components"]["schemas"]["ExperienceAccount"].is_object());
+    assert!(document["paths"]["/api/v1/admin/membership/levels"]["get"].is_object());
+    assert!(document["paths"]["/api/v1/admin/membership/levels"]["post"].is_object());
+    assert!(document["paths"]["/api/v1/admin/membership/levels/{level_id}"]["patch"].is_object());
+    assert!(document["components"]["schemas"]["AdminGrowthLevel"].is_object());
+    assert!(document["paths"]["/api/v1/users/me/groups"]["get"].is_object());
+    assert!(document["components"]["schemas"]["CurrentCommunityGroups"].is_object());
+    assert!(document["paths"]["/api/v1/admin/community/groups"]["get"].is_object());
+    assert!(document["paths"]["/api/v1/admin/community/groups"]["post"].is_object());
+    assert!(document["paths"]["/api/v1/admin/community/groups/{group_id}"]["patch"].is_object());
+    assert!(document["paths"]["/api/v1/admin/community/memberships"]["post"].is_object());
+    assert!(
+        document["paths"]["/api/v1/admin/community/memberships/{membership_id}/revoke"]["post"]
+            .is_object()
+    );
+    assert!(document["components"]["schemas"]["AdminCommunityGroup"].is_object());
+    assert!(document["components"]["schemas"]["CommunityGroupMembershipMutation"].is_object());
+    assert!(
+        document["paths"]["/api/v1/admin/content-access-policies/{target_type}/{target_id}"]["get"]
+            .is_object()
+    );
+    assert!(
+        document["paths"]["/api/v1/admin/content-access-policies/{target_type}/{target_id}"]["put"]
+            .is_object()
+    );
+    assert!(document["components"]["schemas"]["ContentAccessPolicy"].is_object());
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn admin_growth_levels_use_uuid_revision_and_lifecycle(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    initialize(&app).await;
+    let (cookies, csrf) = login(&app, "owner", "correct horse battery staple").await;
+
+    let levels = app
+        .clone()
+        .oneshot(get_request("/api/v1/admin/membership/levels", &cookies))
+        .await
+        .expect("admin growth levels must respond");
+    assert_eq!(levels.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(levels).await["data"].as_array().map(Vec::len),
+        Some(20)
+    );
+
+    let created = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/membership/levels",
+            json!({
+                "internal_key": "community_veteran",
+                "level_order": 21,
+                "display_name": "社区元老",
+                "required_experience": 1_000_000,
+                "icon_asset_id": null,
+                "color": "#334455",
+                "description": "长期参与社区建设的成员"
+            }),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .expect("growth level create must respond");
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let created = response_json(created).await;
+    let level_id = created["data"]["id"]
+        .as_str()
+        .expect("created level id must be text");
+    assert!(Uuid::parse_str(level_id).is_ok());
+    assert_eq!(created["data"]["status"], "draft");
+    assert_eq!(created["data"]["revision"], 1);
+
+    let updated = app
+        .clone()
+        .oneshot(json_request(
+            Method::PATCH,
+            &format!("/api/v1/admin/membership/levels/{level_id}"),
+            json!({
+                "expected_revision": 1,
+                "level_order": 21,
+                "display_name": "社区元老",
+                "required_experience": 1_000_000,
+                "icon_asset_id": null,
+                "color": "#334455",
+                "description": "长期参与社区建设的成员",
+                "status": "published"
+            }),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .expect("growth level publish must respond");
+    assert_eq!(updated.status(), StatusCode::OK);
+    let updated = response_json(updated).await;
+    assert_eq!(updated["data"]["status"], "published");
+    assert_eq!(updated["data"]["revision"], 2);
+    assert!(updated["data"]["published_at"].is_string());
+
+    let stale = app
+        .oneshot(json_request(
+            Method::PATCH,
+            &format!("/api/v1/admin/membership/levels/{level_id}"),
+            json!({
+                "expected_revision": 1,
+                "level_order": 21,
+                "display_name": "陈旧写入",
+                "required_experience": 1_000_000,
+                "icon_asset_id": null,
+                "color": null,
+                "description": "stale",
+                "status": "published"
+            }),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .expect("stale growth level update must respond");
+    assert_eq!(stale.status(), StatusCode::CONFLICT);
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
@@ -138,6 +294,7 @@ async fn membership_account_requires_session_and_returns_private_balance(pool: P
     assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
 
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/api/v1/users/me/membership")
@@ -154,6 +311,61 @@ async fn membership_account_requires_session_and_returns_private_balance(pool: P
     assert_eq!(payload["data"]["level_key"], "lv_1");
     assert_eq!(payload["data"]["level_number"], 1);
     assert_eq!(payload["data"]["level_display_name"], "Lv1");
+
+    let anonymous_experience = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/users/me/experience")
+                .body(Body::empty())
+                .expect("request must be valid"),
+        )
+        .await
+        .expect("router must respond");
+    assert_eq!(anonymous_experience.status(), StatusCode::UNAUTHORIZED);
+
+    let experience = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/users/me/experience")
+                .header("cookie", "daoyun_session=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; daoyun_csrf=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+                .body(Body::empty())
+                .expect("request must be valid"),
+        )
+        .await
+        .expect("router must respond");
+    assert_eq!(experience.status(), StatusCode::OK);
+    assert_eq!(experience.headers()["cache-control"], "no-store");
+    let payload = response_json(experience).await;
+    assert_eq!(payload["data"]["user_id"], user_id.to_string());
+    assert_eq!(payload["data"]["experience"], 0);
+    assert_eq!(payload["data"]["current_level"]["internal_key"], "lv_1");
+    assert_eq!(payload["data"]["current_level"]["level_order"], 1);
+
+    let groups = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/users/me/groups")
+                .header("cookie", "daoyun_session=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; daoyun_csrf=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+                .body(Body::empty())
+                .expect("request must be valid"),
+        )
+        .await
+        .expect("router must respond");
+    assert_eq!(groups.status(), StatusCode::OK);
+    assert_eq!(groups.headers()["cache-control"], "no-store");
+    let payload = response_json(groups).await;
+    assert_eq!(
+        payload["data"]["memberships"][0]["group"]["internal_key"],
+        "registered_member"
+    );
+    assert_eq!(payload["data"]["access"]["account_status"], "active");
+    assert!(
+        payload["data"]["access"]["permission_keys"]
+            .as_array()
+            .is_some_and(|permissions| permissions.contains(&json!("topic.create")))
+    );
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
@@ -285,6 +497,315 @@ async fn admin_membership_rules_and_points_require_capabilities_and_csrf(pool: P
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn admin_community_groups_and_memberships_are_revisioned_and_idempotent(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    initialize(&app).await;
+    let (owner_cookies, owner_csrf) = login(&app, "owner", "correct horse battery staple").await;
+
+    let member = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/auth/register",
+            json!({
+                "username": "event_member",
+                "email": "event-member@example.com",
+                "display_name": "活动成员",
+                "password": "correct horse battery staple"
+            }),
+            "",
+            None,
+        ))
+        .await
+        .expect("member registration must respond");
+    assert_eq!(member.status(), StatusCode::CREATED);
+    let (member_cookies, _) = session_cookies(&member).await;
+    let member_id =
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username = 'event_member'")
+            .fetch_one(&pool)
+            .await
+            .expect("member id must be queryable");
+
+    let groups = app
+        .clone()
+        .oneshot(get_request(
+            "/api/v1/admin/community/groups",
+            &owner_cookies,
+        ))
+        .await
+        .expect("community groups must respond");
+    assert_eq!(groups.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(groups).await["data"].as_array().map(Vec::len),
+        Some(5)
+    );
+
+    let created = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/community/groups",
+            json!({
+                "internal_key": "event_member",
+                "display_name": "活动成员",
+                "description": "限时活动成员组",
+                "is_base": false,
+                "display_order": 100,
+                "permission_keys": ["topic.lottery.join"],
+                "quotas": {"reply.create.daily": 75}
+            }),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("community group create must respond");
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let created = response_json(created).await;
+    let group_id = created["data"]["id"]
+        .as_str()
+        .expect("group id must be text")
+        .to_owned();
+    assert_eq!(created["data"]["revision"], 1);
+
+    let updated = app
+        .clone()
+        .oneshot(json_request(
+            Method::PATCH,
+            &format!("/api/v1/admin/community/groups/{group_id}"),
+            json!({
+                "expected_revision": 1,
+                "display_name": "活动成员",
+                "description": "限时活动成员组（已启用）",
+                "status": "active",
+                "display_order": 100,
+                "permission_keys": ["topic.lottery.join"],
+                "quotas": {"reply.create.daily": 75}
+            }),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("community group update must respond");
+    assert_eq!(updated.status(), StatusCode::OK);
+    assert_eq!(response_json(updated).await["data"]["revision"], 2);
+
+    let grant = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/community/memberships",
+            json!({
+                "user_id": member_id,
+                "group_id": group_id,
+                "membership_kind": "additional",
+                "source": "operator",
+                "source_reference_id": null,
+                "reason": "event.enrollment",
+                "starts_at": "2020-01-01T00:00:00Z",
+                "ends_at": null,
+                "idempotency_key": "event-member-grant-1"
+            }),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("community membership grant must respond");
+    assert_eq!(grant.status(), StatusCode::OK);
+    let grant = response_json(grant).await;
+    assert_eq!(grant["data"]["replayed"], false);
+    let membership_id = grant["data"]["membership"]["id"]
+        .as_str()
+        .expect("membership id must be text")
+        .to_owned();
+
+    let visible = app
+        .clone()
+        .oneshot(get_request("/api/v1/users/me/groups", &member_cookies))
+        .await
+        .expect("member groups must respond");
+    assert_eq!(visible.status(), StatusCode::OK);
+    let visible = response_json(visible).await;
+    assert!(
+        visible["data"]["access"]["permission_keys"]
+            .as_array()
+            .is_some_and(|permissions| permissions.contains(&json!("topic.lottery.join")))
+    );
+
+    let revoked = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            &format!("/api/v1/admin/community/memberships/{membership_id}/revoke"),
+            json!({
+                "expected_revision": 1,
+                "reason": "event.completed",
+                "idempotency_key": "event-member-revoke-1"
+            }),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("community membership revoke must respond");
+    assert_eq!(revoked.status(), StatusCode::OK);
+    let revoked = response_json(revoked).await;
+    assert_eq!(revoked["data"]["replayed"], false);
+    assert_eq!(revoked["data"]["membership"]["revision"], 2);
+    assert!(revoked["data"]["membership"]["revoked_at"].is_string());
+
+    let replay = app
+        .oneshot(json_request(
+            Method::POST,
+            &format!("/api/v1/admin/community/memberships/{membership_id}/revoke"),
+            json!({
+                "expected_revision": 1,
+                "reason": "event.completed",
+                "idempotency_key": "event-member-revoke-1"
+            }),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("community membership revoke replay must respond");
+    assert_eq!(replay.status(), StatusCode::OK);
+    assert_eq!(response_json(replay).await["data"]["replayed"], true);
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn admin_content_access_policy_is_revisioned_and_enforced_on_topic_reads(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    initialize(&app).await;
+    let (owner_cookies, owner_csrf) = login(&app, "owner", "correct horse battery staple").await;
+    let member = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/auth/register",
+            json!({
+                "username": "policy_member",
+                "email": "policy-member@example.com",
+                "display_name": "策略成员",
+                "password": "correct horse battery staple"
+            }),
+            "",
+            None,
+        ))
+        .await
+        .expect("policy member registration must respond");
+    assert_eq!(member.status(), StatusCode::CREATED);
+    let (member_cookies, _) = session_cookies(&member).await;
+    let owner_id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username = 'owner'")
+        .fetch_one(&pool)
+        .await
+        .expect("owner id must be queryable");
+    let board_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM boards WHERE visibility = 'public' AND deleted_at IS NULL LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("public board must exist");
+    let topic_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO topics (
+            id, board_id, author_id, title, excerpt, content, status, published_at
+         ) VALUES ($1, $2, $3, 'Policy API topic', '', 'Policy API body',
+                   'published', CURRENT_TIMESTAMP)",
+    )
+    .bind(topic_id)
+    .bind(board_id)
+    .bind(owner_id)
+    .execute(&pool)
+    .await
+    .expect("topic fixture must insert");
+    sqlx::query(
+        "INSERT INTO posts (id, topic_id, author_id, kind, content, status)
+         VALUES ($1, $1, $2, 'topic', 'Policy API body', 'published')",
+    )
+    .bind(topic_id)
+    .bind(owner_id)
+    .execute(&pool)
+    .await
+    .expect("topic post fixture must insert");
+
+    let policy_uri = format!("/api/v1/admin/content-access-policies/topic/{topic_id}");
+    let created = app
+        .clone()
+        .oneshot(json_request(
+            Method::PUT,
+            &policy_uri,
+            json!({
+                "operator": "any_of",
+                "subjects": [{
+                    "subject_type": "authenticated",
+                    "community_group_id": null,
+                    "subject_key": null
+                }],
+                "expected_revision": null
+            }),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("content access policy create must respond");
+    assert_eq!(created.status(), StatusCode::OK);
+    assert_eq!(response_json(created).await["data"]["revision"], 1);
+
+    let anonymous = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/topics/{topic_id}"))
+                .body(Body::empty())
+                .expect("anonymous topic request must be valid"),
+        )
+        .await
+        .expect("anonymous topic detail must respond");
+    assert_eq!(anonymous.status(), StatusCode::NOT_FOUND);
+    let authenticated = app
+        .clone()
+        .oneshot(get_request(
+            &format!("/api/v1/topics/{topic_id}"),
+            &member_cookies,
+        ))
+        .await
+        .expect("authenticated topic detail must respond");
+    assert_eq!(authenticated.status(), StatusCode::OK);
+
+    let policy = app
+        .clone()
+        .oneshot(get_request(&policy_uri, &owner_cookies))
+        .await
+        .expect("content access policy read must respond");
+    assert_eq!(policy.status(), StatusCode::OK);
+    assert_eq!(response_json(policy).await["data"]["operator"], "any_of");
+
+    let stale = app
+        .oneshot(json_request(
+            Method::PUT,
+            &policy_uri,
+            json!({
+                "operator": "all_of",
+                "subjects": [{
+                    "subject_type": "authenticated",
+                    "community_group_id": null,
+                    "subject_key": null
+                }],
+                "expected_revision": 2
+            }),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("stale content access policy update must respond");
+    assert_eq!(stale.status(), StatusCode::CONFLICT);
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
 async fn admin_medals_are_granted_and_visible_on_public_profile(pool: PgPool) {
     let app = daoyun_api::app_with_config(
         Database::from_pool(pool.clone()),
@@ -391,7 +912,25 @@ async fn login(app: &axum::Router, username: &str, password: &str) -> (String, S
         .await
         .expect("login must respond");
     assert_eq!(response.status(), StatusCode::OK);
-    session_cookies(&response).await
+    let (cookies, csrf) = session_cookies(&response).await;
+    if username == "owner" {
+        let recent = app
+            .clone()
+            .oneshot(json_request(
+                Method::POST,
+                "/api/v1/auth/recent-auth",
+                json!({
+                    "operation": "admin.privileged_write",
+                    "password": password
+                }),
+                &cookies,
+                Some(&csrf),
+            ))
+            .await
+            .expect("admin recent authentication must respond");
+        assert_eq!(recent.status(), StatusCode::OK);
+    }
+    (cookies, csrf)
 }
 
 async fn session_cookies(response: &axum::response::Response) -> (String, String) {

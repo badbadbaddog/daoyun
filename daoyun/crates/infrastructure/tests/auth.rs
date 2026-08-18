@@ -25,6 +25,18 @@ async fn identity_registration_and_session_lifecycle_use_database_constraints(po
         .await
         .expect("first user must register");
 
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM outbox_events
+             WHERE event_type = 'user.created' AND aggregate_id = $1",
+        )
+        .bind(user_id)
+        .fetch_one(&pool)
+        .await
+        .expect("user creation event must be queryable"),
+        1
+    );
+
     let login_record = database
         .find_login_user("owner")
         .await

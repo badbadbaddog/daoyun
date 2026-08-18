@@ -13,6 +13,11 @@ pub mod permission_keys {
     pub const GOVERNANCE_REPORTS_READ: &str = "governance.reports.read";
     pub const GOVERNANCE_REPORTS_RESOLVE: &str = "governance.reports.resolve";
     pub const MODERATION_TOPIC: &str = "moderation.topic";
+    pub const MODERATION_TOPIC_PIN: &str = "moderation.topic.pin";
+    pub const MODERATION_TOPIC_FEATURE: &str = "moderation.topic.feature";
+    pub const MODERATION_TOPIC_LOCK: &str = "moderation.topic.lock";
+    pub const MODERATION_TOPIC_MOVE: &str = "moderation.topic.move";
+    pub const MODERATION_USER_RESTRICT_IN_SCOPE: &str = "moderation.user.restrict_in_scope";
     pub const AUDIT_READ: &str = "audit.read";
     pub const ATTACHMENT_CREATE: &str = "attachment.create";
     pub const ATTACHMENT_CLEANUP: &str = "attachment.cleanup";
@@ -26,6 +31,16 @@ pub mod permission_keys {
     pub const MEMBERSHIP_MEDALS_READ: &str = "membership.medals.read";
     pub const MEMBERSHIP_MEDALS_GRANT: &str = "membership.medals.grant";
     pub const MEMBERSHIP_MEDAL_RULES_WRITE: &str = "membership.medals.rules.write";
+    pub const COMMUNITY_GROUPS_READ: &str = "community.groups.read";
+    pub const COMMUNITY_GROUPS_WRITE: &str = "community.groups.write";
+    pub const COMMUNITY_MEMBERSHIPS_READ: &str = "community.memberships.read";
+    pub const COMMUNITY_MEMBERSHIPS_WRITE: &str = "community.memberships.write";
+    pub const CONTENT_ACCESS_POLICIES_READ: &str = "content.access_policies.read";
+    pub const CONTENT_ACCESS_POLICIES_WRITE: &str = "content.access_policies.write";
+    pub const ENTITLEMENT_TYPES_READ: &str = "entitlements.types.read";
+    pub const ENTITLEMENT_TYPES_WRITE: &str = "entitlements.types.write";
+    pub const ENTITLEMENT_GRANTS_READ: &str = "entitlements.grants.read";
+    pub const ENTITLEMENT_GRANTS_WRITE: &str = "entitlements.grants.write";
     pub const AUTHORIZATION_ROLES_READ: &str = "authorization.roles.read";
     pub const AUTHORIZATION_ROLES_WRITE: &str = "authorization.roles.write";
     pub const AUTHORIZATION_ASSIGNMENTS_READ: &str = "authorization.assignments.read";
@@ -73,6 +88,7 @@ pub struct AuthorizationRoleAssignmentRecord {
     pub role_is_system: bool,
     pub role_revision: i64,
     pub scope_id: Option<Uuid>,
+    pub scope_mode: String,
     pub assigned_by_id: Uuid,
     pub assigned_by_username: String,
     pub assigned_by_display_name: String,
@@ -120,6 +136,7 @@ pub struct CreateAuthorizationAssignmentRecord {
     pub username: String,
     pub role_id: Uuid,
     pub scope_id: Option<Uuid>,
+    pub scope_mode: String,
 }
 
 #[derive(Debug)]
@@ -237,6 +254,7 @@ impl Database {
                     role.is_system AS role_is_system,
                     role.revision AS role_revision,
                     assignment.scope_id,
+                    assignment.scope_mode,
                     assigner.id AS assigned_by_id,
                     assigner.username AS assigned_by_username,
                     assigner.display_name AS assigned_by_display_name,
@@ -435,7 +453,13 @@ impl Database {
         if role.2 {
             return Err(MutateAuthorizationAssignmentError::SystemManaged);
         }
-        validate_assignment_scope(&mut transaction, &role.1, assignment.scope_id).await?;
+        validate_assignment_scope(
+            &mut transaction,
+            &role.1,
+            assignment.scope_id,
+            &assignment.scope_mode,
+        )
+        .await?;
         let permission_keys = sqlx::query_scalar::<_, String>(
             "SELECT permission.permission_key
              FROM role_permissions AS role_permission
@@ -449,14 +473,16 @@ impl Database {
         validate_assignment_grant_ceiling(&mut transaction, actor_id, &permission_keys).await?;
 
         let insert = sqlx::query(
-            "INSERT INTO role_assignments (id, user_id, role_id, assigned_by, scope_id)
-             VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO role_assignments (
+                id, user_id, role_id, assigned_by, scope_id, scope_mode
+             ) VALUES ($1, $2, $3, $4, $5, $6)",
         )
         .bind(assignment.id)
         .bind(user_id)
         .bind(assignment.role_id)
         .bind(actor_id)
         .bind(assignment.scope_id)
+        .bind(&assignment.scope_mode)
         .execute(&mut *transaction)
         .await;
         if let Err(error) = insert {
@@ -472,6 +498,7 @@ impl Database {
                 "role_key": role.0,
                 "target_username": assignment.username,
                 "scope_id": assignment.scope_id,
+                "scope_mode": assignment.scope_mode,
             }),
         )
         .await?;
@@ -699,10 +726,11 @@ async fn validate_assignment_scope(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     role_scope: &str,
     scope_id: Option<Uuid>,
+    scope_mode: &str,
 ) -> Result<(), MutateAuthorizationAssignmentError> {
-    match (role_scope, scope_id) {
-        ("instance" | "site", None) => Ok(()),
-        ("board", Some(board_id)) => {
+    match (role_scope, scope_id, scope_mode) {
+        ("instance" | "site", None, "exact") => Ok(()),
+        ("board", Some(board_id), "exact" | "subtree") => {
             let available = sqlx::query_scalar::<_, bool>(
                 "SELECT EXISTS (SELECT 1 FROM boards WHERE id = $1 AND deleted_at IS NULL)",
             )
@@ -771,6 +799,7 @@ async fn fetch_authorization_assignment(
                 role.is_system AS role_is_system,
                 role.revision AS role_revision,
                 assignment.scope_id,
+                assignment.scope_mode,
                 assigner.id AS assigned_by_id,
                 assigner.username AS assigned_by_username,
                 assigner.display_name AS assigned_by_display_name,
@@ -823,6 +852,30 @@ pub(crate) async fn has_permission_with_executor(
     permission_key: &str,
     resource_scope_id: Option<Uuid>,
 ) -> Result<bool, sqlx::Error> {
+    if let Some(resource_scope_id) = resource_scope_id {
+        sqlx::query_scalar::<_, Uuid>(
+            "WITH RECURSIVE ancestors AS (
+                SELECT id, parent_id, ARRAY[id] AS visited
+                FROM boards
+                WHERE id = $1 AND deleted_at IS NULL
+
+                UNION ALL
+
+                SELECT parent.id, parent.parent_id, ancestors.visited || parent.id
+                FROM ancestors
+                JOIN boards AS parent ON parent.id = ancestors.parent_id
+                WHERE parent.deleted_at IS NULL
+                  AND NOT parent.id = ANY(ancestors.visited)
+             )
+             SELECT board.id
+             FROM boards AS board
+             JOIN ancestors ON ancestors.id = board.id
+             FOR SHARE OF board",
+        )
+        .bind(resource_scope_id)
+        .fetch_all(&mut *connection)
+        .await?;
+    }
     sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS (
              SELECT 1
@@ -839,10 +892,16 @@ pub(crate) async fn has_permission_with_executor(
                    OR (
                        role.scope = 'board'
                        AND assignment.scope_id IS NOT NULL
-                       AND assignment.scope_id = $3
+                       AND $3::uuid IS NOT NULL
+                       AND daoyun_board_scope_covers(
+                           assignment.scope_id,
+                           assignment.scope_mode,
+                           $3
+                       )
                    )
-               )
-         )",
+                )
+             FOR SHARE OF account, assignment, role, role_permission, permission
+          )",
     )
     .bind(user_id)
     .bind(permission_key)

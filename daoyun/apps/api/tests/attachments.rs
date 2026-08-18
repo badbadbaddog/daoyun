@@ -92,9 +92,129 @@ async fn attachment_upload_validates_signature_persists_metadata_and_lists_publi
     assert!(payload["data"]["download_url"].as_str().is_some());
     assert!(payload["data"]["thumbnail_url"].as_str().is_some());
 
-    let download = app
+    let uploader_id =
+        sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM users WHERE username = 'uploader'")
+            .fetch_one(&pool)
+            .await
+            .expect("uploader id must be readable");
+    sqlx::query(
+        "INSERT INTO board_user_restrictions
+            (id, board_id, user_id, actions, starts_at, ends_at, reason, created_by, updated_by)
+         SELECT daoyun_uuid_v7(), topic.board_id, $1,
+                ARRAY['attachment.upload']::varchar[],
+                CURRENT_TIMESTAMP - INTERVAL '1 hour', CURRENT_TIMESTAMP + INTERVAL '1 hour',
+                'temporary', $1, $1
+         FROM topics AS topic WHERE topic.id = $2",
+    )
+    .bind(uploader_id)
+    .bind(uuid::Uuid::parse_str(&topic_id).expect("topic id must be valid"))
+    .execute(&pool)
+    .await
+    .expect("attachment restriction fixture must insert");
+    let board_restricted = app
+        .clone()
+        .oneshot(upload_request(
+            &topic_id,
+            b"plain text",
+            "text/plain",
+            "restricted.txt",
+            &cookies,
+            &csrf,
+        ))
+        .await
+        .expect("board-restricted upload must respond");
+    assert_eq!(board_restricted.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        response_json(board_restricted).await["error"]["code"],
+        "board.posting_restricted"
+    );
+    sqlx::query(
+        "UPDATE board_user_restrictions
+         SET ends_at = CURRENT_TIMESTAMP - INTERVAL '1 second'
+         WHERE user_id = $1",
+    )
+    .bind(uploader_id)
+    .execute(&pool)
+    .await
+    .expect("attachment restriction fixture must expire");
+
+    sqlx::query(
+        "DELETE FROM community_group_permissions
+         WHERE group_id = (
+             SELECT id FROM community_groups WHERE internal_key = 'registered_member'
+         ) AND permission_key = 'attachment.upload'",
+    )
+    .execute(&pool)
+    .await
+    .expect("attachment permission fixture must update");
+    let forbidden_upload = app
+        .clone()
+        .oneshot(upload_request(
+            &topic_id,
+            b"plain text",
+            "text/plain",
+            "forbidden.txt",
+            &cookies,
+            &csrf,
+        ))
+        .await
+        .expect("forbidden upload must respond");
+    assert_eq!(forbidden_upload.status(), StatusCode::FORBIDDEN);
+    sqlx::query(
+        "INSERT INTO community_group_permissions (group_id, permission_key)
+         SELECT id, 'attachment.upload' FROM community_groups
+         WHERE internal_key = 'registered_member'",
+    )
+    .execute(&pool)
+    .await
+    .expect("attachment permission fixture must restore");
+    sqlx::query(
+        "UPDATE community_quota_usage SET used = 5
+         WHERE user_id = (SELECT id FROM users WHERE username = 'uploader')
+           AND quota_key = 'attachment.upload.daily'",
+    )
+    .execute(&pool)
+    .await
+    .expect("attachment quota fixture must update");
+    let quota_upload = app
+        .clone()
+        .oneshot(upload_request(
+            &topic_id,
+            b"plain text",
+            "text/plain",
+            "quota.txt",
+            &cookies,
+            &csrf,
+        ))
+        .await
+        .expect("quota upload must respond");
+    assert_eq!(quota_upload.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        response_json(quota_upload).await["error"]["code"],
+        "community.quota_exceeded"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM topic_attachments WHERE topic_id = $1")
+            .bind(uuid::Uuid::parse_str(&topic_id).expect("topic id must be valid"))
+            .fetch_one(&pool)
+            .await
+            .expect("attachment row count must be readable"),
+        1
+    );
+
+    let guest_download = app
         .clone()
         .oneshot(get_request(&format!("/api/v1/attachments/{attachment_id}")))
+        .await
+        .expect("guest attachment download must respond");
+    assert_eq!(guest_download.status(), StatusCode::FORBIDDEN);
+
+    let download = app
+        .clone()
+        .oneshot(get_request_with_cookies(
+            &format!("/api/v1/attachments/{attachment_id}"),
+            &cookies,
+        ))
         .await
         .expect("attachment download must respond");
     assert_eq!(download.status(), StatusCode::OK);
@@ -102,6 +222,57 @@ async fn attachment_upload_validates_signature_persists_metadata_and_lists_publi
     assert_eq!(
         to_bytes(download.into_body(), 1024 * 1024).await.unwrap(),
         ONE_BY_ONE_PNG
+    );
+
+    sqlx::query(
+        "DELETE FROM community_group_permissions
+         WHERE group_id = (
+             SELECT id FROM community_groups WHERE internal_key = 'registered_member'
+         ) AND permission_key = 'attachment.download'",
+    )
+    .execute(&pool)
+    .await
+    .expect("download permission fixture must update");
+    let forbidden_download = app
+        .clone()
+        .oneshot(get_request_with_cookies(
+            &format!("/api/v1/attachments/{attachment_id}"),
+            &cookies,
+        ))
+        .await
+        .expect("forbidden attachment download must respond");
+    assert_eq!(forbidden_download.status(), StatusCode::FORBIDDEN);
+    sqlx::query(
+        "INSERT INTO community_group_permissions (group_id, permission_key)
+         SELECT id, 'attachment.download' FROM community_groups
+         WHERE internal_key = 'registered_member'",
+    )
+    .execute(&pool)
+    .await
+    .expect("download permission fixture must restore");
+    sqlx::query(
+        "UPDATE community_group_quota_rules
+         SET quota_value = $1
+         WHERE group_id = (
+             SELECT id FROM community_groups WHERE internal_key = 'registered_member'
+         ) AND quota_key = 'attachment.download.bytes.daily'",
+    )
+    .bind(i64::try_from(ONE_BY_ONE_PNG.len()).expect("fixture length must fit i64"))
+    .execute(&pool)
+    .await
+    .expect("download quota fixture must update");
+    let quota_download = app
+        .clone()
+        .oneshot(get_request_with_cookies(
+            &format!("/api/v1/attachments/{attachment_id}"),
+            &cookies,
+        ))
+        .await
+        .expect("quota attachment download must respond");
+    assert_eq!(quota_download.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        response_json(quota_download).await["error"]["code"],
+        "community.quota_exceeded"
     );
 
     let thumbnail = app
@@ -134,11 +305,6 @@ async fn attachment_upload_validates_signature_persists_metadata_and_lists_publi
             .expect("attachment row count must be readable"),
         1
     );
-    let uploader_id =
-        sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM users WHERE username = 'uploader'")
-            .fetch_one(&pool)
-            .await
-            .expect("uploader id must be readable");
     let attachment_audit = sqlx::query_as::<_, (String, String, uuid::Uuid, Value)>(
         "SELECT action, resource_type, resource_id, summary FROM admin_audit_log
          WHERE actor_id = $1 AND action = 'attachment.create'",
@@ -294,6 +460,14 @@ fn get_request(uri: &str) -> Request<Body> {
         .uri(uri)
         .body(Body::empty())
         .expect("GET request must be valid")
+}
+
+fn get_request_with_cookies(uri: &str, cookies: &str) -> Request<Body> {
+    Request::builder()
+        .uri(uri)
+        .header("cookie", cookies)
+        .body(Body::empty())
+        .expect("authenticated GET request must be valid")
 }
 
 async fn session_cookies(response: &axum::response::Response) -> (String, String) {

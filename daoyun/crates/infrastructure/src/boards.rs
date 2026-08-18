@@ -16,6 +16,7 @@ pub struct BoardRecord {
 impl Database {
     pub async fn list_public_boards(
         &self,
+        viewer_user_id: Option<Uuid>,
         cursor: Option<Uuid>,
         limit: i64,
     ) -> Result<Vec<BoardRecord>, DatabaseError> {
@@ -24,12 +25,14 @@ impl Database {
              FROM boards \
              WHERE visibility = 'public' \
                AND deleted_at IS NULL \
+               AND daoyun_can_access_content('board', id, $3, CURRENT_TIMESTAMP) \
                AND ( \
                    $1::uuid IS NULL \
                    OR (position, id) > ( \
                        SELECT position, id \
                        FROM boards \
                        WHERE id = $1 AND visibility = 'public' AND deleted_at IS NULL \
+                         AND daoyun_can_access_content('board', id, $3, CURRENT_TIMESTAMP) \
                    ) \
                ) \
              ORDER BY position, id \
@@ -37,6 +40,7 @@ impl Database {
         )
         .bind(cursor)
         .bind(limit)
+        .bind(viewer_user_id)
         .fetch_all(&self.pool)
         .await?;
 

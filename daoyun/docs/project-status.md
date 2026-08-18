@@ -1,6 +1,6 @@
 # 刀云项目完成度
 
-更新时间：2026-08-12
+更新时间：2026-08-15
 
 当前分支：`codex/daoyun-home-foundation`
 
@@ -877,3 +877,14 @@ cargo +1.94.1-x86_64-pc-windows-gnu build --manifest-path sdk/plugin-rust-exampl
 - 新增站长工作台，根据当前账号读取能力分别加载待处理举报、受限/暂停用户和隐藏版块；每类最多五条，提供业务筛选入口、明确空态、分区错误态与重试，完全无后台业务能力的账号不会获得客户端入口。
 - 收尾审查修复用户列表漏用游标、举报详情深链只查首屏，以及举报/审计续页切换筛选时的竞态；后台外壳语义与顶栏文字对比度也经真实浏览器检查修正。
 - 最终门禁通过：Vitest 44 个文件 286 项、Rust workspace 全部测试、Rustfmt、Clippy `-D warnings`、OpenAPI 生成漂移、TypeScript、生产构建、E2E 类型检查，以及桌面/移动真实 Chromium 12 项；320、768、1024、1440px 无页面级横向溢出，axe 无严重或关键问题。
+
+### 67. 官方成长奖励业务插件
+
+- 新增可独立构建与安装的 `plugins/official-growth-rewards` Wasm Component；manifest 只申请 `events.subscribe`、`experience.write`、`users.targeted`，订阅 `topic.published` 与 `reply.created`，不申请 UI、存储、任务、Points、通知或网络能力，也不默认安装或启用。
+- V1 固定规则为每位作者 UTC 日内首个主题 `+10 EXP`、首个回复 `+3 EXP`。插件以规则、用户和事件原始 UTC 日生成稳定幂等键与 UUIDv5 奖励声明来源，核心再以稳定插件 key 而非安装 UUID 建立命名空间；事件重放、同日多个内容、并发执行以及卸载后重装都只会保留一条追加式 EXP 流水，次日可再次奖励。
+- 业务 WIT event 显式携带 `payload-schema-version`；worker 同时传递 Outbox 原始 `created_at`，任务重试同样保持初始 `run_at`，延迟或重试不会改变业务时间。插件仅接受 v1，并严格校验 JSON、UUID 以及 payload 资源 ID 与 aggregate ID 一致性。
+- manifest、API 与数据库共同执行旧/业务 ABI 互斥，并持久化最多 6 个固定事件订阅；`users.read.basic` 不再包含会员账户，私有积分/经验读取需要独立 `users.read.membership` 范围。插件通知以系统来源写入，不冒充安装管理员。
+- 业务宿主对导出参数、host import 参数/响应及整批 guest 输出执行 64 KiB 总量边界，并限制单个 4 MiB memory、32 次 host call、32 条命令、8 个 UI contribution、5 秒执行时间和 2 秒 host I/O；单进程全局最多 4 个任务，同插件另由 owner-token PostgreSQL 租约保证事件、任务和 UI action 跨进程串行。只链接空 CLI/IO 所需 WASI 接口和 64 项资源表，不链接 clocks、random、filesystem 或 sockets；公开 UI render 禁止全部 host import，私有查询和 UI action 写入均绑定权威 subject。
+- 命令在解析校验后才预留稳定 `(plugin_key, idempotency_key)` 收据并扣减配额，卸载重装不会破坏幂等性，过期 pending 只能由新 owner token 接管。命令日配额耗尽时，事件与任务都会重置本轮尝试并延期到下一个 UTC 配额窗口，不因可恢复配额压力进入 dead。worker 取得进程执行槽后才领取队列项，租约覆盖单次合法调用最坏预算；公共 UI action 具有 16 KiB 正文、actor/plugin 速率、5 秒等待和权威主体边界。公共 UI 只枚举最多 8 个申请 `ui.panel` 的业务插件，取得执行槽后才加载 Component bytes，并具有忙碌跳过、总时限、贡献数/字节上限和 no-store 响应。
+- 真实 Component 已由自动化测试贯穿 Outbox、订阅 fanout、实际 Wasmtime guest、worker、命令收据/配额和 EXP 账本：同日两个主题只产生一条 `+10`，同日两个回复只产生一条 `+3`，下一 UTC 日主题可再次奖励，schema v2 被受控拒绝，配额耗尽后延期并在下一窗口恢复；CI 会构建两套 SDK 示例与官方 Wasm 后执行同一闭环，额外验证组件只能使用有界 CLI/IO 导入，并对主仓、官方插件及两套 SDK 锁文件执行 RustSec 审计。
+- 本轮门禁通过：官方插件 4 项原生测试与 doctest、Wasm Clippy、`wasm32-wasip2 --release` 构建、业务 SDK 示例 Component 构建、Rust workspace `--all-features` 全量测试、Rustfmt、全目标/全特性 Clippy `-D warnings`、真实 Component 集成、Vitest 45 个文件 294 项、TypeScript、生产构建、E2E 类型检查、OpenAPI 漂移和桌面/移动 Chromium 公开质量 4 项（未启动 API 的安全头 2 项按配置跳过）。主仓 456 个与官方插件 37 个 Cargo 依赖 RustSec 审计均为 0 漏洞；npm High 审计发现的 `nanoid 3.3.17` 已提升到修复版 `3.3.18`，复查为 0 漏洞。详细规则见 [官方成长奖励插件规格](specs/official-growth-rewards-plugin.md)。

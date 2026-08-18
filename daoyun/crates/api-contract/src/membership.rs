@@ -2,6 +2,80 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct GrowthLevel {
+    pub id: uuid::Uuid,
+    pub internal_key: String,
+    pub level_order: i32,
+    pub display_name: String,
+    pub required_experience: i64,
+    pub icon_asset_id: Option<uuid::Uuid>,
+    pub color: Option<String>,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ExperienceAccount {
+    pub user_id: uuid::Uuid,
+    pub experience: i64,
+    pub current_level: GrowthLevel,
+    pub revision: i64,
+    #[schema(value_type = String, format = DateTime)]
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum GrowthLevelStatus {
+    Draft,
+    Published,
+    Disabled,
+    Archived,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct AdminGrowthLevel {
+    pub id: uuid::Uuid,
+    pub internal_key: String,
+    pub level_order: i32,
+    pub display_name: String,
+    pub required_experience: i64,
+    pub icon_asset_id: Option<uuid::Uuid>,
+    pub color: Option<String>,
+    pub description: String,
+    pub status: GrowthLevelStatus,
+    pub revision: i64,
+    #[schema(value_type = Option<String>, format = DateTime)]
+    pub published_at: Option<String>,
+    #[schema(value_type = String, format = DateTime)]
+    pub created_at: String,
+    #[schema(value_type = String, format = DateTime)]
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
+pub struct CreateGrowthLevelRequest {
+    pub internal_key: String,
+    pub level_order: i32,
+    pub display_name: String,
+    pub required_experience: i64,
+    pub icon_asset_id: Option<uuid::Uuid>,
+    pub color: Option<String>,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
+pub struct UpdateGrowthLevelRequest {
+    pub expected_revision: i64,
+    pub level_order: i32,
+    pub display_name: String,
+    pub required_experience: i64,
+    pub icon_asset_id: Option<uuid::Uuid>,
+    pub color: Option<String>,
+    pub description: String,
+    pub status: GrowthLevelStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct MembershipCatalog {
     pub member_group: MembershipGroup,
     pub levels: Vec<MembershipLevel>,

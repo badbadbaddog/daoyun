@@ -9,7 +9,7 @@ use sqlx::{
 };
 use time::OffsetDateTime;
 
-use crate::authorization::permission_keys;
+use crate::authorization::{has_permission_with_executor, permission_keys};
 use crate::{Database, DatabaseError, NewOutboxEvent, OutboxError};
 
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
@@ -203,7 +203,9 @@ pub enum ListRiskAlertsError {
 
 #[derive(Debug)]
 pub enum UpdateRiskAlertError {
+    Forbidden,
     NotFound,
+    Conflict,
     InvalidStatus,
     Database(DatabaseError),
 }
@@ -879,11 +881,21 @@ impl Database {
             return Err(UpdateRiskAlertError::InvalidStatus);
         }
         let mut transaction = self.pool.begin().await?;
+        if !has_permission_with_executor(
+            &mut transaction,
+            actor_id,
+            permission_keys::GOVERNANCE_ALERTS_RESOLVE,
+            None,
+        )
+        .await?
+        {
+            return Err(UpdateRiskAlertError::Forbidden);
+        }
         let record = sqlx::query_as::<_, RiskAlertRecord>(
             "UPDATE risk_alerts AS alert
              SET status = $2, acknowledged_by = $3, acknowledged_at = CURRENT_TIMESTAMP,
                  updated_at = CURRENT_TIMESTAMP
-             WHERE alert.id = $1
+             WHERE alert.id = $1 AND alert.status = 'open'
              RETURNING alert.id, alert.kind, alert.severity, alert.score,
                        alert.target_type, alert.target_id, alert.reporter_id, alert.report_id,
                        alert.status, alert.details, $3 AS acknowledged_by_id,
@@ -896,8 +908,20 @@ impl Database {
         .bind(status)
         .bind(actor_id)
         .fetch_optional(&mut *transaction)
-        .await?
-        .ok_or(UpdateRiskAlertError::NotFound)?;
+        .await?;
+        let Some(record) = record else {
+            let exists = sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM risk_alerts WHERE id = $1)",
+            )
+            .bind(alert_id)
+            .fetch_one(&mut *transaction)
+            .await?;
+            return Err(if exists {
+                UpdateRiskAlertError::Conflict
+            } else {
+                UpdateRiskAlertError::NotFound
+            });
+        };
         insert_audit(
             &mut transaction,
             actor_id,

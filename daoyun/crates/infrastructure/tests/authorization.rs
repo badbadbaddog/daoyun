@@ -112,6 +112,68 @@ async fn capability_checks_apply_roles_scopes_and_user_status(pool: PgPool) {
             .await
             .expect("other-board capability must be queryable")
     );
+
+    let child_board_id = Uuid::now_v7();
+    let other_root_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO boards (
+            id, slug, name, description, icon, tone, position, visibility, parent_id
+         ) VALUES
+            ($1, 'scope-child', 'Scope child', '', 'messages-square', 'blue', 1, 'public', $3),
+            ($2, 'scope-other', 'Scope other', '', 'messages-square', 'blue', 91, 'public', NULL)",
+    )
+    .bind(child_board_id)
+    .bind(other_root_id)
+    .bind(board_id)
+    .execute(&pool)
+    .await
+    .expect("scope boards must insert");
+    assert!(
+        !database
+            .has_permission(
+                member_id,
+                permission_keys::MODERATION_TOPIC,
+                Some(child_board_id),
+            )
+            .await
+            .expect("exact scope must not cover descendants")
+    );
+    sqlx::query(
+        "UPDATE role_assignments SET scope_mode = 'subtree'
+         WHERE user_id = $1 AND role_id = $2 AND scope_id = $3",
+    )
+    .bind(member_id)
+    .bind(role_id)
+    .bind(board_id)
+    .execute(&pool)
+    .await
+    .expect("assignment must become subtree-scoped");
+    assert!(
+        database
+            .has_permission(
+                member_id,
+                permission_keys::MODERATION_TOPIC,
+                Some(child_board_id),
+            )
+            .await
+            .expect("subtree scope must cover descendants")
+    );
+    sqlx::query("UPDATE boards SET parent_id = $2 WHERE id = $1")
+        .bind(child_board_id)
+        .bind(other_root_id)
+        .execute(&pool)
+        .await
+        .expect("child board must move to another subtree");
+    assert!(
+        !database
+            .has_permission(
+                member_id,
+                permission_keys::MODERATION_TOPIC,
+                Some(child_board_id),
+            )
+            .await
+            .expect("subtree scope must follow the current board tree")
+    );
     assert!(
         !database
             .has_permission(member_id, permission_keys::MODERATION_TOPIC, None)
@@ -530,6 +592,7 @@ async fn role_assignments_validate_users_scopes_duplicates_and_system_roles(pool
                 username: "assigned_member".to_owned(),
                 role_id: role.id,
                 scope_id: Some(board_id),
+                scope_mode: "exact".to_owned(),
             },
         )
         .await
@@ -546,6 +609,7 @@ async fn role_assignments_validate_users_scopes_duplicates_and_system_roles(pool
                 username: "assigned_member".to_owned(),
                 role_id: role.id,
                 scope_id: Some(board_id),
+                scope_mode: "exact".to_owned(),
             },
         )
         .await;
@@ -562,6 +626,7 @@ async fn role_assignments_validate_users_scopes_duplicates_and_system_roles(pool
                 username: "assigned_member".to_owned(),
                 role_id: role.id,
                 scope_id: None,
+                scope_mode: "exact".to_owned(),
             },
         )
         .await;
@@ -583,6 +648,7 @@ async fn role_assignments_validate_users_scopes_duplicates_and_system_roles(pool
                 username: "assigned_member".to_owned(),
                 role_id: suspended_role.id,
                 scope_id: None,
+                scope_mode: "exact".to_owned(),
             },
         )
         .await
@@ -602,6 +668,7 @@ async fn role_assignments_validate_users_scopes_duplicates_and_system_roles(pool
                 username: "assignment_owner".to_owned(),
                 role_id: system_role_id,
                 scope_id: None,
+                scope_mode: "exact".to_owned(),
             },
         )
         .await;

@@ -4,6 +4,9 @@ mod admin;
 mod attachments;
 mod auth;
 mod board;
+mod board_restrictions;
+mod community;
+mod content_access;
 mod error;
 mod installation;
 mod membership;
@@ -15,6 +18,7 @@ mod plugins;
 mod relations;
 mod reports;
 mod request_id;
+mod standard_entitlements;
 mod topic;
 mod user;
 
@@ -24,8 +28,8 @@ use utoipa::ToSchema;
 pub use admin::{
     AdminAuditEntry, AdminBoard, AdminBoardDeletionImpact, AdminBoardVisibility,
     AdminCapabilityAccess, AuthorizationAssignedRole, AuthorizationPermission, AuthorizationRole,
-    AuthorizationRoleAssignment, AuthorizationRoleScope, BrandHomeMode, BrandLink,
-    BrandListDensity, BrandThemePreset, CreateAdminBoardRequest,
+    AuthorizationRoleAssignment, AuthorizationRoleScope, AuthorizationScopeMode, BrandHomeMode,
+    BrandLink, BrandListDensity, BrandThemePreset, CreateAdminBoardRequest,
     CreateAuthorizationAssignmentRequest, CreateAuthorizationRoleRequest, GovernancePolicy,
     OperationsAlert, OperationsAlertCounts, OperationsAlertRule, OperationsAlertRuleKind,
     OperationsAlertRuleReference, OperationsAlertStatus, OperationsDatabaseSummary,
@@ -50,30 +54,51 @@ pub use auth::{
     RegisterRequest, RevokeDeviceSessionData, UnlinkExternalIdentityData,
 };
 pub use board::{BoardSummary, BoardTone};
+pub use board_restrictions::{
+    BoardPostingRestrictionAction, BoardUserRestriction, PutBoardUserRestrictionRequest,
+};
+pub use community::{
+    AdminCommunityGroup, AdminCommunityGroupMembership, CommunityAccess, CommunityGroupMembership,
+    CommunityGroupMembershipMutation, CommunityGroupStatus, CommunityGroupSummary,
+    CommunityPermissionSource, CreateCommunityGroupRequest, CurrentCommunityGroups,
+    GrantCommunityGroupMembershipRequest, RevokeCommunityGroupMembershipRequest,
+    StandardEntitlementPermissionSource, UpdateCommunityGroupRequest,
+};
+pub use content_access::{
+    ContentAccessOperator, ContentAccessPolicy, ContentAccessSubject, ContentAccessSubjectType,
+    ContentAccessTargetType, PutContentAccessPolicyRequest,
+};
 pub use error::{ErrorBody, ErrorCode, ErrorResponse, FieldErrors, error_codes};
 pub use installation::{
     InitialAdministrator, InitializeInstallationRequest, InstallationInitialization,
     InstallationStatus,
 };
 pub use membership::{
-    GrantMembershipMedalRequest, GrantMembershipPointsRequest, Medal, MembershipAccount,
+    AdminGrowthLevel, CreateGrowthLevelRequest, ExperienceAccount, GrantMembershipMedalRequest,
+    GrantMembershipPointsRequest, GrowthLevel, GrowthLevelStatus, Medal, MembershipAccount,
     MembershipCatalog, MembershipGroup, MembershipLevel, MembershipLevelRule, MembershipMedal,
-    MembershipMedalGrant, MembershipMedalRule, MembershipPointsGrant,
+    MembershipMedalGrant, MembershipMedalRule, MembershipPointsGrant, UpdateGrowthLevelRequest,
     UpdateMembershipLevelRuleRequest, UpdateMembershipMedalRuleRequest,
 };
 pub use messages::{
     ConversationLastMessage, ConversationReadState, ConversationSummary, CreateConversationRequest,
     DirectMessage, MarkConversationReadRequest, SendDirectMessageRequest,
 };
-pub use moderation::{ModerateTopicRequest, TopicModerationResult, TopicModerationStatus};
+pub use moderation::{
+    GovernTopicRequest, ModerateTopicRequest, TopicGovernanceAction, TopicGovernanceResult,
+    TopicModerationResult, TopicModerationStatus,
+};
 pub use notifications::{
     Notification, NotificationKind, NotificationTarget, NotificationUnreadCount,
 };
 pub use pagination::{PageMeta, PageResponse};
 pub use plugins::{
-    InstallPluginRequest, InvokePluginRequest, Plugin, PluginCapability, PluginInvocation,
-    PluginManifestRequest, PluginOperation, PluginStatus, PluginUiBlock, PluginUiSchema,
-    PluginUiTone, UpdatePluginRequest,
+    BusinessPluginCapability, BusinessPluginManifestSchema, ExecutePluginUiActionRequest,
+    InstallPluginRequest, InvokePluginRequest, LegacyPluginCapability, LegacyPluginManifestSchema,
+    Plugin, PluginBusinessApiVersion, PluginCapability, PluginDataScope, PluginEventSubscription,
+    PluginInvocation, PluginManifestRequest, PluginOperation, PluginSchemaVersion, PluginStatus,
+    PluginUiActionResult, PluginUiBlock, PluginUiContribution, PluginUiSchema, PluginUiSlot,
+    PluginUiSurfaceContribution, PluginUiTone, UpdatePluginRequest,
 };
 pub use relations::{BookmarkState, PostLikeState};
 pub use reports::{
@@ -85,6 +110,10 @@ pub use reports::{
     ReportUserAction, ReportUserActionKind, UpdateReportRequest,
 };
 pub use request_id::RequestId;
+pub use standard_entitlements::{
+    AdminStandardEntitlement, GrantStandardEntitlementRequest, PutStandardEntitlementTypeRequest,
+    RevokeStandardEntitlementRequest, StandardEntitlementMutation, StandardEntitlementType,
+};
 pub use topic::{
     CreateReplyRequest, CreateTopicRequest, ReplyRevision, TopicAuthorSummary, TopicBoardSummary,
     TopicDetail, TopicReply, TopicRevision, TopicScope, TopicSort, TopicSummary, TopicTag,

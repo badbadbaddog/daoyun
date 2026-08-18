@@ -94,6 +94,29 @@ impl From<sqlx::Error> for OutboxError {
     }
 }
 
+pub(crate) async fn enqueue_core_event_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    event_id: Uuid,
+    event_type: &'static str,
+    aggregate_type: &'static str,
+    aggregate_id: Uuid,
+    payload: Value,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO outbox_events
+         (id, event_type, aggregate_type, aggregate_id, dedupe_key, payload)
+         VALUES ($1, $2, $3, $4, $1::text, $5)",
+    )
+    .bind(event_id)
+    .bind(event_type)
+    .bind(aggregate_type)
+    .bind(aggregate_id)
+    .bind(payload)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
 impl Database {
     pub async fn enqueue_outbox_event(
         &self,

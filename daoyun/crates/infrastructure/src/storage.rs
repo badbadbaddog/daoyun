@@ -1,10 +1,18 @@
-use std::path::{Component, Path, PathBuf};
+use std::{
+    future::Future,
+    path::{Component, Path, PathBuf},
+    time::Duration,
+};
 
-#[cfg(feature = "s3")]
+#[cfg(any(feature = "s3", test))]
 use std::sync::Arc;
 
 #[cfg(feature = "s3")]
 use object_store::{DynObjectStore, ObjectStoreExt};
+#[cfg(test)]
+use tokio::sync::Notify;
+
+const STORAGE_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum StorageProvider {
@@ -109,6 +117,12 @@ pub(crate) enum AttachmentStore {
         prefix: String,
         store: Arc<DynObjectStore>,
     },
+    #[cfg(test)]
+    DelayedRead {
+        bytes: Arc<Vec<u8>>,
+        started: Arc<Notify>,
+        release: Arc<Notify>,
+    },
     Unavailable(String),
 }
 
@@ -121,6 +135,8 @@ impl std::fmt::Debug for AttachmentStore {
                 .debug_struct("S3")
                 .field("prefix", prefix)
                 .finish(),
+            #[cfg(test)]
+            Self::DelayedRead { .. } => formatter.write_str("DelayedRead"),
             Self::Unavailable(message) => {
                 formatter.debug_tuple("Unavailable").field(message).finish()
             }
@@ -192,65 +208,96 @@ impl AttachmentStore {
             Self::Local { root } => Some(root),
             #[cfg(feature = "s3")]
             Self::S3 { .. } => None,
+            #[cfg(test)]
+            Self::DelayedRead { .. } => None,
             Self::Unavailable(_) => None,
         }
     }
 
     pub(crate) async fn put(&self, key: &str, bytes: &[u8]) -> Result<(), String> {
-        match self {
-            Self::Local { root } => {
-                let path = local_path(root, key)?;
-                if let Some(parent) = path.parent() {
-                    tokio::fs::create_dir_all(parent)
+        with_storage_timeout(STORAGE_OPERATION_TIMEOUT, "write", async {
+            match self {
+                Self::Local { root } => {
+                    let path = local_path(root, key)?;
+                    if let Some(parent) = path.parent() {
+                        tokio::fs::create_dir_all(parent)
+                            .await
+                            .map_err(|error| error.to_string())?;
+                    }
+                    tokio::fs::write(path, bytes)
                         .await
-                        .map_err(|error| error.to_string())?;
+                        .map_err(|error| error.to_string())
                 }
-                tokio::fs::write(path, bytes)
+                #[cfg(feature = "s3")]
+                Self::S3 { store, .. } => store
+                    .put(&self.object_path(key), bytes.to_vec().into())
                     .await
-                    .map_err(|error| error.to_string())
+                    .map(|_| ())
+                    .map_err(|error| error.to_string()),
+                #[cfg(test)]
+                Self::DelayedRead { .. } => {
+                    Err("delayed test store does not support writes".to_owned())
+                }
+                Self::Unavailable(error) => Err(error.clone()),
             }
-            #[cfg(feature = "s3")]
-            Self::S3 { store, .. } => store
-                .put(&self.object_path(key), bytes.to_vec().into())
-                .await
-                .map(|_| ())
-                .map_err(|error| error.to_string()),
-            Self::Unavailable(error) => Err(error.clone()),
-        }
+        })
+        .await
     }
 
     pub(crate) async fn get(&self, key: &str) -> Result<Vec<u8>, String> {
-        match self {
-            Self::Local { root } => tokio::fs::read(local_path(root, key)?)
-                .await
-                .map_err(|error| error.to_string()),
-            #[cfg(feature = "s3")]
-            Self::S3 { store, .. } => store
-                .get(&self.object_path(key))
-                .await
-                .map_err(|error| error.to_string())?
-                .bytes()
-                .await
-                .map(|bytes| bytes.to_vec())
-                .map_err(|error| error.to_string()),
-            Self::Unavailable(error) => Err(error.clone()),
-        }
+        with_storage_timeout(STORAGE_OPERATION_TIMEOUT, "read", async {
+            match self {
+                Self::Local { root } => tokio::fs::read(local_path(root, key)?)
+                    .await
+                    .map_err(|error| error.to_string()),
+                #[cfg(feature = "s3")]
+                Self::S3 { store, .. } => store
+                    .get(&self.object_path(key))
+                    .await
+                    .map_err(|error| error.to_string())?
+                    .bytes()
+                    .await
+                    .map(|bytes| bytes.to_vec())
+                    .map_err(|error| error.to_string()),
+                #[cfg(test)]
+                Self::DelayedRead {
+                    bytes,
+                    started,
+                    release,
+                } => {
+                    started.notify_one();
+                    release.notified().await;
+                    Ok(bytes.as_ref().clone())
+                }
+                Self::Unavailable(error) => Err(error.clone()),
+            }
+        })
+        .await
     }
 
     pub(crate) async fn delete(&self, key: &str) -> Result<(), String> {
-        match self {
-            Self::Local { root } => match tokio::fs::remove_file(local_path(root, key)?).await {
-                Ok(()) => Ok(()),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-                Err(error) => Err(error.to_string()),
-            },
-            #[cfg(feature = "s3")]
-            Self::S3 { store, .. } => match store.delete(&self.object_path(key)).await {
-                Ok(()) | Err(object_store::Error::NotFound { .. }) => Ok(()),
-                Err(error) => Err(error.to_string()),
-            },
-            Self::Unavailable(error) => Err(error.clone()),
-        }
+        with_storage_timeout(STORAGE_OPERATION_TIMEOUT, "delete", async {
+            match self {
+                Self::Local { root } => {
+                    match tokio::fs::remove_file(local_path(root, key)?).await {
+                        Ok(()) => Ok(()),
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                        Err(error) => Err(error.to_string()),
+                    }
+                }
+                #[cfg(feature = "s3")]
+                Self::S3 { store, .. } => match store.delete(&self.object_path(key)).await {
+                    Ok(()) | Err(object_store::Error::NotFound { .. }) => Ok(()),
+                    Err(error) => Err(error.to_string()),
+                },
+                #[cfg(test)]
+                Self::DelayedRead { .. } => {
+                    Err("delayed test store does not support deletes".to_owned())
+                }
+                Self::Unavailable(error) => Err(error.clone()),
+            }
+        })
+        .await
     }
 
     #[cfg(feature = "s3")]
@@ -262,6 +309,19 @@ impl AttachmentStore {
             _ => object_store::path::Path::from(key),
         }
     }
+}
+
+async fn with_storage_timeout<T, F>(
+    timeout: Duration,
+    operation: &str,
+    future: F,
+) -> Result<T, String>
+where
+    F: Future<Output = Result<T, String>>,
+{
+    tokio::time::timeout(timeout, future)
+        .await
+        .map_err(|_| format!("attachment storage {operation} timed out"))?
 }
 
 fn local_path(root: &Path, key: &str) -> Result<PathBuf, String> {
@@ -316,7 +376,7 @@ fn normalize_prefix(prefix: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::{StorageProvider, StorageSettings, local_path, normalize_prefix};
-    use std::path::PathBuf;
+    use std::{path::PathBuf, time::Duration};
 
     fn s3_settings(endpoint: Option<&str>) -> StorageSettings {
         StorageSettings {
@@ -394,5 +454,18 @@ mod tests {
         tokio::fs::remove_dir_all(root)
             .await
             .expect("test storage root must be removable");
+    }
+
+    #[tokio::test]
+    async fn storage_operations_have_a_timeout_boundary() {
+        let error = super::with_storage_timeout(
+            Duration::ZERO,
+            "read",
+            std::future::pending::<Result<(), String>>(),
+        )
+        .await
+        .expect_err("pending storage operation must time out");
+
+        assert_eq!(error, "attachment storage read timed out");
     }
 }

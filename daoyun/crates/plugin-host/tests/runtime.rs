@@ -13,6 +13,9 @@ fn manifest(capabilities: Vec<PluginCapability>) -> PluginManifest {
         version: "1.0.0".to_owned(),
         description: String::new(),
         capabilities,
+        business_api_version: None,
+        data_scopes: Vec::new(),
+        event_subscriptions: Vec::new(),
     }
 }
 

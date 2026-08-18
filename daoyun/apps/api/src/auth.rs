@@ -59,7 +59,10 @@ use crate::oidc::{
 const AUTH_BODY_LIMIT: usize = 4 * 1024;
 const SESSION_MAX_AGE_SECONDS: u64 = 30 * 24 * 60 * 60;
 const OIDC_TRANSACTION_MAX_AGE_SECONDS: u64 = 5 * 60;
-const RECENT_AUTH_OPERATIONS: &[&str] = &["security.settings"];
+const MAX_TRACKED_AUTH_ATTEMPT_WINDOWS: usize = 16_384;
+pub(crate) const ADMIN_PRIVILEGED_RECENT_AUTH_OPERATION: &str = "admin.privileged_write";
+const RECENT_AUTH_OPERATIONS: &[&str] =
+    &["security.settings", ADMIN_PRIVILEGED_RECENT_AUTH_OPERATION];
 static PASSWORD_OPERATIONS: LazyLock<Semaphore> = LazyLock::new(|| Semaphore::new(4));
 static DUMMY_PASSWORD_HASH: LazyLock<String> = LazyLock::new(|| {
     let salt = SaltString::generate(&mut OsRng);
@@ -455,12 +458,10 @@ pub(crate) async fn login(
     if !is_initialized {
         return Err(not_ready(request_id));
     }
-    if let Some(retry_after) = check_rate_limit(
-        &runtime,
-        "login",
-        &identifier,
-        connect_info.map(|Extension(ConnectInfo(address))| address.ip()),
-    ) {
+    let client_ip = connect_info
+        .as_ref()
+        .map(|Extension(ConnectInfo(address))| address.ip());
+    if let Some(retry_after) = check_rate_limit(&runtime, "login", &identifier, client_ip) {
         return Err(rate_limited(request_id, retry_after));
     }
 
@@ -513,6 +514,7 @@ pub(crate) async fn login(
                 tracing::warn!(request_id = %request_id, error = %error, "MFA login challenge creation failed");
                 service_unavailable(request_id)
             })?;
+        release_rate_limit(&runtime, "login", &identifier, client_ip);
         record_security_audit(
             &database,
             Some(user.id),
@@ -539,6 +541,7 @@ pub(crate) async fn login(
             .into_response());
     }
     let secrets = create_session(&database, user.id, device_label(&headers), request_id).await?;
+    release_rate_limit(&runtime, "login", &identifier, client_ip);
     record_security_audit(
         &database,
         Some(user.id),
@@ -588,12 +591,13 @@ pub(crate) async fn recent_authenticate(
     let (operation, password) =
         validate_recent_auth(request).map_err(|fields| validation_error(request_id, fields))?;
     let current = authenticate_state_change(&database, &runtime, &headers, request_id).await?;
-    if let Some(retry_after) = check_rate_limit(
-        &runtime,
-        "recent-auth",
-        &current.user.id.to_string(),
-        connect_info.map(|Extension(ConnectInfo(address))| address.ip()),
-    ) {
+    let recent_auth_identifier = current.user.id.to_string();
+    let client_ip = connect_info
+        .as_ref()
+        .map(|Extension(ConnectInfo(address))| address.ip());
+    if let Some(retry_after) =
+        check_rate_limit(&runtime, "recent-auth", &recent_auth_identifier, client_ip)
+    {
         return Err(rate_limited(request_id, retry_after));
     }
     let password_hash = database
@@ -637,6 +641,7 @@ pub(crate) async fn recent_authenticate(
         })?;
     let expires_at =
         format_timestamp(recent.expires_at).map_err(|()| internal_error(request_id))?;
+    release_rate_limit(&runtime, "recent-auth", &recent_auth_identifier, client_ip);
     record_security_audit(
         &database,
         Some(current.user.id),
@@ -3024,14 +3029,49 @@ fn check_ip_rate_limit(
     check_rate_limit_keys(runtime, &[format!("{action}:ip:{client_ip}")])
 }
 
+fn release_rate_limit(
+    runtime: &AuthRuntime,
+    action: &str,
+    identifier: &str,
+    client_ip: Option<IpAddr>,
+) {
+    let client_ip = client_ip
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "unknown".to_owned());
+    let keys = [
+        format!("{action}:identifier:{identifier}"),
+        format!("{action}:ip:{client_ip}"),
+    ];
+    let mut attempts = runtime
+        .attempts
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    for key in keys {
+        let remove = attempts.get_mut(&key).is_some_and(|window| {
+            window.attempts = window.attempts.saturating_sub(1);
+            window.attempts == 0
+        });
+        if remove {
+            attempts.remove(&key);
+        }
+    }
+}
+
 fn check_rate_limit_keys(runtime: &AuthRuntime, keys: &[String]) -> Option<Duration> {
     let now = Instant::now();
     let mut attempts = runtime
         .attempts
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    attempts
-        .retain(|_, window| now.duration_since(window.started_at) < runtime.config.attempt_window);
+
+    for key in keys {
+        let expired = attempts.get(key).is_some_and(|window| {
+            now.duration_since(window.started_at) >= runtime.config.attempt_window
+        });
+        if expired {
+            attempts.remove(key);
+        }
+    }
 
     let retry_after = keys
         .iter()
@@ -3047,6 +3087,32 @@ fn check_rate_limit_keys(runtime: &AuthRuntime, keys: &[String]) -> Option<Durat
         .max();
     if let Some(retry_after) = retry_after {
         return Some(retry_after);
+    }
+
+    let missing_key_count = keys
+        .iter()
+        .filter(|key| !attempts.contains_key(*key))
+        .count();
+    if attempts.len().saturating_add(missing_key_count) > MAX_TRACKED_AUTH_ATTEMPT_WINDOWS {
+        attempts.retain(|_, window| {
+            now.duration_since(window.started_at) < runtime.config.attempt_window
+        });
+    }
+    while attempts.len().saturating_add(
+        keys.iter()
+            .filter(|key| !attempts.contains_key(*key))
+            .count(),
+    ) > MAX_TRACKED_AUTH_ATTEMPT_WINDOWS
+    {
+        let oldest_key = attempts
+            .iter()
+            .filter(|(tracked_key, _)| !keys.iter().any(|key| key == *tracked_key))
+            .min_by_key(|(_, window)| window.started_at)
+            .map(|(key, _)| key.clone());
+        let Some(oldest_key) = oldest_key else {
+            break;
+        };
+        attempts.remove(&oldest_key);
     }
 
     for key in keys {
@@ -3485,6 +3551,22 @@ mod tests {
             .expect("limited start route must respond");
         assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
         assert!(limited.headers().contains_key(header::RETRY_AFTER));
+    }
+
+    #[test]
+    fn auth_rate_limit_tracking_is_bounded() {
+        let runtime = runtime(AuthConfig::default().with_attempt_limit(u32::MAX));
+        for index in 0..(MAX_TRACKED_AUTH_ATTEMPT_WINDOWS + 32) {
+            assert!(
+                check_rate_limit_keys(&runtime, &[format!("test:{index}")]).is_none(),
+                "tracking capacity must not create a synthetic rate limit"
+            );
+        }
+        let attempts = runtime
+            .attempts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert!(attempts.len() <= MAX_TRACKED_AUTH_ATTEMPT_WINDOWS);
     }
 
     #[test]

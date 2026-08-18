@@ -1,6 +1,7 @@
 use daoyun_api::{
     AuthConfig, CacheConfig, MfaRuntime, ObservabilityConfig, OperationsAlertWorker,
-    OperationsAlertWorkerConfig, OutboxHandler, OutboxWorker, OutboxWorkerConfig, PluginRuntime,
+    OperationsAlertWorkerConfig, OutboxHandler, OutboxWorker, OutboxWorkerConfig,
+    PluginBusinessWorker, PluginBusinessWorkerConfig, PluginRuntime,
     SiteBrandingCacheInvalidationHandler, UserRestrictionWorker, UserRestrictionWorkerConfig,
     app_with_all_runtimes,
 };
@@ -47,14 +48,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     let restriction_worker =
         UserRestrictionWorker::new(database.clone(), UserRestrictionWorkerConfig::default())?;
+    let plugin_business_worker = plugins
+        .is_enabled()
+        .then(|| {
+            PluginBusinessWorker::new(
+                database.clone(),
+                plugins.clone(),
+                PluginBusinessWorkerConfig::default(),
+            )
+        })
+        .transpose()?;
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let operations_shutdown_rx = shutdown_rx.clone();
     let restriction_shutdown_rx = shutdown_rx.clone();
+    let plugin_business_shutdown_rx = shutdown_rx.clone();
     let worker_task = tokio::spawn(async move { worker.run(shutdown_rx).await });
     let operations_worker_task =
         tokio::spawn(async move { operations_worker.run(operations_shutdown_rx).await });
     let restriction_worker_task =
         tokio::spawn(async move { restriction_worker.run(restriction_shutdown_rx).await });
+    let plugin_business_worker_task = plugin_business_worker
+        .map(|worker| tokio::spawn(async move { worker.run(plugin_business_shutdown_rx).await }));
 
     let bind_address =
         std::env::var("DAOYUN_BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_owned());
@@ -85,10 +99,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let worker_result = worker_task.await;
     let operations_worker_result = operations_worker_task.await;
     let restriction_worker_result = restriction_worker_task.await;
+    let plugin_business_worker_result = match plugin_business_worker_task {
+        Some(task) => Some(task.await),
+        None => None,
+    };
     let tracing_shutdown_result = observability.shutdown_traces().await;
     worker_result?;
     operations_worker_result?;
     restriction_worker_result?;
+    if let Some(result) = plugin_business_worker_result {
+        result?;
+    }
     server?;
     tracing_shutdown_result?;
     Ok(())

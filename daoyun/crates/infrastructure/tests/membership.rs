@@ -79,12 +79,24 @@ async fn membership_account_is_initialized_and_ledger_is_idempotent(pool: PgPool
         .expect("membership account lookup must work")
         .expect("membership account must remain available");
     assert_eq!(account.lifetime_points, 25);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM outbox_events
+             WHERE event_type = 'points.changed' AND aggregate_id = $1",
+        )
+        .bind(user_id)
+        .fetch_one(&pool)
+        .await
+        .expect("points event count must be queryable"),
+        1
+    );
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
 async fn admin_grant_uses_configured_level_rules_and_records_audit(pool: PgPool) {
     let database = Database::from_pool(pool.clone());
     let actor_id = insert_user(&pool, "rule_admin", "rule-admin@example.com").await;
+    grant_super_admin(&pool, actor_id).await;
     let user_id = insert_user(&pool, "rule_member", "rule-member@example.com").await;
 
     let initial_rules = database
@@ -227,6 +239,7 @@ async fn admin_grant_uses_configured_level_rules_and_records_audit(pool: PgPool)
 async fn medals_are_idempotent_and_auto_awarded_by_points_rule(pool: PgPool) {
     let database = Database::from_pool(pool.clone());
     let actor_id = insert_user(&pool, "medal_admin", "medal-admin@example.com").await;
+    grant_super_admin(&pool, actor_id).await;
     let user_id = insert_user(&pool, "medal_member", "medal-member@example.com").await;
     let rule = database
         .update_membership_medal_rule(
@@ -282,6 +295,42 @@ async fn medals_are_idempotent_and_auto_awarded_by_points_rule(pool: PgPool) {
         invalid,
         infrastructure::GrantMembershipMedalError::InvalidMedal
     ));
+}
+
+async fn grant_super_admin(pool: &PgPool, user_id: Uuid) {
+    let role_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO roles (id, key, name, scope, is_system)
+         VALUES ($1, 'test_membership_admin', 'Test membership admin', 'instance', FALSE)",
+    )
+    .bind(role_id)
+    .execute(pool)
+    .await
+    .expect("test membership role must insert");
+    sqlx::query(
+        "INSERT INTO role_permissions (role_id, permission_id)
+         SELECT $1, id FROM permissions
+         WHERE permission_key IN (
+             'membership.rules.write',
+             'membership.points.grant',
+             'membership.medals.rules.write',
+             'membership.medals.grant'
+         )",
+    )
+    .bind(role_id)
+    .execute(pool)
+    .await
+    .expect("test membership permissions must insert");
+    sqlx::query(
+        "INSERT INTO role_assignments (id, user_id, role_id, assigned_by, scope_id)
+         VALUES ($1, $2, $3, $2, NULL)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(user_id)
+    .bind(role_id)
+    .execute(pool)
+    .await
+    .expect("test membership role must be assigned");
 }
 
 async fn insert_user(pool: &PgPool, username: &str, email: &str) -> Uuid {

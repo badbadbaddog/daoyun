@@ -185,17 +185,22 @@ $env:DAOYUN_PLUGINS_ENABLED = "true"
 pnpm api:local
 ```
 
-仓库提供与固定 WIT world 对齐的 Rust 示例插件。首次构建需要安装目标：
+仓库提供与固定 WIT world 对齐的旧 ABI 示例、业务 ABI 示例和官方成长奖励插件。首次构建需要安装目标：
 
 ```powershell
 rustup target add wasm32-wasip2 --toolchain 1.94.1-x86_64-pc-windows-gnu
 cargo +1.94.1-x86_64-pc-windows-gnu build --manifest-path sdk/plugin-rust-example/Cargo.toml --target wasm32-wasip2 --release --locked
+cargo +1.94.1-x86_64-pc-windows-gnu build --manifest-path sdk/plugin-business-rust-example/Cargo.toml --target wasm32-wasip2 --release --locked
+cargo +1.94.1-x86_64-pc-windows-gnu build --manifest-path plugins/official-growth-rewards/Cargo.toml --target wasm32-wasip2 --release --locked
 ```
 
-- guest 清单目前只允许 `content.transform` 和 `ui.panel`；插件管理分别由 `plugins.read`、`plugins.install`、`plugins.lifecycle` 和 `plugins.invoke` 控制。
-- 宿主不链接 WASI，不向 guest 暴露网络、文件系统、环境变量、时钟、随机数、数据库或进程能力；每次调用独立限制 fuel、内存、表、实例及输入输出大小。
+- 旧 ABI guest 只允许 `content.transform` 和 `ui.panel`；业务 ABI 另提供版本化事件、受控查询/命令、隔离存储、任务和固定 UI slot。两种 ABI 严格互斥，业务插件必须声明 `business_api_version = 0.1.0`，且不能同时申请旧 ABI 的 `content.transform`。插件管理分别由 `plugins.read`、`plugins.install`、`plugins.lifecycle` 和 `plugins.invoke` 控制。
+- 业务插件最多声明 6 个固定事件订阅，非空订阅必须申请 `events.subscribe`；订阅、能力和数据范围会作为同一份安装审批事实持久化。`users.read.basic` 只返回公开基础资料，会员状态需要单独批准 `users.read.membership`。
+- 宿主只为 Rust `wasm32-wasip2` 产物提供空环境、空标准流和有界 `wasi:io`，不链接 clocks、random、filesystem 或 sockets；guest 无网络、文件、宿主时间、随机源、数据库或进程能力。每次调用独立限制 fuel、单个 4 MiB memory、表、实例、64 KiB 输入输出总量、32 次 host call、5 秒执行时间和 2 秒 host I/O；同一业务插件同时只运行一次，全局最多运行 4 个插件任务。
+- UI 渲染必须申请 `ui.panel`；公开资料阶段不能调用 host import，私有/后台阶段仅允许绑定权威 subject 的受控查询、配额和隔离存储读取，不允许写命令、任务调度或存储写入。公共 surface 使用 no-store，最多 8 个候选、32 个贡献和 128 KiB 总 schema；事件或任务每次最多返回 32 条命令。
 - 声明式 UI 只在空权限 `sandbox`、`no-referrer`、`default-src 'none'` 的 iframe 中展示；插件字节、调用载荷和内部 trap 不进入公共响应或日志。
-- SDK 构建说明见 [Rust 示例插件](sdk/plugin-rust-example/README.md)，完整契约与安全边界见 [插件平台规格](docs/specs/plugin-platform.md)。
+- 官方成长插件按事件原始 UTC 日期，为每位用户每天首个主题发放 `+10 EXP`、首个回复发放 `+3 EXP`；固定长度核心命令键同时哈希稳定插件 key 与插件幂等键，保证长 key、事件重放、同日后续内容、并发执行及卸载后重装都不会重复奖励。命令日配额耗尽时事件和任务都会延至下一个 UTC 配额窗口且不消耗 attempt；插件不会默认安装或启用。
+- SDK 构建说明见 [Rust 示例插件](sdk/plugin-rust-example/README.md)，官方插件的构建与安装说明见 [成长奖励插件 README](plugins/official-growth-rewards/README.md)；成长规则见 [官方成长奖励插件规格](docs/specs/official-growth-rewards-plugin.md)，完整契约与安全边界见 [插件平台规格](docs/specs/plugin-platform.md)。
 
 ### MFA 加密密钥
 

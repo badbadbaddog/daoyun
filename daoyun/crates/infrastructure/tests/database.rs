@@ -1257,7 +1257,7 @@ async fn public_boards_are_ordered_paginated_and_visibility_filtered(pool: PgPoo
 
     let database = Database::from_pool(pool);
     let first_page = database
-        .list_public_boards(None, 2)
+        .list_public_boards(None, None, 2)
         .await
         .expect("first page must load");
 
@@ -1270,7 +1270,7 @@ async fn public_boards_are_ordered_paginated_and_visibility_filtered(pool: PgPoo
     );
 
     let second_page = database
-        .list_public_boards(Some(first_page[1].id), 2)
+        .list_public_boards(None, Some(first_page[1].id), 2)
         .await
         .expect("second page must load");
 

@@ -1,7 +1,8 @@
 use infrastructure::{
     CreateReplyError, CreateTopicError, Database, IdempotencyInput, ListPublicRepliesError,
     ListPublicTopicsError, NewReplyRecord, NewTagRecord, NewTopicRecord, PublicTopicFilters,
-    ReplyMutationError, TopicSort, UpdateReplyRecord, UpdateTopicError, UpdateTopicRecord,
+    ReplyMutationError, TopicGovernanceAction, TopicGovernanceError, TopicGovernanceInput,
+    TopicSort, UpdateReplyRecord, UpdateTopicError, UpdateTopicRecord,
 };
 use serde_json::{Value, json};
 use sqlx::{PgPool, types::Uuid};
@@ -605,6 +606,250 @@ async fn publishing_updates_the_board_count_once_for_an_idempotent_request(pool:
         .expect("board count must be readable");
     assert_eq!(topic_count, 1);
     assert_eq!(board_count, 1);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM outbox_events
+             WHERE event_type = 'topic.published' AND aggregate_id = $1",
+        )
+        .bind(first.topic_id)
+        .fetch_one(&pool)
+        .await
+        .expect("topic event count must be readable"),
+        1
+    );
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn expired_topic_idempotency_key_can_be_reused_and_is_pruned(pool: PgPool) {
+    let author = fixture_id(1);
+    let board = fixture_id(11);
+    insert_user(&pool, author, "author", "active").await;
+    insert_board(&pool, board, "general", "public").await;
+    let database = Database::from_pool(pool.clone());
+    let key = "expired-topic-key";
+
+    let first = database
+        .create_published_topic(
+            NewTopicRecord {
+                id: fixture_id(101),
+                board_id: Some(board),
+                author_id: author,
+                title: "第一次发布".to_owned(),
+                excerpt: "第一次发布".to_owned(),
+                content: "第一次正文".to_owned(),
+                tags: Vec::new(),
+            },
+            Some(IdempotencyInput {
+                key: key.to_owned(),
+                request_hash: vec![31; 32],
+            }),
+        )
+        .await
+        .expect("first topic must create");
+    assert!(first.created);
+
+    sqlx::query(
+        "UPDATE idempotency_records
+         SET created_at = CURRENT_TIMESTAMP - INTERVAL '2 days',
+             expires_at = CURRENT_TIMESTAMP - INTERVAL '1 day'
+         WHERE user_id = $1 AND endpoint = 'POST /api/v1/topics' AND idempotency_key = $2",
+    )
+    .bind(author)
+    .bind(key)
+    .execute(&pool)
+    .await
+    .expect("idempotency fixture must expire");
+
+    let second = database
+        .create_published_topic(
+            NewTopicRecord {
+                id: fixture_id(102),
+                board_id: Some(board),
+                author_id: author,
+                title: "第二次发布".to_owned(),
+                excerpt: "第二次发布".to_owned(),
+                content: "第二次正文".to_owned(),
+                tags: Vec::new(),
+            },
+            Some(IdempotencyInput {
+                key: key.to_owned(),
+                request_hash: vec![32; 32],
+            }),
+        )
+        .await
+        .expect("expired key must be reusable");
+    assert!(second.created);
+    assert_ne!(second.topic_id, first.topic_id);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM idempotency_records
+             WHERE user_id = $1 AND endpoint = 'POST /api/v1/topics' AND idempotency_key = $2",
+        )
+        .bind(author)
+        .bind(key)
+        .fetch_one(&pool)
+        .await
+        .expect("active idempotency record must be queryable"),
+        1
+    );
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn publishing_enforces_community_permission_and_daily_quota_transactionally(pool: PgPool) {
+    let author = fixture_id(1);
+    let board = fixture_id(11);
+    insert_user(&pool, author, "community_author", "active").await;
+    insert_board(&pool, board, "general", "public").await;
+    let database = Database::from_pool(pool.clone());
+
+    sqlx::query(
+        "DELETE FROM community_group_permissions
+         WHERE group_id = (
+             SELECT id FROM community_groups WHERE internal_key = 'registered_member'
+         ) AND permission_key = 'topic.create'",
+    )
+    .execute(&pool)
+    .await
+    .expect("topic permission fixture must update");
+    let denied = database
+        .create_published_topic(
+            NewTopicRecord {
+                id: fixture_id(201),
+                board_id: Some(board),
+                author_id: author,
+                title: "无权限主题".to_owned(),
+                excerpt: "无权限".to_owned(),
+                content: "不应写入".to_owned(),
+                tags: Vec::new(),
+            },
+            Some(IdempotencyInput {
+                key: "community-denied".to_owned(),
+                request_hash: vec![1; 32],
+            }),
+        )
+        .await;
+    assert!(matches!(denied, Err(CreateTopicError::PermissionDenied)));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM topics")
+            .fetch_one(&pool)
+            .await
+            .expect("topic count must be queryable"),
+        0
+    );
+
+    sqlx::query(
+        "INSERT INTO community_group_permissions (group_id, permission_key)
+         SELECT id, 'topic.create' FROM community_groups
+         WHERE internal_key = 'registered_member'",
+    )
+    .execute(&pool)
+    .await
+    .expect("topic permission fixture must restore");
+    sqlx::query(
+        "UPDATE community_group_quota_rules SET quota_value = 1
+         WHERE group_id = (
+             SELECT id FROM community_groups WHERE internal_key = 'registered_member'
+         ) AND quota_key = 'topic.create.daily'",
+    )
+    .execute(&pool)
+    .await
+    .expect("topic quota fixture must update");
+    let input = NewTopicRecord {
+        id: fixture_id(202),
+        board_id: Some(board),
+        author_id: author,
+        title: "配额主题".to_owned(),
+        excerpt: "配额".to_owned(),
+        content: "仅能创建一次".to_owned(),
+        tags: Vec::new(),
+    };
+    let idempotency = IdempotencyInput {
+        key: "community-quota-1".to_owned(),
+        request_hash: vec![2; 32],
+    };
+    let created = database
+        .create_published_topic(input.clone(), Some(idempotency.clone()))
+        .await
+        .expect("first topic within quota must create");
+    assert!(created.created);
+
+    sqlx::query(
+        "DELETE FROM community_group_permissions
+         WHERE group_id = (
+             SELECT id FROM community_groups WHERE internal_key = 'registered_member'
+         ) AND permission_key = 'topic.create'",
+    )
+    .execute(&pool)
+    .await
+    .expect("topic permission fixture must revoke");
+    let replay = database
+        .create_published_topic(
+            NewTopicRecord {
+                id: fixture_id(203),
+                ..input
+            },
+            Some(idempotency.clone()),
+        )
+        .await;
+    assert!(matches!(replay, Err(CreateTopicError::PermissionDenied)));
+
+    sqlx::query(
+        "INSERT INTO community_group_permissions (group_id, permission_key)
+         SELECT id, 'topic.create' FROM community_groups
+         WHERE internal_key = 'registered_member'",
+    )
+    .execute(&pool)
+    .await
+    .expect("topic permission fixture must restore");
+
+    let replay = database
+        .create_published_topic(
+            NewTopicRecord {
+                id: fixture_id(203),
+                ..input.clone()
+            },
+            Some(idempotency),
+        )
+        .await
+        .expect("idempotent replay must not consume quota twice");
+    assert!(!replay.created);
+
+    let exceeded = database
+        .create_published_topic(
+            NewTopicRecord {
+                id: fixture_id(204),
+                board_id: Some(board),
+                author_id: author,
+                title: "超额主题".to_owned(),
+                excerpt: "超额".to_owned(),
+                content: "不应写入".to_owned(),
+                tags: Vec::new(),
+            },
+            Some(IdempotencyInput {
+                key: "community-quota-2".to_owned(),
+                request_hash: vec![3; 32],
+            }),
+        )
+        .await;
+    assert!(matches!(exceeded, Err(CreateTopicError::QuotaExceeded)));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT used FROM community_quota_usage
+             WHERE user_id = $1 AND quota_key = 'topic.create.daily'",
+        )
+        .bind(author)
+        .fetch_one(&pool)
+        .await
+        .expect("quota usage must be queryable"),
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM topics")
+            .fetch_one(&pool)
+            .await
+            .expect("topic count must be queryable"),
+        1
+    );
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
@@ -900,6 +1145,17 @@ async fn publishing_a_reply_is_transactional_and_idempotent(pool: PgPool) {
             .fetch_one(&pool)
             .await
             .expect("topic reply count must be readable"),
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM outbox_events
+             WHERE event_type = 'reply.created' AND aggregate_id = $1",
+        )
+        .bind(first.reply_id)
+        .fetch_one(&pool)
+        .await
+        .expect("reply event count must be readable"),
         1
     );
 }
@@ -1331,6 +1587,278 @@ async fn audit_insert_failure_rolls_back_topic_and_idempotency(pool: PgPool) {
             .expect("board count must be readable"),
         0
     );
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn topic_governance_actions_are_revisioned_atomic_and_lock_replies(pool: PgPool) {
+    let moderator = fixture_id(1);
+    let author = fixture_id(2);
+    let source_board = fixture_id(11);
+    let target_board = fixture_id(12);
+    let topic = fixture_id(101);
+    insert_user(&pool, moderator, "moderator", "active").await;
+    insert_user(&pool, author, "author", "active").await;
+    insert_board(&pool, source_board, "source", "public").await;
+    insert_board(&pool, target_board, "target", "public").await;
+    insert_topic(
+        &pool,
+        topic,
+        source_board,
+        author,
+        "governed",
+        "2026-08-15T10:00:00Z",
+        0,
+        false,
+        false,
+        "published",
+        false,
+    )
+    .await;
+    sqlx::query("UPDATE boards SET topic_count = 1 WHERE id = $1")
+        .bind(source_board)
+        .execute(&pool)
+        .await
+        .expect("source board count fixture must update");
+    let role_id = fixture_id(201);
+    sqlx::query(
+        "INSERT INTO roles (id, key, name, scope)
+         VALUES ($1, 'topic_governor', 'Topic governor', 'instance')",
+    )
+    .bind(role_id)
+    .execute(&pool)
+    .await
+    .expect("governance role fixture must insert");
+    sqlx::query(
+        "INSERT INTO role_permissions (role_id, permission_id)
+         SELECT $1, id FROM permissions WHERE permission_key = ANY($2)",
+    )
+    .bind(role_id)
+    .bind(vec![
+        "moderation.topic.pin",
+        "moderation.topic.feature",
+        "moderation.topic.lock",
+        "moderation.topic.move",
+    ])
+    .execute(&pool)
+    .await
+    .expect("governance permissions must assign");
+    sqlx::query(
+        "INSERT INTO role_assignments (id, user_id, role_id, assigned_by)
+         VALUES ($1, $2, $3, $2)",
+    )
+    .bind(fixture_id(202))
+    .bind(moderator)
+    .bind(role_id)
+    .execute(&pool)
+    .await
+    .expect("governance assignment must insert");
+    let database = Database::from_pool(pool.clone());
+
+    let pinned = database
+        .govern_topic(TopicGovernanceInput {
+            topic_id: topic,
+            actor_id: moderator,
+            action: TopicGovernanceAction::Pin,
+            expected_revision: 1,
+            target_board_id: None,
+            reason: Some("keep visible".to_owned()),
+        })
+        .await
+        .expect("pin must succeed");
+    assert!(pinned.is_pinned);
+    assert_eq!(pinned.governance_revision, 2);
+
+    let conflict = database
+        .govern_topic(TopicGovernanceInput {
+            topic_id: topic,
+            actor_id: moderator,
+            action: TopicGovernanceAction::Feature,
+            expected_revision: 1,
+            target_board_id: None,
+            reason: None,
+        })
+        .await
+        .expect_err("stale revision must fail");
+    assert!(matches!(conflict, TopicGovernanceError::RevisionConflict));
+
+    let locked = database
+        .govern_topic(TopicGovernanceInput {
+            topic_id: topic,
+            actor_id: moderator,
+            action: TopicGovernanceAction::Lock,
+            expected_revision: 2,
+            target_board_id: None,
+            reason: None,
+        })
+        .await
+        .expect("lock must succeed");
+    assert!(locked.is_locked);
+    let locked_reply = database
+        .create_published_reply(
+            NewReplyRecord {
+                id: fixture_id(301),
+                revision_id: fixture_id(302),
+                topic_id: topic,
+                author_id: author,
+                content: "blocked".to_owned(),
+            },
+            None,
+        )
+        .await
+        .expect_err("locked topic must reject replies");
+    assert!(matches!(locked_reply, CreateReplyError::TopicLocked));
+
+    let unlocked = database
+        .govern_topic(TopicGovernanceInput {
+            topic_id: topic,
+            actor_id: moderator,
+            action: TopicGovernanceAction::Unlock,
+            expected_revision: 3,
+            target_board_id: None,
+            reason: None,
+        })
+        .await
+        .expect("unlock must succeed");
+    assert!(!unlocked.is_locked);
+    let moved = database
+        .govern_topic(TopicGovernanceInput {
+            topic_id: topic,
+            actor_id: moderator,
+            action: TopicGovernanceAction::Move,
+            expected_revision: 4,
+            target_board_id: Some(target_board),
+            reason: Some("better board".to_owned()),
+        })
+        .await
+        .expect("move must succeed");
+    assert_eq!(moved.board_id, target_board);
+    assert_eq!(moved.governance_revision, 5);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT topic_count FROM boards WHERE id = $1")
+            .bind(source_board)
+            .fetch_one(&pool)
+            .await
+            .expect("source board count must load"),
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT topic_count FROM boards WHERE id = $1")
+            .bind(target_board)
+            .fetch_one(&pool)
+            .await
+            .expect("target board count must load"),
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM outbox_events WHERE event_type = 'topic.governance.changed' AND aggregate_id = $1",
+        )
+        .bind(topic)
+        .fetch_one(&pool)
+        .await
+        .expect("governance outbox events must load"),
+        4
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM notifications WHERE kind = 'topic_governance' AND target_id = $1",
+        )
+        .bind(topic)
+        .fetch_one(&pool)
+        .await
+        .expect("governance notifications must load"),
+        4
+    );
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn board_user_restrictions_block_topics_and_replies_only_in_the_target_board(pool: PgPool) {
+    let author = fixture_id(1);
+    let other_author = fixture_id(2);
+    let restricted_board = fixture_id(11);
+    let open_board = fixture_id(12);
+    let existing_topic = fixture_id(101);
+    insert_user(&pool, author, "author", "active").await;
+    insert_user(&pool, other_author, "other", "active").await;
+    insert_board(&pool, restricted_board, "restricted", "public").await;
+    insert_board(&pool, open_board, "open", "public").await;
+    insert_topic(
+        &pool,
+        existing_topic,
+        restricted_board,
+        other_author,
+        "existing",
+        "2026-08-15T10:00:00Z",
+        0,
+        false,
+        false,
+        "published",
+        false,
+    )
+    .await;
+    sqlx::query(
+        "INSERT INTO board_user_restrictions
+            (id, board_id, user_id, actions, starts_at, ends_at, reason, created_by, updated_by)
+         VALUES ($1, $2, $3, ARRAY['topic.create', 'reply.create']::varchar[],
+                 CURRENT_TIMESTAMP - INTERVAL '1 hour', CURRENT_TIMESTAMP + INTERVAL '1 hour',
+                 'temporary', $4, $4)",
+    )
+    .bind(fixture_id(201))
+    .bind(restricted_board)
+    .bind(author)
+    .bind(other_author)
+    .execute(&pool)
+    .await
+    .expect("board restriction fixture must insert");
+    let database = Database::from_pool(pool.clone());
+
+    let topic_error = database
+        .create_published_topic(
+            NewTopicRecord {
+                id: fixture_id(301),
+                board_id: Some(restricted_board),
+                author_id: author,
+                title: "blocked topic".to_owned(),
+                excerpt: "blocked".to_owned(),
+                content: "blocked".to_owned(),
+                tags: Vec::new(),
+            },
+            None,
+        )
+        .await
+        .expect_err("restricted board must reject topic creation");
+    assert!(matches!(topic_error, CreateTopicError::BoardRestricted));
+
+    let reply_error = database
+        .create_published_reply(
+            NewReplyRecord {
+                id: fixture_id(302),
+                revision_id: fixture_id(303),
+                topic_id: existing_topic,
+                author_id: author,
+                content: "blocked reply".to_owned(),
+            },
+            None,
+        )
+        .await
+        .expect_err("restricted board must reject reply creation");
+    assert!(matches!(reply_error, CreateReplyError::BoardRestricted));
+
+    database
+        .create_published_topic(
+            NewTopicRecord {
+                id: fixture_id(304),
+                board_id: Some(open_board),
+                author_id: author,
+                title: "allowed topic".to_owned(),
+                excerpt: "allowed".to_owned(),
+                content: "allowed".to_owned(),
+                tags: Vec::new(),
+            },
+            None,
+        )
+        .await
+        .expect("restriction must not affect another board");
 }
 
 fn fixture_id(value: u128) -> Uuid {

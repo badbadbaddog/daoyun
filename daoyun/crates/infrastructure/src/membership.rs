@@ -5,6 +5,8 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::admin::insert_audit;
+use crate::authorization::{has_permission_with_executor, permission_keys};
+use crate::outbox::enqueue_core_event_in_transaction;
 use crate::{Database, DatabaseError};
 
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
@@ -73,6 +75,7 @@ pub struct UpdateMembershipLevelRuleRecord {
 
 #[derive(Debug)]
 pub enum AppendPointsLedgerError {
+    Forbidden,
     AccountNotFound,
     InvalidAmount,
     InvalidReason,
@@ -83,6 +86,7 @@ pub enum AppendPointsLedgerError {
 
 #[derive(Debug)]
 pub enum UpdateMembershipLevelRuleError {
+    Forbidden,
     InvalidLevel,
     InvalidThreshold,
     InvalidThresholdOrder,
@@ -93,6 +97,7 @@ pub enum UpdateMembershipLevelRuleError {
 
 #[derive(Debug)]
 pub enum GrantMembershipMedalError {
+    Forbidden,
     UserNotFound,
     InvalidMedal,
     InvalidReason,
@@ -101,6 +106,7 @@ pub enum GrantMembershipMedalError {
 
 #[derive(Debug)]
 pub enum UpdateMembershipMedalRuleError {
+    Forbidden,
     InvalidMedal,
     InvalidThreshold,
     Database(DatabaseError),
@@ -131,7 +137,7 @@ impl Database {
         reason: &str,
         idempotency_key: Option<&str>,
     ) -> Result<MembershipLedgerResult, AppendPointsLedgerError> {
-        self.append_points_ledger_with_actor(None, user_id, amount, reason, idempotency_key)
+        self.append_points_ledger_with_actor(None, user_id, amount, reason, idempotency_key, false)
             .await
     }
 
@@ -149,6 +155,26 @@ impl Database {
             amount,
             reason,
             idempotency_key,
+            true,
+        )
+        .await
+    }
+
+    pub(crate) async fn grant_membership_points_from_plugin(
+        &self,
+        actor_id: Uuid,
+        user_id: Uuid,
+        amount: i64,
+        reason: &str,
+        idempotency_key: Option<&str>,
+    ) -> Result<MembershipLedgerResult, AppendPointsLedgerError> {
+        self.append_points_ledger_with_actor(
+            Some(actor_id),
+            user_id,
+            amount,
+            reason,
+            idempotency_key,
+            false,
         )
         .await
     }
@@ -210,6 +236,16 @@ impl Database {
             return Err(UpdateMembershipMedalRuleError::InvalidThreshold);
         }
         let mut transaction = self.pool.begin().await?;
+        if !has_permission_with_executor(
+            &mut transaction,
+            actor_id,
+            permission_keys::MEMBERSHIP_MEDAL_RULES_WRITE,
+            None,
+        )
+        .await?
+        {
+            return Err(UpdateMembershipMedalRuleError::Forbidden);
+        }
         let record = sqlx::query_as::<_, MembershipMedalRuleRecord>(
             "UPDATE membership_medal_rules
              SET enabled = $2, required_lifetime_points = $3,
@@ -255,6 +291,16 @@ impl Database {
             return Err(GrantMembershipMedalError::InvalidReason);
         }
         let mut transaction = self.pool.begin().await?;
+        if !has_permission_with_executor(
+            &mut transaction,
+            actor_id,
+            permission_keys::MEMBERSHIP_MEDALS_GRANT,
+            None,
+        )
+        .await?
+        {
+            return Err(GrantMembershipMedalError::Forbidden);
+        }
         let exists = sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND status = 'active')",
         )
@@ -327,6 +373,16 @@ impl Database {
         }
 
         let mut transaction = self.pool.begin().await?;
+        if !has_permission_with_executor(
+            &mut transaction,
+            actor_id,
+            permission_keys::MEMBERSHIP_RULES_WRITE,
+            None,
+        )
+        .await?
+        {
+            return Err(UpdateMembershipLevelRuleError::Forbidden);
+        }
         let mut rules = sqlx::query_as::<_, MembershipLevelRuleRecord>(
             "SELECT level_key, level_number, level_display_name,
                     required_lifetime_points, enabled, updated_at
@@ -433,6 +489,7 @@ impl Database {
         amount: i64,
         reason: &str,
         idempotency_key: Option<&str>,
+        enforce_admin_authorization: bool,
     ) -> Result<MembershipLedgerResult, AppendPointsLedgerError> {
         if amount == 0 {
             return Err(AppendPointsLedgerError::InvalidAmount);
@@ -447,6 +504,18 @@ impl Database {
         }
 
         let mut transaction = self.pool.begin().await?;
+        if enforce_admin_authorization
+            && let Some(actor_id) = actor_id
+            && !has_permission_with_executor(
+                &mut transaction,
+                actor_id,
+                permission_keys::MEMBERSHIP_POINTS_GRANT,
+                None,
+            )
+            .await?
+        {
+            return Err(AppendPointsLedgerError::Forbidden);
+        }
         let account = sqlx::query_as::<_, MembershipAccountRecord>(
             "SELECT account.user_id, account.points_balance, account.lifetime_points,
                     account.level_key, rule.level_number, rule.level_display_name,
@@ -518,12 +587,13 @@ impl Database {
         .bind(&level_key)
         .execute(&mut *transaction)
         .await?;
+        let entry_id = Uuid::now_v7();
         sqlx::query(
             "INSERT INTO point_ledger_entries
                 (id, user_id, amount, reason, idempotency_key, balance_after)
              VALUES ($1, $2, $3, $4, $5, $6)",
         )
-        .bind(Uuid::now_v7())
+        .bind(entry_id)
         .bind(user_id)
         .bind(amount)
         .bind(reason)
@@ -584,6 +654,24 @@ impl Database {
         )
         .bind(user_id)
         .fetch_one(&mut *transaction)
+        .await?;
+        enqueue_core_event_in_transaction(
+            &mut transaction,
+            entry_id,
+            "points.changed",
+            "user",
+            user_id,
+            serde_json::json!({
+                "user_id": user_id,
+                "entry_id": entry_id,
+                "amount": amount,
+                "reason": reason,
+                "balance_after": account.points_balance,
+                "lifetime_points": account.lifetime_points,
+                "level_key": account.level_key,
+                "revision": account.revision,
+            }),
+        )
         .await?;
         transaction.commit().await?;
         Ok(MembershipLedgerResult {
@@ -661,6 +749,7 @@ impl From<sqlx::Error> for UpdateMembershipMedalRuleError {
 impl fmt::Display for AppendPointsLedgerError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Forbidden => formatter.write_str("membership points mutation is forbidden"),
             Self::AccountNotFound => formatter.write_str("membership account was not found"),
             Self::InvalidAmount => formatter.write_str("points amount cannot be zero"),
             Self::InvalidReason => formatter.write_str("points reason is invalid"),
@@ -676,6 +765,7 @@ impl Error for AppendPointsLedgerError {}
 impl fmt::Display for UpdateMembershipLevelRuleError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Forbidden => formatter.write_str("membership level rule mutation is forbidden"),
             Self::InvalidLevel => formatter.write_str("membership level is invalid"),
             Self::InvalidThreshold => formatter.write_str("membership threshold is invalid"),
             Self::InvalidThresholdOrder => {
@@ -697,6 +787,7 @@ impl Error for UpdateMembershipLevelRuleError {}
 impl fmt::Display for GrantMembershipMedalError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Forbidden => formatter.write_str("membership medal grant is forbidden"),
             Self::UserNotFound => formatter.write_str("medal target user was not found"),
             Self::InvalidMedal => formatter.write_str("medal key is invalid"),
             Self::InvalidReason => formatter.write_str("medal reason is invalid"),
@@ -710,6 +801,7 @@ impl Error for GrantMembershipMedalError {}
 impl fmt::Display for UpdateMembershipMedalRuleError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Forbidden => formatter.write_str("membership medal rule mutation is forbidden"),
             Self::InvalidMedal => formatter.write_str("medal key is invalid"),
             Self::InvalidThreshold => formatter.write_str("medal threshold is invalid"),
             Self::Database(_) => formatter.write_str("medal rule database operation failed"),

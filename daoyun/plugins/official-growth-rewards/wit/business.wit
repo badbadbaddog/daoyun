@@ -1,0 +1,142 @@
+package daoyun:plugin-business@0.1.0;
+
+interface types {
+    enum ui-slot {
+        user-profile,
+        membership-panel,
+        admin-user,
+        admin-plugin,
+    }
+
+    record request-context {
+        request-id: string,
+        site-id: string,
+        actor-id: option<string>,
+        subject-id: option<string>,
+        ui-slot: option<ui-slot>,
+        occurred-at-unix-ms: u64,
+    }
+
+    enum event-kind {
+        user-created,
+        topic-published,
+        reply-created,
+        points-changed,
+        experience-changed,
+        entitlement-changed,
+    }
+
+    record event {
+        id: string,
+        kind: event-kind,
+        aggregate-id: option<string>,
+        payload-schema-version: u16,
+        payload-json: string,
+    }
+
+    enum query-kind {
+        site,
+        actor,
+        user-basic,
+        membership,
+        board,
+    }
+
+    record query-request {
+        kind: query-kind,
+        subject-id: option<string>,
+    }
+
+    record query-response {
+        payload-json: string,
+    }
+
+    enum command-kind {
+        points-append,
+        experience-append,
+        entitlement-grant,
+        entitlement-revoke,
+        notification-send,
+    }
+
+    record command-request {
+        kind: command-kind,
+        subject-id: string,
+        idempotency-key: string,
+        payload-json: string,
+    }
+
+    record command-response {
+        resource-id: string,
+        replayed: bool,
+        payload-json: string,
+    }
+
+    record ui-contribution {
+        slot: ui-slot,
+        schema-json: string,
+    }
+
+    record ui-action {
+        slot: ui-slot,
+        action-key: string,
+        subject-id: option<string>,
+        idempotency-key: string,
+    }
+
+    record task-request {
+        task-key: string,
+        run-at-unix-ms: u64,
+        idempotency-key: string,
+        payload-json: string,
+    }
+
+    record quota-snapshot {
+        storage-bytes-limit: u64,
+        storage-bytes-used: u64,
+        pending-task-limit: u32,
+        pending-task-used: u32,
+        command-daily-limit: u32,
+        command-daily-used: u32,
+    }
+
+    record storage-object {
+        key: string,
+        value: list<u8>,
+        content-type: string,
+        revision: u64,
+    }
+
+    record storage-put-request {
+        key: string,
+        value: list<u8>,
+        content-type: string,
+        expected-revision: option<u64>,
+    }
+}
+
+interface host {
+    use types.{request-context, query-request, query-response, command-request, command-response, task-request, quota-snapshot, storage-object, storage-put-request};
+
+    query: func(context: request-context, request: query-request) -> result<query-response, string>;
+    execute: func(context: request-context, request: command-request) -> result<command-response, string>;
+    schedule: func(context: request-context, request: task-request) -> result<string, string>;
+    quotas: func(context: request-context) -> quota-snapshot;
+    storage-get: func(context: request-context, key: string) -> result<option<storage-object>, string>;
+    storage-put: func(context: request-context, request: storage-put-request) -> result<storage-object, string>;
+    storage-delete: func(context: request-context, key: string, expected-revision: u64) -> result<bool, string>;
+}
+
+interface guest {
+    use types.{request-context, event, command-request, ui-contribution, ui-action};
+
+    on-event: func(context: request-context, event: event) -> result<list<command-request>, string>;
+    ui-contributions: func(context: request-context) -> result<list<ui-contribution>, string>;
+    on-ui-action: func(context: request-context, action: ui-action) -> result<list<command-request>, string>;
+    run-task: func(context: request-context, task-key: string, payload-json: string) -> result<list<command-request>, string>;
+}
+
+world business-plugin {
+    import host;
+    export guest;
+}

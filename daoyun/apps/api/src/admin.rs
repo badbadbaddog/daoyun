@@ -2,20 +2,27 @@ use std::collections::BTreeSet;
 
 use api_contract::{
     AdminAuditEntry, AdminBoard, AdminBoardDeletionImpact, AdminBoardVisibility,
-    AdminCapabilityAccess, AdminUserContentItem, AdminUserContentKind, AdminUserDetail,
+    AdminCapabilityAccess, AdminCommunityGroup, AdminCommunityGroupMembership, AdminGrowthLevel,
+    AdminStandardEntitlement, AdminUserContentItem, AdminUserContentKind, AdminUserDetail,
     AdminUserStatus, AdminUserStatusUpdate, AdminUserSummary, ApiResponse, AttachmentCleanupResult,
     AuthorizationAssignedRole, AuthorizationPermission, AuthorizationRole,
-    AuthorizationRoleAssignment, AuthorizationRoleScope, BoardTone, BrandHomeMode, BrandLink,
-    BrandListDensity, BrandThemePreset, CreateAdminBoardRequest,
-    CreateAuthorizationAssignmentRequest, CreateAuthorizationRoleRequest, ErrorBody, ErrorCode,
-    ErrorResponse, FieldErrors, GovernancePolicy, GrantMembershipMedalRequest,
-    GrantMembershipPointsRequest, MembershipAccount, MembershipLevelRule, MembershipMedal,
-    MembershipMedalGrant, MembershipMedalRule, MembershipPointsGrant, PageResponse, RequestId,
-    RiskAlert, RiskAlertKind, RiskAlertSeverity, RiskAlertStatus, SiteBranding,
-    UpdateAdminBoardRequest, UpdateAdminUserStatusRequest, UpdateAuthorizationRoleRequest,
-    UpdateGovernancePolicyRequest, UpdateMembershipLevelRuleRequest,
-    UpdateMembershipMedalRuleRequest, UpdateRiskAlertRequest, UpdateSiteBrandingRequest,
-    UserSummary, error_codes,
+    AuthorizationRoleAssignment, AuthorizationRoleScope, AuthorizationScopeMode, BoardTone,
+    BrandHomeMode, BrandLink, BrandListDensity, BrandThemePreset, CommunityGroupMembershipMutation,
+    CommunityGroupStatus, ContentAccessOperator, ContentAccessPolicy, ContentAccessSubject,
+    ContentAccessSubjectType, ContentAccessTargetType, CreateAdminBoardRequest,
+    CreateAuthorizationAssignmentRequest, CreateAuthorizationRoleRequest,
+    CreateCommunityGroupRequest, CreateGrowthLevelRequest, ErrorBody, ErrorCode, ErrorResponse,
+    FieldErrors, GovernancePolicy, GrantCommunityGroupMembershipRequest,
+    GrantMembershipMedalRequest, GrantMembershipPointsRequest, GrantStandardEntitlementRequest,
+    GrowthLevelStatus, MembershipAccount, MembershipLevelRule, MembershipMedal,
+    MembershipMedalGrant, MembershipMedalRule, MembershipPointsGrant, PageResponse,
+    PutContentAccessPolicyRequest, PutStandardEntitlementTypeRequest, RequestId,
+    RevokeCommunityGroupMembershipRequest, RevokeStandardEntitlementRequest, RiskAlert,
+    RiskAlertKind, RiskAlertSeverity, RiskAlertStatus, SiteBranding, StandardEntitlementMutation,
+    StandardEntitlementType, UpdateAdminBoardRequest, UpdateAdminUserStatusRequest,
+    UpdateAuthorizationRoleRequest, UpdateCommunityGroupRequest, UpdateGovernancePolicyRequest,
+    UpdateGrowthLevelRequest, UpdateMembershipLevelRuleRequest, UpdateMembershipMedalRuleRequest,
+    UpdateRiskAlertRequest, UpdateSiteBrandingRequest, UserSummary, error_codes,
 };
 use axum::{
     Extension, Json, Router,
@@ -29,19 +36,26 @@ use axum::{
 };
 use infrastructure::{
     AdminAuditRecord, AdminBoardDeletionImpactRecord, AdminBoardRecord, AdminConfigError,
-    AdminUserContentRecord, AdminUserDetailRecord, AdminUserReadError, AdminUserStatusUpdateRecord,
-    AdminUserSummaryRecord, AppendPointsLedgerError, AttachmentCleanupError,
-    AuthorizationPermissionRecord, AuthorizationRoleAssignmentRecord, AuthorizationRoleRecord,
-    BrandAssetError, BrandLinkRecord, CreateAdminBoardRecord, CreateAuthorizationAssignmentRecord,
-    CreateAuthorizationRoleRecord, Database, GovernancePolicyRecord, GrantMembershipMedalError,
+    AdminGrowthLevelRecord, AdminUserContentRecord, AdminUserDetailRecord, AdminUserReadError,
+    AdminUserStatusUpdateRecord, AdminUserSummaryRecord, AppendPointsLedgerError,
+    AttachmentCleanupError, AuthorizationPermissionRecord, AuthorizationRoleAssignmentRecord,
+    AuthorizationRoleRecord, BrandAssetError, BrandLinkRecord, CommunityGroupConfigurationRecord,
+    CommunityGroupMembershipRecord, CommunityGroupMutationError, CommunityMembershipMutationError,
+    ContentAccessPolicyMutationError, ContentAccessPolicyRecord, ContentAccessPolicySubjectRecord,
+    CreateAdminBoardRecord, CreateAuthorizationAssignmentRecord, CreateAuthorizationRoleRecord,
+    CreateCommunityGroupRecord, CreateGrowthLevelRecord, Database, GovernancePolicyRecord,
+    GrantCommunityMembershipRecord, GrantMembershipMedalError, GrantStandardEntitlementRecord,
     ListAdminAuditError, ListAdminAuditFilter, ListAuthorizationAssignmentsError,
     ListRiskAlertsError, MembershipAccountRecord, MembershipLevelRuleRecord, MembershipMedalRecord,
     MembershipMedalRuleRecord, MutateAuthorizationAssignmentError, MutateAuthorizationRoleError,
-    RiskAlertRecord, SiteBrandingRecord, UpdateAdminBoardRecord, UpdateAdminUserStatusError,
-    UpdateAdminUserStatusRecord, UpdateAuthorizationRoleRecord, UpdateMembershipLevelRuleError,
-    UpdateMembershipLevelRuleRecord, UpdateMembershipMedalRuleError,
-    UpdateMembershipMedalRuleRecord, UpdateRiskAlertError, UpdateSiteBrandingRecord,
-    permission_keys,
+    MutateGrowthLevelError, PutContentAccessPolicyRecord, PutStandardEntitlementTypeRecord,
+    RevokeStandardEntitlementRecord, RiskAlertRecord, SiteBrandingRecord,
+    StandardEntitlementMutationError, StandardEntitlementRecord, StandardEntitlementTypeRecord,
+    UpdateAdminBoardRecord, UpdateAdminUserStatusError, UpdateAdminUserStatusRecord,
+    UpdateAuthorizationRoleRecord, UpdateCommunityGroupRecord, UpdateGrowthLevelRecord,
+    UpdateMembershipLevelRuleError, UpdateMembershipLevelRuleRecord,
+    UpdateMembershipMedalRuleError, UpdateMembershipMedalRuleRecord, UpdateRiskAlertError,
+    UpdateSiteBrandingRecord, permission_keys,
 };
 use serde::Deserialize;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -49,7 +63,10 @@ use utoipa::IntoParams;
 use uuid::Uuid;
 
 use crate::CacheRuntime;
-use crate::auth::{ApiError, AuthRuntime, authenticate_session, authenticate_state_change};
+use crate::auth::{
+    ADMIN_PRIVILEGED_RECENT_AUTH_OPERATION, ApiError, AuthRuntime, authenticate_session,
+    authenticate_state_change, recent_authentication_required,
+};
 
 const ADMIN_BODY_LIMIT: usize = 32 * 1024;
 const MAX_BRAND_ASSET_BYTES: usize = 2 * 1024 * 1024;
@@ -199,6 +216,46 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
         .route(
             "/api/v1/admin/membership/level-rules/{level_key}",
             patch(update_membership_level_rule),
+        )
+        .route(
+            "/api/v1/admin/membership/levels",
+            get(list_growth_levels).post(create_growth_level),
+        )
+        .route(
+            "/api/v1/admin/membership/levels/{level_id}",
+            patch(update_growth_level),
+        )
+        .route(
+            "/api/v1/admin/community/groups",
+            get(list_community_groups).post(create_community_group),
+        )
+        .route(
+            "/api/v1/admin/community/groups/{group_id}",
+            patch(update_community_group),
+        )
+        .route(
+            "/api/v1/admin/community/memberships",
+            post(grant_community_membership),
+        )
+        .route(
+            "/api/v1/admin/community/memberships/{membership_id}/revoke",
+            post(revoke_community_membership),
+        )
+        .route(
+            "/api/v1/admin/entitlements/types/{internal_key}",
+            put(put_standard_entitlement_type),
+        )
+        .route(
+            "/api/v1/admin/entitlements",
+            post(grant_standard_entitlement),
+        )
+        .route(
+            "/api/v1/admin/entitlements/{entitlement_id}/revoke",
+            post(revoke_standard_entitlement),
+        )
+        .route(
+            "/api/v1/admin/content-access-policies/{target_type}/{target_id}",
+            get(get_content_access_policy).put(put_content_access_policy),
         )
         .route(
             "/api/v1/admin/membership/points",
@@ -832,6 +889,7 @@ pub(crate) async fn delete_authorization_role(
     operation_id = "createAuthorizationAssignment",
     tag = "admin",
     request_body = CreateAuthorizationAssignmentRequest,
+    params(("x-csrf-token" = String, Header)),
     responses(
         (status = 201, body = ApiResponse<AuthorizationRoleAssignment>, headers(("x-request-id" = String))),
         (status = 401, body = ErrorResponse, headers(("x-request-id" = String))),
@@ -871,6 +929,7 @@ pub(crate) async fn create_authorization_assignment(
                 username,
                 role_id: request.role_id,
                 scope_id: request.scope_id,
+                scope_mode: authorization_scope_mode_key(request.scope_mode).to_owned(),
             },
         )
         .await
@@ -919,6 +978,716 @@ pub(crate) async fn delete_authorization_assignment(
         .await
         .map_err(|error| authorization_assignment_error(request_id, error))?;
     Ok(Json(ApiResponse::new(true, request_id)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/community/groups",
+    operation_id = "listCommunityGroups",
+    tag = "admin",
+    responses(
+        (status = 200, body = ApiResponse<Vec<AdminCommunityGroup>>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse), (status = 403, body = ErrorResponse),
+        (status = 503, body = ErrorResponse)
+    )
+)]
+pub(crate) async fn list_community_groups(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+) -> Result<Json<ApiResponse<Vec<AdminCommunityGroup>>>, ApiError> {
+    authorize_capability_read(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::COMMUNITY_GROUPS_READ,
+    )
+    .await?;
+    let groups = database
+        .list_community_group_configurations()
+        .await
+        .map_err(|error| {
+            database_error(
+                request_id,
+                infrastructure::DatabaseError::from(error),
+                "社区用户组查询失败",
+            )
+        })?
+        .into_iter()
+        .map(map_admin_community_group)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|()| invalid_record(request_id))?;
+    Ok(Json(ApiResponse::new(groups, request_id)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/community/groups",
+    operation_id = "createCommunityGroup",
+    tag = "admin",
+    params(("x-csrf-token" = String, Header)),
+    request_body = CreateCommunityGroupRequest,
+    responses(
+        (status = 201, body = ApiResponse<AdminCommunityGroup>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse), (status = 403, body = ErrorResponse),
+        (status = 409, body = ErrorResponse), (status = 422, body = ErrorResponse),
+        (status = 503, body = ErrorResponse)
+    )
+)]
+pub(crate) async fn create_community_group(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    request: Result<Json<CreateCommunityGroupRequest>, JsonRejection>,
+) -> Result<(StatusCode, Json<ApiResponse<AdminCommunityGroup>>), ApiError> {
+    let session = authorize_capability_write(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::COMMUNITY_GROUPS_WRITE,
+    )
+    .await?;
+    let Json(request) =
+        request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
+    let record = database
+        .create_community_group(
+            session.user.id,
+            CreateCommunityGroupRecord {
+                internal_key: request.internal_key,
+                display_name: request.display_name,
+                description: request.description,
+                is_base: request.is_base,
+                display_order: request.display_order,
+                permission_keys: request.permission_keys.into_iter().collect(),
+                quotas: request.quotas,
+            },
+        )
+        .await
+        .map_err(|error| community_group_error(request_id, error))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(ApiResponse::new(
+            map_admin_community_group(record).map_err(|()| invalid_record(request_id))?,
+            request_id,
+        )),
+    ))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/admin/community/groups/{group_id}",
+    operation_id = "updateCommunityGroup",
+    tag = "admin",
+    params(("group_id" = Uuid, Path), ("x-csrf-token" = String, Header)),
+    request_body = UpdateCommunityGroupRequest,
+    responses(
+        (status = 200, body = ApiResponse<AdminCommunityGroup>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse), (status = 403, body = ErrorResponse),
+        (status = 404, body = ErrorResponse), (status = 409, body = ErrorResponse),
+        (status = 422, body = ErrorResponse), (status = 503, body = ErrorResponse)
+    )
+)]
+pub(crate) async fn update_community_group(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    Path(group_id): Path<Uuid>,
+    request: Result<Json<UpdateCommunityGroupRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<AdminCommunityGroup>>, ApiError> {
+    let session = authorize_capability_write(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::COMMUNITY_GROUPS_WRITE,
+    )
+    .await?;
+    let Json(request) =
+        request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
+    let record = database
+        .update_community_group(
+            session.user.id,
+            UpdateCommunityGroupRecord {
+                id: group_id,
+                expected_revision: request.expected_revision,
+                display_name: request.display_name,
+                description: request.description,
+                status: community_group_status_key(request.status).to_owned(),
+                display_order: request.display_order,
+                permission_keys: request.permission_keys.into_iter().collect(),
+                quotas: request.quotas,
+            },
+        )
+        .await
+        .map_err(|error| community_group_error(request_id, error))?;
+    Ok(Json(ApiResponse::new(
+        map_admin_community_group(record).map_err(|()| invalid_record(request_id))?,
+        request_id,
+    )))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/community/memberships",
+    operation_id = "grantCommunityGroupMembership",
+    tag = "admin",
+    params(("x-csrf-token" = String, Header)),
+    request_body = GrantCommunityGroupMembershipRequest,
+    responses(
+        (status = 200, body = ApiResponse<CommunityGroupMembershipMutation>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse), (status = 403, body = ErrorResponse),
+        (status = 404, body = ErrorResponse), (status = 409, body = ErrorResponse),
+        (status = 422, body = ErrorResponse), (status = 503, body = ErrorResponse)
+    )
+)]
+pub(crate) async fn grant_community_membership(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    request: Result<Json<GrantCommunityGroupMembershipRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<CommunityGroupMembershipMutation>>, ApiError> {
+    let session = authorize_capability_write(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::COMMUNITY_MEMBERSHIPS_WRITE,
+    )
+    .await?;
+    let Json(request) =
+        request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
+    let starts_at = parse_admin_timestamp(&request.starts_at)
+        .map_err(|()| validation_error(request_id, "starts_at", "开始时间必须是 RFC 3339"))?;
+    let ends_at = request
+        .ends_at
+        .as_deref()
+        .map(parse_admin_timestamp)
+        .transpose()
+        .map_err(|()| validation_error(request_id, "ends_at", "结束时间必须是 RFC 3339"))?;
+    let result = database
+        .grant_community_membership(
+            session.user.id,
+            GrantCommunityMembershipRecord {
+                user_id: request.user_id,
+                group_id: request.group_id,
+                membership_kind: request.membership_kind,
+                source: request.source,
+                source_reference_id: request.source_reference_id,
+                reason: request.reason,
+                starts_at,
+                ends_at,
+                idempotency_key: request.idempotency_key,
+            },
+        )
+        .await
+        .map_err(|error| community_membership_error(request_id, error))?;
+    Ok(Json(ApiResponse::new(
+        CommunityGroupMembershipMutation {
+            membership: map_admin_community_membership(result.membership)
+                .map_err(|()| invalid_record(request_id))?,
+            replayed: result.replayed,
+        },
+        request_id,
+    )))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/community/memberships/{membership_id}/revoke",
+    operation_id = "revokeCommunityGroupMembership",
+    tag = "admin",
+    params(("membership_id" = Uuid, Path), ("x-csrf-token" = String, Header)),
+    request_body = RevokeCommunityGroupMembershipRequest,
+    responses(
+        (status = 200, body = ApiResponse<CommunityGroupMembershipMutation>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse), (status = 403, body = ErrorResponse),
+        (status = 404, body = ErrorResponse), (status = 409, body = ErrorResponse),
+        (status = 422, body = ErrorResponse), (status = 503, body = ErrorResponse)
+    )
+)]
+pub(crate) async fn revoke_community_membership(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    Path(membership_id): Path<Uuid>,
+    request: Result<Json<RevokeCommunityGroupMembershipRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<CommunityGroupMembershipMutation>>, ApiError> {
+    let session = authorize_capability_write(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::COMMUNITY_MEMBERSHIPS_WRITE,
+    )
+    .await?;
+    let Json(request) =
+        request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
+    let result = database
+        .revoke_community_membership(
+            session.user.id,
+            membership_id,
+            request.expected_revision,
+            &request.reason,
+            &request.idempotency_key,
+        )
+        .await
+        .map_err(|error| community_membership_error(request_id, error))?;
+    Ok(Json(ApiResponse::new(
+        CommunityGroupMembershipMutation {
+            membership: map_admin_community_membership(result.membership)
+                .map_err(|()| invalid_record(request_id))?,
+            replayed: result.replayed,
+        },
+        request_id,
+    )))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/admin/entitlements/types/{internal_key}",
+    operation_id = "putStandardEntitlementType",
+    tag = "admin",
+    params(("internal_key" = String, Path), ("x-csrf-token" = String, Header)),
+    request_body = PutStandardEntitlementTypeRequest,
+    responses(
+        (status = 200, body = ApiResponse<StandardEntitlementType>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse), (status = 403, body = ErrorResponse),
+        (status = 404, body = ErrorResponse), (status = 409, body = ErrorResponse),
+        (status = 422, body = ErrorResponse), (status = 503, body = ErrorResponse)
+    )
+)]
+pub(crate) async fn put_standard_entitlement_type(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    Path(internal_key): Path<String>,
+    request: Result<Json<PutStandardEntitlementTypeRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<StandardEntitlementType>>, ApiError> {
+    let session = authorize_capability_write(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::ENTITLEMENT_TYPES_WRITE,
+    )
+    .await?;
+    let Json(request) =
+        request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
+    let record = database
+        .put_standard_entitlement_type(
+            session.user.id,
+            PutStandardEntitlementTypeRecord {
+                internal_key,
+                display_name: request.display_name,
+                permission_keys: request.permission_keys,
+                quotas: request.quotas,
+                expected_revision: request.expected_revision,
+            },
+        )
+        .await
+        .map_err(|error| standard_entitlement_error(request_id, error))?;
+    Ok(Json(ApiResponse::new(
+        map_standard_entitlement_type(record),
+        request_id,
+    )))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/entitlements",
+    operation_id = "grantStandardEntitlement",
+    tag = "admin",
+    params(("x-csrf-token" = String, Header)),
+    request_body = GrantStandardEntitlementRequest,
+    responses(
+        (status = 200, body = ApiResponse<StandardEntitlementMutation>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse), (status = 403, body = ErrorResponse),
+        (status = 404, body = ErrorResponse), (status = 409, body = ErrorResponse),
+        (status = 422, body = ErrorResponse), (status = 503, body = ErrorResponse)
+    )
+)]
+pub(crate) async fn grant_standard_entitlement(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    request: Result<Json<GrantStandardEntitlementRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<StandardEntitlementMutation>>, ApiError> {
+    let session = authorize_capability_write(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::ENTITLEMENT_GRANTS_WRITE,
+    )
+    .await?;
+    let Json(request) =
+        request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
+    let starts_at = parse_admin_timestamp(&request.starts_at)
+        .map_err(|()| validation_error(request_id, "starts_at", "开始时间必须是 RFC 3339"))?;
+    let ends_at = request
+        .ends_at
+        .as_deref()
+        .map(parse_admin_timestamp)
+        .transpose()
+        .map_err(|()| validation_error(request_id, "ends_at", "结束时间必须是 RFC 3339"))?;
+    let result = database
+        .grant_standard_entitlement(GrantStandardEntitlementRecord {
+            user_id: request.user_id,
+            entitlement_type_id: request.entitlement_type_id,
+            actor_id: session.user.id,
+            source: request.source,
+            source_reference_id: request.source_reference_id,
+            reason: request.reason,
+            starts_at,
+            ends_at,
+            idempotency_key: request.idempotency_key,
+        })
+        .await
+        .map_err(|error| standard_entitlement_error(request_id, error))?;
+    Ok(Json(ApiResponse::new(
+        StandardEntitlementMutation {
+            entitlement: map_standard_entitlement(result.entitlement),
+            replayed: result.replayed,
+        },
+        request_id,
+    )))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/entitlements/{entitlement_id}/revoke",
+    operation_id = "revokeStandardEntitlement",
+    tag = "admin",
+    params(("entitlement_id" = Uuid, Path), ("x-csrf-token" = String, Header)),
+    request_body = RevokeStandardEntitlementRequest,
+    responses(
+        (status = 200, body = ApiResponse<StandardEntitlementMutation>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse), (status = 403, body = ErrorResponse),
+        (status = 404, body = ErrorResponse), (status = 409, body = ErrorResponse),
+        (status = 422, body = ErrorResponse), (status = 503, body = ErrorResponse)
+    )
+)]
+pub(crate) async fn revoke_standard_entitlement(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    Path(entitlement_id): Path<Uuid>,
+    request: Result<Json<RevokeStandardEntitlementRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<StandardEntitlementMutation>>, ApiError> {
+    let session = authorize_capability_write(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::ENTITLEMENT_GRANTS_WRITE,
+    )
+    .await?;
+    let Json(request) =
+        request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
+    let result = database
+        .revoke_standard_entitlement(RevokeStandardEntitlementRecord {
+            entitlement_id,
+            actor_id: session.user.id,
+            expected_revision: request.expected_revision,
+            reason: request.reason,
+            idempotency_key: request.idempotency_key,
+        })
+        .await
+        .map_err(|error| standard_entitlement_error(request_id, error))?;
+    Ok(Json(ApiResponse::new(
+        StandardEntitlementMutation {
+            entitlement: map_standard_entitlement(result.entitlement),
+            replayed: result.replayed,
+        },
+        request_id,
+    )))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/content-access-policies/{target_type}/{target_id}",
+    operation_id = "getContentAccessPolicy",
+    tag = "admin",
+    params(
+        ("target_type" = String, Path),
+        ("target_id" = Uuid, Path)
+    ),
+    responses(
+        (status = 200, body = ApiResponse<ContentAccessPolicy>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse), (status = 403, body = ErrorResponse),
+        (status = 404, body = ErrorResponse), (status = 422, body = ErrorResponse),
+        (status = 503, body = ErrorResponse)
+    )
+)]
+pub(crate) async fn get_content_access_policy(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    Path((target_type, target_id)): Path<(String, Uuid)>,
+) -> Result<Json<ApiResponse<ContentAccessPolicy>>, ApiError> {
+    authorize_capability_read(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::CONTENT_ACCESS_POLICIES_READ,
+    )
+    .await?;
+    let target_type = parse_content_access_target_type(&target_type)
+        .ok_or_else(|| validation_error(request_id, "target_type", "访问策略目标类型无效"))?;
+    let record = database
+        .content_access_policy(content_access_target_type_key(target_type), target_id)
+        .await
+        .map_err(|error| database_error(request_id, error, "内容访问策略查询失败"))?
+        .ok_or_else(|| {
+            admin_error(
+                StatusCode::NOT_FOUND,
+                error_codes::CONTENT_ACCESS_POLICY_NOT_FOUND,
+                "内容访问策略不存在",
+                request_id,
+            )
+        })?;
+    Ok(Json(ApiResponse::new(
+        map_content_access_policy(record).map_err(|()| invalid_record(request_id))?,
+        request_id,
+    )))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/admin/content-access-policies/{target_type}/{target_id}",
+    operation_id = "putContentAccessPolicy",
+    tag = "admin",
+    params(
+        ("target_type" = String, Path),
+        ("target_id" = Uuid, Path),
+        ("x-csrf-token" = String, Header)
+    ),
+    request_body = PutContentAccessPolicyRequest,
+    responses(
+        (status = 200, body = ApiResponse<ContentAccessPolicy>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse), (status = 403, body = ErrorResponse),
+        (status = 404, body = ErrorResponse), (status = 409, body = ErrorResponse),
+        (status = 422, body = ErrorResponse), (status = 503, body = ErrorResponse)
+    )
+)]
+pub(crate) async fn put_content_access_policy(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    Path((target_type, target_id)): Path<(String, Uuid)>,
+    request: Result<Json<PutContentAccessPolicyRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<ContentAccessPolicy>>, ApiError> {
+    let session = authorize_capability_write(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::CONTENT_ACCESS_POLICIES_WRITE,
+    )
+    .await?;
+    let target_type = parse_content_access_target_type(&target_type)
+        .ok_or_else(|| validation_error(request_id, "target_type", "访问策略目标类型无效"))?;
+    let Json(request) =
+        request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
+    let record = database
+        .put_content_access_policy(
+            session.user.id,
+            PutContentAccessPolicyRecord {
+                target_type: content_access_target_type_key(target_type).to_owned(),
+                target_id,
+                operator: content_access_operator_key(request.operator).to_owned(),
+                subjects: request
+                    .subjects
+                    .into_iter()
+                    .map(|subject| ContentAccessPolicySubjectRecord {
+                        subject_type: content_access_subject_type_key(subject.subject_type)
+                            .to_owned(),
+                        community_group_id: subject.community_group_id,
+                        subject_key: subject.subject_key,
+                    })
+                    .collect(),
+                expected_revision: request.expected_revision,
+            },
+        )
+        .await
+        .map_err(|error| content_access_policy_error(request_id, error))?;
+    Ok(Json(ApiResponse::new(
+        map_content_access_policy(record).map_err(|()| invalid_record(request_id))?,
+        request_id,
+    )))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/membership/levels",
+    operation_id = "listAdminMembershipGrowthLevels",
+    tag = "admin",
+    responses(
+        (status = 200, body = ApiResponse<Vec<AdminGrowthLevel>>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse),
+        (status = 403, body = ErrorResponse),
+        (status = 503, body = ErrorResponse)
+    )
+)]
+pub(crate) async fn list_growth_levels(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+) -> Result<Json<ApiResponse<Vec<AdminGrowthLevel>>>, ApiError> {
+    authorize_capability_read(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::MEMBERSHIP_RULES_READ,
+    )
+    .await?;
+    let levels = database
+        .list_admin_growth_levels()
+        .await
+        .map_err(|error| {
+            database_error(
+                request_id,
+                infrastructure::DatabaseError::from(error),
+                "动态等级查询失败",
+            )
+        })?
+        .into_iter()
+        .map(map_admin_growth_level)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|()| invalid_record(request_id))?;
+    Ok(Json(ApiResponse::new(levels, request_id)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/membership/levels",
+    operation_id = "createMembershipGrowthLevel",
+    tag = "admin",
+    params(("x-csrf-token" = String, Header)),
+    request_body = CreateGrowthLevelRequest,
+    responses(
+        (status = 201, body = ApiResponse<AdminGrowthLevel>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse),
+        (status = 403, body = ErrorResponse),
+        (status = 409, body = ErrorResponse),
+        (status = 422, body = ErrorResponse),
+        (status = 503, body = ErrorResponse)
+    )
+)]
+pub(crate) async fn create_growth_level(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    request: Result<Json<CreateGrowthLevelRequest>, JsonRejection>,
+) -> Result<(StatusCode, Json<ApiResponse<AdminGrowthLevel>>), ApiError> {
+    let session = authorize_capability_write(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::MEMBERSHIP_RULES_WRITE,
+    )
+    .await?;
+    let Json(request) =
+        request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
+    validate_growth_level_create(&request)
+        .map_err(|(field, message)| validation_error(request_id, field, message))?;
+    let record = database
+        .create_growth_level(
+            session.user.id,
+            CreateGrowthLevelRecord {
+                internal_key: request.internal_key,
+                level_order: request.level_order,
+                display_name: request.display_name,
+                required_experience: request.required_experience,
+                icon_asset_id: request.icon_asset_id,
+                color: request.color,
+                description: request.description,
+            },
+        )
+        .await
+        .map_err(|error| growth_level_error(request_id, error))?;
+    let level = map_admin_growth_level(record).map_err(|()| invalid_record(request_id))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(ApiResponse::new(level, request_id)),
+    ))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/admin/membership/levels/{level_id}",
+    operation_id = "updateMembershipGrowthLevel",
+    tag = "admin",
+    params(("level_id" = Uuid, Path), ("x-csrf-token" = String, Header)),
+    request_body = UpdateGrowthLevelRequest,
+    responses(
+        (status = 200, body = ApiResponse<AdminGrowthLevel>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse),
+        (status = 403, body = ErrorResponse),
+        (status = 404, body = ErrorResponse),
+        (status = 409, body = ErrorResponse),
+        (status = 422, body = ErrorResponse),
+        (status = 503, body = ErrorResponse)
+    )
+)]
+pub(crate) async fn update_growth_level(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    Path(level_id): Path<Uuid>,
+    request: Result<Json<UpdateGrowthLevelRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<AdminGrowthLevel>>, ApiError> {
+    let session = authorize_capability_write(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::MEMBERSHIP_RULES_WRITE,
+    )
+    .await?;
+    let Json(request) =
+        request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
+    validate_growth_level_update(&request)
+        .map_err(|(field, message)| validation_error(request_id, field, message))?;
+    let record = database
+        .update_growth_level(
+            session.user.id,
+            UpdateGrowthLevelRecord {
+                id: level_id,
+                expected_revision: request.expected_revision,
+                level_order: request.level_order,
+                display_name: request.display_name,
+                required_experience: request.required_experience,
+                icon_asset_id: request.icon_asset_id,
+                color: request.color,
+                description: request.description,
+                status: growth_level_status_key(request.status).to_owned(),
+            },
+        )
+        .await
+        .map_err(|error| growth_level_error(request_id, error))?;
+    Ok(Json(ApiResponse::new(
+        map_admin_growth_level(record).map_err(|()| invalid_record(request_id))?,
+        request_id,
+    )))
 }
 
 #[utoipa::path(
@@ -1007,6 +1776,12 @@ pub(crate) async fn update_membership_level_rule(
         )
         .await
         .map_err(|error| match error {
+            UpdateMembershipLevelRuleError::Forbidden => admin_error(
+                StatusCode::FORBIDDEN,
+                error_codes::ADMIN_FORBIDDEN,
+                "当前账号已失去会员等级规则写入权限",
+                request_id,
+            ),
             UpdateMembershipLevelRuleError::InvalidLevel => {
                 validation_error(request_id, "level_key", "等级键必须是 lv_1 至 lv_20")
             }
@@ -1178,6 +1953,12 @@ pub(crate) async fn update_membership_medal_rule(
         )
         .await
         .map_err(|error| match error {
+            UpdateMembershipMedalRuleError::Forbidden => admin_error(
+                StatusCode::FORBIDDEN,
+                error_codes::ADMIN_FORBIDDEN,
+                "当前账号已失去勋章规则写入权限",
+                request_id,
+            ),
             UpdateMembershipMedalRuleError::InvalidMedal => {
                 validation_error(request_id, "medal_key", "勋章键必须是 medal_01 至 medal_17")
             }
@@ -1237,6 +2018,12 @@ pub(crate) async fn grant_membership_medal(
         )
         .await
         .map_err(|error| match error {
+            GrantMembershipMedalError::Forbidden => admin_error(
+                StatusCode::FORBIDDEN,
+                error_codes::ADMIN_FORBIDDEN,
+                "当前账号已失去勋章授予权限",
+                request_id,
+            ),
             GrantMembershipMedalError::UserNotFound => admin_error(
                 StatusCode::NOT_FOUND,
                 error_codes::USER_NOT_FOUND,
@@ -1593,10 +2380,22 @@ async fn update_risk_alert(
         .update_risk_alert(session.user.id, alert_id, status)
         .await
         .map_err(|error| match error {
+            UpdateRiskAlertError::Forbidden => admin_error(
+                StatusCode::FORBIDDEN,
+                error_codes::ADMIN_FORBIDDEN,
+                "当前账号已失去风险告警处理权限",
+                request_id,
+            ),
             UpdateRiskAlertError::NotFound => admin_error(
                 StatusCode::NOT_FOUND,
                 error_codes::GOVERNANCE_ALERT_NOT_FOUND,
                 "风险告警不存在",
+                request_id,
+            ),
+            UpdateRiskAlertError::Conflict => admin_error(
+                StatusCode::CONFLICT,
+                error_codes::GOVERNANCE_ALERT_CONFLICT,
+                "风险告警已被其他管理员处理，请刷新后重试",
                 request_id,
             ),
             UpdateRiskAlertError::InvalidStatus => {
@@ -2459,7 +3258,38 @@ pub(crate) async fn authorize_capability_write(
     permission_key: &str,
 ) -> Result<infrastructure::SessionRecord, ApiError> {
     let session = authenticate_state_change(database, runtime, headers, request_id).await?;
-    authorize_capability(database, session, permission_key, request_id).await
+    let session = authorize_capability(database, session, permission_key, request_id).await?;
+    if privileged_admin_recent_auth_required(permission_key) {
+        let recently_authenticated = database
+            .has_recent_authentication(
+                session.user.id,
+                session.id,
+                ADMIN_PRIVILEGED_RECENT_AUTH_OPERATION,
+            )
+            .await
+            .map_err(|error| database_error(request_id, error, "管理员近期认证状态查询失败"))?;
+        if !recently_authenticated {
+            return Err(recent_authentication_required(request_id));
+        }
+    }
+    Ok(session)
+}
+
+fn privileged_admin_recent_auth_required(permission_key: &str) -> bool {
+    matches!(
+        permission_key,
+        permission_keys::AUTHORIZATION_ROLES_WRITE
+            | permission_keys::AUTHORIZATION_ASSIGNMENTS_WRITE
+            | permission_keys::COMMUNITY_GROUPS_WRITE
+            | permission_keys::COMMUNITY_MEMBERSHIPS_WRITE
+            | permission_keys::CONTENT_ACCESS_POLICIES_WRITE
+            | permission_keys::ENTITLEMENT_TYPES_WRITE
+            | permission_keys::ENTITLEMENT_GRANTS_WRITE
+            | permission_keys::MEMBERSHIP_RULES_WRITE
+            | permission_keys::MEMBERSHIP_POINTS_GRANT
+            | permission_keys::MEMBERSHIP_MEDALS_GRANT
+            | permission_keys::MEMBERSHIP_MEDAL_RULES_WRITE
+    )
 }
 
 async fn authorize_capability(
@@ -2489,6 +3319,177 @@ fn map_authorization_permission(record: AuthorizationPermissionRecord) -> Author
         name: record.name,
         description: record.description,
     }
+}
+
+fn map_admin_community_group(
+    record: CommunityGroupConfigurationRecord,
+) -> Result<AdminCommunityGroup, ()> {
+    Ok(AdminCommunityGroup {
+        id: record.id,
+        internal_key: record.internal_key,
+        display_name: record.display_name,
+        description: record.description,
+        is_base: record.is_base,
+        status: match record.status.as_str() {
+            "active" => CommunityGroupStatus::Active,
+            "disabled" => CommunityGroupStatus::Disabled,
+            "archived" => CommunityGroupStatus::Archived,
+            _ => return Err(()),
+        },
+        display_order: record.display_order,
+        permission_keys: record.permission_keys.into_iter().collect(),
+        quotas: record.quotas,
+        revision: record.revision,
+        created_at: format_time(record.created_at),
+        updated_at: format_time(record.updated_at),
+    })
+}
+
+fn map_admin_community_membership(
+    record: CommunityGroupMembershipRecord,
+) -> Result<AdminCommunityGroupMembership, ()> {
+    if record.membership_kind != "base" && record.membership_kind != "additional" {
+        return Err(());
+    }
+    Ok(AdminCommunityGroupMembership {
+        id: record.id,
+        user_id: record.user_id,
+        group: api_contract::CommunityGroupSummary {
+            id: record.group_id,
+            internal_key: record.group_key,
+            display_name: record.group_display_name,
+        },
+        membership_kind: record.membership_kind,
+        source: record.source,
+        source_reference_id: record.source_reference_id,
+        reason: record.reason,
+        starts_at: format_time(record.starts_at),
+        ends_at: record.ends_at.map(format_time),
+        revoked_at: record.revoked_at.map(format_time),
+        revocation_reason: record.revocation_reason,
+        revision: record.revision,
+    })
+}
+
+fn map_standard_entitlement_type(record: StandardEntitlementTypeRecord) -> StandardEntitlementType {
+    StandardEntitlementType {
+        id: record.id,
+        internal_key: record.internal_key,
+        display_name: record.display_name,
+        status: record.status,
+        current_version: record.current_version,
+        permission_keys: record.permission_keys,
+        quotas: record.quotas,
+        revision: record.revision,
+        created_at: format_time(record.created_at),
+        updated_at: format_time(record.updated_at),
+    }
+}
+
+fn map_standard_entitlement(record: StandardEntitlementRecord) -> AdminStandardEntitlement {
+    AdminStandardEntitlement {
+        id: record.id,
+        user_id: record.user_id,
+        entitlement_type_id: record.entitlement_type_id,
+        entitlement_key: record.entitlement_key,
+        type_version: record.type_version,
+        permission_snapshot: record.permission_snapshot,
+        quota_snapshot: record.quota_snapshot,
+        source: record.source,
+        source_reference_id: record.source_reference_id,
+        reason: record.reason,
+        starts_at: format_time(record.starts_at),
+        ends_at: record.ends_at.map(format_time),
+        revoked_at: record.revoked_at.map(format_time),
+        revoked_by: record.revoked_by,
+        revocation_reason: record.revocation_reason,
+        revision: record.revision,
+        granted_by: record.granted_by,
+        created_at: format_time(record.created_at),
+        updated_at: format_time(record.updated_at),
+    }
+}
+
+fn map_content_access_policy(record: ContentAccessPolicyRecord) -> Result<ContentAccessPolicy, ()> {
+    Ok(ContentAccessPolicy {
+        id: record.id,
+        target_type: parse_content_access_target_type(&record.target_type).ok_or(())?,
+        target_id: record.target_id,
+        operator: match record.operator.as_str() {
+            "any_of" => ContentAccessOperator::AnyOf,
+            "all_of" => ContentAccessOperator::AllOf,
+            _ => return Err(()),
+        },
+        subjects: record
+            .subjects
+            .into_iter()
+            .map(|subject| {
+                Ok(ContentAccessSubject {
+                    subject_type: match subject.subject_type.as_str() {
+                        "public" => ContentAccessSubjectType::Public,
+                        "authenticated" => ContentAccessSubjectType::Authenticated,
+                        "community_group" => ContentAccessSubjectType::CommunityGroup,
+                        "entitlement" => ContentAccessSubjectType::Entitlement,
+                        "governance" => ContentAccessSubjectType::Governance,
+                        _ => return Err(()),
+                    },
+                    community_group_id: subject.community_group_id,
+                    subject_key: subject.subject_key,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        revision: record.revision,
+        created_at: format_time(record.created_at),
+        updated_at: format_time(record.updated_at),
+    })
+}
+
+fn parse_content_access_target_type(value: &str) -> Option<ContentAccessTargetType> {
+    match value {
+        "board" => Some(ContentAccessTargetType::Board),
+        "topic" => Some(ContentAccessTargetType::Topic),
+        "post" => Some(ContentAccessTargetType::Post),
+        "attachment" => Some(ContentAccessTargetType::Attachment),
+        _ => None,
+    }
+}
+
+fn content_access_target_type_key(value: ContentAccessTargetType) -> &'static str {
+    match value {
+        ContentAccessTargetType::Board => "board",
+        ContentAccessTargetType::Topic => "topic",
+        ContentAccessTargetType::Post => "post",
+        ContentAccessTargetType::Attachment => "attachment",
+    }
+}
+
+fn content_access_operator_key(value: ContentAccessOperator) -> &'static str {
+    match value {
+        ContentAccessOperator::AnyOf => "any_of",
+        ContentAccessOperator::AllOf => "all_of",
+    }
+}
+
+fn content_access_subject_type_key(value: ContentAccessSubjectType) -> &'static str {
+    match value {
+        ContentAccessSubjectType::Public => "public",
+        ContentAccessSubjectType::Authenticated => "authenticated",
+        ContentAccessSubjectType::CommunityGroup => "community_group",
+        ContentAccessSubjectType::Entitlement => "entitlement",
+        ContentAccessSubjectType::Governance => "governance",
+    }
+}
+
+fn community_group_status_key(status: CommunityGroupStatus) -> &'static str {
+    match status {
+        CommunityGroupStatus::Active => "active",
+        CommunityGroupStatus::Disabled => "disabled",
+        CommunityGroupStatus::Archived => "archived",
+    }
+}
+
+fn parse_admin_timestamp(value: &str) -> Result<OffsetDateTime, ()> {
+    OffsetDateTime::parse(value, &Rfc3339).map_err(|_| ())
 }
 
 fn map_admin_user_summary(record: AdminUserSummaryRecord) -> Result<AdminUserSummary, ()> {
@@ -2623,6 +3624,11 @@ fn map_authorization_assignment(
             revision: u64::try_from(record.role_revision).map_err(|_| ())?,
         },
         scope_id: record.scope_id,
+        scope_mode: match record.scope_mode.as_str() {
+            "exact" => AuthorizationScopeMode::Exact,
+            "subtree" => AuthorizationScopeMode::Subtree,
+            _ => return Err(()),
+        },
         assigned_by: UserSummary {
             id: record.assigned_by_id,
             username: record.assigned_by_username,
@@ -2640,6 +3646,13 @@ fn parse_authorization_role_scope(value: &str) -> Option<AuthorizationRoleScope>
         "board" => AuthorizationRoleScope::Board,
         _ => return None,
     })
+}
+
+fn authorization_scope_mode_key(value: AuthorizationScopeMode) -> &'static str {
+    match value {
+        AuthorizationScopeMode::Exact => "exact",
+        AuthorizationScopeMode::Subtree => "subtree",
+    }
 }
 
 fn map_branding(record: SiteBrandingRecord) -> Result<SiteBranding, ()> {
@@ -2744,6 +3757,118 @@ fn map_membership_account(record: MembershipAccountRecord) -> Result<MembershipA
         revision: record.revision,
         updated_at: format_time(record.updated_at),
     })
+}
+
+fn map_admin_growth_level(record: AdminGrowthLevelRecord) -> Result<AdminGrowthLevel, ()> {
+    Ok(AdminGrowthLevel {
+        id: record.id,
+        internal_key: record.internal_key,
+        level_order: record.level_order,
+        display_name: record.display_name,
+        required_experience: record.required_experience,
+        icon_asset_id: record.icon_asset_id,
+        color: record.color,
+        description: record.description,
+        status: parse_growth_level_status(&record.status).ok_or(())?,
+        revision: record.revision,
+        published_at: record.published_at.map(format_time),
+        created_at: format_time(record.created_at),
+        updated_at: format_time(record.updated_at),
+    })
+}
+
+fn parse_growth_level_status(value: &str) -> Option<GrowthLevelStatus> {
+    match value {
+        "draft" => Some(GrowthLevelStatus::Draft),
+        "published" => Some(GrowthLevelStatus::Published),
+        "disabled" => Some(GrowthLevelStatus::Disabled),
+        "archived" => Some(GrowthLevelStatus::Archived),
+        _ => None,
+    }
+}
+
+fn growth_level_status_key(value: GrowthLevelStatus) -> &'static str {
+    match value {
+        GrowthLevelStatus::Draft => "draft",
+        GrowthLevelStatus::Published => "published",
+        GrowthLevelStatus::Disabled => "disabled",
+        GrowthLevelStatus::Archived => "archived",
+    }
+}
+
+fn validate_growth_level_create(
+    request: &CreateGrowthLevelRequest,
+) -> Result<(), (&'static str, &'static str)> {
+    validate_growth_level_fields(
+        Some(&request.internal_key),
+        request.level_order,
+        &request.display_name,
+        request.required_experience,
+        request.color.as_deref(),
+        &request.description,
+    )
+}
+
+fn validate_growth_level_update(
+    request: &UpdateGrowthLevelRequest,
+) -> Result<(), (&'static str, &'static str)> {
+    if request.expected_revision < 1 {
+        return Err(("expected_revision", "期望版本必须是大于 0 的整数"));
+    }
+    validate_growth_level_fields(
+        None,
+        request.level_order,
+        &request.display_name,
+        request.required_experience,
+        request.color.as_deref(),
+        &request.description,
+    )
+}
+
+fn validate_growth_level_fields(
+    internal_key: Option<&str>,
+    level_order: i32,
+    display_name: &str,
+    required_experience: i64,
+    color: Option<&str>,
+    description: &str,
+) -> Result<(), (&'static str, &'static str)> {
+    if internal_key.is_some_and(|value| {
+        let bytes = value.as_bytes();
+        !(3..=64).contains(&bytes.len())
+            || bytes.first().is_none_or(|byte| !byte.is_ascii_lowercase())
+            || !bytes
+                .iter()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'_')
+    }) {
+        return Err((
+            "internal_key",
+            "内部键必须是 3 到 64 位小写字母、数字或下划线且以字母开头",
+        ));
+    }
+    if level_order < 1 {
+        return Err(("level_order", "等级顺序必须是大于 0 的整数"));
+    }
+    if display_name != display_name.trim()
+        || !(1..=80).contains(&display_name.chars().count())
+        || display_name.chars().any(char::is_control)
+    {
+        return Err(("display_name", "展示名称必须是 1 到 80 个有效字符"));
+    }
+    if required_experience < 0 {
+        return Err(("required_experience", "经验阈值不能为负数"));
+    }
+    if color.is_some_and(|value| {
+        value.len() != 7
+            || !value.starts_with('#')
+            || !value[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+    }) {
+        return Err(("color", "颜色必须是 #RRGGBB 格式或 null"));
+    }
+    if description.chars().count() > 500 || description.chars().any(char::is_control) {
+        return Err(("description", "描述最多为 500 个有效字符"));
+    }
+    Ok(())
 }
 
 fn map_membership_medal_rule(record: MembershipMedalRuleRecord) -> Result<MembershipMedalRule, ()> {
@@ -2901,6 +4026,12 @@ fn validate_points_grant(
 
 fn map_points_grant_error(request_id: RequestId, error: AppendPointsLedgerError) -> ApiError {
     match error {
+        AppendPointsLedgerError::Forbidden => admin_error(
+            StatusCode::FORBIDDEN,
+            error_codes::ADMIN_FORBIDDEN,
+            "当前账号已失去积分授予权限",
+            request_id,
+        ),
         AppendPointsLedgerError::AccountNotFound => admin_error(
             StatusCode::NOT_FOUND,
             error_codes::USER_NOT_FOUND,
@@ -3762,6 +4893,230 @@ fn database_error(
         "管理配置暂时不可用",
         request_id,
     )
+}
+
+fn growth_level_error(request_id: RequestId, error: MutateGrowthLevelError) -> ApiError {
+    match error {
+        MutateGrowthLevelError::Forbidden => admin_error(
+            StatusCode::FORBIDDEN,
+            error_codes::ADMIN_FORBIDDEN,
+            "当前账号已失去动态等级写入权限",
+            request_id,
+        ),
+        MutateGrowthLevelError::NotFound => admin_error(
+            StatusCode::NOT_FOUND,
+            error_codes::MEMBERSHIP_LEVEL_NOT_FOUND,
+            "动态等级不存在",
+            request_id,
+        ),
+        MutateGrowthLevelError::Conflict => admin_error(
+            StatusCode::CONFLICT,
+            error_codes::MEMBERSHIP_LEVEL_REVISION_CONFLICT,
+            "动态等级已被其他请求更新，请刷新后重试",
+            request_id,
+        ),
+        MutateGrowthLevelError::Duplicate => admin_error(
+            StatusCode::CONFLICT,
+            error_codes::MEMBERSHIP_LEVEL_CONFLICT,
+            "内部键或等级顺序已经存在",
+            request_id,
+        ),
+        MutateGrowthLevelError::InvalidInput => {
+            validation_error(request_id, "body", "动态等级参数不正确")
+        }
+        MutateGrowthLevelError::InvalidTransition => {
+            validation_error(request_id, "status", "动态等级状态流转不正确")
+        }
+        MutateGrowthLevelError::InvalidThresholdOrder => validation_error(
+            request_id,
+            "required_experience",
+            "已发布等级必须从 0 开始且经验阈值随等级顺序严格递增",
+        ),
+        MutateGrowthLevelError::Database(error) => {
+            database_error(request_id, error, "动态等级保存失败")
+        }
+    }
+}
+
+fn community_group_error(request_id: RequestId, error: CommunityGroupMutationError) -> ApiError {
+    match error {
+        CommunityGroupMutationError::Forbidden => admin_error(
+            StatusCode::FORBIDDEN,
+            error_codes::ADMIN_FORBIDDEN,
+            "当前账号已失去社区用户组写入权限",
+            request_id,
+        ),
+        CommunityGroupMutationError::NotFound => admin_error(
+            StatusCode::NOT_FOUND,
+            error_codes::COMMUNITY_GROUP_NOT_FOUND,
+            "社区用户组不存在",
+            request_id,
+        ),
+        CommunityGroupMutationError::Conflict | CommunityGroupMutationError::Duplicate => {
+            admin_error(
+                StatusCode::CONFLICT,
+                error_codes::COMMUNITY_GROUP_CONFLICT,
+                "社区用户组键或排序已存在",
+                request_id,
+            )
+        }
+        CommunityGroupMutationError::InvalidInput => {
+            validation_error(request_id, "body", "社区用户组参数不正确")
+        }
+        CommunityGroupMutationError::InvalidTransition => {
+            validation_error(request_id, "status", "社区用户组状态流转不正确")
+        }
+        CommunityGroupMutationError::SystemManaged => admin_error(
+            StatusCode::CONFLICT,
+            error_codes::COMMUNITY_GROUP_CONFLICT,
+            "系统管理的社区用户组不能执行此操作",
+            request_id,
+        ),
+        CommunityGroupMutationError::Database(error) => {
+            database_error(request_id, error, "社区用户组保存失败")
+        }
+    }
+}
+
+fn community_membership_error(
+    request_id: RequestId,
+    error: CommunityMembershipMutationError,
+) -> ApiError {
+    match error {
+        CommunityMembershipMutationError::Forbidden => admin_error(
+            StatusCode::FORBIDDEN,
+            error_codes::ADMIN_FORBIDDEN,
+            "当前账号已失去社区成员关系写入权限",
+            request_id,
+        ),
+        CommunityMembershipMutationError::UserNotFound => admin_error(
+            StatusCode::NOT_FOUND,
+            error_codes::USER_NOT_FOUND,
+            "目标用户不存在",
+            request_id,
+        ),
+        CommunityMembershipMutationError::GroupNotFound
+        | CommunityMembershipMutationError::MembershipNotFound => admin_error(
+            StatusCode::NOT_FOUND,
+            error_codes::COMMUNITY_MEMBERSHIP_NOT_FOUND,
+            "社区用户组或成员关系不存在",
+            request_id,
+        ),
+        CommunityMembershipMutationError::RevisionConflict => admin_error(
+            StatusCode::CONFLICT,
+            error_codes::COMMUNITY_MEMBERSHIP_REVISION_CONFLICT,
+            "成员关系已被其他请求更新，请刷新后重试",
+            request_id,
+        ),
+        CommunityMembershipMutationError::ActiveMembershipConflict
+        | CommunityMembershipMutationError::IdempotencyConflict
+        | CommunityMembershipMutationError::AlreadyRevoked => admin_error(
+            StatusCode::CONFLICT,
+            error_codes::COMMUNITY_MEMBERSHIP_CONFLICT,
+            "成员关系与现有状态冲突",
+            request_id,
+        ),
+        CommunityMembershipMutationError::GroupUnavailable
+        | CommunityMembershipMutationError::KindMismatch
+        | CommunityMembershipMutationError::InvalidInput => {
+            validation_error(request_id, "body", "社区成员关系参数不正确")
+        }
+        CommunityMembershipMutationError::Database(error) => {
+            database_error(request_id, error, "社区成员关系保存失败")
+        }
+    }
+}
+
+fn standard_entitlement_error(
+    request_id: RequestId,
+    error: StandardEntitlementMutationError,
+) -> ApiError {
+    match error {
+        StandardEntitlementMutationError::Forbidden => admin_error(
+            StatusCode::FORBIDDEN,
+            error_codes::ADMIN_FORBIDDEN,
+            "当前账号已失去标准权益写入权限",
+            request_id,
+        ),
+        StandardEntitlementMutationError::TypeNotFound => admin_error(
+            StatusCode::NOT_FOUND,
+            error_codes::ENTITLEMENT_TYPE_NOT_FOUND,
+            "标准权益类型不存在或不可发放",
+            request_id,
+        ),
+        StandardEntitlementMutationError::EntitlementNotFound => admin_error(
+            StatusCode::NOT_FOUND,
+            error_codes::ENTITLEMENT_NOT_FOUND,
+            "用户标准权益不存在",
+            request_id,
+        ),
+        StandardEntitlementMutationError::UserNotFound => admin_error(
+            StatusCode::NOT_FOUND,
+            error_codes::USER_NOT_FOUND,
+            "目标用户或操作人不存在",
+            request_id,
+        ),
+        StandardEntitlementMutationError::RevisionConflict
+        | StandardEntitlementMutationError::IdempotencyConflict => admin_error(
+            StatusCode::CONFLICT,
+            error_codes::ENTITLEMENT_CONFLICT,
+            "标准权益已更新或幂等请求与原请求不一致",
+            request_id,
+        ),
+        StandardEntitlementMutationError::InvalidBenefits => validation_error(
+            request_id,
+            "benefits",
+            "标准权益只能包含普通社区权限和允许的配额",
+        ),
+        StandardEntitlementMutationError::InvalidInput => {
+            validation_error(request_id, "body", "标准权益参数不正确")
+        }
+        StandardEntitlementMutationError::Database(error) => {
+            database_error(request_id, error, "标准权益保存失败")
+        }
+        StandardEntitlementMutationError::Outbox(error) => {
+            tracing::warn!(request_id = %request_id, error = %error, "Standard entitlement outbox failed");
+            database_error_response(request_id, "标准权益服务暂时不可用")
+        }
+    }
+}
+
+fn content_access_policy_error(
+    request_id: RequestId,
+    error: ContentAccessPolicyMutationError,
+) -> ApiError {
+    match error {
+        ContentAccessPolicyMutationError::Forbidden => admin_error(
+            StatusCode::FORBIDDEN,
+            error_codes::ADMIN_FORBIDDEN,
+            "当前账号已失去内容访问策略写入权限",
+            request_id,
+        ),
+        ContentAccessPolicyMutationError::TargetNotFound => admin_error(
+            StatusCode::NOT_FOUND,
+            error_codes::CONTENT_ACCESS_POLICY_NOT_FOUND,
+            "内容访问策略目标不存在",
+            request_id,
+        ),
+        ContentAccessPolicyMutationError::RevisionConflict => admin_error(
+            StatusCode::CONFLICT,
+            error_codes::CONTENT_ACCESS_POLICY_REVISION_CONFLICT,
+            "内容访问策略已被其他请求更新，请刷新后重试",
+            request_id,
+        ),
+        ContentAccessPolicyMutationError::SubjectUnavailable => admin_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            error_codes::CONTENT_ACCESS_POLICY_SUBJECT_INVALID,
+            "内容访问策略主体不存在或不可用于访问控制",
+            request_id,
+        ),
+        ContentAccessPolicyMutationError::InvalidInput => {
+            validation_error(request_id, "body", "内容访问策略参数不正确")
+        }
+        ContentAccessPolicyMutationError::Database(error) => {
+            database_error(request_id, error, "内容访问策略保存失败")
+        }
+    }
 }
 
 fn invalid_record(request_id: RequestId) -> ApiError {

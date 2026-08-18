@@ -4,13 +4,20 @@ import { useCallback, useEffect, useState } from "react"
 import {
   PluginApiError,
   deletePlugin,
+  executePluginUiAction,
   installPlugin,
   invokePlugin,
+  listPluginUiContributions,
   listPlugins,
   updatePluginStatus,
   type Plugin,
+  type PluginBusinessCapability,
   type PluginCapability,
+  type PluginDataScope,
+  type PluginEventSubscription,
+  type PluginManifestInput,
   type PluginOperation,
+  type PluginUiContribution,
   type PluginUiSchema,
 } from "../api/plugins"
 
@@ -34,6 +41,8 @@ interface InstallDraft {
   version: string
   description: string
   capabilities: PluginCapability[]
+  dataScopes: PluginDataScope[]
+  eventSubscriptions: PluginEventSubscription[]
 }
 
 const emptyDraft: InstallDraft = {
@@ -42,7 +51,25 @@ const emptyDraft: InstallDraft = {
   version: "1.0.0",
   description: "",
   capabilities: ["content.transform"],
+  dataScopes: [],
+  eventSubscriptions: [],
 }
+
+const PLUGIN_CAPABILITIES: PluginCapability[] = [
+  "content.transform", "ui.panel", "events.subscribe", "core.query", "points.write",
+  "experience.write", "entitlements.write", "notifications.write", "storage.read_write",
+  "tasks.schedule",
+]
+const PLUGIN_DATA_SCOPES: PluginDataScope[] = [
+  "site.read", "actor.read", "users.read.basic", "users.read.membership", "users.targeted", "boards.read",
+]
+const PLUGIN_EVENTS: PluginEventSubscription[] = [
+  "user.created", "topic.published", "reply.created", "points.changed",
+  "experience.changed", "entitlement.changed",
+]
+const TARGETED_WRITE_CAPABILITIES: PluginCapability[] = [
+  "points.write", "experience.write", "entitlements.write", "notifications.write",
+]
 
 export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvoke }: PluginAdminPanelProps) {
   const [plugins, setPlugins] = useState<Plugin[]>([])
@@ -55,10 +82,23 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
   const [payloads, setPayloads] = useState<Record<string, string>>({})
   const [outputs, setOutputs] = useState<Record<string, string>>({})
   const [schemas, setSchemas] = useState<Record<string, PluginUiSchema>>({})
+  const [contributions, setContributions] = useState<Record<string, PluginUiContribution[]>>({})
+  const [contributionErrors, setContributionErrors] = useState<Record<string, string>>({})
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const loaded = await listPlugins(signal)
     setPlugins(loaded)
+    const results = await Promise.all(loaded
+      .filter((plugin) => plugin.status === "enabled" && plugin.businessApiVersion && plugin.capabilities.includes("ui.panel"))
+      .map(async (plugin) => {
+        try {
+          return { id: plugin.id, items: await listPluginUiContributions(plugin.id, signal), error: "" }
+        } catch (reason) {
+          return { id: plugin.id, items: [], error: apiMessage(reason, "扩展面板暂时无法加载。") }
+        }
+      }))
+    setContributions(Object.fromEntries(results.map((result) => [result.id, result.items])))
+    setContributionErrors(Object.fromEntries(results.filter((result) => result.error).map((result) => [result.id, result.error])))
   }, [])
 
   useEffect(() => {
@@ -80,18 +120,49 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
     if (componentFile.size > MAX_COMPONENT_BYTES) { setError("组件文件不能超过 8 MiB"); return }
     if (componentFile.size === 0) { setError("组件文件不能为空"); return }
     if (draft.capabilities.length === 0) { setError("至少选择一项插件能力"); return }
+    if (draft.eventSubscriptions.length > 0 && !draft.capabilities.includes("events.subscribe")) { setError("声明事件订阅前需要勾选“订阅业务事件”能力"); return }
+    if (draft.capabilities.some((capability) => TARGETED_WRITE_CAPABILITIES.includes(capability)) && !draft.dataScopes.includes("users.targeted")) {
+      setError("写入用户数据的业务能力需要勾选“定向用户操作”范围"); return
+    }
+    const businessCapabilities = draft.capabilities.filter(
+      (capability): capability is PluginBusinessCapability => capability !== "content.transform" && capability !== "ui.panel",
+    )
+    if (businessCapabilities.length === 0 && draft.dataScopes.length > 0) { setError("数据范围只能与业务能力一起申请"); return }
+    if (businessCapabilities.length > 0 && draft.capabilities.includes("content.transform")) { setError("内容转换使用旧 ABI，不能与业务能力混装"); return }
     setBusyId("install")
     try {
       const componentBase64 = await fileToBase64(componentFile)
+      const manifestBase = {
+        schemaVersion: 1 as const,
+        key: draft.key.trim(),
+        name: draft.name.trim(),
+        version: draft.version.trim(),
+        description: draft.description,
+      }
+      const manifest: PluginManifestInput = businessCapabilities.length > 0
+        ? {
+            ...manifestBase,
+            capabilities: [
+              businessCapabilities[0],
+              ...draft.capabilities
+                .filter(
+                  (capability): capability is Exclude<PluginCapability, "content.transform"> =>
+                    capability !== "content.transform" && capability !== businessCapabilities[0],
+                )
+                .sort(),
+            ],
+            businessApiVersion: "0.1.0",
+            dataScopes: [...draft.dataScopes].sort(),
+            eventSubscriptions: [...draft.eventSubscriptions].sort(),
+          }
+        : {
+            ...manifestBase,
+            capabilities: draft.capabilities
+              .filter((capability): capability is "content.transform" | "ui.panel" => capability === "content.transform" || capability === "ui.panel")
+              .sort(),
+          }
       const installed = await installPlugin({
-        manifest: {
-          schemaVersion: 1,
-          key: draft.key.trim(),
-          name: draft.name.trim(),
-          version: draft.version.trim(),
-          description: draft.description,
-          capabilities: [...draft.capabilities].sort(),
-        },
+        manifest,
         componentBase64,
       }, csrfToken)
       setPlugins((current) => [...current, installed].sort((left, right) => left.key.localeCompare(right.key)))
@@ -113,6 +184,16 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
       if (status === "disabled") {
         setSchemas((current) => omitKey(current, plugin.id))
         setOutputs((current) => omitKey(current, plugin.id))
+        setContributions((current) => omitKey(current, plugin.id))
+        setContributionErrors((current) => omitKey(current, plugin.id))
+      } else if (updated.businessApiVersion && updated.capabilities.includes("ui.panel")) {
+        try {
+          const items = await listPluginUiContributions(updated.id)
+          setContributions((current) => ({ ...current, [updated.id]: items }))
+          setContributionErrors((current) => omitKey(current, updated.id))
+        } catch (reason) {
+          setContributionErrors((current) => ({ ...current, [updated.id]: apiMessage(reason, "扩展面板暂时无法加载。") }))
+        }
       }
       setNotice(status === "enabled" ? "插件已启用" : "插件已停用")
     } catch (reason) {
@@ -165,6 +246,26 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
     }
   }
 
+  async function runUiAction(plugin: Plugin, actionKey: string) {
+    setBusyId(plugin.id); setError(""); setNotice("")
+    try {
+      const result = await executePluginUiAction(
+        plugin.id,
+        actionKey,
+        crypto.randomUUID(),
+        csrfToken,
+      )
+      setNotice(`插件动作已执行（${result.executedCommands} 条命令）`)
+      const items = await listPluginUiContributions(plugin.id)
+      setContributions((current) => ({ ...current, [plugin.id]: items }))
+      setContributionErrors((current) => omitKey(current, plugin.id))
+    } catch (reason) {
+      setError(apiMessage(reason, "插件动作执行失败，请稍后重试。"))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   return (
     <div className="admin-panel plugin-admin">
       <div className="admin-panel__heading">
@@ -190,6 +291,9 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
               {plugin.description && <p>{plugin.description}</p>}
               <dl>
                 <div><dt>能力</dt><dd>{plugin.capabilities.map(capabilityLabel).join("、")}</dd></div>
+                {plugin.businessApiVersion && <div><dt>业务契约</dt><dd>业务 ABI {plugin.businessApiVersion}</dd></div>}
+                {plugin.dataScopes.length > 0 && <div><dt>数据范围</dt><dd>{plugin.dataScopes.map(dataScopeLabel).join("、")}</dd></div>}
+                {plugin.eventSubscriptions.length > 0 && <div><dt>事件订阅</dt><dd>{plugin.eventSubscriptions.map(eventLabel).join("、")}</dd></div>}
                 <div><dt>组件</dt><dd>{formatBytes(plugin.componentSize)} · SHA-256 {plugin.componentSha256.slice(0, 12)}…</dd></div>
                 <div><dt>修订</dt><dd>{plugin.revision}</dd></div>
               </dl>
@@ -203,12 +307,34 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
               {canInvoke && plugin.status === "enabled" && <div className="plugin-runner">
                 <label><span>调用输入：{plugin.name}</span><textarea rows={5} value={payloads[plugin.id] ?? DEFAULT_UI_INPUT} onChange={(event) => setPayloads((current) => ({ ...current, [plugin.id]: event.target.value }))} /></label>
                 <div className="plugin-row__actions">
-                  {plugin.capabilities.includes("content.transform") && <button className="secondary-button" type="button" disabled={busyId === plugin.id} onClick={() => void run(plugin, "content_transform")} aria-label={`转换内容：${plugin.name}`}><Play size={14} aria-hidden="true" />转换内容</button>}
-                  {plugin.capabilities.includes("ui.panel") && <button className="secondary-button" type="button" disabled={busyId === plugin.id} onClick={() => void run(plugin, "ui_render")} aria-label={`渲染面板：${plugin.name}`}><Play size={14} aria-hidden="true" />渲染面板</button>}
+                  {!plugin.businessApiVersion && plugin.capabilities.includes("content.transform") && <button className="secondary-button" type="button" disabled={busyId === plugin.id} onClick={() => void run(plugin, "content_transform")} aria-label={`转换内容：${plugin.name}`}><Play size={14} aria-hidden="true" />转换内容</button>}
+                  {!plugin.businessApiVersion && plugin.capabilities.includes("ui.panel") && <button className="secondary-button" type="button" disabled={busyId === plugin.id} onClick={() => void run(plugin, "ui_render")} aria-label={`渲染面板：${plugin.name}`}><Play size={14} aria-hidden="true" />渲染面板</button>}
                 </div>
                 {outputs[plugin.id] !== undefined && <pre className="plugin-output" aria-label={`插件输出：${plugin.name}`}>{outputs[plugin.id]}</pre>}
                 {schemas[plugin.id] && <PluginPanelFrame schema={schemas[plugin.id]} />}
               </div>}
+              {contributionErrors[plugin.id] && <p className="plugin-contribution-error" role="status">{contributionErrors[plugin.id]}</p>}
+              {(contributions[plugin.id] ?? []).filter((item) => item.slot === "admin_plugin").map((item, index) => (
+                <section className="plugin-contribution" key={`${plugin.id}-${index}`} aria-label={`插件扩展：${item.schema.title}`}>
+                  <PluginPanelFrame schema={item.schema} />
+                  {canInvoke && item.schema.blocks.filter((block) => block.kind === "action").length > 0 && (
+                    <div className="plugin-row__actions">
+                      {item.schema.blocks.filter((block) => block.kind === "action").map((block) => (
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          key={block.action_key}
+                          disabled={busyId === plugin.id}
+                          onClick={() => void runUiAction(plugin, block.action_key)}
+                        >
+                          <Play size={14} aria-hidden="true" />
+                          {block.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              ))}
             </article>
           ))}
         </div>
@@ -223,7 +349,13 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
         </div>
         <label><span>说明</span><textarea rows={2} maxLength={500} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label>
         <fieldset className="plugin-capabilities"><legend>声明能力</legend>
-          {(["content.transform", "ui.panel"] as const).map((capability) => <label key={capability}><input type="checkbox" checked={draft.capabilities.includes(capability)} onChange={(event) => setDraft({ ...draft, capabilities: event.target.checked ? [...draft.capabilities, capability] : draft.capabilities.filter((item) => item !== capability) })} /><span>{capabilityLabel(capability)}</span></label>)}
+          {PLUGIN_CAPABILITIES.map((capability) => <label key={capability}><input type="checkbox" checked={draft.capabilities.includes(capability)} onChange={(event) => setDraft({ ...draft, capabilities: event.target.checked ? [...draft.capabilities, capability] : draft.capabilities.filter((item) => item !== capability) })} /><span>{capabilityLabel(capability)}</span></label>)}
+        </fieldset>
+        <fieldset className="plugin-capabilities"><legend>数据范围（安装审批）</legend>
+          {PLUGIN_DATA_SCOPES.map((scope) => <label key={scope}><input type="checkbox" checked={draft.dataScopes.includes(scope)} onChange={(event) => setDraft({ ...draft, dataScopes: event.target.checked ? [...draft.dataScopes, scope] : draft.dataScopes.filter((item) => item !== scope) })} /><span>{dataScopeLabel(scope)}</span></label>)}
+        </fieldset>
+        <fieldset className="plugin-capabilities"><legend>事件订阅（安装审批）</legend>
+          {PLUGIN_EVENTS.map((eventName) => <label key={eventName}><input type="checkbox" checked={draft.eventSubscriptions.includes(eventName)} onChange={(event) => setDraft({ ...draft, eventSubscriptions: event.target.checked ? [...draft.eventSubscriptions, eventName] : draft.eventSubscriptions.filter((item) => item !== eventName) })} /><span>{eventLabel(eventName)}</span></label>)}
         </fieldset>
         <label><span>WebAssembly Component 文件</span><input aria-label="WebAssembly Component 文件" type="file" accept=".wasm,application/wasm" required onChange={(event) => { const file = event.target.files?.[0] ?? null; setComponentFile(file); if (file && file.size > MAX_COMPONENT_BYTES) setError("组件文件不能超过 8 MiB") }} /><small>解码后最大 8 MiB，安装前校验 WIT 接口。</small></label>
         <div className="admin-form__actions"><button className="primary-button" type="submit" disabled={busyId === "install"}>{busyId === "install" ? <LoaderCircle className="topic-loading__spinner" size={15} aria-hidden="true" /> : <Upload size={15} aria-hidden="true" />}安装插件</button></div>
@@ -237,10 +369,11 @@ export function PluginPanelFrame({ schema }: { schema: PluginUiSchema }) {
 }
 
 export function buildPluginFrameDocument(schema: PluginUiSchema): string {
-  const blocks = schema.blocks.map((block) => {
+  const blocks = schema.blocks.filter((block) => block.kind !== "action").map((block) => {
     if (block.kind === "text") return `<p class="block text">${escapeHtml(block.text)}</p>`
     if (block.kind === "metric") return `<div class="block metric"><span>${escapeHtml(block.label)}</span><strong>${escapeHtml(block.value)}</strong></div>`
-    return `<p class="block status ${block.tone}">${escapeHtml(block.text)}</p>`
+    if (block.kind === "status") return `<p class="block status ${block.tone}">${escapeHtml(block.text)}</p>`
+    return ""
   }).join("")
   return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; style-src &#39;unsafe-inline&#39;"><meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{color-scheme:light dark}*{box-sizing:border-box}body{margin:0;padding:12px;font:14px/1.5 system-ui;color:CanvasText;background:Canvas}h1{margin:0 0 10px;font-size:17px}.block{margin:8px 0;padding:8px;border:1px solid GrayText;border-radius:6px;overflow-wrap:anywhere}.metric{display:flex;justify-content:space-between;gap:12px}.status{border-inline-start-width:4px}.success{font-weight:600}.warning{font-weight:600}.danger{font-weight:700}</style></head><body><h1>${escapeHtml(schema.title)}</h1>${blocks}</body></html>`
 }
@@ -266,7 +399,40 @@ async function fileToBase64(file: File): Promise<string> {
 }
 
 function capabilityLabel(capability: PluginCapability): string {
-  return capability === "content.transform" ? "内容转换" : "静态管理面板"
+  return ({
+    "content.transform": "内容转换",
+    "ui.panel": "静态管理面板",
+    "events.subscribe": "订阅业务事件",
+    "core.query": "读取核心数据",
+    "points.write": "写入积分",
+    "experience.write": "写入经验",
+    "entitlements.write": "写入标准权益",
+    "notifications.write": "发送通知",
+    "storage.read_write": "插件专属存储",
+    "tasks.schedule": "计划后台任务",
+  } satisfies Record<PluginCapability, string>)[capability]
+}
+
+function dataScopeLabel(scope: PluginDataScope): string {
+  return ({
+    "site.read": "站点只读",
+    "actor.read": "当前操作者",
+    "users.read.basic": "用户基础资料",
+    "users.read.membership": "用户积分与经验账户",
+    "users.targeted": "定向用户操作",
+    "boards.read": "板块只读",
+  } satisfies Record<PluginDataScope, string>)[scope]
+}
+
+function eventLabel(eventName: PluginEventSubscription): string {
+  return ({
+    "user.created": "用户创建",
+    "topic.published": "主题发布",
+    "reply.created": "回复创建",
+    "points.changed": "积分变化",
+    "experience.changed": "经验变化",
+    "entitlement.changed": "权益变化",
+  } satisfies Record<PluginEventSubscription, string>)[eventName]
 }
 
 function formatBytes(bytes: number): string {

@@ -3,6 +3,7 @@ use infrastructure::{
     PluginMutationError, UpdatePluginStatusRecord,
 };
 use sqlx::PgPool;
+use std::time::Duration;
 use uuid::Uuid;
 
 async fn initialize(pool: &PgPool) -> (Database, Uuid) {
@@ -28,10 +29,121 @@ fn install_record(id: Uuid) -> InstallPluginRecord {
         name: "Identity plugin".to_owned(),
         version: "1.0.0".to_owned(),
         description: "Test plugin".to_owned(),
+        manifest_schema_version: 1,
+        business_api_version: None,
         capabilities: vec!["content.transform".to_owned()],
+        data_scopes: Vec::new(),
+        event_subscriptions: Vec::new(),
         component_bytes: vec![0, 97, 115, 109, 13, 0, 1, 0],
         component_sha256: "0".repeat(64),
     }
+}
+
+fn business_install_record(id: Uuid) -> InstallPluginRecord {
+    InstallPluginRecord {
+        id,
+        key: "business_lifecycle_plugin".to_owned(),
+        name: "Business lifecycle plugin".to_owned(),
+        version: "1.0.0".to_owned(),
+        description: "Business lifecycle fixture".to_owned(),
+        manifest_schema_version: 1,
+        business_api_version: Some("0.1.0".to_owned()),
+        capabilities: vec!["core.query".to_owned(), "ui.panel".to_owned()],
+        data_scopes: vec!["site.read".to_owned()],
+        event_subscriptions: Vec::new(),
+        component_bytes: vec![0, 97, 115, 109, 13, 0, 1, 0],
+        component_sha256: "1".repeat(64),
+    }
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn plugin_lifecycle_waits_for_execution_and_command_owners(pool: PgPool) {
+    let (database, administrator_id) = initialize(&pool).await;
+    let plugin_id = Uuid::now_v7();
+    database
+        .install_plugin(administrator_id, business_install_record(plugin_id))
+        .await
+        .expect("business plugin fixture must install");
+    database
+        .update_plugin_status(
+            administrator_id,
+            UpdatePluginStatusRecord {
+                plugin_id,
+                status: "enabled".to_owned(),
+                expected_revision: 1,
+            },
+        )
+        .await
+        .expect("business plugin fixture must enable");
+
+    let execution_token = Uuid::now_v7();
+    assert!(
+        database
+            .try_acquire_plugin_execution_lease(
+                plugin_id,
+                execution_token,
+                Duration::from_secs(120),
+            )
+            .await
+            .expect("execution lease must be checked")
+    );
+    assert!(matches!(
+        database
+            .update_plugin_status(
+                administrator_id,
+                UpdatePluginStatusRecord {
+                    plugin_id,
+                    status: "disabled".to_owned(),
+                    expected_revision: 2,
+                },
+            )
+            .await,
+        Err(PluginMutationError::Busy)
+    ));
+    assert!(
+        database
+            .release_plugin_execution_lease(plugin_id, execution_token)
+            .await
+            .expect("execution lease release must succeed")
+    );
+    database
+        .update_plugin_status(
+            administrator_id,
+            UpdatePluginStatusRecord {
+                plugin_id,
+                status: "disabled".to_owned(),
+                expected_revision: 2,
+            },
+        )
+        .await
+        .expect("plugin must disable after execution completes");
+
+    sqlx::query(
+        "INSERT INTO plugin_command_receipts
+            (plugin_key, plugin_id, idempotency_key, command_kind, subject_id, payload,
+             execution_token, locked_until)
+         VALUES ('business_lifecycle_plugin', $1, 'active-command', 'points.append',
+                 $2, '{}'::jsonb, $3, CURRENT_TIMESTAMP + INTERVAL '120 seconds')",
+    )
+    .bind(plugin_id)
+    .bind(administrator_id)
+    .bind(Uuid::now_v7())
+    .execute(&pool)
+    .await
+    .expect("active command fixture must insert");
+    assert!(matches!(
+        database.delete_plugin(administrator_id, plugin_id).await,
+        Err(PluginMutationError::Busy)
+    ));
+    sqlx::query("DELETE FROM plugin_command_receipts WHERE plugin_id = $1")
+        .bind(plugin_id)
+        .execute(&pool)
+        .await
+        .expect("active command fixture must clear");
+    database
+        .delete_plugin(administrator_id, plugin_id)
+        .await
+        .expect("plugin must uninstall after command completes");
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
@@ -46,6 +158,9 @@ async fn plugin_lifecycle_is_revisioned_capability_checked_and_audited(pool: PgP
     assert_eq!(installed.revision, 1);
     assert_eq!(installed.component_size, 8);
     assert_eq!(installed.installed_by, administrator_id);
+    assert_eq!(installed.manifest_schema_version, 1);
+    assert_eq!(installed.business_api_version, None);
+    assert!(installed.data_scopes.is_empty());
 
     let conflict = database
         .install_plugin(administrator_id, install_record(Uuid::now_v7()))
@@ -85,6 +200,7 @@ async fn plugin_lifecycle_is_revisioned_capability_checked_and_audited(pool: PgP
         .expect("enabled declared capability must load");
     assert_eq!(executable.component_bytes.len(), 8);
     assert_eq!(executable.key, "identity_plugin");
+    assert_eq!(executable.business_api_version, None);
     assert!(matches!(
         database
             .load_plugin_for_invoke(administrator_id, plugin_id, "ui.panel")

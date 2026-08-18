@@ -34,6 +34,7 @@ import { DeviceSessionsPanel } from "./DeviceSessionsPanel"
 import { ExternalIdentitiesPanel } from "./ExternalIdentitiesPanel"
 import { PasskeysPanel } from "./PasskeysPanel"
 import { PasswordChangePanel } from "./PasswordChangePanel"
+import { PluginUiSurface } from "./PluginUiSurface"
 import { MfaPanel } from "./MfaPanel"
 import { TopicRow } from "./TopicRow"
 import { UserAvatar } from "./UserAvatar"
@@ -298,6 +299,17 @@ export function UserProfileView({
         {followError && <p className="form-alert" role="alert">{followError}</p>}
         {messageError && <p className="form-alert" role="alert">{messageError}</p>}
       </header>
+
+      <PluginUiSurface
+        slot="user_profile"
+        subjectId={profile.id}
+        csrfToken={session?.csrfToken}
+      />
+      {profile.viewer?.isSelf && session ? <PluginUiSurface
+        slot="membership_panel"
+        subjectId={profile.id}
+        csrfToken={session.csrfToken}
+      /> : null}
 
       {editing && <ProfileEditForm profile={profile} onSave={handleSave} onCancel={() => setEditing(false)} />}
       {showDeviceSessions && session && <DeviceSessionsPanel session={session} onClose={() => setShowDeviceSessions(false)} />}

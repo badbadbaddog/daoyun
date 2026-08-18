@@ -4,8 +4,14 @@ mod admin;
 mod attachments;
 mod auth;
 mod authorization;
+mod board_user_restrictions;
 mod boards;
+mod community_groups;
+mod community_permissions;
+mod content_access_policies;
+mod experience;
 mod governance;
+mod idempotency;
 mod installation;
 mod membership;
 mod messages;
@@ -14,8 +20,10 @@ mod notifications;
 mod operations;
 mod outbox;
 mod passkeys;
+mod plugin_business_runtime;
 mod plugins;
 mod relations;
+mod standard_entitlements;
 mod storage;
 mod topics;
 mod users;
@@ -51,7 +59,30 @@ pub use authorization::{
     ListAuthorizationAssignmentsError, MutateAuthorizationAssignmentError,
     MutateAuthorizationRoleError, UpdateAuthorizationRoleRecord, permission_keys,
 };
+pub use board_user_restrictions::{
+    BoardUserRestrictionAction, BoardUserRestrictionMutationError, BoardUserRestrictionRecord,
+    PutBoardUserRestrictionRecord,
+};
 pub use boards::BoardRecord;
+pub use community_groups::{
+    COMMUNITY_PERMISSION_KEYS, COMMUNITY_QUOTA_KEYS, CommunityGroupConfigurationRecord,
+    CommunityGroupMembershipRecord, CommunityGroupMutationError, CommunityMembershipMutationError,
+    CommunityMembershipMutationResult, CreateCommunityGroupRecord, GrantCommunityMembershipRecord,
+    UpdateCommunityGroupRecord,
+};
+pub use community_permissions::{
+    CommunityAccessError, CommunityAccessSnapshot, CommunityGroupPolicy, StandardEntitlementPolicy,
+    merge_community_access_policies, merge_community_group_policies,
+};
+pub use content_access_policies::{
+    ContentAccessPolicyMutationError, ContentAccessPolicyRecord, ContentAccessPolicySubjectRecord,
+    PutContentAccessPolicyRecord,
+};
+pub use experience::{
+    AdminGrowthLevelRecord, AppendExperienceError, CreateGrowthLevelRecord,
+    ExperienceAccountRecord, ExperienceLedgerResult, GrowthLevelRecord, MutateGrowthLevelError,
+    UpdateGrowthLevelRecord,
+};
 pub use governance::{
     ContentReportCreationRecord, ContentReportDetailRecord, ContentReportRecord,
     CreateContentReportError, GetContentReportDetailError, ListContentReportsError,
@@ -96,6 +127,12 @@ pub use passkeys::{
     DeletePasskeyError, NewPasskeyChallengeRecord, NewPasskeyCredentialRecord,
     PasskeyChallengeKind, PasskeyCredentialRecord, PasskeyUserRecord, RegisterPasskeyError,
 };
+pub use plugin_business_runtime::{
+    ClaimedPluginEventDelivery, ClaimedPluginTask, ExecutePluginCommandRecord,
+    PluginBusinessExecutableRecord, PluginCommandKind, PluginCommandResult, PluginQueryKind,
+    PluginQueueDisposition, PluginQuotaSnapshot, PluginRuntimeError, PluginStorageObjectRecord,
+    PluginTaskRecord, PutPluginStorageObjectRecord, SchedulePluginTaskRecord,
+};
 pub use plugins::{
     InstallPluginRecord, ListPluginsError, PluginExecutableRecord, PluginInvokeError,
     PluginMutationError, PluginRecord, UpdatePluginStatusRecord,
@@ -104,14 +141,20 @@ pub use relations::{
     BookmarkMutationError, BookmarkStateRecord, ListBookmarksError, PostLikeMutationError,
     PostLikeStateRecord,
 };
+pub use standard_entitlements::{
+    GrantStandardEntitlementRecord, PutStandardEntitlementTypeRecord,
+    RevokeStandardEntitlementRecord, StandardEntitlementGrantResult,
+    StandardEntitlementMutationError, StandardEntitlementRecord, StandardEntitlementTypeRecord,
+};
 pub use topics::{
     CreateReplyError, CreateReplyResult, CreateTopicError, CreateTopicResult, IdempotencyInput,
     ListPublicRepliesError, ListPublicTopicsError, ListTopicRevisionsError, NewReplyRecord,
     NewTagRecord, NewTopicRecord, PublicReplyRecord, PublicTagRecord, PublicTagUsageRecord,
     PublicTopicDetailRecord, PublicTopicFilters, PublicTopicRecord, ReplyMutationError,
-    ReplyRevisionRecord, TopicDeleteError, TopicModerationError, TopicModerationResultRecord,
-    TopicRevisionRecord, TopicSort, UpdateReplyRecord, UpdateReplyResult, UpdateTopicError,
-    UpdateTopicRecord, UpdateTopicResult,
+    ReplyRevisionRecord, TopicDeleteError, TopicGovernanceAction, TopicGovernanceError,
+    TopicGovernanceInput, TopicGovernanceResultRecord, TopicModerationError,
+    TopicModerationResultRecord, TopicRevisionRecord, TopicSort, UpdateReplyRecord,
+    UpdateReplyResult, UpdateTopicError, UpdateTopicRecord, UpdateTopicResult,
 };
 pub use users::{
     AdminUserContentRecord, AdminUserDetailRecord, AdminUserReadError, AdminUserRoleRecord,

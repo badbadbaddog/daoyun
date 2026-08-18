@@ -996,6 +996,12 @@ async fn openapi_documents_public_topic_list_and_detail() {
     assert!(document["paths"]["/api/v1/topics/{topic_id}/replies"]["post"].is_object());
     assert!(document["paths"]["/api/v1/tags"]["get"].is_object());
     assert!(document["paths"]["/api/v1/topics/{topic_id}"]["patch"].is_object());
+    assert!(document["paths"]["/api/v1/topics/{topic_id}/governance"]["patch"].is_object());
+    assert!(
+        document["paths"]["/api/v1/management/boards/{board_id}/users/{user_id}/posting-restriction"]
+            ["put"]
+            .is_object()
+    );
     assert!(document["paths"]["/api/v1/topics/{topic_id}/revisions"]["get"].is_object());
     let reply_item_path = &document["paths"]["/api/v1/topics/{topic_id}/replies/{reply_id}"];
     assert!(reply_item_path["patch"].is_object());
@@ -1020,12 +1026,148 @@ async fn openapi_documents_public_topic_list_and_detail() {
         "TopicRevision",
         "UpdateReplyRequest",
         "ReplyRevision",
+        "BoardPostingRestrictionAction",
+        "PutBoardUserRestrictionRequest",
+        "BoardUserRestriction",
     ] {
         assert!(
             document["components"]["schemas"][schema].is_object(),
             "{schema}"
         );
     }
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn topic_governance_endpoint_enforces_revision_and_lock_state(pool: PgPool) {
+    let config = daoyun_api::AuthConfig::default().with_secure_cookies(false);
+    let app = daoyun_api::app_with_config(Database::from_pool(pool), config);
+    let (member_cookies, member_csrf) = register_member(&app).await;
+    let topic = app
+        .clone()
+        .oneshot(json_request_with_headers_and_idempotency(
+            "/api/v1/topics",
+            serde_json::json!({"title": "治理主题", "content": "主题正文"}),
+            &member_cookies,
+            &member_csrf,
+            "governance-topic",
+        ))
+        .await
+        .expect("topic creation must respond");
+    assert_eq!(topic.status(), StatusCode::CREATED);
+    let topic_id = response_json(topic).await["data"]["id"]
+        .as_str()
+        .expect("topic id must be text")
+        .to_owned();
+    let (owner_cookies, owner_csrf) = login_owner(&app).await;
+    let governance_path = format!("/api/v1/topics/{topic_id}/governance");
+
+    let pinned = app
+        .clone()
+        .oneshot(json_request_with_headers(
+            Method::PATCH,
+            &governance_path,
+            serde_json::json!({"action": "pin", "expected_revision": 1}),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("pin request must respond");
+    assert_eq!(pinned.status(), StatusCode::OK);
+    let pinned = response_json(pinned).await;
+    assert_eq!(pinned["data"]["is_pinned"], true);
+    assert_eq!(pinned["data"]["governance_revision"], 2);
+
+    let stale = app
+        .clone()
+        .oneshot(json_request_with_headers(
+            Method::PATCH,
+            &governance_path,
+            serde_json::json!({"action": "feature", "expected_revision": 1}),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("stale governance request must respond");
+    assert_eq!(stale.status(), StatusCode::CONFLICT);
+
+    let locked = app
+        .clone()
+        .oneshot(json_request_with_headers(
+            Method::PATCH,
+            &governance_path,
+            serde_json::json!({"action": "lock", "expected_revision": 2}),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("lock request must respond");
+    assert_eq!(locked.status(), StatusCode::OK);
+    assert_eq!(response_json(locked).await["data"]["is_locked"], true);
+
+    let reply = app
+        .oneshot(json_request_with_headers_and_idempotency(
+            &format!("/api/v1/topics/{topic_id}/replies"),
+            serde_json::json!({"content": "不能发送"}),
+            &member_cookies,
+            &member_csrf,
+            "locked-reply",
+        ))
+        .await
+        .expect("locked reply request must respond");
+    assert_eq!(reply.status(), StatusCode::CONFLICT);
+    assert_eq!(response_json(reply).await["error"]["code"], "topic.locked");
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn scoped_board_restriction_api_blocks_member_topic_creation(pool: PgPool) {
+    let config = daoyun_api::AuthConfig::default().with_secure_cookies(false);
+    let app = daoyun_api::app_with_config(Database::from_pool(pool.clone()), config);
+    let (member_cookies, member_csrf) = register_member(&app).await;
+    let member_id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username = 'member'")
+        .fetch_one(&pool)
+        .await
+        .expect("member id must load");
+    let board_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM boards WHERE visibility = 'public' ORDER BY position, id LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("default board id must load");
+    let (owner_cookies, owner_csrf) = login_owner(&app).await;
+    let restriction = app
+        .clone()
+        .oneshot(json_request_with_headers(
+            Method::PUT,
+            &format!("/api/v1/management/boards/{board_id}/users/{member_id}/posting-restriction"),
+            serde_json::json!({
+                "actions": ["topic_create"],
+                "starts_at": "2020-01-01T00:00:00Z",
+                "ends_at": "2099-01-01T00:00:00Z",
+                "reason": "temporary moderation action"
+            }),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("restriction request must respond");
+    assert_eq!(restriction.status(), StatusCode::OK);
+    assert_eq!(response_json(restriction).await["data"]["revision"], 1);
+
+    let blocked = app
+        .oneshot(json_request_with_headers_and_idempotency(
+            "/api/v1/topics",
+            serde_json::json!({"title": "应被阻止", "content": "主题正文"}),
+            &member_cookies,
+            &member_csrf,
+            "restricted-topic",
+        ))
+        .await
+        .expect("restricted topic request must respond");
+    assert_eq!(blocked.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        response_json(blocked).await["error"]["code"],
+        "board.posting_restricted"
+    );
 }
 
 fn get_request(uri: &str) -> Request<Body> {

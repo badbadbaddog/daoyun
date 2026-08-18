@@ -1099,6 +1099,47 @@ async fn authorization_catalog_requires_capabilities_and_preserves_public_contra
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn privileged_admin_write_requires_recent_authentication(pool: PgPool) {
+    let config = daoyun_api::AuthConfig::default().with_secure_cookies(false);
+    let app = daoyun_api::app_with_config(Database::from_pool(pool), config);
+    initialize(&app).await;
+    let login = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/auth/login",
+            json!({"identifier": "owner", "password": "correct horse battery staple"}),
+            "",
+            None,
+        ))
+        .await
+        .expect("owner login must respond");
+    assert_eq!(login.status(), StatusCode::OK);
+    let (owner_cookies, owner_csrf) = session_cookies(&login).await;
+
+    let denied = app
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/authorization/roles",
+            json!({
+                "key": "missing_recent_auth",
+                "name": "Missing recent auth",
+                "scope": "instance",
+                "permission_keys": ["authorization.roles.read"]
+            }),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("privileged write without recent auth must respond");
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        response_json(denied).await["error"]["code"],
+        "auth.recent_auth_required"
+    );
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
 async fn custom_role_api_validates_csrf_revisions_system_roles_and_permissions(pool: PgPool) {
     let config = daoyun_api::AuthConfig::default().with_secure_cookies(false);
     let app = daoyun_api::app_with_config(Database::from_pool(pool), config);
@@ -1269,7 +1310,7 @@ async fn custom_role_api_validates_csrf_revisions_system_roles_and_permissions(p
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
-async fn role_assignment_api_enforces_exact_user_scope_uniqueness_and_revocation(pool: PgPool) {
+async fn role_assignment_api_exposes_scope_mode_uniqueness_and_revocation(pool: PgPool) {
     let config = daoyun_api::AuthConfig::default().with_secure_cookies(false);
     let app = daoyun_api::app_with_config(Database::from_pool(pool), config);
     initialize(&app).await;
@@ -1329,7 +1370,8 @@ async fn role_assignment_api_enforces_exact_user_scope_uniqueness_and_revocation
             json!({
                 "username": "assignment_member",
                 "role_id": role_id,
-                "scope_id": board_id
+                "scope_id": board_id,
+                "scope_mode": "subtree"
             }),
             &owner_cookies,
             Some(&owner_csrf),
@@ -1346,6 +1388,7 @@ async fn role_assignment_api_enforces_exact_user_scope_uniqueness_and_revocation
         "assignment_member"
     );
     assert_eq!(assignment_payload["data"]["scope_id"], board_id);
+    assert_eq!(assignment_payload["data"]["scope_mode"], "subtree");
 
     let duplicate = app
         .clone()
@@ -1409,9 +1452,151 @@ async fn role_assignment_api_enforces_exact_user_scope_uniqueness_and_revocation
         .expect("OpenAPI document must respond");
     let document = response_json(openapi).await;
     assert!(document["paths"]["/api/v1/admin/authorization/assignments"]["post"].is_object());
+    let create_parameters =
+        document["paths"]["/api/v1/admin/authorization/assignments"]["post"]["parameters"]
+            .as_array()
+            .expect("assignment creation parameters must be documented");
+    assert!(
+        create_parameters.iter().any(|parameter| {
+            parameter["name"] == "x-csrf-token" && parameter["in"] == "header"
+        })
+    );
     assert!(
         document["paths"]["/api/v1/admin/authorization/assignments/{assignment_id}"]["delete"]
             .is_object()
+    );
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn standard_entitlement_api_publishes_grants_replays_revokes_and_documents(pool: PgPool) {
+    let config = daoyun_api::AuthConfig::default().with_secure_cookies(false);
+    let app = daoyun_api::app_with_config(Database::from_pool(pool), config);
+    initialize(&app).await;
+    let member = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/auth/register",
+            json!({
+                "username": "entitlement_member",
+                "email": "entitlement_member@example.com",
+                "display_name": "Entitlement member",
+                "password": "correct horse battery staple"
+            }),
+            "",
+            None,
+        ))
+        .await
+        .expect("member registration must respond");
+    assert_eq!(member.status(), StatusCode::CREATED);
+    let member_id = response_json(member).await["data"]["user"]["id"]
+        .as_str()
+        .expect("member id must exist")
+        .to_owned();
+    let (owner_cookies, owner_csrf) = login_owner(&app).await;
+
+    let entitlement_type = app
+        .clone()
+        .oneshot(json_request(
+            Method::PUT,
+            "/api/v1/admin/entitlements/types/gold_vip",
+            json!({
+                "display_name": "Gold VIP",
+                "permission_keys": ["topic.poll.create"],
+                "quotas": {"attachment.file.bytes": 20971520},
+                "expected_revision": null
+            }),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("entitlement type publication must respond");
+    assert_eq!(entitlement_type.status(), StatusCode::OK);
+    let entitlement_type_payload = response_json(entitlement_type).await;
+    let entitlement_type_id = entitlement_type_payload["data"]["id"]
+        .as_str()
+        .expect("entitlement type id must exist")
+        .to_owned();
+    assert_eq!(entitlement_type_payload["data"]["current_version"], 1);
+
+    let grant_body = json!({
+        "user_id": member_id,
+        "entitlement_type_id": entitlement_type_id,
+        "source": "admin",
+        "source_reference_id": null,
+        "reason": "Manual VIP grant",
+        "starts_at": "2020-01-01T00:00:00Z",
+        "ends_at": "2030-01-01T00:00:00Z",
+        "idempotency_key": "api-grant-gold-vip"
+    });
+    let granted = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entitlements",
+            grant_body.clone(),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("entitlement grant must respond");
+    assert_eq!(granted.status(), StatusCode::OK);
+    let granted_payload = response_json(granted).await;
+    let entitlement_id = granted_payload["data"]["entitlement"]["id"]
+        .as_str()
+        .expect("entitlement id must exist")
+        .to_owned();
+    assert_eq!(granted_payload["data"]["replayed"], false);
+    assert_eq!(
+        granted_payload["data"]["entitlement"]["entitlement_key"],
+        "gold_vip"
+    );
+
+    let replayed = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entitlements",
+            grant_body,
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("entitlement replay must respond");
+    assert_eq!(replayed.status(), StatusCode::OK);
+    assert_eq!(response_json(replayed).await["data"]["replayed"], true);
+
+    let revoked = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            &format!("/api/v1/admin/entitlements/{entitlement_id}/revoke"),
+            json!({
+                "expected_revision": 1,
+                "reason": "Refund",
+                "idempotency_key": "api-revoke-gold-vip"
+            }),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("entitlement revocation must respond");
+    assert_eq!(revoked.status(), StatusCode::OK);
+    let revoked_payload = response_json(revoked).await;
+    assert_eq!(revoked_payload["data"]["entitlement"]["revision"], 2);
+    assert!(revoked_payload["data"]["entitlement"]["revoked_at"].is_string());
+
+    let openapi = app
+        .oneshot(get_request("/api/v1/openapi.json", ""))
+        .await
+        .expect("OpenAPI document must respond");
+    let document = response_json(openapi).await;
+    assert!(
+        document["paths"]["/api/v1/admin/entitlements/types/{internal_key}"]["put"].is_object()
+    );
+    assert!(document["paths"]["/api/v1/admin/entitlements"]["post"].is_object());
+    assert!(
+        document["paths"]["/api/v1/admin/entitlements/{entitlement_id}/revoke"]["post"].is_object()
     );
 }
 
@@ -1469,7 +1654,23 @@ async fn login_owner(app: &axum::Router) -> (String, String) {
         .await
         .expect("owner login must respond");
     assert_eq!(response.status(), StatusCode::OK);
-    session_cookies(&response).await
+    let (cookies, csrf) = session_cookies(&response).await;
+    let recent = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/auth/recent-auth",
+            json!({
+                "operation": "admin.privileged_write",
+                "password": "correct horse battery staple"
+            }),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .expect("admin recent authentication must respond");
+    assert_eq!(recent.status(), StatusCode::OK);
+    (cookies, csrf)
 }
 
 async fn session_cookies(response: &axum::response::Response) -> (String, String) {

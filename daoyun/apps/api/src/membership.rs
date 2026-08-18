@@ -1,6 +1,6 @@
 use api_contract::{
-    ApiResponse, ErrorBody, ErrorCode, ErrorResponse, Medal, MembershipCatalog, MembershipGroup,
-    MembershipLevel, RequestId, error_codes,
+    ApiResponse, ErrorBody, ErrorCode, ErrorResponse, GrowthLevel, Medal, MembershipCatalog,
+    MembershipGroup, MembershipLevel, RequestId, error_codes,
 };
 use axum::{
     Extension, Json, Router,
@@ -8,7 +8,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     routing::get,
 };
-use infrastructure::{Database, MembershipLevelRuleRecord};
+use infrastructure::{Database, GrowthLevelRecord, MembershipLevelRuleRecord};
 
 const LEVEL_ASSETS: [(&str, &str); 20] = [
     (
@@ -178,7 +178,41 @@ pub(crate) fn level_asset_metadata(number: i16) -> Option<(&'static str, &'stati
 }
 
 pub(crate) fn router() -> Router<Database> {
-    Router::new().route("/api/v1/membership/catalog", get(catalog))
+    Router::new()
+        .route("/api/v1/membership/catalog", get(catalog))
+        .route("/api/v1/membership/levels", get(levels))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/membership/levels",
+    operation_id = "listMembershipGrowthLevels",
+    tag = "membership",
+    responses(
+        (
+            status = 200,
+            description = "Published dynamic membership growth levels",
+            body = ApiResponse<Vec<GrowthLevel>>,
+            headers(("x-request-id" = String, description = "Request correlation identifier"))
+        ),
+        (status = 503, description = "Membership levels are unavailable", body = ErrorResponse)
+    )
+)]
+pub(crate) async fn levels(
+    Extension(request_id): Extension<RequestId>,
+    State(database): State<Database>,
+) -> Result<Json<ApiResponse<Vec<GrowthLevel>>>, crate::auth::ApiError> {
+    let levels = database
+        .list_published_growth_levels()
+        .await
+        .map_err(|error| {
+            tracing::warn!(request_id = %request_id, error = %error, "Membership growth levels query failed");
+            catalog_unavailable(request_id)
+        })?
+        .into_iter()
+        .map(growth_level)
+        .collect();
+    Ok(Json(ApiResponse::new(levels, request_id)))
 }
 
 #[utoipa::path(
@@ -261,6 +295,19 @@ fn build_catalog(rules: &[MembershipLevelRuleRecord]) -> Option<MembershipCatalo
         levels,
         medals,
     })
+}
+
+pub(crate) fn growth_level(record: GrowthLevelRecord) -> GrowthLevel {
+    GrowthLevel {
+        id: record.id,
+        internal_key: record.internal_key,
+        level_order: record.level_order,
+        display_name: record.display_name,
+        required_experience: record.required_experience,
+        icon_asset_id: record.icon_asset_id,
+        color: record.color,
+        description: record.description,
+    }
 }
 
 fn catalog_unavailable(request_id: RequestId) -> crate::auth::ApiError {

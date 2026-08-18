@@ -381,6 +381,25 @@ async fn recent_authentication_requires_csrf_and_creates_one_time_operation_stat
             && metadata["operation"] == "security.settings"
             && metadata.get("password").is_none()
     }));
+
+    let admin_recent = app
+        .clone()
+        .oneshot(recent_auth_request(
+            &cookie_header,
+            csrf_token,
+            "admin.privileged_write",
+            "correct horse battery staple",
+        ))
+        .await
+        .expect("admin recent auth route must respond");
+    assert_eq!(admin_recent.status(), StatusCode::OK);
+    let admin_records = sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM recent_authentications WHERE operation = 'admin.privileged_write'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("admin recent auth state must be queryable");
+    assert_eq!(admin_records, 1);
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
@@ -420,6 +439,35 @@ async fn recent_authentication_attempts_are_rate_limited(pool: PgPool) {
         .expect("recent auth route must respond");
     assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
     assert!(limited.headers().contains_key("retry-after"));
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn successful_recent_authentication_does_not_consume_failure_budget(pool: PgPool) {
+    let config = daoyun_api::AuthConfig::default()
+        .with_secure_cookies(false)
+        .with_attempt_limit(1);
+    let app = daoyun_api::app_with_config(Database::from_pool(pool), config);
+    initialize_instance(&app).await;
+
+    let login = login(&app, "owner", "correct horse battery staple").await;
+    let csrf_cookie = cookie_value(&login, "daoyun_csrf");
+    let session_cookie = cookie_value(&login, "daoyun_session");
+    let cookie_header = format!("{session_cookie}; {csrf_cookie}");
+    let csrf_token = csrf_cookie.split_once('=').unwrap().1;
+
+    for _ in 0..2 {
+        let response = app
+            .clone()
+            .oneshot(recent_auth_request(
+                &cookie_header,
+                csrf_token,
+                "security.settings",
+                "correct horse battery staple",
+            ))
+            .await
+            .expect("successful recent auth must respond");
+        assert_eq!(response.status(), StatusCode::OK);
+    }
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
@@ -885,6 +933,20 @@ async fn login_attempts_are_rate_limited_with_retry_after(pool: PgPool) {
         response_json(second).await["error"]["code"],
         "auth.rate_limited"
     );
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn successful_logins_do_not_consume_failure_budget(pool: PgPool) {
+    let config = daoyun_api::AuthConfig::default()
+        .with_secure_cookies(false)
+        .with_attempt_limit(1);
+    let app = daoyun_api::app_with_config(Database::from_pool(pool), config);
+    initialize_instance(&app).await;
+
+    let first = login(&app, "owner", "correct horse battery staple").await;
+    assert_eq!(first.status(), StatusCode::OK);
+    let second = login(&app, "owner", "correct horse battery staple").await;
+    assert_eq!(second.status(), StatusCode::OK);
 }
 
 #[tokio::test]

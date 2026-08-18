@@ -226,8 +226,8 @@ pub(crate) async fn insert_notification(
     target_type: &str,
     target_id: Uuid,
     aggregate_key: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
         "INSERT INTO notifications
             (id, recipient_id, actor_id, kind, target_type, target_id, aggregate_key)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -242,7 +242,7 @@ pub(crate) async fn insert_notification(
     .bind(aggregate_key)
     .execute(&mut **transaction)
     .await?;
-    Ok(())
+    Ok(result.rows_affected() == 1)
 }
 
 impl From<sqlx::Error> for ListNotificationsError {

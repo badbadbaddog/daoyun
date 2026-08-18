@@ -22,6 +22,7 @@ const MFA_DISABLE_ENDPOINT = `${MFA_ENDPOINT}/disable`
 const MFA_RECOVERY_REGENERATE_ENDPOINT = `${MFA_ENDPOINT}/recovery-codes/regenerate`
 const MFA_VERIFY_ENDPOINT = `${MFA_ENDPOINT}/verify`
 const SECURITY_SETTINGS_OPERATION = "security.settings"
+export const ADMIN_PRIVILEGED_WRITE_OPERATION = "admin.privileged_write"
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const tokenPattern = /^[0-9a-f]{64}$/i
 const providerKeyPattern = /^[a-z][a-z0-9_-]{1,31}$/
@@ -313,8 +314,17 @@ export async function createRecentAuthentication(
   csrfToken: string,
   signal?: AbortSignal,
 ): Promise<RecentAuthentication> {
+  return createRecentAuthenticationForOperation(password, csrfToken, SECURITY_SETTINGS_OPERATION, signal)
+}
+
+export async function createRecentAuthenticationForOperation(
+  password: string,
+  csrfToken: string,
+  operation: string,
+  signal?: AbortSignal,
+): Promise<RecentAuthentication> {
   const body: RecentAuthRequestDto = {
-    operation: SECURITY_SETTINGS_OPERATION,
+    operation,
     password,
   }
   const response = await fetch(RECENT_AUTH_ENDPOINT, {

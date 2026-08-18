@@ -1,0 +1,2 @@
+-- Attachment quota rows are tenant-owned configuration after creation.
+-- Keep them on rollback so pre-existing or administrator-modified values are never destroyed.

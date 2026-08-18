@@ -6,7 +6,11 @@ use sqlx::{FromRow, types::Uuid};
 use time::OffsetDateTime;
 
 use crate::admin::insert_audit;
-use crate::authorization::{has_permission_with_executor, permission_keys};
+use crate::board_user_restrictions::is_board_user_action_restricted_with_executor;
+use crate::community_permissions::{
+    CommunityActionError, authorize_community_action_with_executor,
+    community_quota_limit_with_executor,
+};
 use crate::{Database, DatabaseError};
 
 pub const MAX_ATTACHMENT_BYTES: usize = 50 * 1024 * 1024;
@@ -49,6 +53,8 @@ pub struct AttachmentCleanupResultRecord {
 pub enum AttachmentError {
     TopicUnavailable,
     Forbidden,
+    BoardRestricted,
+    QuotaExceeded,
     Invalid,
     MalwareDetected,
     Storage(String),
@@ -59,6 +65,8 @@ pub enum AttachmentError {
 #[derive(Debug)]
 pub enum ListAttachmentsError {
     TopicUnavailable,
+    Forbidden,
+    QuotaExceeded,
     Storage(String),
     Database(DatabaseError),
 }
@@ -108,15 +116,56 @@ impl Database {
         if topic.author_id != input.uploader_id {
             return Err(AttachmentError::Forbidden);
         }
-        let allowed = has_permission_with_executor(
+        if is_board_user_action_restricted_with_executor(
             &mut transaction,
             input.uploader_id,
-            permission_keys::ATTACHMENT_CREATE,
-            Some(topic.board_id),
+            topic.board_id,
+            "attachment.upload",
+            OffsetDateTime::now_utc(),
+        )
+        .await?
+        {
+            return Err(AttachmentError::BoardRestricted);
+        }
+        authorize_community_action_with_executor(
+            &mut transaction,
+            input.uploader_id,
+            "attachment.upload",
+            Some(("attachment.upload.daily", 1)),
+            Some((
+                "attachment.file.bytes",
+                i64::try_from(input.bytes.len()).expect("validated size fits i64"),
+            )),
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(|error| match error {
+            CommunityActionError::PermissionDenied => AttachmentError::Forbidden,
+            CommunityActionError::QuotaExceeded => AttachmentError::QuotaExceeded,
+            CommunityActionError::Database(error) => AttachmentError::from(error),
+        })?;
+        let upload_bytes = i64::try_from(input.bytes.len()).expect("validated size fits i64");
+        let storage_used = sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(SUM(size_bytes), 0)::bigint
+             FROM topic_attachments
+             WHERE uploader_id = $1 AND deleted_at IS NULL
+               AND status IN ('pending', 'ready')",
+        )
+        .bind(input.uploader_id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        let storage_limit = community_quota_limit_with_executor(
+            &mut transaction,
+            input.uploader_id,
+            "attachment.storage.bytes",
+            OffsetDateTime::now_utc(),
         )
         .await?;
-        if !allowed {
-            return Err(AttachmentError::Forbidden);
+        if storage_used
+            .checked_add(upload_bytes)
+            .is_none_or(|required| required > storage_limit)
+        {
+            return Err(AttachmentError::QuotaExceeded);
         }
         self.attachment_store
             .put(&storage_key, &input.bytes)
@@ -188,6 +237,7 @@ impl Database {
     pub async fn list_topic_attachments(
         &self,
         topic_id: Uuid,
+        viewer_user_id: Option<Uuid>,
     ) -> Result<Vec<AttachmentRecord>, ListAttachmentsError> {
         let records = sqlx::query_as::<_, AttachmentRecord>(
             "SELECT a.id, a.topic_id, a.original_name, a.mime_type, a.size_bytes,
@@ -199,17 +249,25 @@ impl Database {
              INNER JOIN topics AS t ON t.id = a.topic_id
              WHERE a.topic_id = $1 AND t.status = 'published'
                AND t.deleted_at IS NULL AND a.status = 'ready'
+               AND daoyun_can_access_content('topic', t.id, $2, CURRENT_TIMESTAMP)
+               AND daoyun_can_access_content('attachment', a.id, $2, CURRENT_TIMESTAMP)
              ORDER BY a.created_at, a.id",
         )
         .bind(topic_id)
+        .bind(viewer_user_id)
         .fetch_all(&self.pool)
         .await
         .map_err(|error| ListAttachmentsError::Database(DatabaseError::from(error)))?;
         if records.is_empty() {
             let exists = sqlx::query_scalar::<_, bool>(
-                "SELECT EXISTS (SELECT 1 FROM topics WHERE id = $1 AND status = 'published' AND deleted_at IS NULL)",
+                "SELECT EXISTS (
+                    SELECT 1 FROM topics
+                    WHERE id = $1 AND status = 'published' AND deleted_at IS NULL
+                      AND daoyun_can_access_content('topic', id, $2, CURRENT_TIMESTAMP)
+                 )",
             )
             .bind(topic_id)
+            .bind(viewer_user_id)
             .fetch_one(&self.pool)
             .await
             .map_err(|error| ListAttachmentsError::Database(DatabaseError::from(error)))?;
@@ -224,6 +282,7 @@ impl Database {
         &self,
         attachment_id: Uuid,
         thumbnail: bool,
+        viewer_user_id: Option<Uuid>,
     ) -> Result<(AttachmentRecord, Vec<u8>), ListAttachmentsError> {
         let record = sqlx::query_as::<_, AttachmentRecord>(
             "SELECT a.id, a.topic_id, a.original_name, a.mime_type, a.size_bytes,
@@ -234,13 +293,66 @@ impl Database {
              FROM topic_attachments AS a
              INNER JOIN topics AS t ON t.id = a.topic_id
              WHERE a.id = $1 AND a.status = 'ready'
-               AND t.status = 'published' AND t.deleted_at IS NULL",
+               AND t.status = 'published' AND t.deleted_at IS NULL
+               AND daoyun_can_access_content('topic', t.id, $2, CURRENT_TIMESTAMP)
+               AND daoyun_can_access_content('attachment', a.id, $2, CURRENT_TIMESTAMP)",
         )
         .bind(attachment_id)
+        .bind(viewer_user_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|error| ListAttachmentsError::Database(DatabaseError::from(error)))?
         .ok_or(ListAttachmentsError::TopicUnavailable)?;
+        let download_user_id = if thumbnail {
+            None
+        } else {
+            Some(viewer_user_id.ok_or(ListAttachmentsError::Forbidden)?)
+        };
+        if let Some(viewer_user_id) = download_user_id {
+            let effective_at = OffsetDateTime::now_utc();
+            let mut precheck = self.pool.begin().await?;
+            authorize_community_action_with_executor(
+                &mut precheck,
+                viewer_user_id,
+                "attachment.download",
+                None,
+                None,
+                effective_at,
+            )
+            .await
+            .map_err(|error| match error {
+                CommunityActionError::PermissionDenied => ListAttachmentsError::Forbidden,
+                CommunityActionError::QuotaExceeded => ListAttachmentsError::QuotaExceeded,
+                CommunityActionError::Database(error) => {
+                    ListAttachmentsError::Database(DatabaseError::from(error))
+                }
+            })?;
+            let quota_limit = community_quota_limit_with_executor(
+                &mut precheck,
+                viewer_user_id,
+                "attachment.download.bytes.daily",
+                effective_at,
+            )
+            .await?;
+            let quota_used = sqlx::query_scalar::<_, i64>(
+                "SELECT COALESCE((
+                     SELECT used FROM community_quota_usage
+                     WHERE user_id = $1 AND quota_key = $2 AND window_start = $3
+                 ), 0)::bigint",
+            )
+            .bind(viewer_user_id)
+            .bind("attachment.download.bytes.daily")
+            .bind(effective_at.date())
+            .fetch_one(&mut *precheck)
+            .await?;
+            if quota_used
+                .checked_add(record.size_bytes)
+                .is_none_or(|required| required > quota_limit)
+            {
+                return Err(ListAttachmentsError::QuotaExceeded);
+            }
+            precheck.commit().await?;
+        }
         let key = if thumbnail {
             record
                 .thumbnail_key
@@ -254,6 +366,26 @@ impl Database {
             .get(key)
             .await
             .map_err(ListAttachmentsError::Storage)?;
+        if let Some(viewer_user_id) = download_user_id {
+            let mut transaction = self.pool.begin().await?;
+            authorize_community_action_with_executor(
+                &mut transaction,
+                viewer_user_id,
+                "attachment.download",
+                Some(("attachment.download.bytes.daily", record.size_bytes)),
+                None,
+                OffsetDateTime::now_utc(),
+            )
+            .await
+            .map_err(|error| match error {
+                CommunityActionError::PermissionDenied => ListAttachmentsError::Forbidden,
+                CommunityActionError::QuotaExceeded => ListAttachmentsError::QuotaExceeded,
+                CommunityActionError::Database(error) => {
+                    ListAttachmentsError::Database(DatabaseError::from(error))
+                }
+            })?;
+            transaction.commit().await?;
+        }
         Ok((record, bytes))
     }
 
@@ -448,6 +580,8 @@ impl fmt::Display for AttachmentError {
         formatter.write_str(match self {
             Self::TopicUnavailable => "attachment topic unavailable",
             Self::Forbidden => "attachment upload forbidden",
+            Self::BoardRestricted => "attachment upload is restricted in board",
+            Self::QuotaExceeded => "attachment upload quota was exceeded",
             Self::Invalid => "attachment is invalid",
             Self::MalwareDetected => "attachment malware was detected",
             Self::Storage(_) => "attachment storage operation failed",
@@ -459,10 +593,18 @@ impl fmt::Display for AttachmentError {
 
 impl Error for AttachmentError {}
 
+impl From<sqlx::Error> for ListAttachmentsError {
+    fn from(error: sqlx::Error) -> Self {
+        Self::Database(DatabaseError::from(error))
+    }
+}
+
 impl fmt::Display for ListAttachmentsError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::TopicUnavailable => "attachment topic unavailable",
+            Self::Forbidden => "attachment download forbidden",
+            Self::QuotaExceeded => "attachment download quota was exceeded",
             Self::Storage(_) => "attachment list storage operation failed",
             Self::Database(_) => "attachment list database operation failed",
         })
@@ -585,5 +727,120 @@ mod tests {
 
         tokio::fs::remove_dir_all(&root).await.unwrap();
         tokio::fs::remove_dir_all(&outside).await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod transaction_tests {
+    use std::{sync::Arc, time::Duration};
+
+    use sqlx::{PgPool, types::Uuid};
+    use tokio::sync::Notify;
+
+    use super::Database;
+    use crate::storage::AttachmentStore;
+
+    #[sqlx::test(migrator = "crate::MIGRATOR")]
+    async fn attachment_download_releases_database_connection_before_storage_read(pool: PgPool) {
+        let user_id = Uuid::now_v7();
+        let board_id = Uuid::now_v7();
+        let topic_id = Uuid::now_v7();
+        let attachment_id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO users (id, username, email, display_name, status)
+             VALUES ($1, 'reader', 'reader@example.com', 'Reader', 'active')",
+        )
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .expect("reader fixture must insert");
+        sqlx::query(
+            "INSERT INTO boards (id, slug, name, visibility)
+             VALUES ($1, 'downloads', 'Downloads', 'public')",
+        )
+        .bind(board_id)
+        .execute(&pool)
+        .await
+        .expect("board fixture must insert");
+        sqlx::query(
+            "INSERT INTO topics (
+                 id, board_id, author_id, title, excerpt, content, status,
+                 published_at, last_activity_at
+             ) VALUES (
+                 $1, $2, $3, 'Download', 'Download', 'Download', 'published',
+                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+             )",
+        )
+        .bind(topic_id)
+        .bind(board_id)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .expect("topic fixture must insert");
+        sqlx::query(
+            "INSERT INTO topic_attachments (
+                 id, topic_id, uploader_id, storage_key, original_name,
+                 mime_type, size_bytes, sha256, status
+             ) VALUES (
+                 $1, $2, $3, 'topics/read/file.txt', 'file.txt',
+                 'text/plain', 4, $4, 'ready'
+             )",
+        )
+        .bind(attachment_id)
+        .bind(topic_id)
+        .bind(user_id)
+        .bind(vec![0_u8; 32])
+        .execute(&pool)
+        .await
+        .expect("attachment fixture must insert");
+
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let database = Database {
+            pool: pool.clone(),
+            attachment_store: AttachmentStore::DelayedRead {
+                bytes: Arc::new(b"data".to_vec()),
+                started: started.clone(),
+                release: release.clone(),
+            },
+        };
+        let mut held_connections = Vec::new();
+        for _ in 0..pool.options().get_max_connections().saturating_sub(1) {
+            held_connections.push(
+                pool.acquire()
+                    .await
+                    .expect("test must reserve a database connection"),
+            );
+        }
+
+        let download = tokio::spawn(async move {
+            database
+                .read_attachment(attachment_id, false, Some(user_id))
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(2), started.notified())
+            .await
+            .expect("download must reach object storage");
+        let connection_available =
+            match tokio::time::timeout(Duration::from_millis(250), pool.acquire()).await {
+                Ok(Ok(connection)) => {
+                    drop(connection);
+                    true
+                }
+                Ok(Err(error)) => panic!("database connection acquisition failed: {error}"),
+                Err(_) => false,
+            };
+        release.notify_one();
+        let (_, bytes) = download
+            .await
+            .expect("download task must join")
+            .expect("attachment must download");
+
+        assert_eq!(bytes, b"data");
+        assert!(
+            connection_available,
+            "object storage reads must not occupy a database connection"
+        );
+        drop(held_connections);
     }
 }

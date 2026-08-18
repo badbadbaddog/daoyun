@@ -1,3 +1,4 @@
+use crate::auth::{ApiError, AuthRuntime, authenticate_optional_session};
 use api_contract::{
     BoardSummary, BoardTone, ErrorBody, ErrorCode, ErrorResponse, PageResponse, RequestId,
     error_codes,
@@ -5,7 +6,7 @@ use api_contract::{
 use axum::{
     Extension, Json, Router,
     extract::{Query, State, rejection::QueryRejection},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::get,
 };
 use infrastructure::{BoardRecord, Database};
@@ -57,8 +58,10 @@ pub(crate) fn router() -> Router<Database> {
 pub(crate) async fn list(
     State(database): State<Database>,
     Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
     query: Result<Query<ListBoardsQuery>, QueryRejection>,
-) -> Result<Json<PageResponse<BoardSummary>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(HeaderMap, Json<PageResponse<BoardSummary>>), ApiError> {
     let Query(query) =
         query.map_err(|_| validation_error(request_id, "query", "分页参数格式不正确"))?;
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT);
@@ -71,9 +74,15 @@ pub(crate) async fn list(
         ));
     }
 
+    let (session, response_headers) =
+        authenticate_optional_session(&database, &runtime, &headers, request_id).await?;
     let fetch_limit = i64::from(limit) + 1;
     let mut records = database
-        .list_public_boards(query.cursor, fetch_limit)
+        .list_public_boards(
+            session.map(|session| session.user.id),
+            query.cursor,
+            fetch_limit,
+        )
         .await
         .map_err(|error| {
             tracing::warn!(
@@ -105,7 +114,10 @@ pub(crate) async fn list(
             service_unavailable(request_id)
         })?;
 
-    Ok(Json(PageResponse::new(boards, request_id, next_cursor)))
+    Ok((
+        response_headers,
+        Json(PageResponse::new(boards, request_id, next_cursor)),
+    ))
 }
 
 fn board_summary(record: BoardRecord) -> Result<BoardSummary, ()> {
@@ -129,13 +141,10 @@ fn board_summary(record: BoardRecord) -> Result<BoardSummary, ()> {
     })
 }
 
-fn validation_error(
-    request_id: RequestId,
-    field: &'static str,
-    message: &'static str,
-) -> (StatusCode, Json<ErrorResponse>) {
+fn validation_error(request_id: RequestId, field: &'static str, message: &'static str) -> ApiError {
     (
         StatusCode::UNPROCESSABLE_ENTITY,
+        HeaderMap::new(),
         Json(ErrorResponse::new(
             ErrorBody::new(
                 ErrorCode::from_static(error_codes::VALIDATION_FAILED),
@@ -147,9 +156,10 @@ fn validation_error(
     )
 }
 
-fn service_unavailable(request_id: RequestId) -> (StatusCode, Json<ErrorResponse>) {
+fn service_unavailable(request_id: RequestId) -> ApiError {
     (
         StatusCode::SERVICE_UNAVAILABLE,
+        HeaderMap::new(),
         Json(ErrorResponse::new(
             ErrorBody::new(
                 ErrorCode::from_static(error_codes::DATABASE_UNAVAILABLE),

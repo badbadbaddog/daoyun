@@ -83,6 +83,10 @@ async fn plugin_api_runs_the_validated_lifecycle_and_preserves_privacy(pool: PgP
     assert_eq!(listed.status(), StatusCode::OK);
     let listed = response_json(listed).await;
     assert_eq!(listed["data"][0]["key"], "api_identity_plugin");
+    assert_eq!(listed["data"][0]["manifest_schema_version"], 1);
+    assert!(listed["data"][0]["business_api_version"].is_null());
+    assert_eq!(listed["data"][0]["data_scopes"], json!([]));
+    assert_eq!(listed["data"][0]["event_subscriptions"], json!([]));
     assert!(listed.to_string().find("component_bytes").is_none());
 
     let enabled = app
@@ -195,6 +199,80 @@ async fn plugin_api_runs_the_validated_lifecycle_and_preserves_privacy(pool: PgP
     assert!(document["paths"]["/api/v1/admin/plugins"]["post"].is_object());
     assert!(document["paths"]["/api/v1/admin/plugins/{plugin_id}"]["patch"].is_object());
     assert!(document["paths"]["/api/v1/admin/plugins/{plugin_id}/invoke"]["post"].is_object());
+    assert_eq!(
+        document["components"]["schemas"]["PluginBusinessApiVersion"]["enum"],
+        json!(["0.1.0"])
+    );
+    let plugin_schema = &document["components"]["schemas"]["Plugin"];
+    assert!(
+        plugin_schema["required"]
+            .as_array()
+            .expect("plugin required properties must be an array")
+            .iter()
+            .any(|property| property == "business_api_version")
+    );
+    assert_eq!(
+        plugin_schema["properties"]["event_subscriptions"]["maxItems"],
+        6
+    );
+    for property in ["capabilities", "data_scopes", "event_subscriptions"] {
+        assert_eq!(
+            plugin_schema["properties"][property]["uniqueItems"], true,
+            "plugin response {property} must document unique values"
+        );
+    }
+    let manifest_schema = &document["components"]["schemas"]["BusinessPluginManifestSchema"];
+    assert_eq!(
+        manifest_schema["properties"]["event_subscriptions"]["maxItems"],
+        6
+    );
+    assert_eq!(
+        manifest_schema["properties"]["event_subscriptions"]["uniqueItems"],
+        true
+    );
+    assert_eq!(
+        document["components"]["schemas"]["PluginManifestRequest"]["oneOf"]
+            .as_array()
+            .expect("manifest contract must be a oneOf")
+            .len(),
+        2
+    );
+    assert_eq!(
+        document["components"]["schemas"]["PluginSchemaVersion"]["enum"],
+        json!([1])
+    );
+    for property in ["capabilities", "data_scopes", "event_subscriptions"] {
+        assert_eq!(
+            manifest_schema["properties"][property]["uniqueItems"], true,
+            "{property} must reject duplicate values in the public contract"
+        );
+    }
+    assert_eq!(
+        manifest_schema["properties"]["capabilities"]["maxItems"],
+        16
+    );
+    assert_eq!(manifest_schema["properties"]["data_scopes"]["maxItems"], 8);
+    let legacy_manifest = &document["components"]["schemas"]["LegacyPluginManifestSchema"];
+    assert_eq!(
+        legacy_manifest["properties"]["capabilities"]["uniqueItems"],
+        true
+    );
+    assert!(
+        legacy_manifest["properties"]
+            .get("business_api_version")
+            .is_none()
+    );
+    assert_eq!(
+        document["components"]["schemas"]["LegacyPluginCapability"]["enum"],
+        json!(["content.transform", "ui.panel"])
+    );
+    assert!(
+        !document["components"]["schemas"]["BusinessPluginCapability"]["enum"]
+            .as_array()
+            .expect("business capabilities must be an enum")
+            .iter()
+            .any(|capability| capability == "content.transform")
+    );
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
@@ -202,11 +280,40 @@ async fn plugin_api_rejects_unauthenticated_and_invalid_components_with_stable_e
     pool: PgPool,
 ) {
     let app = app_with_plugin_runtime(
-        Database::from_pool(pool),
+        Database::from_pool(pool.clone()),
         AuthConfig::default().with_secure_cookies(false),
         PluginRuntime::enabled(PluginHostConfig::default()).expect("plugin runtime must configure"),
     );
     initialize(&app).await;
+    let owner_id =
+        sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM users WHERE username = 'owner'")
+            .fetch_one(&pool)
+            .await
+            .expect("owner id must load");
+    let public_surface = app
+        .clone()
+        .oneshot(get_request(
+            &format!("/api/v1/plugin-ui/user_profile/{owner_id}"),
+            "",
+        ))
+        .await
+        .expect("public profile plugin surface must respond");
+    assert_eq!(public_surface.status(), StatusCode::OK);
+    assert_eq!(
+        public_surface.headers()["cache-control"],
+        "private, no-store"
+    );
+    assert_eq!(public_surface.headers()["vary"], "Cookie");
+    assert_eq!(response_json(public_surface).await["data"], json!([]));
+    let private_surface = app
+        .clone()
+        .oneshot(get_request(
+            &format!("/api/v1/plugin-ui/membership_panel/{owner_id}"),
+            "",
+        ))
+        .await
+        .expect("private membership plugin surface must respond");
+    assert_eq!(private_surface.status(), StatusCode::UNAUTHORIZED);
     let unauthenticated = app
         .clone()
         .oneshot(get_request("/api/v1/admin/plugins", ""))
@@ -215,6 +322,222 @@ async fn plugin_api_rejects_unauthenticated_and_invalid_components_with_stable_e
     assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
 
     let (cookies, csrf) = login(&app).await;
+    let mixed_component =
+        wat::parse_str(IDENTITY_COMPONENT).expect("identity component must parse");
+    let mixed = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/plugins",
+            json!({
+                "manifest": {
+                    "schema_version": 1,
+                    "key": "mixed_abi_component",
+                    "name": "Mixed ABI component",
+                    "version": "1.0.0",
+                    "description": "",
+                    "capabilities": ["content.transform", "core.query"],
+                    "business_api_version": "0.1.0"
+                },
+                "component_base64": STANDARD.encode(mixed_component)
+            }),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .expect("mixed ABI install must respond");
+    assert_eq!(mixed.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        response_json(mixed).await["error"]["code"],
+        "plugin.invalid_manifest"
+    );
+    let own_membership_surface = app
+        .clone()
+        .oneshot(get_request(
+            &format!("/api/v1/plugin-ui/membership_panel/{owner_id}"),
+            &cookies,
+        ))
+        .await
+        .expect("own membership plugin surface must respond");
+    assert_eq!(own_membership_surface.status(), StatusCode::OK);
+    assert_eq!(
+        own_membership_surface.headers()["cache-control"],
+        "private, no-store"
+    );
+    assert_eq!(own_membership_surface.headers()["vary"], "Cookie");
+    let mismatched_membership_surface = app
+        .clone()
+        .oneshot(get_request(
+            &format!(
+                "/api/v1/plugin-ui/membership_panel/{}",
+                uuid::Uuid::now_v7()
+            ),
+            &cookies,
+        ))
+        .await
+        .expect("mismatched membership plugin surface must respond");
+    assert_eq!(
+        mismatched_membership_surface.status(),
+        StatusCode::FORBIDDEN
+    );
+    let missing_action_csrf = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            &format!(
+                "/api/v1/plugin-ui/user_profile/{owner_id}/{}/actions",
+                uuid::Uuid::now_v7()
+            ),
+            json!({
+                "slot": "user_profile",
+                "action_key": "profile.refresh",
+                "idempotency_key": "surface-action",
+                "subject_id": owner_id
+            }),
+            &cookies,
+            None,
+        ))
+        .await
+        .expect("surface action without CSRF must respond");
+    assert_eq!(missing_action_csrf.status(), StatusCode::FORBIDDEN);
+    let other_user_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO users (id, username, email, display_name, status)
+         VALUES ($1, 'plugin_action_other', 'plugin-action-other@example.com',
+                 'Plugin action other', 'active')",
+    )
+    .bind(other_user_id)
+    .execute(&pool)
+    .await
+    .expect("cross-user action fixture must insert");
+    let cross_user_action = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            &format!(
+                "/api/v1/plugin-ui/user_profile/{other_user_id}/{}/actions",
+                uuid::Uuid::now_v7()
+            ),
+            json!({
+                "slot": "user_profile",
+                "action_key": "profile.refresh",
+                "idempotency_key": "surface-action-cross-user",
+                "subject_id": other_user_id
+            }),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .expect("cross-user surface action must respond");
+    assert_eq!(cross_user_action.status(), StatusCode::FORBIDDEN);
+    let missing_action_plugin = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            &format!(
+                "/api/v1/plugin-ui/user_profile/{owner_id}/{}/actions",
+                uuid::Uuid::now_v7()
+            ),
+            json!({
+                "slot": "user_profile",
+                "action_key": "profile.refresh",
+                "idempotency_key": "surface-action-missing-plugin",
+                "subject_id": owner_id
+            }),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .expect("surface action for a missing plugin must respond");
+    assert_eq!(missing_action_plugin.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        response_json(missing_action_plugin).await["error"]["code"],
+        "plugin.not_found"
+    );
+    let duplicate_manifest = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/plugins",
+            json!({
+                "manifest": {
+                    "schema_version": 1,
+                    "key": "duplicate_manifest",
+                    "name": "Duplicate manifest",
+                    "version": "1.0.0",
+                    "description": "",
+                    "capabilities": ["content.transform", "content.transform"]
+                },
+                "component_base64": STANDARD.encode(b"not reached")
+            }),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .expect("duplicate manifest must respond");
+    assert_eq!(
+        duplicate_manifest.status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        response_json(duplicate_manifest).await["error"]["code"],
+        "plugin.invalid_manifest"
+    );
+    let repeated_subscriptions = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/plugins",
+            json!({
+                "manifest": {
+                    "schema_version": 1,
+                    "key": "repeated_subscriptions",
+                    "name": "Repeated subscriptions",
+                    "version": "1.0.0",
+                    "description": "",
+                    "capabilities": ["events.subscribe"],
+                    "business_api_version": "0.1.0",
+                    "data_scopes": [],
+                    "event_subscriptions": [
+                        "topic.published", "topic.published", "topic.published",
+                        "topic.published", "topic.published", "topic.published",
+                        "topic.published"
+                    ]
+                },
+                "component_base64": STANDARD.encode(b"not reached")
+            }),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .expect("repeated subscriptions must respond");
+    assert_eq!(
+        repeated_subscriptions.status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let padded_manifest = format!(
+        "{{\"manifest\":{{{}\"schema_version\":1,\"key\":\"padded_manifest\",\"name\":\"Padded manifest\",\"version\":\"1.0.0\",\"description\":\"\",\"capabilities\":[\"content.transform\"]}},\"component_base64\":\"AA==\"}}",
+        " ".repeat(16 * 1024)
+    );
+    let oversized_manifest = app
+        .clone()
+        .oneshot(raw_json_request(
+            Method::POST,
+            "/api/v1/admin/plugins",
+            padded_manifest,
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .expect("oversized manifest must respond");
+    assert_eq!(
+        oversized_manifest.status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        response_json(oversized_manifest).await["error"]["code"],
+        "plugin.invalid_manifest"
+    );
     let invalid = app
         .oneshot(json_request(
             Method::POST,
@@ -478,6 +801,28 @@ fn json_request(
     builder
         .body(Body::from(value.to_string()))
         .expect("JSON request must be valid")
+}
+
+fn raw_json_request(
+    method: Method,
+    uri: &str,
+    body: String,
+    cookies: &str,
+    csrf: Option<&str>,
+) -> Request<Body> {
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("content-type", "application/json");
+    if !cookies.is_empty() {
+        builder = builder.header("cookie", cookies);
+    }
+    if let Some(csrf) = csrf {
+        builder = builder.header("x-csrf-token", csrf);
+    }
+    builder
+        .body(Body::from(body))
+        .expect("raw JSON request must be valid")
 }
 
 async fn response_json(response: axum::response::Response) -> Value {

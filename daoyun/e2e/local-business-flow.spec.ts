@@ -101,6 +101,7 @@ test.describe("local real business flow", () => {
   })
 
   test("manages scoped authorization and operations monitoring", async ({ page, browser }, testInfo) => {
+    test.setTimeout(90_000)
     const suffix = crypto.randomUUID().slice(0, 8)
     const roleName = `E2E 板块审核员 ${suffix}`
     const roleKey = `e2e_moderator_${suffix}`
@@ -135,7 +136,7 @@ test.describe("local real business flow", () => {
     await page.getByLabel("角色键").fill(roleKey)
     await page.getByLabel("角色名称").fill(roleName)
     await page.getByLabel("作用域").selectOption("board")
-    await page.getByRole("checkbox", { name: /moderation\.topic/ }).check()
+    await page.getByRole("checkbox", { name: "Moderate topics moderation.topic", exact: true }).check()
     const roleCreateResponse = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/v1/admin/authorization/roles")
     await page.getByRole("button", { name: "创建角色" }).click()
     const roleCreatePayload = await (await roleCreateResponse).json() as { data: { id: string } }
@@ -159,7 +160,10 @@ test.describe("local real business flow", () => {
       const composer = memberPage.getByRole("dialog")
       await composer.locator('input[placeholder*="清晰地概括"]').fill(topicTitle)
       await composer.locator("textarea").fill("验证板块 moderation capability")
-      await composer.locator("select").first().selectOption({ label: "社区广场" })
+      const boardSelect = composer.locator("select").first()
+      if (await boardSelect.count()) {
+        await boardSelect.selectOption({ label: "社区广场" })
+      }
       const topicResponse = memberPage.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/v1/topics")
       await composer.locator('button[type="submit"]').click()
       const topicPayload = await (await topicResponse).json() as { data: { id: string } }

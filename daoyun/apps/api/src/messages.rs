@@ -299,6 +299,8 @@ pub(crate) async fn send_message(
                 SendDirectMessageError::ConversationUnavailable => {
                     conversation_not_found(request_id)
                 }
+                SendDirectMessageError::PermissionDenied => community_permission_denied(request_id),
+                SendDirectMessageError::QuotaExceeded => community_quota_exceeded(request_id),
                 SendDirectMessageError::IdempotencyConflict => idempotency_conflict(request_id),
                 SendDirectMessageError::Database(error) => {
                     tracing::warn!(request_id = %request_id, conversation_id = %conversation_id, error = %error, "Direct message send failed");
@@ -594,6 +596,30 @@ fn idempotency_conflict(request_id: RequestId) -> ApiError {
         ErrorBody::new(
             ErrorCode::from_static(error_codes::IDEMPOTENCY_CONFLICT),
             "幂等键已经用于其他消息",
+        ),
+        request_id,
+    )
+}
+
+fn community_permission_denied(request_id: RequestId) -> ApiError {
+    error(
+        StatusCode::FORBIDDEN,
+        HeaderMap::new(),
+        ErrorBody::new(
+            ErrorCode::from_static(error_codes::COMMUNITY_PERMISSION_DENIED),
+            "当前用户组没有发送私信的权限",
+        ),
+        request_id,
+    )
+}
+
+fn community_quota_exceeded(request_id: RequestId) -> ApiError {
+    error(
+        StatusCode::TOO_MANY_REQUESTS,
+        HeaderMap::new(),
+        ErrorBody::new(
+            ErrorCode::from_static(error_codes::COMMUNITY_QUOTA_EXCEEDED),
+            "当前用户组的每日私信额度已用尽",
         ),
         request_id,
     )

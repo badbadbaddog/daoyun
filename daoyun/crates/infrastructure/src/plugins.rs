@@ -15,7 +15,11 @@ pub struct PluginRecord {
     pub name: String,
     pub version: String,
     pub description: String,
+    pub manifest_schema_version: i16,
+    pub business_api_version: Option<String>,
     pub capabilities: Vec<String>,
+    pub data_scopes: Vec<String>,
+    pub event_subscriptions: Vec<String>,
     pub component_sha256: String,
     pub component_size: i64,
     pub status: String,
@@ -32,7 +36,11 @@ pub struct PluginExecutableRecord {
     pub name: String,
     pub version: String,
     pub description: String,
+    pub manifest_schema_version: i16,
+    pub business_api_version: Option<String>,
     pub capabilities: Vec<String>,
+    pub data_scopes: Vec<String>,
+    pub event_subscriptions: Vec<String>,
     pub component_bytes: Vec<u8>,
     pub component_sha256: String,
     pub revision: i64,
@@ -45,7 +53,11 @@ pub struct InstallPluginRecord {
     pub name: String,
     pub version: String,
     pub description: String,
+    pub manifest_schema_version: i16,
+    pub business_api_version: Option<String>,
     pub capabilities: Vec<String>,
+    pub data_scopes: Vec<String>,
+    pub event_subscriptions: Vec<String>,
     pub component_bytes: Vec<u8>,
     pub component_sha256: String,
 }
@@ -68,6 +80,7 @@ pub enum PluginMutationError {
     Forbidden,
     NotFound,
     Conflict,
+    Busy,
     MustBeDisabled,
     InvalidInput,
     Database(DatabaseError),
@@ -89,7 +102,11 @@ struct PluginRow {
     name: String,
     version: String,
     description: String,
+    manifest_schema_version: i16,
+    business_api_version: Option<String>,
     capabilities: Json<Vec<String>>,
+    data_scopes: Json<Vec<String>>,
+    event_subscriptions: Json<Vec<String>>,
     component_sha256: String,
     component_size: i64,
     status: String,
@@ -106,7 +123,11 @@ struct PluginExecutableRow {
     name: String,
     version: String,
     description: String,
+    manifest_schema_version: i16,
+    business_api_version: Option<String>,
     capabilities: Json<Vec<String>>,
+    data_scopes: Json<Vec<String>>,
+    event_subscriptions: Json<Vec<String>>,
     component_bytes: Vec<u8>,
     component_sha256: String,
     revision: i64,
@@ -129,7 +150,8 @@ impl Database {
             return Err(ListPluginsError::Forbidden);
         }
         let rows = sqlx::query_as::<_, PluginRow>(
-            "SELECT id, key, name, version, description, capabilities,
+            "SELECT id, key, name, version, description, manifest_schema_version,
+                    business_api_version, capabilities, data_scopes, event_subscriptions,
                     component_sha256, octet_length(component_bytes)::bigint AS component_size,
                     status, revision, installed_by, created_at, updated_at
              FROM plugins
@@ -153,10 +175,12 @@ impl Database {
             .await?;
         let row = sqlx::query_as::<_, PluginRow>(
             "INSERT INTO plugins
-             (id, key, name, version, description, capabilities, component_bytes,
-              component_sha256, installed_by)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-             RETURNING id, key, name, version, description, capabilities,
+             (id, key, name, version, description, manifest_schema_version,
+              business_api_version, capabilities, data_scopes, event_subscriptions,
+              component_bytes, component_sha256, installed_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+             RETURNING id, key, name, version, description, manifest_schema_version,
+                       business_api_version, capabilities, data_scopes, event_subscriptions,
                        component_sha256, octet_length(component_bytes)::bigint AS component_size,
                        status, revision, installed_by, created_at, updated_at",
         )
@@ -165,7 +189,11 @@ impl Database {
         .bind(&input.name)
         .bind(&input.version)
         .bind(&input.description)
+        .bind(input.manifest_schema_version)
+        .bind(&input.business_api_version)
         .bind(Json(&input.capabilities))
+        .bind(Json(&input.data_scopes))
+        .bind(Json(&input.event_subscriptions))
         .bind(&input.component_bytes)
         .bind(&input.component_sha256)
         .bind(actor_id)
@@ -182,6 +210,9 @@ impl Database {
                 "key": row.key,
                 "version": row.version,
                 "capabilities": row.capabilities.0,
+                "business_api_version": row.business_api_version,
+                "data_scopes": row.data_scopes.0,
+                "event_subscriptions": row.event_subscriptions.0,
                 "component_sha256": row.component_sha256,
             }),
         )
@@ -238,11 +269,17 @@ impl Database {
         if current.0 == input.status {
             return Err(PluginMutationError::Conflict);
         }
+        if input.status == "disabled"
+            && plugin_has_active_business_work(&mut transaction, input.plugin_id).await?
+        {
+            return Err(PluginMutationError::Busy);
+        }
         let row = sqlx::query_as::<_, PluginRow>(
             "UPDATE plugins
              SET status = $2, revision = revision + 1, updated_at = CURRENT_TIMESTAMP
              WHERE id = $1
-             RETURNING id, key, name, version, description, capabilities,
+             RETURNING id, key, name, version, description, manifest_schema_version,
+                       business_api_version, capabilities, data_scopes, event_subscriptions,
                        component_sha256, octet_length(component_bytes)::bigint AS component_size,
                        status, revision, installed_by, created_at, updated_at",
         )
@@ -290,6 +327,9 @@ impl Database {
         if plugin.1 != "disabled" {
             return Err(PluginMutationError::MustBeDisabled);
         }
+        if plugin_has_active_business_work(&mut transaction, plugin_id).await? {
+            return Err(PluginMutationError::Busy);
+        }
         sqlx::query("DELETE FROM plugins WHERE id = $1")
             .bind(plugin_id)
             .execute(&mut *transaction)
@@ -329,7 +369,9 @@ impl Database {
         if status != "enabled" {
             return Err(PluginInvokeError::Disabled);
         }
-        if !row.capabilities.0.iter().any(|item| item == capability) {
+        if row.business_api_version.is_some()
+            || !row.capabilities.0.iter().any(|item| item == capability)
+        {
             return Err(PluginInvokeError::CapabilityDenied);
         }
         insert_audit(
@@ -346,12 +388,34 @@ impl Database {
     }
 }
 
+async fn plugin_has_active_business_work(
+    transaction: &mut Transaction<'_, Postgres>,
+    plugin_id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1
+             FROM plugin_execution_leases
+             WHERE plugin_id = $1 AND locked_until > CURRENT_TIMESTAMP
+         ) OR EXISTS (
+             SELECT 1
+             FROM plugin_command_receipts
+             WHERE plugin_id = $1 AND status = 'pending'
+               AND locked_until > CURRENT_TIMESTAMP
+         )",
+    )
+    .bind(plugin_id)
+    .fetch_one(&mut **transaction)
+    .await
+}
+
 async fn fetch_executable(
     transaction: &mut Transaction<'_, Postgres>,
     plugin_id: Uuid,
 ) -> Result<Option<PluginExecutableRow>, sqlx::Error> {
     sqlx::query_as::<_, PluginExecutableRow>(
-        "SELECT id, key, name, version, description, capabilities, component_bytes,
+        "SELECT id, key, name, version, description, manifest_schema_version,
+                business_api_version, capabilities, data_scopes, event_subscriptions, component_bytes,
                 component_sha256, revision
          FROM plugins
          WHERE id = $1",
@@ -405,24 +469,90 @@ async fn authorize_plugin_invoke(
 }
 
 fn valid_install_input(input: &InstallPluginRecord) -> bool {
-    let mut capabilities = input.capabilities.clone();
-    capabilities.sort();
-    capabilities.dedup();
+    const CAPABILITIES: &[&str] = &[
+        "content.transform",
+        "core.query",
+        "entitlements.write",
+        "events.subscribe",
+        "experience.write",
+        "notifications.write",
+        "points.write",
+        "storage.read_write",
+        "tasks.schedule",
+        "ui.panel",
+    ];
+    const DATA_SCOPES: &[&str] = &[
+        "actor.read",
+        "boards.read",
+        "site.read",
+        "users.read.basic",
+        "users.read.membership",
+        "users.targeted",
+    ];
+    const EVENT_SUBSCRIPTIONS: &[&str] = &[
+        "entitlement.changed",
+        "experience.changed",
+        "points.changed",
+        "reply.created",
+        "topic.published",
+        "user.created",
+    ];
+    let business_capability = input
+        .capabilities
+        .iter()
+        .any(|capability| !matches!(capability.as_str(), "content.transform" | "ui.panel"));
+    let targeted_write = input.capabilities.iter().any(|capability| {
+        matches!(
+            capability.as_str(),
+            "points.write" | "experience.write" | "entitlements.write" | "notifications.write"
+        )
+    });
     valid_key(&input.key)
         && bounded_text(&input.name, 1, 80)
         && bounded_text(&input.description, 0, 500)
         && valid_version(&input.version)
-        && capabilities == input.capabilities
-        && (matches!(
-            capabilities.as_slice(),
-            [capability] if matches!(capability.as_str(), "content.transform" | "ui.panel")
-        ) || capabilities == ["content.transform".to_owned(), "ui.panel".to_owned()])
+        && input.manifest_schema_version == 1
+        && valid_sorted_unique_values(&input.capabilities, CAPABILITIES, 1, 16)
+        && valid_sorted_unique_values(&input.data_scopes, DATA_SCOPES, 0, 8)
+        && valid_sorted_unique_values(&input.event_subscriptions, EVENT_SUBSCRIPTIONS, 0, 6)
+        && (input.event_subscriptions.is_empty()
+            || input
+                .capabilities
+                .iter()
+                .any(|capability| capability == "events.subscribe"))
+        && match input.business_api_version.as_deref() {
+            None => !business_capability && input.data_scopes.is_empty(),
+            Some("0.1.0") => {
+                business_capability
+                    && !input
+                        .capabilities
+                        .iter()
+                        .any(|capability| capability == "content.transform")
+            }
+            Some(_) => false,
+        }
+        && (!targeted_write
+            || input
+                .data_scopes
+                .iter()
+                .any(|scope| scope == "users.targeted"))
         && (1..=MAX_COMPONENT_BYTES).contains(&input.component_bytes.len())
         && input.component_sha256.len() == 64
         && input
             .component_sha256
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn valid_sorted_unique_values(
+    values: &[String],
+    allowed: &[&str],
+    minimum: usize,
+    maximum: usize,
+) -> bool {
+    (minimum..=maximum).contains(&values.len())
+        && values.windows(2).all(|items| items[0] < items[1])
+        && values.iter().all(|value| allowed.contains(&value.as_str()))
 }
 
 fn valid_key(value: &str) -> bool {
@@ -476,7 +606,11 @@ impl From<PluginRow> for PluginRecord {
             name: row.name,
             version: row.version,
             description: row.description,
+            manifest_schema_version: row.manifest_schema_version,
+            business_api_version: row.business_api_version,
             capabilities: row.capabilities.0,
+            data_scopes: row.data_scopes.0,
+            event_subscriptions: row.event_subscriptions.0,
             component_sha256: row.component_sha256,
             component_size: row.component_size,
             status: row.status,
@@ -496,7 +630,11 @@ impl From<PluginExecutableRow> for PluginExecutableRecord {
             name: row.name,
             version: row.version,
             description: row.description,
+            manifest_schema_version: row.manifest_schema_version,
+            business_api_version: row.business_api_version,
             capabilities: row.capabilities.0,
+            data_scopes: row.data_scopes.0,
+            event_subscriptions: row.event_subscriptions.0,
             component_bytes: row.component_bytes,
             component_sha256: row.component_sha256,
             revision: row.revision,

@@ -1,7 +1,11 @@
 import { AlertCircle, ArrowLeft, Check, LoaderCircle, Plus, Save, ShieldAlert, Trash2, Upload, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
-import type { AuthSession } from "../api/auth"
+import {
+  ADMIN_PRIVILEGED_WRITE_OPERATION,
+  createRecentAuthenticationForOperation,
+  type AuthSession,
+} from "../api/auth"
 import {
   AdminApiError,
   deleteBrandAsset,
@@ -48,6 +52,19 @@ const adminModules: AdminModuleDefinition[] = [
   { tab: "plugins", label: "插件管理", requirements: ["plugins.read"] },
 ]
 const tabOrder = adminModules.map(({ tab }) => tab)
+const privilegedAdminWriteCapabilities = new Set([
+  "authorization.roles.write",
+  "authorization.assignments.write",
+  "community.groups.write",
+  "community.memberships.write",
+  "content.access_policies.write",
+  "entitlements.types.write",
+  "entitlements.grants.write",
+  "membership.rules.write",
+  "membership.points.grant",
+  "membership.medals.grant",
+  "membership.medals.rules.write",
+])
 
 interface AdminViewProps {
   session: AuthSession | null | undefined
@@ -161,6 +178,9 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
 
   return (
     <AdminShell session={session} onBack={onBack} navigation={navigation}>
+      {capabilityKeys.some((key) => privilegedAdminWriteCapabilities.has(key)) && (
+        <AdminPrivilegedAuthPanel csrfToken={session?.csrfToken ?? ""} />
+      )}
       {tab === "dashboard" ? (
         <AdminDashboard
           capabilityKeys={capabilityKeys}
@@ -242,6 +262,52 @@ function AdminShell({ session, children, onBack, navigation }: { session: AuthSe
           <div className="system-admin-content">{children}</div>
         </main>
       </div>
+    </div>
+  )
+}
+
+function AdminPrivilegedAuthPanel({ csrfToken }: { csrfToken: string }) {
+  const [password, setPassword] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  const [message, setMessage] = useState("")
+  const [error, setError] = useState("")
+
+  const verify = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!password) {
+      setError("请输入当前密码")
+      return
+    }
+    setSubmitting(true)
+    setMessage("")
+    setError("")
+    try {
+      const result = await createRecentAuthenticationForOperation(
+        password,
+        csrfToken,
+        ADMIN_PRIVILEGED_WRITE_OPERATION,
+      )
+      setPassword("")
+      setMessage(`敏感管理操作验证已通过，有效至 ${new Date(result.expiresAt).toLocaleTimeString()}`)
+    } catch {
+      setError("当前密码验证失败，请检查后重试")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="admin-panel" aria-label="敏感管理操作验证">
+      <div className="admin-panel__heading">
+        <div><p>安全验证</p><h2>敏感管理操作</h2></div>
+        <span className="admin-badge">10 分钟有效</span>
+      </div>
+      <form className="admin-form" onSubmit={(event) => void verify(event)}>
+        <label>当前密码<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+        <div className="admin-form__actions"><button className="secondary-button" type="submit" disabled={submitting}>{submitting ? "验证中…" : "验证敏感操作"}</button></div>
+        {message && <p role="status">{message}</p>}
+        {error && <p role="alert">{error}</p>}
+      </form>
     </div>
   )
 }

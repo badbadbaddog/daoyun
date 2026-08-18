@@ -10,8 +10,15 @@ use time::OffsetDateTime;
 
 use crate::admin::insert_audit;
 use crate::authorization::{has_permission_with_executor, permission_keys};
+use crate::board_user_restrictions::is_board_user_action_restricted_with_executor;
+use crate::community_permissions::{
+    CommunityActionError, authorize_community_action_with_executor,
+    verify_community_action_with_executor,
+};
+use crate::idempotency::release_expired_key_and_prune;
 use crate::notifications::insert_notification;
-use crate::{Database, DatabaseError};
+use crate::outbox::enqueue_core_event_in_transaction;
+use crate::{Database, DatabaseError, NewOutboxEvent, OutboxError};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum TopicSort {
@@ -206,10 +213,67 @@ pub struct TopicModerationResultRecord {
     pub status: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TopicGovernanceAction {
+    Pin,
+    Unpin,
+    Feature,
+    Unfeature,
+    Lock,
+    Unlock,
+    Move,
+}
+
+impl TopicGovernanceAction {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Pin => "pin",
+            Self::Unpin => "unpin",
+            Self::Feature => "feature",
+            Self::Unfeature => "unfeature",
+            Self::Lock => "lock",
+            Self::Unlock => "unlock",
+            Self::Move => "move",
+        }
+    }
+
+    fn permission_key(self) -> &'static str {
+        match self {
+            Self::Pin | Self::Unpin => permission_keys::MODERATION_TOPIC_PIN,
+            Self::Feature | Self::Unfeature => permission_keys::MODERATION_TOPIC_FEATURE,
+            Self::Lock | Self::Unlock => permission_keys::MODERATION_TOPIC_LOCK,
+            Self::Move => permission_keys::MODERATION_TOPIC_MOVE,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TopicGovernanceInput {
+    pub topic_id: Uuid,
+    pub actor_id: Uuid,
+    pub action: TopicGovernanceAction,
+    pub expected_revision: i64,
+    pub target_board_id: Option<Uuid>,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TopicGovernanceResultRecord {
+    pub topic_id: Uuid,
+    pub board_id: Uuid,
+    pub is_pinned: bool,
+    pub is_featured: bool,
+    pub is_locked: bool,
+    pub governance_revision: i64,
+}
+
 #[derive(Debug)]
 pub enum CreateTopicError {
     BoardUnavailable,
+    BoardRestricted,
     AuthorRestricted,
+    PermissionDenied,
+    QuotaExceeded,
     IdempotencyConflict,
     Database(DatabaseError),
 }
@@ -229,7 +293,11 @@ pub enum ListPublicRepliesError {
 #[derive(Debug)]
 pub enum CreateReplyError {
     TopicUnavailable,
+    TopicLocked,
+    BoardRestricted,
     AuthorRestricted,
+    PermissionDenied,
+    QuotaExceeded,
     IdempotencyConflict,
     Database(DatabaseError),
 }
@@ -270,7 +338,217 @@ pub enum TopicModerationError {
     Database(DatabaseError),
 }
 
+#[derive(Debug)]
+pub enum TopicGovernanceError {
+    Unavailable,
+    Forbidden,
+    InvalidInput,
+    RevisionConflict,
+    Database(DatabaseError),
+    Outbox(OutboxError),
+}
+
 impl Database {
+    pub async fn govern_topic(
+        &self,
+        input: TopicGovernanceInput,
+    ) -> Result<TopicGovernanceResultRecord, TopicGovernanceError> {
+        if input.expected_revision < 1
+            || input.reason.as_deref().is_some_and(|reason| {
+                !(1..=1000).contains(&reason.chars().count())
+                    || reason.chars().any(char::is_control)
+            })
+            || (input.action == TopicGovernanceAction::Move) != input.target_board_id.is_some()
+        {
+            return Err(TopicGovernanceError::InvalidInput);
+        }
+
+        let mut transaction = self.pool.begin().await?;
+        let topic = sqlx::query_as::<_, TopicGovernanceRow>(
+            "SELECT author_id, board_id, status, deleted_at, governance_revision
+             FROM topics WHERE id = $1 FOR UPDATE",
+        )
+        .bind(input.topic_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or(TopicGovernanceError::Unavailable)?;
+        if topic.status != "published" || topic.deleted_at.is_some() {
+            return Err(TopicGovernanceError::Unavailable);
+        }
+        if topic.governance_revision != input.expected_revision {
+            return Err(TopicGovernanceError::RevisionConflict);
+        }
+        if !has_permission_with_executor(
+            &mut transaction,
+            input.actor_id,
+            input.action.permission_key(),
+            Some(topic.board_id),
+        )
+        .await?
+        {
+            return Err(TopicGovernanceError::Forbidden);
+        }
+
+        let target_board_id = input.target_board_id.unwrap_or(topic.board_id);
+        if input.action == TopicGovernanceAction::Move {
+            if target_board_id == topic.board_id {
+                return Err(TopicGovernanceError::InvalidInput);
+            }
+            if !has_permission_with_executor(
+                &mut transaction,
+                input.actor_id,
+                permission_keys::MODERATION_TOPIC_MOVE,
+                Some(target_board_id),
+            )
+            .await?
+            {
+                return Err(TopicGovernanceError::Forbidden);
+            }
+            let locked_boards = sqlx::query_scalar::<_, Uuid>(
+                "SELECT id FROM boards
+                 WHERE id = ANY($1) AND visibility = 'public' AND deleted_at IS NULL
+                 ORDER BY id FOR UPDATE",
+            )
+            .bind(vec![topic.board_id, target_board_id])
+            .fetch_all(&mut *transaction)
+            .await?;
+            if locked_boards.len() != 2 {
+                return Err(TopicGovernanceError::Unavailable);
+            }
+        }
+
+        match input.action {
+            TopicGovernanceAction::Pin => {
+                sqlx::query("UPDATE topics SET pinned_at = COALESCE(pinned_at, CURRENT_TIMESTAMP) WHERE id = $1")
+                    .bind(input.topic_id)
+                    .execute(&mut *transaction)
+                    .await?;
+            }
+            TopicGovernanceAction::Unpin => {
+                sqlx::query("UPDATE topics SET pinned_at = NULL WHERE id = $1")
+                    .bind(input.topic_id)
+                    .execute(&mut *transaction)
+                    .await?;
+            }
+            TopicGovernanceAction::Feature => {
+                sqlx::query("UPDATE topics SET featured_at = COALESCE(featured_at, CURRENT_TIMESTAMP) WHERE id = $1")
+                    .bind(input.topic_id)
+                    .execute(&mut *transaction)
+                    .await?;
+            }
+            TopicGovernanceAction::Unfeature => {
+                sqlx::query("UPDATE topics SET featured_at = NULL WHERE id = $1")
+                    .bind(input.topic_id)
+                    .execute(&mut *transaction)
+                    .await?;
+            }
+            TopicGovernanceAction::Lock => {
+                sqlx::query(
+                    "UPDATE topics SET locked_at = COALESCE(locked_at, CURRENT_TIMESTAMP),
+                     locked_by = COALESCE(locked_by, $2) WHERE id = $1",
+                )
+                .bind(input.topic_id)
+                .bind(input.actor_id)
+                .execute(&mut *transaction)
+                .await?;
+            }
+            TopicGovernanceAction::Unlock => {
+                sqlx::query("UPDATE topics SET locked_at = NULL, locked_by = NULL WHERE id = $1")
+                    .bind(input.topic_id)
+                    .execute(&mut *transaction)
+                    .await?;
+            }
+            TopicGovernanceAction::Move => {
+                sqlx::query("UPDATE topics SET board_id = $2 WHERE id = $1")
+                    .bind(input.topic_id)
+                    .bind(target_board_id)
+                    .execute(&mut *transaction)
+                    .await?;
+                sqlx::query(
+                    "UPDATE boards SET topic_count = GREATEST(topic_count - 1, 0),
+                     updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+                )
+                .bind(topic.board_id)
+                .execute(&mut *transaction)
+                .await?;
+                sqlx::query(
+                    "UPDATE boards SET topic_count = topic_count + 1,
+                     updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+                )
+                .bind(target_board_id)
+                .execute(&mut *transaction)
+                .await?;
+            }
+        }
+
+        let result = sqlx::query_as::<_, TopicGovernanceResultRow>(
+            "UPDATE topics SET governance_revision = governance_revision + 1,
+                    updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1
+             RETURNING id AS topic_id, board_id, pinned_at IS NOT NULL AS is_pinned,
+                       featured_at IS NOT NULL AS is_featured,
+                       locked_at IS NOT NULL AS is_locked, governance_revision",
+        )
+        .bind(input.topic_id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        let summary = json!({
+            "action": input.action.as_str(),
+            "from_board_id": topic.board_id,
+            "to_board_id": result.board_id,
+            "revision": result.governance_revision,
+            "reason": input.reason,
+        });
+        insert_audit(
+            &mut transaction,
+            input.actor_id,
+            "topic.governance",
+            "topic",
+            Some(input.topic_id),
+            summary,
+        )
+        .await?;
+        if topic.author_id != input.actor_id {
+            insert_notification(
+                &mut transaction,
+                Uuid::now_v7(),
+                topic.author_id,
+                Some(input.actor_id),
+                "topic_governance",
+                "topic",
+                input.topic_id,
+                &format!(
+                    "topic:{}:governance:{}",
+                    input.topic_id, result.governance_revision
+                ),
+            )
+            .await?;
+        }
+        self.enqueue_outbox_event_in_transaction(
+            &mut transaction,
+            NewOutboxEvent {
+                id: Uuid::now_v7(),
+                event_type: "topic.governance.changed".to_owned(),
+                aggregate_type: "topic".to_owned(),
+                aggregate_id: input.topic_id,
+                dedupe_key: format!("{}:{}", input.topic_id, result.governance_revision),
+                payload: json!({
+                    "topic_id": result.topic_id,
+                    "action": input.action.as_str(),
+                    "board_id": result.board_id,
+                    "is_pinned": result.is_pinned,
+                    "is_featured": result.is_featured,
+                    "is_locked": result.is_locked,
+                    "governance_revision": result.governance_revision,
+                }),
+                max_attempts: 10,
+            },
+        )
+        .await?;
+        transaction.commit().await?;
+        Ok(result.into())
+    }
+
     pub async fn delete_published_topic(
         &self,
         topic_id: Uuid,
@@ -400,16 +678,32 @@ impl Database {
         idempotency: Option<IdempotencyInput>,
     ) -> Result<CreateTopicResult, CreateTopicError> {
         let mut transaction = self.pool.begin().await?;
-        let active_author = sqlx::query_scalar::<_, Uuid>(
-            "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR UPDATE",
-        )
-        .bind(input.author_id)
-        .fetch_optional(&mut *transaction)
-        .await?;
+        let active_author =
+            sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE id = $1 FOR UPDATE")
+                .bind(input.author_id)
+                .fetch_optional(&mut *transaction)
+                .await?;
         if active_author.is_none() {
             return Err(CreateTopicError::AuthorRestricted);
         }
+        if idempotency.is_some() {
+            verify_community_action_with_executor(
+                &mut transaction,
+                input.author_id,
+                "topic.create",
+                OffsetDateTime::now_utc(),
+            )
+            .await
+            .map_err(map_topic_community_action_error)?;
+        }
         if let Some(idempotency) = idempotency.as_ref() {
+            release_expired_key_and_prune(
+                &mut transaction,
+                input.author_id,
+                "POST /api/v1/topics",
+                &idempotency.key,
+            )
+            .await?;
             let inserted = sqlx::query_as::<_, IdempotencyRow>(
                 "INSERT INTO idempotency_records (\
                     id, user_id, endpoint, idempotency_key, request_hash, resource_type, resource_id, expires_at\
@@ -456,6 +750,17 @@ impl Database {
             }
         }
 
+        authorize_community_action_with_executor(
+            &mut transaction,
+            input.author_id,
+            "topic.create",
+            Some(("topic.create.daily", 1)),
+            None,
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(map_topic_community_action_error)?;
+
         let board_id = sqlx::query_scalar::<_, Uuid>(
             "SELECT id FROM boards \
              WHERE visibility = 'public' AND deleted_at IS NULL \
@@ -468,6 +773,17 @@ impl Database {
         .fetch_optional(&mut *transaction)
         .await?
         .ok_or(CreateTopicError::BoardUnavailable)?;
+        if is_board_user_action_restricted_with_executor(
+            &mut transaction,
+            input.author_id,
+            board_id,
+            "topic.create",
+            OffsetDateTime::now_utc(),
+        )
+        .await?
+        {
+            return Err(CreateTopicError::BoardRestricted);
+        }
 
         let inserted = sqlx::query(
             "INSERT INTO topics (\
@@ -545,6 +861,19 @@ impl Database {
             "topic",
             Some(input.id),
             json!({"board_id": board_id}),
+        )
+        .await?;
+        enqueue_core_event_in_transaction(
+            &mut transaction,
+            Uuid::now_v7(),
+            "topic.published",
+            "topic",
+            input.id,
+            json!({
+                "topic_id": input.id,
+                "board_id": board_id,
+                "author_id": input.author_id,
+            }),
         )
         .await?;
         transaction.commit().await?;
@@ -914,16 +1243,32 @@ impl Database {
         idempotency: Option<IdempotencyInput>,
     ) -> Result<CreateReplyResult, CreateReplyError> {
         let mut transaction = self.pool.begin().await?;
-        let active_author = sqlx::query_scalar::<_, Uuid>(
-            "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR UPDATE",
-        )
-        .bind(input.author_id)
-        .fetch_optional(&mut *transaction)
-        .await?;
+        let active_author =
+            sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE id = $1 FOR UPDATE")
+                .bind(input.author_id)
+                .fetch_optional(&mut *transaction)
+                .await?;
         if active_author.is_none() {
             return Err(CreateReplyError::AuthorRestricted);
         }
+        if idempotency.is_some() {
+            verify_community_action_with_executor(
+                &mut transaction,
+                input.author_id,
+                "reply.create",
+                OffsetDateTime::now_utc(),
+            )
+            .await
+            .map_err(map_reply_community_action_error)?;
+        }
         if let Some(idempotency) = idempotency.as_ref() {
+            release_expired_key_and_prune(
+                &mut transaction,
+                input.author_id,
+                "POST /api/v1/topics/{topic_id}/replies",
+                &idempotency.key,
+            )
+            .await?;
             let inserted = sqlx::query_as::<_, IdempotencyRow>(
                 "INSERT INTO idempotency_records (\
                     id, user_id, endpoint, idempotency_key, request_hash, resource_type, resource_id, expires_at\
@@ -970,8 +1315,19 @@ impl Database {
             }
         }
 
-        let visible_topic = sqlx::query_scalar::<_, Uuid>(
-            "SELECT t.id \
+        authorize_community_action_with_executor(
+            &mut transaction,
+            input.author_id,
+            "reply.create",
+            Some(("reply.create.daily", 1)),
+            None,
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(map_reply_community_action_error)?;
+
+        let visible_topic = sqlx::query_as::<_, (Uuid, Uuid, Option<OffsetDateTime>)>(
+            "SELECT t.id, t.board_id, t.locked_at \
              FROM topics AS t \
              INNER JOIN boards AS b ON b.id = t.board_id \
              INNER JOIN users AS u ON u.id = t.author_id \
@@ -986,6 +1342,27 @@ impl Database {
         .await?;
         if visible_topic.is_none() {
             return Err(CreateReplyError::TopicUnavailable);
+        }
+        if visible_topic
+            .as_ref()
+            .is_some_and(|(_, _, locked_at)| locked_at.is_some())
+        {
+            return Err(CreateReplyError::TopicLocked);
+        }
+        let board_id = visible_topic
+            .as_ref()
+            .map(|(_, board_id, _)| *board_id)
+            .ok_or(CreateReplyError::TopicUnavailable)?;
+        if is_board_user_action_restricted_with_executor(
+            &mut transaction,
+            input.author_id,
+            board_id,
+            "reply.create",
+            OffsetDateTime::now_utc(),
+        )
+        .await?
+        {
+            return Err(CreateReplyError::BoardRestricted);
         }
         let topic_author_id =
             sqlx::query_scalar::<_, Uuid>("SELECT author_id FROM topics WHERE id = $1")
@@ -1050,6 +1427,20 @@ impl Database {
             json!({"topic_id": input.topic_id}),
         )
         .await?;
+        enqueue_core_event_in_transaction(
+            &mut transaction,
+            Uuid::now_v7(),
+            "reply.created",
+            "reply",
+            input.id,
+            json!({
+                "reply_id": input.id,
+                "topic_id": input.topic_id,
+                "board_id": board_id,
+                "author_id": input.author_id,
+            }),
+        )
+        .await?;
         transaction.commit().await?;
         Ok(CreateReplyResult {
             reply_id: input.id,
@@ -1082,10 +1473,12 @@ impl Database {
                  WHERE t.id = $1 \
                    AND t.status = 'published' AND t.deleted_at IS NULL \
                    AND b.visibility = 'public' AND b.deleted_at IS NULL \
-                   AND u.status = 'active'\
+                   AND u.status = 'active' \
+                   AND daoyun_can_access_content('topic', t.id, $2, CURRENT_TIMESTAMP)\
              )",
         )
         .bind(topic_id)
+        .bind(viewer_user_id)
         .fetch_one(&self.pool)
         .await?;
         if !topic_is_visible {
@@ -1099,11 +1492,13 @@ impl Database {
                      INNER JOIN users AS u ON u.id = p.author_id \
                      WHERE p.id = $1 AND p.topic_id = $2 \
                        AND p.kind = 'reply' AND p.status = 'published' \
-                       AND p.deleted_at IS NULL AND u.status = 'active'\
+                       AND p.deleted_at IS NULL AND u.status = 'active' \
+                       AND daoyun_can_access_content('post', p.id, $3, CURRENT_TIMESTAMP)\
                  )",
             )
             .bind(cursor)
             .bind(topic_id)
+            .bind(viewer_user_id)
             .fetch_one(&self.pool)
             .await?;
             if !cursor_is_valid {
@@ -1121,6 +1516,7 @@ impl Database {
              WHERE p.topic_id = $1 \
                AND p.kind = 'reply' AND p.status = 'published' \
                AND p.deleted_at IS NULL AND u.status = 'active' \
+               AND daoyun_can_access_content('post', p.id, $4, CURRENT_TIMESTAMP) \
                AND (\
                    $2::uuid IS NULL \
                    OR (p.created_at, p.id) > (\
@@ -1133,6 +1529,7 @@ impl Database {
         .bind(topic_id)
         .bind(cursor)
         .bind(limit)
+        .bind(viewer_user_id)
         .fetch_all(&self.pool)
         .await?;
         if let Some(viewer_user_id) = viewer_user_id {
@@ -1200,6 +1597,7 @@ impl Database {
                            SELECT 1 FROM user_follows AS uf
                            WHERE uf.follower_id = $7 AND uf.followed_id = u.id
                        ))
+                       AND daoyun_can_access_content('topic', t.id, $8, CURRENT_TIMESTAMP)
                  )"#,
             )
             .bind(cursor)
@@ -1209,6 +1607,7 @@ impl Database {
             .bind(filters.featured_only)
             .bind(filters.author_username.as_deref())
             .bind(filters.following_user_id)
+            .bind(filters.viewer_user_id)
             .fetch_one(&self.pool)
             .await?;
             if !cursor_is_valid {
@@ -1249,6 +1648,7 @@ impl Database {
                            SELECT 1 FROM user_follows AS uf
                            WHERE uf.follower_id = $6 AND uf.followed_id = u.id
                        ))
+                       AND daoyun_can_access_content('topic', t.id, $9, CURRENT_TIMESTAMP)
                        AND (
                            $7::uuid IS NULL
                            OR ((t.pinned_at IS NOT NULL), t.published_at, t.id) < (
@@ -1267,6 +1667,7 @@ impl Database {
                 .bind(filters.following_user_id)
                 .bind(cursor)
                 .bind(limit)
+                .bind(filters.viewer_user_id)
                 .fetch_all(&self.pool)
                 .await
             }
@@ -1302,6 +1703,7 @@ impl Database {
                            SELECT 1 FROM user_follows AS uf
                            WHERE uf.follower_id = $6 AND uf.followed_id = u.id
                        ))
+                       AND daoyun_can_access_content('topic', t.id, $9, CURRENT_TIMESTAMP)
                        AND (
                            $7::uuid IS NULL
                            OR ((t.pinned_at IS NOT NULL), t.hot_score, t.published_at, t.id) < (
@@ -1321,6 +1723,7 @@ impl Database {
                 .bind(filters.following_user_id)
                 .bind(cursor)
                 .bind(limit)
+                .bind(filters.viewer_user_id)
                 .fetch_all(&self.pool)
                 .await
             }
@@ -1356,6 +1759,7 @@ impl Database {
                            SELECT 1 FROM user_follows AS uf
                            WHERE uf.follower_id = $6 AND uf.followed_id = u.id
                        ))
+                       AND daoyun_can_access_content('topic', t.id, $9, CURRENT_TIMESTAMP)
                        AND (
                            $7::uuid IS NULL
                            OR ((t.pinned_at IS NOT NULL), t.last_activity_at, t.id) < (
@@ -1374,6 +1778,7 @@ impl Database {
                 .bind(filters.following_user_id)
                 .bind(cursor)
                 .bind(limit)
+                .bind(filters.viewer_user_id)
                 .fetch_all(&self.pool)
                 .await
             }
@@ -1413,6 +1818,14 @@ impl Database {
         &self,
         topic_id: Uuid,
     ) -> Result<Option<PublicTopicDetailRecord>, DatabaseError> {
+        self.public_topic_for_viewer(topic_id, None).await
+    }
+
+    pub async fn public_topic_for_viewer(
+        &self,
+        topic_id: Uuid,
+        viewer_user_id: Option<Uuid>,
+    ) -> Result<Option<PublicTopicDetailRecord>, DatabaseError> {
         let row = sqlx::query_as::<_, PublicTopicDetailRow>(
             r#"SELECT t.id, t.title, t.excerpt, t.content, p.revision_count AS content_revision,
                     u.id AS author_id, u.username AS author_username,
@@ -1432,9 +1845,11 @@ impl Database {
                AND t.deleted_at IS NULL
                AND b.visibility = 'public'
                AND b.deleted_at IS NULL
-               AND u.status = 'active'"#,
+               AND u.status = 'active'
+               AND daoyun_can_access_content('topic', t.id, $2, CURRENT_TIMESTAMP)"#,
         )
         .bind(topic_id)
+        .bind(viewer_user_id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -1451,16 +1866,7 @@ impl Database {
         .await?;
         let mut detail = PublicTopicDetailRecord::from(row);
         detail.summary.tags = tags;
-        Ok(Some(detail))
-    }
-
-    pub async fn public_topic_for_viewer(
-        &self,
-        topic_id: Uuid,
-        viewer_user_id: Option<Uuid>,
-    ) -> Result<Option<PublicTopicDetailRecord>, DatabaseError> {
-        let mut detail = self.public_topic(topic_id).await?;
-        if let (Some(detail), Some(viewer_user_id)) = (&mut detail, viewer_user_id) {
+        if let Some(viewer_user_id) = viewer_user_id {
             hydrate_topic_viewer_states(
                 &self.pool,
                 std::slice::from_mut(&mut detail.summary),
@@ -1468,7 +1874,7 @@ impl Database {
             )
             .await?;
         }
-        Ok(detail)
+        Ok(Some(detail))
     }
 }
 
@@ -1569,6 +1975,38 @@ struct TopicModerationRow {
     deleted_at: Option<OffsetDateTime>,
 }
 
+#[derive(Debug, FromRow)]
+struct TopicGovernanceRow {
+    author_id: Uuid,
+    board_id: Uuid,
+    status: String,
+    deleted_at: Option<OffsetDateTime>,
+    governance_revision: i64,
+}
+
+#[derive(Debug, FromRow)]
+struct TopicGovernanceResultRow {
+    topic_id: Uuid,
+    board_id: Uuid,
+    is_pinned: bool,
+    is_featured: bool,
+    is_locked: bool,
+    governance_revision: i64,
+}
+
+impl From<TopicGovernanceResultRow> for TopicGovernanceResultRecord {
+    fn from(row: TopicGovernanceResultRow) -> Self {
+        Self {
+            topic_id: row.topic_id,
+            board_id: row.board_id,
+            is_pinned: row.is_pinned,
+            is_featured: row.is_featured,
+            is_locked: row.is_locked,
+            governance_revision: row.governance_revision,
+        }
+    }
+}
+
 fn record_hash_matches(left: &[u8], right: &[u8]) -> bool {
     left == right
 }
@@ -1667,11 +2105,34 @@ impl From<sqlx::Error> for ListPublicTopicsError {
     }
 }
 
+fn map_topic_community_action_error(error: CommunityActionError) -> CreateTopicError {
+    match error {
+        CommunityActionError::PermissionDenied => CreateTopicError::PermissionDenied,
+        CommunityActionError::QuotaExceeded => CreateTopicError::QuotaExceeded,
+        CommunityActionError::Database(error) => {
+            CreateTopicError::Database(DatabaseError::from(error))
+        }
+    }
+}
+
+fn map_reply_community_action_error(error: CommunityActionError) -> CreateReplyError {
+    match error {
+        CommunityActionError::PermissionDenied => CreateReplyError::PermissionDenied,
+        CommunityActionError::QuotaExceeded => CreateReplyError::QuotaExceeded,
+        CommunityActionError::Database(error) => {
+            CreateReplyError::Database(DatabaseError::from(error))
+        }
+    }
+}
+
 impl fmt::Display for CreateTopicError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::BoardUnavailable => formatter.write_str("topic board is unavailable"),
+            Self::BoardRestricted => formatter.write_str("topic creation is restricted in board"),
             Self::AuthorRestricted => formatter.write_str("topic author is restricted"),
+            Self::PermissionDenied => formatter.write_str("topic creation is not allowed"),
+            Self::QuotaExceeded => formatter.write_str("topic creation quota was exceeded"),
             Self::IdempotencyConflict => formatter.write_str("topic idempotency key conflicts"),
             Self::Database(_) => formatter.write_str("topic creation database operation failed"),
         }
@@ -1681,7 +2142,12 @@ impl fmt::Display for CreateTopicError {
 impl Error for CreateTopicError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::BoardUnavailable | Self::AuthorRestricted | Self::IdempotencyConflict => None,
+            Self::BoardUnavailable
+            | Self::BoardRestricted
+            | Self::AuthorRestricted
+            | Self::PermissionDenied
+            | Self::QuotaExceeded
+            | Self::IdempotencyConflict => None,
             Self::Database(error) => Some(error),
         }
     }
@@ -1721,7 +2187,11 @@ impl fmt::Display for CreateReplyError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::TopicUnavailable => formatter.write_str("reply topic is unavailable"),
+            Self::TopicLocked => formatter.write_str("reply topic is locked"),
+            Self::BoardRestricted => formatter.write_str("reply creation is restricted in board"),
             Self::AuthorRestricted => formatter.write_str("reply author is restricted"),
+            Self::PermissionDenied => formatter.write_str("reply creation is not allowed"),
+            Self::QuotaExceeded => formatter.write_str("reply creation quota was exceeded"),
             Self::IdempotencyConflict => formatter.write_str("reply idempotency key conflicts"),
             Self::Database(_) => formatter.write_str("reply creation database operation failed"),
         }
@@ -1731,7 +2201,13 @@ impl fmt::Display for CreateReplyError {
 impl Error for CreateReplyError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::TopicUnavailable | Self::AuthorRestricted | Self::IdempotencyConflict => None,
+            Self::TopicUnavailable
+            | Self::TopicLocked
+            | Self::BoardRestricted
+            | Self::AuthorRestricted
+            | Self::PermissionDenied
+            | Self::QuotaExceeded
+            | Self::IdempotencyConflict => None,
             Self::Database(error) => Some(error),
         }
     }
@@ -1854,3 +2330,40 @@ impl fmt::Display for TopicModerationError {
 }
 
 impl Error for TopicModerationError {}
+
+impl From<sqlx::Error> for TopicGovernanceError {
+    fn from(error: sqlx::Error) -> Self {
+        Self::Database(DatabaseError::from(error))
+    }
+}
+
+impl From<OutboxError> for TopicGovernanceError {
+    fn from(error: OutboxError) -> Self {
+        Self::Outbox(error)
+    }
+}
+
+impl fmt::Display for TopicGovernanceError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unavailable => formatter.write_str("topic is unavailable"),
+            Self::Forbidden => formatter.write_str("topic governance is forbidden"),
+            Self::InvalidInput => formatter.write_str("topic governance input is invalid"),
+            Self::RevisionConflict => formatter.write_str("topic governance revision conflicts"),
+            Self::Database(_) => formatter.write_str("topic governance database operation failed"),
+            Self::Outbox(_) => formatter.write_str("topic governance outbox operation failed"),
+        }
+    }
+}
+
+impl Error for TopicGovernanceError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Database(error) => Some(error),
+            Self::Outbox(error) => Some(error),
+            Self::Unavailable | Self::Forbidden | Self::InvalidInput | Self::RevisionConflict => {
+                None
+            }
+        }
+    }
+}

@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+pub mod business;
+
 use std::{collections::HashSet, error::Error, fmt};
 
 use serde::{Deserialize, Serialize};
@@ -16,6 +18,7 @@ wasmtime::component::bindgen!({
 pub const MAX_MANIFEST_BYTES: usize = 16 * 1024;
 pub const MAX_COMPONENT_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_UI_SCHEMA_BYTES: usize = 32 * 1024;
+pub const BUSINESS_API_VERSION: &str = "0.1.0";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PluginCapability {
@@ -23,15 +26,75 @@ pub enum PluginCapability {
     ContentTransform,
     #[serde(rename = "ui.panel")]
     UiPanel,
+    #[serde(rename = "events.subscribe")]
+    EventsSubscribe,
+    #[serde(rename = "core.query")]
+    CoreQuery,
+    #[serde(rename = "points.write")]
+    PointsWrite,
+    #[serde(rename = "experience.write")]
+    ExperienceWrite,
+    #[serde(rename = "entitlements.write")]
+    EntitlementsWrite,
+    #[serde(rename = "notifications.write")]
+    NotificationsWrite,
+    #[serde(rename = "storage.read_write")]
+    StorageReadWrite,
+    #[serde(rename = "tasks.schedule")]
+    TasksSchedule,
 }
 
 impl PluginCapability {
-    pub const fn operation(self) -> PluginOperation {
+    pub const fn operation(self) -> Option<PluginOperation> {
         match self {
-            Self::ContentTransform => PluginOperation::ContentTransform,
-            Self::UiPanel => PluginOperation::UiRender,
+            Self::ContentTransform => Some(PluginOperation::ContentTransform),
+            Self::UiPanel => Some(PluginOperation::UiRender),
+            Self::EventsSubscribe
+            | Self::CoreQuery
+            | Self::PointsWrite
+            | Self::ExperienceWrite
+            | Self::EntitlementsWrite
+            | Self::NotificationsWrite
+            | Self::StorageReadWrite
+            | Self::TasksSchedule => None,
         }
     }
+
+    const fn is_business(self) -> bool {
+        self.operation().is_none()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PluginDataScope {
+    #[serde(rename = "site.read")]
+    SiteRead,
+    #[serde(rename = "actor.read")]
+    ActorRead,
+    #[serde(rename = "users.read.basic")]
+    UsersReadBasic,
+    #[serde(rename = "users.read.membership")]
+    UsersReadMembership,
+    #[serde(rename = "users.targeted")]
+    UsersTargeted,
+    #[serde(rename = "boards.read")]
+    BoardsRead,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PluginEventSubscription {
+    #[serde(rename = "user.created")]
+    UserCreated,
+    #[serde(rename = "topic.published")]
+    TopicPublished,
+    #[serde(rename = "reply.created")]
+    ReplyCreated,
+    #[serde(rename = "points.changed")]
+    PointsChanged,
+    #[serde(rename = "experience.changed")]
+    ExperienceChanged,
+    #[serde(rename = "entitlement.changed")]
+    EntitlementChanged,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,6 +121,12 @@ pub struct PluginManifest {
     pub version: String,
     pub description: String,
     pub capabilities: Vec<PluginCapability>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub business_api_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub data_scopes: Vec<PluginDataScope>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub event_subscriptions: Vec<PluginEventSubscription>,
 }
 
 impl PluginManifest {
@@ -74,11 +143,66 @@ impl PluginManifest {
         {
             return Err(PluginValidationError::InvalidManifest);
         }
-        if !(1..=8).contains(&self.capabilities.len()) {
+        if !(1..=16).contains(&self.capabilities.len()) {
             return Err(PluginValidationError::InvalidManifest);
         }
         let unique = self.capabilities.iter().copied().collect::<HashSet<_>>();
         if unique.len() != self.capabilities.len() {
+            return Err(PluginValidationError::InvalidManifest);
+        }
+        if self.data_scopes.len() > 8
+            || self
+                .data_scopes
+                .iter()
+                .copied()
+                .collect::<HashSet<_>>()
+                .len()
+                != self.data_scopes.len()
+        {
+            return Err(PluginValidationError::InvalidManifest);
+        }
+        if self.event_subscriptions.len() > 6
+            || self
+                .event_subscriptions
+                .iter()
+                .copied()
+                .collect::<HashSet<_>>()
+                .len()
+                != self.event_subscriptions.len()
+            || (!self.event_subscriptions.is_empty()
+                && !self
+                    .capabilities
+                    .contains(&PluginCapability::EventsSubscribe))
+        {
+            return Err(PluginValidationError::InvalidManifest);
+        }
+        let has_business_capability = self
+            .capabilities
+            .iter()
+            .copied()
+            .any(PluginCapability::is_business);
+        let has_legacy_component_capability = self
+            .capabilities
+            .contains(&PluginCapability::ContentTransform);
+        if has_business_capability {
+            if self.business_api_version.as_deref() != Some(BUSINESS_API_VERSION)
+                || has_legacy_component_capability
+            {
+                return Err(PluginValidationError::InvalidManifest);
+            }
+        } else if self.business_api_version.is_some() || !self.data_scopes.is_empty() {
+            return Err(PluginValidationError::InvalidManifest);
+        }
+        let targets_users = self.data_scopes.contains(&PluginDataScope::UsersTargeted);
+        if self.capabilities.iter().any(|capability| {
+            matches!(
+                capability,
+                PluginCapability::PointsWrite
+                    | PluginCapability::ExperienceWrite
+                    | PluginCapability::EntitlementsWrite
+                    | PluginCapability::NotificationsWrite
+            ) && !targets_users
+        }) {
             return Err(PluginValidationError::InvalidManifest);
         }
         Ok(())
@@ -166,6 +290,11 @@ impl UiSchema {
                         return Err(PluginValidationError::InvalidUiSchema);
                     }
                 }
+                UiBlock::Action { label, action_key } => {
+                    if !bounded_text(label, 1, 80) || !valid_ui_action_key(action_key) {
+                        return Err(PluginValidationError::InvalidUiSchema);
+                    }
+                }
             }
         }
         Ok(())
@@ -178,6 +307,7 @@ pub enum UiBlock {
     Text { text: String },
     Metric { label: String, value: String },
     Status { tone: UiTone, text: String },
+    Action { label: String, action_key: String },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -496,4 +626,17 @@ fn valid_version(value: &str) -> bool {
 fn bounded_text(value: &str, minimum: usize, maximum: usize) -> bool {
     let count = value.chars().count();
     (minimum..=maximum).contains(&count) && !value.chars().any(char::is_control)
+}
+
+pub fn valid_ui_action_key(value: &str) -> bool {
+    (3..=80).contains(&value.len())
+        && value.split('.').all(|segment| {
+            segment
+                .bytes()
+                .next()
+                .is_some_and(|byte| byte.is_ascii_lowercase())
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+        })
 }

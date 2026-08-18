@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "key": "official_growth_rewards",
+  "name": "官方成长奖励",
+  "version": "0.1.0",
+  "description": "每天首次发布主题或回复时，通过受控命令发放 EXP。",
+  "capabilities": ["events.subscribe", "experience.write"],
+  "business_api_version": "0.1.0",
+  "data_scopes": ["users.targeted"],
+  "event_subscriptions": ["topic.published", "reply.created"]
+}

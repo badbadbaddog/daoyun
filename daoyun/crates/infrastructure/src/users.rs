@@ -193,6 +193,15 @@ pub enum UpdateAdminUserStatusError {
 }
 
 impl Database {
+    pub async fn active_user_exists(&self, user_id: Uuid) -> Result<bool, DatabaseError> {
+        Ok(sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND status = 'active')",
+        )
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
     pub async fn admin_user_exists(&self, user_id: Uuid) -> Result<bool, DatabaseError> {
         Ok(
             sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)")

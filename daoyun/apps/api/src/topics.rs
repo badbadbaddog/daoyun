@@ -4,10 +4,11 @@ use crate::auth::{
 };
 use api_contract::{
     ApiResponse, BoardTone, CreateReplyRequest, CreateTopicRequest, ErrorBody, ErrorCode,
-    ErrorResponse, FieldErrors, ModerateTopicRequest, PageResponse, ReplyRevision, RequestId,
-    TopicAuthorSummary, TopicBoardSummary, TopicDetail, TopicModerationResult,
-    TopicModerationStatus, TopicReply, TopicRevision, TopicScope, TopicSort, TopicSummary,
-    TopicTag, TopicTagInput, UpdateReplyRequest, UpdateTopicRequest, error_codes,
+    ErrorResponse, FieldErrors, GovernTopicRequest, ModerateTopicRequest, PageResponse,
+    ReplyRevision, RequestId, TopicAuthorSummary, TopicBoardSummary, TopicDetail,
+    TopicGovernanceAction, TopicGovernanceResult, TopicModerationResult, TopicModerationStatus,
+    TopicReply, TopicRevision, TopicScope, TopicSort, TopicSummary, TopicTag, TopicTagInput,
+    UpdateReplyRequest, UpdateTopicRequest, error_codes,
 };
 use axum::{
     Extension, Json, Router,
@@ -22,7 +23,8 @@ use infrastructure::{
     CreateReplyError, CreateTopicError, Database, IdempotencyInput, ListPublicRepliesError,
     ListPublicTopicsError, ListTopicRevisionsError, NewReplyRecord, NewTagRecord, NewTopicRecord,
     PublicReplyRecord, PublicTopicDetailRecord, PublicTopicFilters, PublicTopicRecord,
-    ReplyMutationError, TopicDeleteError, TopicModerationError,
+    ReplyMutationError, TopicDeleteError, TopicGovernanceAction as InfrastructureGovernanceAction,
+    TopicGovernanceError, TopicGovernanceInput, TopicModerationError,
     TopicSort as InfrastructureTopicSort, UpdateReplyRecord, UpdateTopicError, UpdateTopicRecord,
 };
 use serde::Deserialize;
@@ -91,6 +93,7 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
             get(detail).patch(update).delete(delete_topic),
         )
         .route("/api/v1/topics/{topic_id}/moderation", patch(moderate))
+        .route("/api/v1/topics/{topic_id}/governance", patch(govern))
         .route("/api/v1/topics/{topic_id}/revisions", get(revisions))
         .route(
             "/api/v1/topics/{topic_id}/replies",
@@ -274,7 +277,10 @@ pub(crate) async fn create(
         .await
         .map_err(|error| match error {
             CreateTopicError::BoardUnavailable => topic_board_unavailable(request_id),
+            CreateTopicError::BoardRestricted => board_posting_restricted(request_id),
             CreateTopicError::AuthorRestricted => user_action_restricted(request_id),
+            CreateTopicError::PermissionDenied => community_permission_denied(request_id),
+            CreateTopicError::QuotaExceeded => community_quota_exceeded(request_id),
             CreateTopicError::IdempotencyConflict => idempotency_conflict(request_id),
             CreateTopicError::Database(error) => {
                 tracing::warn!(
@@ -516,6 +522,81 @@ pub(crate) async fn moderate(
 }
 
 #[utoipa::path(
+    patch,
+    path = "/api/v1/topics/{topic_id}/governance",
+    operation_id = "governTopic",
+    tag = "topics",
+    params(("topic_id" = Uuid, Path), ("x-csrf-token" = String, Header)),
+    request_body = GovernTopicRequest,
+    responses(
+        (status = 200, body = ApiResponse<TopicGovernanceResult>, headers(("x-request-id" = String))),
+        (status = 400, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String), ("set-cookie" = String))),
+        (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 404, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 409, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 422, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn govern(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    path: Result<Path<Uuid>, PathRejection>,
+    request: Result<Json<GovernTopicRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<TopicGovernanceResult>>, ApiError> {
+    let Path(topic_id) = path.map_err(|_| create_path_invalid(request_id))?;
+    let Json(request) = request.map_err(|_| topic_governance_invalid(request_id))?;
+    let session = authenticate_state_change(&database, &runtime, &headers, request_id).await?;
+    let action = match request.action {
+        TopicGovernanceAction::Pin => InfrastructureGovernanceAction::Pin,
+        TopicGovernanceAction::Unpin => InfrastructureGovernanceAction::Unpin,
+        TopicGovernanceAction::Feature => InfrastructureGovernanceAction::Feature,
+        TopicGovernanceAction::Unfeature => InfrastructureGovernanceAction::Unfeature,
+        TopicGovernanceAction::Lock => InfrastructureGovernanceAction::Lock,
+        TopicGovernanceAction::Unlock => InfrastructureGovernanceAction::Unlock,
+        TopicGovernanceAction::Move => InfrastructureGovernanceAction::Move,
+    };
+    let result = database
+        .govern_topic(TopicGovernanceInput {
+            topic_id,
+            actor_id: session.user.id,
+            action,
+            expected_revision: request.expected_revision,
+            target_board_id: request.target_board_id,
+            reason: request.reason,
+        })
+        .await
+        .map_err(|error| match error {
+            TopicGovernanceError::Unavailable => topic_moderation_not_found(request_id),
+            TopicGovernanceError::Forbidden => topic_governance_forbidden(request_id),
+            TopicGovernanceError::InvalidInput => topic_governance_invalid(request_id),
+            TopicGovernanceError::RevisionConflict => topic_governance_conflict(request_id),
+            TopicGovernanceError::Database(error) => {
+                tracing::warn!(request_id = %request_id, error = %error, "Topic governance failed");
+                service_unavailable_create(request_id)
+            }
+            TopicGovernanceError::Outbox(error) => {
+                tracing::warn!(request_id = %request_id, error = %error, "Topic governance outbox failed");
+                service_unavailable_create(request_id)
+            }
+        })?;
+    Ok(Json(ApiResponse::new(
+        TopicGovernanceResult {
+            topic_id: result.topic_id,
+            board_id: result.board_id,
+            is_pinned: result.is_pinned,
+            is_featured: result.is_featured,
+            is_locked: result.is_locked,
+            governance_revision: result.governance_revision,
+        },
+        request_id,
+    )))
+}
+
+#[utoipa::path(
     get,
     path = "/api/v1/topics/{topic_id}/revisions",
     operation_id = "listTopicRevisions",
@@ -694,7 +775,11 @@ pub(crate) async fn create_reply(
         .await
         .map_err(|error| match error {
             CreateReplyError::TopicUnavailable => create_not_found(request_id),
+            CreateReplyError::TopicLocked => topic_locked(request_id),
+            CreateReplyError::BoardRestricted => board_posting_restricted(request_id),
             CreateReplyError::AuthorRestricted => user_action_restricted(request_id),
+            CreateReplyError::PermissionDenied => community_permission_denied(request_id),
+            CreateReplyError::QuotaExceeded => community_quota_exceeded(request_id),
             CreateReplyError::IdempotencyConflict => idempotency_conflict(request_id),
             CreateReplyError::Database(error) => {
                 tracing::warn!(
@@ -1375,6 +1460,28 @@ fn user_action_restricted(request_id: RequestId) -> ApiError {
     )
 }
 
+fn community_permission_denied(request_id: RequestId) -> ApiError {
+    create_error(
+        StatusCode::FORBIDDEN,
+        ErrorBody::new(
+            ErrorCode::from_static(error_codes::COMMUNITY_PERMISSION_DENIED),
+            "当前用户组没有执行此社区操作的权限",
+        ),
+        request_id,
+    )
+}
+
+fn community_quota_exceeded(request_id: RequestId) -> ApiError {
+    create_error(
+        StatusCode::TOO_MANY_REQUESTS,
+        ErrorBody::new(
+            ErrorCode::from_static(error_codes::COMMUNITY_QUOTA_EXCEEDED),
+            "当前用户组的社区操作额度已用尽",
+        ),
+        request_id,
+    )
+}
+
 fn topic_edit_forbidden(request_id: RequestId) -> ApiError {
     create_error(
         StatusCode::FORBIDDEN,
@@ -1403,6 +1510,61 @@ fn topic_moderation_forbidden(request_id: RequestId) -> ApiError {
         ErrorBody::new(
             ErrorCode::from_static(error_codes::TOPIC_MODERATION_FORBIDDEN),
             "当前用户没有主题审核权限",
+        ),
+        request_id,
+    )
+}
+
+fn topic_governance_forbidden(request_id: RequestId) -> ApiError {
+    create_error(
+        StatusCode::FORBIDDEN,
+        ErrorBody::new(
+            ErrorCode::from_static(error_codes::TOPIC_GOVERNANCE_FORBIDDEN),
+            "当前账号没有执行该主题治理动作的权限",
+        ),
+        request_id,
+    )
+}
+
+fn topic_governance_invalid(request_id: RequestId) -> ApiError {
+    create_error(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        ErrorBody::new(
+            ErrorCode::from_static(error_codes::TOPIC_GOVERNANCE_INVALID),
+            "主题治理请求无效",
+        ),
+        request_id,
+    )
+}
+
+fn topic_governance_conflict(request_id: RequestId) -> ApiError {
+    create_error(
+        StatusCode::CONFLICT,
+        ErrorBody::new(
+            ErrorCode::from_static(error_codes::TOPIC_GOVERNANCE_REVISION_CONFLICT),
+            "主题治理状态已更新，请刷新后重试",
+        ),
+        request_id,
+    )
+}
+
+fn topic_locked(request_id: RequestId) -> ApiError {
+    create_error(
+        StatusCode::CONFLICT,
+        ErrorBody::new(
+            ErrorCode::from_static(error_codes::TOPIC_LOCKED),
+            "主题已锁定，暂时不能回复",
+        ),
+        request_id,
+    )
+}
+
+fn board_posting_restricted(request_id: RequestId) -> ApiError {
+    create_error(
+        StatusCode::FORBIDDEN,
+        ErrorBody::new(
+            ErrorCode::from_static(error_codes::BOARD_POSTING_RESTRICTED),
+            "当前账号在该板块内已被限制发布内容",
         ),
         request_id,
     )

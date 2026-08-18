@@ -3,8 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   PluginApiError,
   deletePlugin,
+  executePluginUiAction,
+  executePluginUiSurfaceAction,
   installPlugin,
   invokePlugin,
+  listPluginUiContributions,
+  listPluginUiSurfaceContributions,
   listPlugins,
   updatePluginStatus,
 } from "./plugins"
@@ -18,7 +22,11 @@ const plugin = {
   name: "Identity plugin",
   version: "1.0.0",
   description: "Fixture",
-  capabilities: ["content.transform", "ui.panel"],
+  manifest_schema_version: 1,
+  business_api_version: "0.1.0",
+  capabilities: ["ui.panel", "core.query", "points.write"],
+  data_scopes: ["site.read", "users.targeted"],
+  event_subscriptions: [],
   component_sha256: "a".repeat(64),
   component_size: 1024,
   status: "disabled",
@@ -57,7 +65,10 @@ describe("plugin API", () => {
         name: "Identity plugin",
         version: "1.0.0",
         description: "Fixture",
-        capabilities: ["content.transform", "ui.panel"],
+        capabilities: ["ui.panel", "core.query", "points.write"],
+        businessApiVersion: "0.1.0",
+        dataScopes: ["site.read", "users.targeted"],
+        eventSubscriptions: [],
       },
       componentBase64: "AGFzbQ==",
     }, "csrf")).resolves.toMatchObject({ key: "identity_plugin" })
@@ -75,7 +86,10 @@ describe("plugin API", () => {
           name: "Identity plugin",
           version: "1.0.0",
           description: "Fixture",
-          capabilities: ["content.transform", "ui.panel"],
+          capabilities: ["ui.panel", "core.query", "points.write"],
+          business_api_version: "0.1.0",
+          data_scopes: ["site.read", "users.targeted"],
+          event_subscriptions: [],
         },
         component_base64: "AGFzbQ==",
       }),
@@ -109,9 +123,115 @@ describe("plugin API", () => {
     }))
   })
 
+  it("loads only bounded UI contribution schemas", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      data: [{
+        slot: "admin_plugin",
+        schema: {
+          schema_version: 1,
+          title: "Business status",
+          blocks: [
+            { kind: "status", tone: "success", text: "Ready" },
+            { kind: "action", label: "发送测试通知", action_key: "notification.send_test" },
+          ],
+        },
+      }],
+      meta: { request_id: requestId },
+    }))
+
+    await expect(listPluginUiContributions(pluginId)).resolves.toEqual([{
+      slot: "admin_plugin",
+      schema: {
+        schemaVersion: 1,
+        title: "Business status",
+        blocks: [
+          { kind: "status", tone: "success", text: "Ready" },
+          { kind: "action", label: "发送测试通知", action_key: "notification.send_test" },
+        ],
+      },
+    }])
+  })
+
+  it("executes a fixed admin plugin action with CSRF and idempotency", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      data: { executed_commands: 1 },
+      meta: { request_id: requestId },
+    }))
+
+    await expect(executePluginUiAction(
+      pluginId,
+      "notification.send_test",
+      "019fc900-0000-7000-8000-000000000803",
+      "csrf",
+    )).resolves.toEqual({ executedCommands: 1 })
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/v1/admin/plugins/${pluginId}/ui-actions`,
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "x-csrf-token": "csrf" }),
+        body: JSON.stringify({
+          slot: "admin_plugin",
+          action_key: "notification.send_test",
+          idempotency_key: "019fc900-0000-7000-8000-000000000803",
+          subject_id: null,
+        }),
+      }),
+    )
+  })
+
+  it("loads and executes subject-bound business surface contributions", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({
+        data: [{
+          plugin_id: pluginId,
+          plugin_key: "identity_plugin",
+          slot: "user_profile",
+          schema: {
+            schema_version: 1,
+            title: "Profile extension",
+            blocks: [{ kind: "action", label: "Refresh", action_key: "profile.refresh" }],
+          },
+        }],
+        meta: { request_id: requestId },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: { executed_commands: 1 },
+        meta: { request_id: requestId },
+      }))
+
+    await expect(listPluginUiSurfaceContributions("user_profile", actorId)).resolves.toEqual([
+      expect.objectContaining({ pluginId, pluginKey: "identity_plugin", slot: "user_profile" }),
+    ])
+    await expect(executePluginUiSurfaceAction(
+      pluginId,
+      "user_profile",
+      actorId,
+      "profile.refresh",
+      "surface-action",
+      "csrf",
+    )).resolves.toEqual({ executedCommands: 1 })
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      `/api/v1/plugin-ui/user_profile/${actorId}/${pluginId}/actions`,
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          slot: "user_profile",
+          action_key: "profile.refresh",
+          idempotency_key: "surface-action",
+          subject_id: actorId,
+        }),
+      }),
+    )
+  })
+
   it("rejects malformed metadata and arbitrary UI blocks", async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ data: [{ ...plugin, component_bytes: "secret" }], meta: { request_id: requestId } }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: [{ ...plugin, capabilities: ["content.transform", "core.query"] }],
+        meta: { request_id: requestId },
+      }))
       .mockResolvedValueOnce(jsonResponse({
         data: {
           operation: "ui_render",
@@ -121,6 +241,7 @@ describe("plugin API", () => {
         meta: { request_id: requestId },
       }))
 
+    await expect(listPlugins()).rejects.toMatchObject({ code: "response.invalid" })
     await expect(listPlugins()).rejects.toMatchObject({ code: "response.invalid" })
     await expect(invokePlugin(pluginId, "ui_render", "{}", "csrf")).rejects.toMatchObject({ code: "response.invalid" })
   })

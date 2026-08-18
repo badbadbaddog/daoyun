@@ -9,9 +9,11 @@ publish = false
 serde.workspace = true
 serde_json.workspace = true
 wasmtime.workspace = true
+wasmtime-wasi.workspace = true
 
 [dev-dependencies]
 wat = "=1.245.1"
+wit-parser = "=0.252.0"
 
 [lints]
 workspace = true

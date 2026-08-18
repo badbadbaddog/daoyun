@@ -193,6 +193,134 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/community/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listCommunityGroups"];
+        put?: never;
+        post: operations["createCommunityGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/community/groups/{group_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateCommunityGroup"];
+        trace?: never;
+    };
+    "/api/v1/admin/community/memberships": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["grantCommunityGroupMembership"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/community/memberships/{membership_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["revokeCommunityGroupMembership"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/content-access-policies/{target_type}/{target_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getContentAccessPolicy"];
+        put: operations["putContentAccessPolicy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/entitlements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["grantStandardEntitlement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/entitlements/types/{internal_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["putStandardEntitlementType"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/entitlements/{entitlement_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["revokeStandardEntitlement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/governance/policy": {
         parameters: {
             query?: never;
@@ -239,6 +367,38 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["updateMembershipLevelRule"];
+        trace?: never;
+    };
+    "/api/v1/admin/membership/levels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listAdminMembershipGrowthLevels"];
+        put?: never;
+        post: operations["createMembershipGrowthLevel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/membership/levels/{level_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateMembershipGrowthLevel"];
         trace?: never;
     };
     "/api/v1/admin/membership/medal-rules": {
@@ -427,6 +587,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["invokePlugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/plugins/{plugin_id}/ui-actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["executePluginUiAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/plugins/{plugin_id}/ui-contributions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listPluginUiContributions"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1265,6 +1457,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/management/boards/{board_id}/users/{user_id}/posting-restriction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["putBoardUserPostingRestriction"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/membership/catalog": {
         parameters: {
             query?: never;
@@ -1273,6 +1481,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["getMembershipCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/membership/levels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listMembershipGrowthLevels"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1343,6 +1567,38 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["markNotificationRead"];
+        trace?: never;
+    };
+    "/api/v1/plugin-ui/{slot}/{subject_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listPluginUiSurfaceContributions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugin-ui/{slot}/{subject_id}/{plugin_id}/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["executePluginUiSurfaceAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/posts/{post_id}/like": {
@@ -1489,6 +1745,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/topics/{topic_id}/governance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["governTopic"];
+        trace?: never;
+    };
     "/api/v1/topics/{topic_id}/moderation": {
         parameters: {
             query?: never;
@@ -1593,6 +1865,38 @@ export interface paths {
             cookie?: never;
         };
         get: operations["listCurrentUserBookmarks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/experience": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getCurrentExperienceAccount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getCurrentCommunityGroups"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1763,6 +2067,106 @@ export interface components {
         AdminCapabilityAccess: {
             capability_keys: string[];
         };
+        AdminCommunityGroup: {
+            /** Format: date-time */
+            created_at: string;
+            description: string;
+            display_name: string;
+            /** Format: int32 */
+            display_order: number;
+            /** Format: uuid */
+            id: string;
+            internal_key: string;
+            is_base: boolean;
+            permission_keys: string[];
+            quotas: {
+                [key: string]: number;
+            };
+            /** Format: int64 */
+            revision: number;
+            status: components["schemas"]["CommunityGroupStatus"];
+            /** Format: date-time */
+            updated_at: string;
+        };
+        AdminCommunityGroupMembership: {
+            /** Format: date-time */
+            ends_at?: string | null;
+            group: components["schemas"]["CommunityGroupSummary"];
+            /** Format: uuid */
+            id: string;
+            membership_kind: string;
+            reason: string;
+            /** Format: int64 */
+            revision: number;
+            revocation_reason?: string | null;
+            /** Format: date-time */
+            revoked_at?: string | null;
+            source: string;
+            /** Format: uuid */
+            source_reference_id?: string | null;
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: uuid */
+            user_id: string;
+        };
+        AdminGrowthLevel: {
+            color?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            description: string;
+            display_name: string;
+            /** Format: uuid */
+            icon_asset_id?: string | null;
+            /** Format: uuid */
+            id: string;
+            internal_key: string;
+            /** Format: int32 */
+            level_order: number;
+            /** Format: date-time */
+            published_at?: string | null;
+            /** Format: int64 */
+            required_experience: number;
+            /** Format: int64 */
+            revision: number;
+            status: components["schemas"]["GrowthLevelStatus"];
+            /** Format: date-time */
+            updated_at: string;
+        };
+        AdminStandardEntitlement: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            ends_at?: string | null;
+            entitlement_key: string;
+            /** Format: uuid */
+            entitlement_type_id: string;
+            /** Format: uuid */
+            granted_by: string;
+            /** Format: uuid */
+            id: string;
+            permission_snapshot: string[];
+            quota_snapshot: {
+                [key: string]: number;
+            };
+            reason: string;
+            /** Format: int64 */
+            revision: number;
+            revocation_reason?: string | null;
+            /** Format: date-time */
+            revoked_at?: string | null;
+            /** Format: uuid */
+            revoked_by?: string | null;
+            source: string;
+            source_reference_id?: string | null;
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: int32 */
+            type_version: number;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            user_id: string;
+        };
         AdminUserContentItem: {
             /** Format: date-time */
             created_at: string;
@@ -1887,6 +2291,56 @@ export interface components {
             };
             meta: components["schemas"]["ResponseMeta"];
         };
+        ApiResponse_AdminCommunityGroup: {
+            data: {
+                /** Format: date-time */
+                created_at: string;
+                description: string;
+                display_name: string;
+                /** Format: int32 */
+                display_order: number;
+                /** Format: uuid */
+                id: string;
+                internal_key: string;
+                is_base: boolean;
+                permission_keys: string[];
+                quotas: {
+                    [key: string]: number;
+                };
+                /** Format: int64 */
+                revision: number;
+                status: components["schemas"]["CommunityGroupStatus"];
+                /** Format: date-time */
+                updated_at: string;
+            };
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        ApiResponse_AdminGrowthLevel: {
+            data: {
+                color?: string | null;
+                /** Format: date-time */
+                created_at: string;
+                description: string;
+                display_name: string;
+                /** Format: uuid */
+                icon_asset_id?: string | null;
+                /** Format: uuid */
+                id: string;
+                internal_key: string;
+                /** Format: int32 */
+                level_order: number;
+                /** Format: date-time */
+                published_at?: string | null;
+                /** Format: int64 */
+                required_experience: number;
+                /** Format: int64 */
+                revision: number;
+                status: components["schemas"]["GrowthLevelStatus"];
+                /** Format: date-time */
+                updated_at: string;
+            };
+            meta: components["schemas"]["ResponseMeta"];
+        };
         ApiResponse_AdminUserDetail: {
             data: {
                 avatar_url?: string | null;
@@ -1990,6 +2444,7 @@ export interface components {
                 role: components["schemas"]["AuthorizationAssignedRole"];
                 /** Format: uuid */
                 scope_id?: string | null;
+                scope_mode: components["schemas"]["AuthorizationScopeMode"];
                 user: components["schemas"]["UserSummary"];
             };
             meta: components["schemas"]["ResponseMeta"];
@@ -2010,6 +2465,29 @@ export interface components {
             };
             meta: components["schemas"]["ResponseMeta"];
         };
+        ApiResponse_BoardUserRestriction: {
+            data: {
+                actions: components["schemas"]["BoardPostingRestrictionAction"][];
+                /** Format: uuid */
+                board_id: string;
+                created_at: string;
+                /** Format: uuid */
+                created_by: string;
+                ends_at?: string | null;
+                /** Format: uuid */
+                id: string;
+                reason: string;
+                /** Format: int64 */
+                revision: number;
+                starts_at: string;
+                updated_at: string;
+                /** Format: uuid */
+                updated_by: string;
+                /** Format: uuid */
+                user_id: string;
+            };
+            meta: components["schemas"]["ResponseMeta"];
+        };
         ApiResponse_BookmarkState: {
             data: {
                 bookmarked: boolean;
@@ -2022,6 +2500,31 @@ export interface components {
             data: {
                 /** Format: password */
                 csrf_token: string;
+            };
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        ApiResponse_CommunityGroupMembershipMutation: {
+            data: {
+                membership: components["schemas"]["AdminCommunityGroupMembership"];
+                replayed: boolean;
+            };
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        ApiResponse_ContentAccessPolicy: {
+            data: {
+                /** Format: date-time */
+                created_at: string;
+                /** Format: uuid */
+                id: string;
+                operator: components["schemas"]["ContentAccessOperator"];
+                /** Format: int64 */
+                revision: number;
+                subjects: components["schemas"]["ContentAccessSubject"][];
+                /** Format: uuid */
+                target_id: string;
+                target_type: components["schemas"]["ContentAccessTargetType"];
+                /** Format: date-time */
+                updated_at: string;
             };
             meta: components["schemas"]["ResponseMeta"];
         };
@@ -2095,6 +2598,13 @@ export interface components {
             };
             meta: components["schemas"]["ResponseMeta"];
         };
+        ApiResponse_CurrentCommunityGroups: {
+            data: {
+                access: components["schemas"]["CommunityAccess"];
+                memberships: components["schemas"]["CommunityGroupMembership"][];
+            };
+            meta: components["schemas"]["ResponseMeta"];
+        };
         ApiResponse_DirectMessage: {
             data: {
                 content: string;
@@ -2105,6 +2615,20 @@ export interface components {
                 /** Format: uuid */
                 id: string;
                 sender: components["schemas"]["UserSummary"];
+            };
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        ApiResponse_ExperienceAccount: {
+            data: {
+                current_level: components["schemas"]["GrowthLevel"];
+                /** Format: int64 */
+                experience: number;
+                /** Format: int64 */
+                revision: number;
+                /** Format: date-time */
+                updated_at: string;
+                /** Format: uuid */
+                user_id: string;
             };
             meta: components["schemas"]["ResponseMeta"];
         };
@@ -2416,18 +2940,22 @@ export interface components {
         };
         ApiResponse_Plugin: {
             data: {
+                business_api_version: null | components["schemas"]["PluginBusinessApiVersion"];
                 capabilities: components["schemas"]["PluginCapability"][];
                 component_sha256: string;
                 /** Format: int64 */
                 component_size: number;
                 /** Format: date-time */
                 created_at: string;
+                data_scopes: components["schemas"]["PluginDataScope"][];
                 description: string;
+                event_subscriptions: components["schemas"]["PluginEventSubscription"][];
                 /** Format: uuid */
                 id: string;
                 /** Format: uuid */
                 installed_by: string;
                 key: string;
+                manifest_schema_version: components["schemas"]["PluginSchemaVersion"];
                 name: string;
                 /** Format: int64 */
                 revision: number;
@@ -2443,6 +2971,13 @@ export interface components {
                 operation: components["schemas"]["PluginOperation"];
                 payload: string;
                 ui_schema?: null | components["schemas"]["PluginUiSchema"];
+            };
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        ApiResponse_PluginUiActionResult: {
+            data: {
+                /** Format: int32 */
+                executed_commands: number;
             };
             meta: components["schemas"]["ResponseMeta"];
         };
@@ -2523,6 +3058,35 @@ export interface components {
             };
             meta: components["schemas"]["ResponseMeta"];
         };
+        ApiResponse_StandardEntitlementMutation: {
+            data: {
+                entitlement: components["schemas"]["AdminStandardEntitlement"];
+                replayed: boolean;
+            };
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        ApiResponse_StandardEntitlementType: {
+            data: {
+                /** Format: date-time */
+                created_at: string;
+                /** Format: int32 */
+                current_version: number;
+                display_name: string;
+                /** Format: uuid */
+                id: string;
+                internal_key: string;
+                permission_keys: string[];
+                quotas: {
+                    [key: string]: number;
+                };
+                /** Format: int64 */
+                revision: number;
+                status: string;
+                /** Format: date-time */
+                updated_at: string;
+            };
+            meta: components["schemas"]["ResponseMeta"];
+        };
         ApiResponse_TopicAttachment: {
             data: {
                 /** Format: date-time */
@@ -2570,6 +3134,20 @@ export interface components {
                 content: string;
                 /** Format: int32 */
                 content_revision: number;
+            };
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        ApiResponse_TopicGovernanceResult: {
+            data: {
+                /** Format: uuid */
+                board_id: string;
+                /** Format: int64 */
+                governance_revision: number;
+                is_featured: boolean;
+                is_locked: boolean;
+                is_pinned: boolean;
+                /** Format: uuid */
+                topic_id: string;
             };
             meta: components["schemas"]["ResponseMeta"];
         };
@@ -2655,6 +3233,56 @@ export interface components {
             }[];
             meta: components["schemas"]["ResponseMeta"];
         };
+        ApiResponse_Vec_AdminCommunityGroup: {
+            data: {
+                /** Format: date-time */
+                created_at: string;
+                description: string;
+                display_name: string;
+                /** Format: int32 */
+                display_order: number;
+                /** Format: uuid */
+                id: string;
+                internal_key: string;
+                is_base: boolean;
+                permission_keys: string[];
+                quotas: {
+                    [key: string]: number;
+                };
+                /** Format: int64 */
+                revision: number;
+                status: components["schemas"]["CommunityGroupStatus"];
+                /** Format: date-time */
+                updated_at: string;
+            }[];
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        ApiResponse_Vec_AdminGrowthLevel: {
+            data: {
+                color?: string | null;
+                /** Format: date-time */
+                created_at: string;
+                description: string;
+                display_name: string;
+                /** Format: uuid */
+                icon_asset_id?: string | null;
+                /** Format: uuid */
+                id: string;
+                internal_key: string;
+                /** Format: int32 */
+                level_order: number;
+                /** Format: date-time */
+                published_at?: string | null;
+                /** Format: int64 */
+                required_experience: number;
+                /** Format: int64 */
+                revision: number;
+                status: components["schemas"]["GrowthLevelStatus"];
+                /** Format: date-time */
+                updated_at: string;
+            }[];
+            meta: components["schemas"]["ResponseMeta"];
+        };
         ApiResponse_Vec_AuthorizationPermission: {
             data: {
                 description: string;
@@ -2705,6 +3333,23 @@ export interface components {
                 /** Format: date-time */
                 last_authenticated_at?: string | null;
                 provider_key: string;
+            }[];
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        ApiResponse_Vec_GrowthLevel: {
+            data: {
+                color?: string | null;
+                description: string;
+                display_name: string;
+                /** Format: uuid */
+                icon_asset_id?: string | null;
+                /** Format: uuid */
+                id: string;
+                internal_key: string;
+                /** Format: int32 */
+                level_order: number;
+                /** Format: int64 */
+                required_experience: number;
             }[];
             meta: components["schemas"]["ResponseMeta"];
         };
@@ -2786,18 +3431,22 @@ export interface components {
         };
         ApiResponse_Vec_Plugin: {
             data: {
+                business_api_version: null | components["schemas"]["PluginBusinessApiVersion"];
                 capabilities: components["schemas"]["PluginCapability"][];
                 component_sha256: string;
                 /** Format: int64 */
                 component_size: number;
                 /** Format: date-time */
                 created_at: string;
+                data_scopes: components["schemas"]["PluginDataScope"][];
                 description: string;
+                event_subscriptions: components["schemas"]["PluginEventSubscription"][];
                 /** Format: uuid */
                 id: string;
                 /** Format: uuid */
                 installed_by: string;
                 key: string;
+                manifest_schema_version: components["schemas"]["PluginSchemaVersion"];
                 name: string;
                 /** Format: int64 */
                 revision: number;
@@ -2805,6 +3454,23 @@ export interface components {
                 /** Format: date-time */
                 updated_at: string;
                 version: string;
+            }[];
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        ApiResponse_Vec_PluginUiContribution: {
+            data: {
+                schema: components["schemas"]["PluginUiSchema"];
+                slot: components["schemas"]["PluginUiSlot"];
+            }[];
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        ApiResponse_Vec_PluginUiSurfaceContribution: {
+            data: {
+                /** Format: uuid */
+                plugin_id: string;
+                plugin_key: string;
+                schema: components["schemas"]["PluginUiSchema"];
+                slot: components["schemas"]["PluginUiSlot"];
             }[];
             meta: components["schemas"]["ResponseMeta"];
         };
@@ -2934,10 +3600,13 @@ export interface components {
             role: components["schemas"]["AuthorizationAssignedRole"];
             /** Format: uuid */
             scope_id?: string | null;
+            scope_mode: components["schemas"]["AuthorizationScopeMode"];
             user: components["schemas"]["UserSummary"];
         };
         /** @enum {string} */
         AuthorizationRoleScope: "instance" | "site" | "board";
+        /** @enum {string} */
+        AuthorizationScopeMode: "exact" | "subtree";
         BTreeMap: {
             [key: string]: string[];
         };
@@ -2957,6 +3626,8 @@ export interface components {
             /** Format: uuid */
             user_id: string;
         };
+        /** @enum {string} */
+        BoardPostingRestrictionAction: "topic_create" | "reply_create" | "attachment_upload";
         BoardSummary: {
             description: string;
             icon: string;
@@ -2970,6 +3641,26 @@ export interface components {
         };
         /** @enum {string} */
         BoardTone: "green" | "blue" | "amber" | "rose";
+        BoardUserRestriction: {
+            actions: components["schemas"]["BoardPostingRestrictionAction"][];
+            /** Format: uuid */
+            board_id: string;
+            created_at: string;
+            /** Format: uuid */
+            created_by: string;
+            ends_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            reason: string;
+            /** Format: int64 */
+            revision: number;
+            starts_at: string;
+            updated_at: string;
+            /** Format: uuid */
+            updated_by: string;
+            /** Format: uuid */
+            user_id: string;
+        };
         BookmarkState: {
             bookmarked: boolean;
             /** Format: uuid */
@@ -2985,6 +3676,19 @@ export interface components {
         BrandListDensity: "comfortable" | "compact";
         /** @enum {string} */
         BrandThemePreset: "default" | "dark" | "compact" | "high_contrast";
+        /** @enum {string} */
+        BusinessPluginCapability: "ui.panel" | "events.subscribe" | "core.query" | "points.write" | "experience.write" | "entitlements.write" | "notifications.write" | "storage.read_write" | "tasks.schedule";
+        BusinessPluginManifestSchema: {
+            business_api_version: components["schemas"]["PluginBusinessApiVersion"];
+            capabilities: components["schemas"]["BusinessPluginCapability"][];
+            data_scopes: components["schemas"]["PluginDataScope"][];
+            description: string;
+            event_subscriptions: components["schemas"]["PluginEventSubscription"][];
+            key: string;
+            name: string;
+            schema_version: components["schemas"]["PluginSchemaVersion"];
+            version: string;
+        };
         ChangePasswordData: {
             /** Format: password */
             csrf_token: string;
@@ -2993,6 +3697,81 @@ export interface components {
             /** Format: password */
             new_password: string;
         };
+        CommunityAccess: {
+            account_status: string;
+            blocked_permission_keys: string[];
+            denial_reason?: string | null;
+            denied: boolean;
+            entitlement_sources?: components["schemas"]["StandardEntitlementPermissionSource"][];
+            permission_keys: string[];
+            quotas: {
+                [key: string]: number;
+            };
+            sources: components["schemas"]["CommunityPermissionSource"][];
+        };
+        CommunityGroupMembership: {
+            /** Format: date-time */
+            ends_at?: string | null;
+            group: components["schemas"]["CommunityGroupSummary"];
+            /** Format: uuid */
+            id: string;
+            membership_kind: string;
+            /** Format: int64 */
+            revision: number;
+            source: string;
+            /** Format: date-time */
+            starts_at: string;
+        };
+        CommunityGroupMembershipMutation: {
+            membership: components["schemas"]["AdminCommunityGroupMembership"];
+            replayed: boolean;
+        };
+        /** @enum {string} */
+        CommunityGroupStatus: "active" | "disabled" | "archived";
+        CommunityGroupSummary: {
+            display_name: string;
+            /** Format: uuid */
+            id: string;
+            internal_key: string;
+        };
+        CommunityPermissionSource: {
+            /** Format: uuid */
+            group_id: string;
+            group_key: string;
+            /** Format: uuid */
+            membership_id: string;
+            permission_keys: string[];
+            quotas: {
+                [key: string]: number;
+            };
+        };
+        /** @enum {string} */
+        ContentAccessOperator: "any_of" | "all_of";
+        ContentAccessPolicy: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            operator: components["schemas"]["ContentAccessOperator"];
+            /** Format: int64 */
+            revision: number;
+            subjects: components["schemas"]["ContentAccessSubject"][];
+            /** Format: uuid */
+            target_id: string;
+            target_type: components["schemas"]["ContentAccessTargetType"];
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ContentAccessSubject: {
+            /** Format: uuid */
+            community_group_id?: string | null;
+            subject_key?: string | null;
+            subject_type: components["schemas"]["ContentAccessSubjectType"];
+        };
+        /** @enum {string} */
+        ContentAccessSubjectType: "public" | "authenticated" | "community_group" | "entitlement" | "governance";
+        /** @enum {string} */
+        ContentAccessTargetType: "board" | "topic" | "post" | "attachment";
         ContentReport: {
             /** Format: date-time */
             created_at: string;
@@ -3074,6 +3853,7 @@ export interface components {
             role_id: string;
             /** Format: uuid */
             scope_id?: string | null;
+            scope_mode?: components["schemas"]["AuthorizationScopeMode"];
             username: string;
         };
         CreateAuthorizationRoleRequest: {
@@ -3082,9 +3862,33 @@ export interface components {
             permission_keys: string[];
             scope: components["schemas"]["AuthorizationRoleScope"];
         };
+        CreateCommunityGroupRequest: {
+            description: string;
+            display_name: string;
+            /** Format: int32 */
+            display_order: number;
+            internal_key: string;
+            is_base: boolean;
+            permission_keys: string[];
+            quotas: {
+                [key: string]: number;
+            };
+        };
         CreateConversationRequest: {
             /** Format: uuid */
             recipient_id: string;
+        };
+        CreateGrowthLevelRequest: {
+            color?: string | null;
+            description: string;
+            display_name: string;
+            /** Format: uuid */
+            icon_asset_id?: string | null;
+            internal_key: string;
+            /** Format: int32 */
+            level_order: number;
+            /** Format: int64 */
+            required_experience: number;
         };
         CreateReplyRequest: {
             content: string;
@@ -3111,6 +3915,10 @@ export interface components {
             content: string;
             tags?: components["schemas"]["TopicTagInput"][];
             title: string;
+        };
+        CurrentCommunityGroups: {
+            access: components["schemas"]["CommunityAccess"];
+            memberships: components["schemas"]["CommunityGroupMembership"][];
         };
         DeviceSession: {
             /** Format: date-time */
@@ -3142,6 +3950,24 @@ export interface components {
             error: components["schemas"]["ErrorBody"];
             meta: components["schemas"]["ResponseMeta"];
         };
+        ExecutePluginUiActionRequest: {
+            action_key: string;
+            idempotency_key: string;
+            slot: components["schemas"]["PluginUiSlot"];
+            /** Format: uuid */
+            subject_id?: string | null;
+        };
+        ExperienceAccount: {
+            current_level: components["schemas"]["GrowthLevel"];
+            /** Format: int64 */
+            experience: number;
+            /** Format: int64 */
+            revision: number;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            user_id: string;
+        };
         ExternalIdentity: {
             /** Format: date-time */
             created_at: string;
@@ -3160,6 +3986,14 @@ export interface components {
             /** Format: uuid */
             user_id: string;
         };
+        GovernTopicRequest: {
+            action: components["schemas"]["TopicGovernanceAction"];
+            /** Format: int64 */
+            expected_revision: number;
+            reason?: string | null;
+            /** Format: uuid */
+            target_board_id?: string | null;
+        };
         GovernancePolicy: {
             /** Format: int32 */
             alert_score_threshold: number;
@@ -3168,6 +4002,22 @@ export interface components {
             reporter_alert_limit: number;
             /** Format: int32 */
             reporter_window_minutes: number;
+        };
+        GrantCommunityGroupMembershipRequest: {
+            /** Format: date-time */
+            ends_at?: string | null;
+            /** Format: uuid */
+            group_id: string;
+            idempotency_key: string;
+            membership_kind: string;
+            reason: string;
+            source: string;
+            /** Format: uuid */
+            source_reference_id?: string | null;
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: uuid */
+            user_id: string;
         };
         GrantMembershipMedalRequest: {
             medal_key: string;
@@ -3183,6 +4033,36 @@ export interface components {
             /** Format: uuid */
             user_id: string;
         };
+        GrantStandardEntitlementRequest: {
+            /** Format: date-time */
+            ends_at?: string | null;
+            /** Format: uuid */
+            entitlement_type_id: string;
+            idempotency_key: string;
+            reason: string;
+            source: string;
+            source_reference_id?: string | null;
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: uuid */
+            user_id: string;
+        };
+        GrowthLevel: {
+            color?: string | null;
+            description: string;
+            display_name: string;
+            /** Format: uuid */
+            icon_asset_id?: string | null;
+            /** Format: uuid */
+            id: string;
+            internal_key: string;
+            /** Format: int32 */
+            level_order: number;
+            /** Format: int64 */
+            required_experience: number;
+        };
+        /** @enum {string} */
+        GrowthLevelStatus: "draft" | "published" | "disabled" | "archived";
         HealthData: {
             status: components["schemas"]["HealthStatus"];
             version: string;
@@ -3217,6 +4097,16 @@ export interface components {
         InvokePluginRequest: {
             operation: components["schemas"]["PluginOperation"];
             payload: string;
+        };
+        /** @enum {string} */
+        LegacyPluginCapability: "content.transform" | "ui.panel";
+        LegacyPluginManifestSchema: {
+            capabilities: components["schemas"]["LegacyPluginCapability"][];
+            description: string;
+            key: string;
+            name: string;
+            schema_version: components["schemas"]["PluginSchemaVersion"];
+            version: string;
         };
         LoginRequest: {
             identifier: string;
@@ -3559,6 +4449,7 @@ export interface components {
                 role: components["schemas"]["AuthorizationAssignedRole"];
                 /** Format: uuid */
                 scope_id?: string | null;
+                scope_mode: components["schemas"]["AuthorizationScopeMode"];
                 user: components["schemas"]["UserSummary"];
             }[];
             meta: components["schemas"]["PageMeta"];
@@ -3838,18 +4729,22 @@ export interface components {
             name: string;
         };
         Plugin: {
+            business_api_version: null | components["schemas"]["PluginBusinessApiVersion"];
             capabilities: components["schemas"]["PluginCapability"][];
             component_sha256: string;
             /** Format: int64 */
             component_size: number;
             /** Format: date-time */
             created_at: string;
+            data_scopes: components["schemas"]["PluginDataScope"][];
             description: string;
+            event_subscriptions: components["schemas"]["PluginEventSubscription"][];
             /** Format: uuid */
             id: string;
             /** Format: uuid */
             installed_by: string;
             key: string;
+            manifest_schema_version: components["schemas"]["PluginSchemaVersion"];
             name: string;
             /** Format: int64 */
             revision: number;
@@ -3859,25 +4754,29 @@ export interface components {
             version: string;
         };
         /** @enum {string} */
-        PluginCapability: "content.transform" | "ui.panel";
+        PluginBusinessApiVersion: "0.1.0";
+        /** @enum {string} */
+        PluginCapability: "content.transform" | "ui.panel" | "events.subscribe" | "core.query" | "points.write" | "experience.write" | "entitlements.write" | "notifications.write" | "storage.read_write" | "tasks.schedule";
+        /** @enum {string} */
+        PluginDataScope: "site.read" | "actor.read" | "users.read.basic" | "users.read.membership" | "users.targeted" | "boards.read";
+        /** @enum {string} */
+        PluginEventSubscription: "user.created" | "topic.published" | "reply.created" | "points.changed" | "experience.changed" | "entitlement.changed";
         PluginInvocation: {
             operation: components["schemas"]["PluginOperation"];
             payload: string;
             ui_schema?: null | components["schemas"]["PluginUiSchema"];
         };
-        PluginManifestRequest: {
-            capabilities: components["schemas"]["PluginCapability"][];
-            description: string;
-            key: string;
-            name: string;
-            /** Format: int32 */
-            schema_version: number;
-            version: string;
-        };
+        PluginManifestRequest: components["schemas"]["LegacyPluginManifestSchema"] | components["schemas"]["BusinessPluginManifestSchema"];
         /** @enum {string} */
         PluginOperation: "content_transform" | "ui_render";
+        /** @enum {integer} */
+        PluginSchemaVersion: 1;
         /** @enum {string} */
         PluginStatus: "disabled" | "enabled";
+        PluginUiActionResult: {
+            /** Format: int32 */
+            executed_commands: number;
+        };
         PluginUiBlock: {
             /** @enum {string} */
             kind: "text";
@@ -3892,12 +4791,29 @@ export interface components {
             kind: "status";
             text: string;
             tone: components["schemas"]["PluginUiTone"];
+        } | {
+            action_key: string;
+            /** @enum {string} */
+            kind: "action";
+            label: string;
+        };
+        PluginUiContribution: {
+            schema: components["schemas"]["PluginUiSchema"];
+            slot: components["schemas"]["PluginUiSlot"];
         };
         PluginUiSchema: {
             blocks: components["schemas"]["PluginUiBlock"][];
-            /** Format: int32 */
-            schema_version: number;
+            schema_version: components["schemas"]["PluginSchemaVersion"];
             title: string;
+        };
+        /** @enum {string} */
+        PluginUiSlot: "user_profile" | "membership_panel" | "admin_user" | "admin_plugin";
+        PluginUiSurfaceContribution: {
+            /** Format: uuid */
+            plugin_id: string;
+            plugin_key: string;
+            schema: components["schemas"]["PluginUiSchema"];
+            slot: components["schemas"]["PluginUiSlot"];
         };
         /** @enum {string} */
         PluginUiTone: "neutral" | "success" | "warning" | "danger";
@@ -3907,6 +4823,29 @@ export interface components {
             liked: boolean;
             /** Format: uuid */
             post_id: string;
+        };
+        PutBoardUserRestrictionRequest: {
+            actions: components["schemas"]["BoardPostingRestrictionAction"][];
+            ends_at?: string | null;
+            /** Format: int64 */
+            expected_revision?: number | null;
+            reason: string;
+            starts_at: string;
+        };
+        PutContentAccessPolicyRequest: {
+            /** Format: int64 */
+            expected_revision?: number | null;
+            operator: components["schemas"]["ContentAccessOperator"];
+            subjects: components["schemas"]["ContentAccessSubject"][];
+        };
+        PutStandardEntitlementTypeRequest: {
+            display_name: string;
+            /** Format: int64 */
+            expected_revision?: number | null;
+            permission_keys: string[];
+            quotas: {
+                [key: string]: number;
+            };
         };
         RecentAuthData: {
             authenticated: boolean;
@@ -4028,8 +4967,20 @@ export interface components {
         ResponseMeta: {
             request_id: components["schemas"]["RequestId"];
         };
+        RevokeCommunityGroupMembershipRequest: {
+            /** Format: int64 */
+            expected_revision: number;
+            idempotency_key: string;
+            reason: string;
+        };
         RevokeDeviceSessionData: {
             revoked: boolean;
+        };
+        RevokeStandardEntitlementRequest: {
+            /** Format: int64 */
+            expected_revision: number;
+            idempotency_key: string;
+            reason: string;
         };
         RiskAlert: {
             /** Format: date-time */
@@ -4075,6 +5026,40 @@ export interface components {
             primary_color: string;
             site_name: string;
             theme_preset: components["schemas"]["BrandThemePreset"];
+        };
+        StandardEntitlementMutation: {
+            entitlement: components["schemas"]["AdminStandardEntitlement"];
+            replayed: boolean;
+        };
+        StandardEntitlementPermissionSource: {
+            /** Format: uuid */
+            entitlement_id: string;
+            entitlement_key: string;
+            permission_keys: string[];
+            quotas: {
+                [key: string]: number;
+            };
+            /** Format: int32 */
+            type_version: number;
+        };
+        StandardEntitlementType: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int32 */
+            current_version: number;
+            display_name: string;
+            /** Format: uuid */
+            id: string;
+            internal_key: string;
+            permission_keys: string[];
+            quotas: {
+                [key: string]: number;
+            };
+            /** Format: int64 */
+            revision: number;
+            status: string;
+            /** Format: date-time */
+            updated_at: string;
         };
         TopicAttachment: {
             /** Format: date-time */
@@ -4133,6 +5118,19 @@ export interface components {
             content: string;
             /** Format: int32 */
             content_revision: number;
+        };
+        /** @enum {string} */
+        TopicGovernanceAction: "pin" | "unpin" | "feature" | "unfeature" | "lock" | "unlock" | "move";
+        TopicGovernanceResult: {
+            /** Format: uuid */
+            board_id: string;
+            /** Format: int64 */
+            governance_revision: number;
+            is_featured: boolean;
+            is_locked: boolean;
+            is_pinned: boolean;
+            /** Format: uuid */
+            topic_id: string;
         };
         TopicModerationResult: {
             status: components["schemas"]["TopicModerationStatus"];
@@ -4238,6 +5236,19 @@ export interface components {
             name: string;
             permission_keys: string[];
         };
+        UpdateCommunityGroupRequest: {
+            description: string;
+            display_name: string;
+            /** Format: int32 */
+            display_order: number;
+            /** Format: int64 */
+            expected_revision: number;
+            permission_keys: string[];
+            quotas: {
+                [key: string]: number;
+            };
+            status: components["schemas"]["CommunityGroupStatus"];
+        };
         UpdateGovernancePolicyRequest: {
             /** Format: int32 */
             alert_score_threshold: number;
@@ -4246,6 +5257,20 @@ export interface components {
             reporter_alert_limit: number;
             /** Format: int32 */
             reporter_window_minutes: number;
+        };
+        UpdateGrowthLevelRequest: {
+            color?: string | null;
+            description: string;
+            display_name: string;
+            /** Format: int64 */
+            expected_revision: number;
+            /** Format: uuid */
+            icon_asset_id?: string | null;
+            /** Format: int32 */
+            level_order: number;
+            /** Format: int64 */
+            required_experience: number;
+            status: components["schemas"]["GrowthLevelStatus"];
         };
         UpdateMembershipLevelRuleRequest: {
             display_name?: string | null;
@@ -5427,6 +6452,708 @@ export interface operations {
             };
         };
     };
+    listCommunityGroups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Vec_AdminCommunityGroup"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createCommunityGroup: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-csrf-token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCommunityGroupRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_AdminCommunityGroup"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    updateCommunityGroup: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-csrf-token": string;
+            };
+            path: {
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCommunityGroupRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_AdminCommunityGroup"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    grantCommunityGroupMembership: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-csrf-token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GrantCommunityGroupMembershipRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_CommunityGroupMembershipMutation"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    revokeCommunityGroupMembership: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-csrf-token": string;
+            };
+            path: {
+                membership_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeCommunityGroupMembershipRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_CommunityGroupMembershipMutation"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getContentAccessPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                target_type: string;
+                target_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ContentAccessPolicy"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    putContentAccessPolicy: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-csrf-token": string;
+            };
+            path: {
+                target_type: string;
+                target_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutContentAccessPolicyRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ContentAccessPolicy"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    grantStandardEntitlement: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-csrf-token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GrantStandardEntitlementRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_StandardEntitlementMutation"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    putStandardEntitlementType: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-csrf-token": string;
+            };
+            path: {
+                internal_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutStandardEntitlementTypeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_StandardEntitlementType"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    revokeStandardEntitlement: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-csrf-token": string;
+            };
+            path: {
+                entitlement_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeStandardEntitlementRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_StandardEntitlementMutation"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     getGovernancePolicy: {
         parameters: {
             query?: never;
@@ -5629,6 +7356,192 @@ export interface operations {
             503: {
                 headers: {
                     "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listAdminMembershipGrowthLevels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Vec_AdminGrowthLevel"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createMembershipGrowthLevel: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-csrf-token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateGrowthLevelRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_AdminGrowthLevel"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    updateMembershipGrowthLevel: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-csrf-token": string;
+            };
+            path: {
+                level_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateGrowthLevelRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_AdminGrowthLevel"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
                     [name: string]: unknown;
                 };
                 content: {
@@ -6532,6 +8445,146 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    executePluginUiAction: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-csrf-token": string;
+            };
+            path: {
+                plugin_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExecutePluginUiActionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_PluginUiActionResult"];
+                };
+            };
+            401: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listPluginUiContributions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plugin_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Vec_PluginUiContribution"];
+                };
+            };
+            401: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            409: {
                 headers: {
                     "x-request-id"?: string;
                     [name: string]: unknown;
@@ -7674,8 +9727,26 @@ export interface operations {
                     "application/octet-stream": unknown;
                 };
             };
+            /** @description Attachment download is not allowed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description The attachment is unavailable */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Attachment download quota exceeded */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10165,6 +12236,99 @@ export interface operations {
             };
         };
     };
+    putBoardUserPostingRestriction: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-csrf-token": string;
+            };
+            path: {
+                board_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutBoardUserRestrictionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_BoardUserRestriction"];
+                };
+            };
+            400: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            401: {
+                headers: {
+                    "set-cookie"?: string;
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     getMembershipCatalog: {
         parameters: {
             query?: never;
@@ -10186,6 +12350,37 @@ export interface operations {
                 };
             };
             /** @description Membership catalog is unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listMembershipGrowthLevels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Published dynamic membership growth levels */
+            200: {
+                headers: {
+                    /** @description Request correlation identifier */
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Vec_GrowthLevel"];
+                };
+            };
+            /** @description Membership levels are unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -10381,6 +12576,171 @@ export interface operations {
             };
             503: {
                 headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listPluginUiSurfaceContributions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slot: components["schemas"]["PluginUiSlot"];
+                subject_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "cache-control"?: string;
+                    "set-cookie"?: string;
+                    vary?: string;
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Vec_PluginUiSurfaceContribution"];
+                };
+            };
+            401: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            413: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            429: {
+                headers: {
+                    "retry-after"?: string;
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    executePluginUiSurfaceAction: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-csrf-token": string;
+            };
+            path: {
+                slot: components["schemas"]["PluginUiSlot"];
+                subject_id: string;
+                plugin_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExecutePluginUiActionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_PluginUiActionResult"];
+                };
+            };
+            401: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -11385,6 +13745,98 @@ export interface operations {
             };
         };
     };
+    governTopic: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-csrf-token": string;
+            };
+            path: {
+                topic_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GovernTopicRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_TopicGovernanceResult"];
+                };
+            };
+            400: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            401: {
+                headers: {
+                    "set-cookie"?: string;
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     moderateTopic: {
         parameters: {
             query?: never;
@@ -12080,6 +14532,90 @@ export interface operations {
                 };
             };
             /** @description The bookmark database is unavailable */
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getCurrentExperienceAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current user's experience account */
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ExperienceAccount"];
+                };
+            };
+            /** @description The request has no active session */
+            401: {
+                headers: {
+                    "set-cookie"?: string;
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The experience database is unavailable */
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getCurrentCommunityGroups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current user's effective community groups and permissions */
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_CurrentCommunityGroups"];
+                };
+            };
+            /** @description The request has no active session */
+            401: {
+                headers: {
+                    "set-cookie"?: string;
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The community permission database is unavailable */
             503: {
                 headers: {
                     "x-request-id"?: string;

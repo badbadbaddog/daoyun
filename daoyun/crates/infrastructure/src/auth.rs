@@ -5,6 +5,7 @@ use serde_json::Value;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::outbox::enqueue_core_event_in_transaction;
 use crate::{Database, DatabaseError};
 
 #[derive(Debug)]
@@ -847,6 +848,20 @@ impl Database {
             .execute(&mut *transaction)
             .await?;
         }
+
+        enqueue_core_event_in_transaction(
+            &mut transaction,
+            Uuid::now_v7(),
+            "user.created",
+            "user",
+            user.id,
+            serde_json::json!({
+                "user_id": user.id,
+                "username": user.username,
+                "display_name": user.display_name,
+            }),
+        )
+        .await?;
 
         transaction.commit().await?;
         Ok(())

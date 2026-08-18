@@ -965,7 +965,15 @@ async fn notify_report_reviewers(
                  AND permission.permission_key = 'governance.reports.read'
                  AND (
                      (role.scope IN ('instance', 'site') AND assignment.scope_id IS NULL)
-                     OR (role.scope = 'board' AND assignment.scope_id = $5)
+                     OR (
+                         role.scope = 'board'
+                         AND assignment.scope_id IS NOT NULL
+                         AND daoyun_board_scope_covers(
+                             assignment.scope_id,
+                             assignment.scope_mode,
+                             $5
+                         )
+                     )
                  )
            )
          ON CONFLICT (recipient_id, aggregate_key) DO NOTHING",

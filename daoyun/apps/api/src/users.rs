@@ -3,8 +3,10 @@ use crate::auth::{
     authenticate_state_change,
 };
 use api_contract::{
-    ApiResponse, BlockState, ErrorBody, ErrorCode, ErrorResponse, FieldErrors, FollowState,
-    MembershipAccount, MembershipMedal, PageResponse, RequestId, UpdateUserProfileRequest,
+    ApiResponse, BlockState, CommunityAccess, CommunityGroupMembership, CommunityGroupSummary,
+    CommunityPermissionSource, CurrentCommunityGroups, ErrorBody, ErrorCode, ErrorResponse,
+    ExperienceAccount, FieldErrors, FollowState, GrowthLevel, MembershipAccount, MembershipMedal,
+    PageResponse, RequestId, StandardEntitlementPermissionSource, UpdateUserProfileRequest,
     UserProfile, UserProfileViewer, UserSummary, error_codes,
 };
 use axum::{
@@ -17,8 +19,8 @@ use axum::{
     routing::{get, patch, put},
 };
 use infrastructure::{
-    BlockMutationError, BlockStateRecord, Database, FollowMutationError, FollowStateRecord,
-    ListUserRelationsError, MembershipAccountRecord, PublicUserProfileRecord,
+    BlockMutationError, BlockStateRecord, Database, ExperienceAccountRecord, FollowMutationError,
+    FollowStateRecord, ListUserRelationsError, MembershipAccountRecord, PublicUserProfileRecord,
     PublicUserSummaryRecord, UpdateUserProfileError, UpdateUserProfileRecord, UserRelationKind,
 };
 use serde::Deserialize;
@@ -57,6 +59,8 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
             patch(update_profile).layer(DefaultBodyLimit::max(PROFILE_BODY_LIMIT)),
         )
         .route("/api/v1/users/me/membership", get(membership))
+        .route("/api/v1/users/me/experience", get(experience))
+        .route("/api/v1/users/me/groups", get(community_groups))
         // Source: https://docs.rs/axum/0.8.9/axum/routing/method_routing/struct.MethodRouter.html#method.delete
         .route(
             "/api/v1/users/{user_id}/follow",
@@ -166,6 +170,119 @@ pub(crate) async fn membership(
     let mut headers = HeaderMap::new();
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     Ok((headers, Json(ApiResponse::new(account, request_id))))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/users/me/experience",
+    operation_id = "getCurrentExperienceAccount",
+    tag = "users",
+    responses(
+        (status = 200, description = "The current user's experience account", body = ApiResponse<ExperienceAccount>, headers(("x-request-id" = String))),
+        (status = 401, description = "The request has no active session", body = ErrorResponse, headers(("x-request-id" = String), ("set-cookie" = String))),
+        (status = 503, description = "The experience database is unavailable", body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn experience(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+) -> Result<(HeaderMap, Json<ApiResponse<ExperienceAccount>>), ApiError> {
+    let (session, _) = authenticate_session(&database, &runtime, &headers, request_id).await?;
+    let record = database
+        .get_experience_account(session.user.id)
+        .await
+        .map_err(|error| {
+            tracing::warn!(request_id = %request_id, error = %error, "Experience account query failed");
+            membership_service_unavailable(request_id)
+        })?;
+    let account =
+        experience_account(record).map_err(|()| membership_service_unavailable(request_id))?;
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok((headers, Json(ApiResponse::new(account, request_id))))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/users/me/groups",
+    operation_id = "getCurrentCommunityGroups",
+    tag = "users",
+    responses(
+        (status = 200, description = "The current user's effective community groups and permissions", body = ApiResponse<CurrentCommunityGroups>, headers(("x-request-id" = String))),
+        (status = 401, description = "The request has no active session", body = ErrorResponse, headers(("x-request-id" = String), ("set-cookie" = String))),
+        (status = 503, description = "The community permission database is unavailable", body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn community_groups(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+) -> Result<(HeaderMap, Json<ApiResponse<CurrentCommunityGroups>>), ApiError> {
+    let (session, _) = authenticate_session(&database, &runtime, &headers, request_id).await?;
+    let effective_at = OffsetDateTime::now_utc();
+    let memberships = database
+        .list_active_community_memberships(session.user.id, effective_at)
+        .await
+        .map_err(|error| {
+            tracing::warn!(request_id = %request_id, error = %error, "Community memberships query failed");
+            membership_service_unavailable(request_id)
+        })?
+        .into_iter()
+        .map(map_community_membership)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|()| membership_service_unavailable(request_id))?;
+    let snapshot = database
+        .community_access_snapshot(session.user.id, effective_at)
+        .await
+        .map_err(|error| {
+            tracing::warn!(request_id = %request_id, error = %error, "Community access evaluation failed");
+            membership_service_unavailable(request_id)
+        })?;
+    let access = CommunityAccess {
+        account_status: snapshot.account_status,
+        denied: snapshot.denied,
+        denial_reason: snapshot.denial_reason,
+        permission_keys: snapshot.permission_keys.into_iter().collect(),
+        blocked_permission_keys: snapshot.blocked_permission_keys.into_iter().collect(),
+        quotas: snapshot.quotas,
+        sources: snapshot
+            .sources
+            .into_iter()
+            .map(|source| CommunityPermissionSource {
+                membership_id: source.membership_id,
+                group_id: source.group_id,
+                group_key: source.group_key,
+                permission_keys: source.permission_keys.into_iter().collect(),
+                quotas: source.quotas,
+            })
+            .collect(),
+        entitlement_sources: snapshot
+            .entitlement_sources
+            .into_iter()
+            .map(|source| StandardEntitlementPermissionSource {
+                entitlement_id: source.entitlement_id,
+                entitlement_key: source.entitlement_key,
+                type_version: source.type_version,
+                permission_keys: source.permission_keys.into_iter().collect(),
+                quotas: source.quotas,
+            })
+            .collect(),
+    };
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok((
+        headers,
+        Json(ApiResponse::new(
+            CurrentCommunityGroups {
+                memberships,
+                access,
+            },
+            request_id,
+        )),
+    ))
 }
 
 #[utoipa::path(
@@ -697,6 +814,50 @@ fn membership_account(record: MembershipAccountRecord) -> Result<MembershipAccou
         level_display_name: record.level_display_name,
         revision: record.revision,
         updated_at: format_timestamp(record.updated_at)?,
+    })
+}
+
+fn experience_account(record: ExperienceAccountRecord) -> Result<ExperienceAccount, ()> {
+    if record.internal_key.is_empty()
+        || record.level_order < 1
+        || record.display_name.is_empty()
+        || record.required_experience < 0
+    {
+        return Err(());
+    }
+    Ok(ExperienceAccount {
+        user_id: record.user_id,
+        experience: record.experience,
+        current_level: GrowthLevel {
+            id: record.current_level_id,
+            internal_key: record.internal_key,
+            level_order: record.level_order,
+            display_name: record.display_name,
+            required_experience: record.required_experience,
+            icon_asset_id: record.icon_asset_id,
+            color: record.color,
+            description: record.description,
+        },
+        revision: record.revision,
+        updated_at: format_timestamp(record.updated_at)?,
+    })
+}
+
+fn map_community_membership(
+    record: infrastructure::CommunityGroupMembershipRecord,
+) -> Result<CommunityGroupMembership, ()> {
+    Ok(CommunityGroupMembership {
+        id: record.id,
+        group: CommunityGroupSummary {
+            id: record.group_id,
+            internal_key: record.group_key,
+            display_name: record.group_display_name,
+        },
+        membership_kind: record.membership_kind,
+        source: record.source,
+        starts_at: format_timestamp(record.starts_at)?,
+        ends_at: record.ends_at.map(format_timestamp).transpose()?,
+        revision: record.revision,
     })
 }
 

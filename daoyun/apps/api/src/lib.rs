@@ -8,6 +8,7 @@ mod cache;
 mod governance;
 mod health;
 mod installation;
+mod management;
 mod membership;
 mod messages;
 mod mfa;
@@ -16,6 +17,7 @@ mod observability;
 mod oidc;
 mod operations;
 mod operations_worker;
+mod plugin_business;
 mod plugins;
 mod rejection;
 mod relations;
@@ -53,6 +55,10 @@ pub use oidc::OidcProviderConfig;
 pub use operations_worker::{
     OperationsAlertWorker, OperationsAlertWorkerConfig, OperationsAlertWorkerConfigError,
     OperationsAlertWorkerRun,
+};
+pub use plugin_business::{
+    PluginBusinessWorker, PluginBusinessWorkerConfig, PluginBusinessWorkerConfigError,
+    PluginBusinessWorkerRun,
 };
 pub use plugin_host::PluginHostConfig;
 pub use plugins::PluginRuntime;
@@ -99,8 +105,21 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         admin::delete_authorization_role,
         admin::create_authorization_assignment,
         admin::delete_authorization_assignment,
+        admin::list_community_groups,
+        admin::create_community_group,
+        admin::update_community_group,
+        admin::grant_community_membership,
+        admin::revoke_community_membership,
+        admin::put_standard_entitlement_type,
+        admin::grant_standard_entitlement,
+        admin::revoke_standard_entitlement,
+        admin::get_content_access_policy,
+        admin::put_content_access_policy,
         admin::list_membership_level_rules,
         admin::update_membership_level_rule,
+        admin::list_growth_levels,
+        admin::create_growth_level,
+        admin::update_growth_level,
         admin::grant_membership_points,
         admin::list_membership_medal_rules,
         admin::update_membership_medal_rule,
@@ -120,6 +139,10 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         plugins::update_plugin,
         plugins::delete_plugin,
         plugins::invoke_plugin,
+        plugins::plugin_ui_contributions,
+        plugins::plugin_ui_action,
+        plugins::plugin_ui_surface,
+        plugins::plugin_ui_surface_action,
         admin::update_branding,
         admin::list_admin_boards,
         admin::create_board,
@@ -175,6 +198,8 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         topics::update,
         topics::delete_topic,
         topics::moderate,
+        topics::govern,
+        management::put_board_user_restriction,
         topics::revisions,
         topics::list_replies,
         topics::create_reply,
@@ -193,12 +218,15 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         messages::mark_read,
         messages::archive_conversation,
         membership::catalog,
+        membership::levels,
         notifications::list,
         notifications::unread_count,
         notifications::read_one,
         notifications::read_all,
         users::profile,
         users::membership,
+        users::experience,
+        users::community_groups,
         users::user_medals,
         users::followers,
         users::following,
@@ -241,6 +269,7 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         api_contract::PageResponse<api_contract::AdminUserContentItem>,
         api_contract::AuthorizationPermission,
         api_contract::AuthorizationRoleScope,
+        api_contract::AuthorizationScopeMode,
         api_contract::AuthorizationRole,
         api_contract::AuthorizationAssignedRole,
         api_contract::AuthorizationRoleAssignment,
@@ -278,6 +307,11 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         api_contract::PluginUiSchema,
         api_contract::PluginUiBlock,
         api_contract::PluginUiTone,
+        api_contract::PluginUiSlot,
+        api_contract::PluginUiContribution,
+        api_contract::PluginUiSurfaceContribution,
+        api_contract::ExecutePluginUiActionRequest,
+        api_contract::PluginUiActionResult,
         api_contract::AdminBoardVisibility,
         api_contract::BrandHomeMode,
         api_contract::BrandLink,
@@ -343,6 +377,11 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         api_contract::ApiResponse<api_contract::NotificationUnreadCount>,
         api_contract::ApiResponse<api_contract::MembershipCatalog>,
         api_contract::ApiResponse<api_contract::MembershipAccount>,
+        api_contract::ApiResponse<Vec<api_contract::GrowthLevel>>,
+        api_contract::ApiResponse<api_contract::ExperienceAccount>,
+        api_contract::ApiResponse<api_contract::CurrentCommunityGroups>,
+        api_contract::ApiResponse<Vec<api_contract::AdminGrowthLevel>>,
+        api_contract::ApiResponse<api_contract::AdminGrowthLevel>,
         api_contract::ApiResponse<Vec<api_contract::MembershipLevelRule>>,
         api_contract::ApiResponse<api_contract::MembershipPointsGrant>,
         api_contract::ApiResponse<Vec<api_contract::MembershipMedal>>,
@@ -350,6 +389,8 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         api_contract::ApiResponse<api_contract::MembershipMedalGrant>,
         api_contract::ApiResponse<api_contract::TopicDetail>,
         api_contract::ApiResponse<api_contract::TopicModerationResult>,
+        api_contract::ApiResponse<api_contract::TopicGovernanceResult>,
+        api_contract::ApiResponse<api_contract::BoardUserRestriction>,
         api_contract::ApiResponse<api_contract::ContentReportReceipt>,
         api_contract::ApiResponse<api_contract::ContentReportDetail>,
         api_contract::ApiResponse<api_contract::ReportModerationResult>,
@@ -366,6 +407,12 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         api_contract::ReplyRevision,
         api_contract::UpdateTopicRequest,
         api_contract::ModerateTopicRequest,
+        api_contract::GovernTopicRequest,
+        api_contract::TopicGovernanceAction,
+        api_contract::TopicGovernanceResult,
+        api_contract::BoardPostingRestrictionAction,
+        api_contract::PutBoardUserRestrictionRequest,
+        api_contract::BoardUserRestriction,
         api_contract::TopicModerationResult,
         api_contract::TopicModerationStatus,
         api_contract::TopicAuthorSummary,
@@ -425,6 +472,31 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         api_contract::MembershipLevel,
         api_contract::Medal,
         api_contract::MembershipAccount,
+        api_contract::GrowthLevel,
+        api_contract::ExperienceAccount,
+        api_contract::CommunityGroupSummary,
+        api_contract::CommunityGroupMembership,
+        api_contract::CommunityPermissionSource,
+        api_contract::CommunityAccess,
+        api_contract::CurrentCommunityGroups,
+        api_contract::CommunityGroupStatus,
+        api_contract::AdminCommunityGroup,
+        api_contract::CreateCommunityGroupRequest,
+        api_contract::UpdateCommunityGroupRequest,
+        api_contract::AdminCommunityGroupMembership,
+        api_contract::GrantCommunityGroupMembershipRequest,
+        api_contract::RevokeCommunityGroupMembershipRequest,
+        api_contract::CommunityGroupMembershipMutation,
+        api_contract::ContentAccessTargetType,
+        api_contract::ContentAccessOperator,
+        api_contract::ContentAccessSubjectType,
+        api_contract::ContentAccessSubject,
+        api_contract::ContentAccessPolicy,
+        api_contract::PutContentAccessPolicyRequest,
+        api_contract::GrowthLevelStatus,
+        api_contract::AdminGrowthLevel,
+        api_contract::CreateGrowthLevelRequest,
+        api_contract::UpdateGrowthLevelRequest,
         api_contract::MembershipLevelRule,
         api_contract::UpdateMembershipLevelRuleRequest,
         api_contract::GrantMembershipPointsRequest,
@@ -556,6 +628,7 @@ pub fn app_with_all_runtimes(
         .merge(relations::router(auth_runtime.clone()))
         .merge(messages::router(auth_runtime.clone()))
         .merge(membership::router())
+        .merge(management::router(auth_runtime.clone()))
         .merge(notifications::router(auth_runtime.clone()))
         .merge(observability::router())
         .merge(operations::router(auth_runtime.clone()))

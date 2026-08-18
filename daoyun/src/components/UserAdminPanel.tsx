@@ -17,6 +17,7 @@ import { UserAvatar } from "./UserAvatar"
 import { UserRoleAction } from "./UserRoleAction"
 import { UserStatusAction } from "./UserStatusAction"
 import { RelatedAuditLog } from "./RelatedAuditLog"
+import { PluginUiSurface } from "./PluginUiSurface"
 
 interface UserAdminPanelProps {
   requestedQuery?: string
@@ -269,6 +270,11 @@ function UserDetail({ detail, content, reports, tab, onTabChange, canModerate, c
       <UserAvatar username={detail.username} displayName={detail.displayName} avatarUrl={detail.avatarUrl} size="large" />
       <div><p>{statusLabels[detail.status]}</p><h3>{detail.displayName}</h3><span>@{detail.username} · 注册于 {formatDate(detail.createdAt)}</span></div>
     </header>
+    <PluginUiSurface
+      slot="admin_user"
+      subjectId={detail.id}
+      csrfToken={canModerate ? csrfToken : undefined}
+    />
     <div className="user-admin-tabs" role="tablist" aria-label="用户详情分类">
       <button type="button" role="tab" {...tabAttributes("overview")} onClick={() => onTabChange("overview")}>概览</button>
       <button type="button" role="tab" {...tabAttributes("content")} onClick={() => onTabChange("content")}>最近内容</button>

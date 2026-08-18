@@ -1,4 +1,6 @@
-use crate::auth::{ApiError, AuthRuntime, authenticate_state_change};
+use crate::auth::{
+    ApiError, AuthRuntime, authenticate_optional_session, authenticate_state_change,
+};
 use api_contract::{
     ApiResponse, AttachmentScanStatus, AttachmentStatus, ErrorBody, ErrorCode, ErrorResponse,
     RequestId, TopicAttachment, error_codes,
@@ -109,14 +111,20 @@ pub(crate) async fn upload(
 )]
 pub(crate) async fn list(
     State(database): State<Database>,
+    Extension(runtime): Extension<AuthRuntime>,
     Extension(request_id): Extension<RequestId>,
+    headers: HeaderMap,
     Path(topic_id): Path<Uuid>,
-) -> Result<Json<ApiResponse<Vec<TopicAttachment>>>, ApiError> {
+) -> Result<(HeaderMap, Json<ApiResponse<Vec<TopicAttachment>>>), ApiError> {
+    let (session, response_headers) =
+        authenticate_optional_session(&database, &runtime, &headers, request_id).await?;
     let records = database
-        .list_topic_attachments(topic_id)
+        .list_topic_attachments(topic_id, session.map(|session| session.user.id))
         .await
         .map_err(|error| match error {
             ListAttachmentsError::TopicUnavailable => not_found(request_id),
+            ListAttachmentsError::Forbidden => forbidden(request_id),
+            ListAttachmentsError::QuotaExceeded => quota_exceeded(request_id),
             ListAttachmentsError::Storage(error) => {
                 tracing::warn!(request_id = %request_id, error = %error, "Attachment list storage failed");
                 unavailable(request_id)
@@ -126,10 +134,13 @@ pub(crate) async fn list(
                 unavailable(request_id)
             }
         })?;
-    Ok(Json(ApiResponse::new(
-        records.into_iter().map(to_contract).collect(),
-        request_id,
-    )))
+    Ok((
+        response_headers,
+        Json(ApiResponse::new(
+            records.into_iter().map(to_contract).collect(),
+            request_id,
+        )),
+    ))
 }
 
 #[utoipa::path(
@@ -138,14 +149,31 @@ pub(crate) async fn list(
     operation_id = "downloadAttachment",
     tag = "topics",
     params(("attachment_id" = Uuid, Path, description = "Attachment identifier")),
-    responses((status = 200, description = "Attachment bytes", content_type = "application/octet-stream"), (status = 404, description = "The attachment is unavailable", body = ErrorResponse))
+    responses(
+        (status = 200, description = "Attachment bytes", content_type = "application/octet-stream"),
+        (status = 403, description = "Attachment download is not allowed", body = ErrorResponse),
+        (status = 404, description = "The attachment is unavailable", body = ErrorResponse),
+        (status = 429, description = "Attachment download quota exceeded", body = ErrorResponse)
+    )
 )]
 pub(crate) async fn download(
     State(database): State<Database>,
+    Extension(runtime): Extension<AuthRuntime>,
     Extension(request_id): Extension<RequestId>,
+    headers: HeaderMap,
     Path(attachment_id): Path<Uuid>,
 ) -> Result<Response, ApiError> {
-    read_response(&database, attachment_id, false, request_id).await
+    let (session, response_headers) =
+        authenticate_optional_session(&database, &runtime, &headers, request_id).await?;
+    read_response(
+        &database,
+        attachment_id,
+        false,
+        session.map(|session| session.user.id),
+        response_headers,
+        request_id,
+    )
+    .await
 }
 
 #[utoipa::path(
@@ -158,23 +186,39 @@ pub(crate) async fn download(
 )]
 pub(crate) async fn download_thumbnail(
     State(database): State<Database>,
+    Extension(runtime): Extension<AuthRuntime>,
     Extension(request_id): Extension<RequestId>,
+    headers: HeaderMap,
     Path(attachment_id): Path<Uuid>,
 ) -> Result<Response, ApiError> {
-    read_response(&database, attachment_id, true, request_id).await
+    let (session, response_headers) =
+        authenticate_optional_session(&database, &runtime, &headers, request_id).await?;
+    read_response(
+        &database,
+        attachment_id,
+        true,
+        session.map(|session| session.user.id),
+        response_headers,
+        request_id,
+    )
+    .await
 }
 
 async fn read_response(
     database: &Database,
     attachment_id: Uuid,
     thumbnail: bool,
+    viewer_user_id: Option<Uuid>,
+    response_headers: HeaderMap,
     request_id: RequestId,
 ) -> Result<Response, ApiError> {
     let (record, bytes) = database
-        .read_attachment(attachment_id, thumbnail)
+        .read_attachment(attachment_id, thumbnail, viewer_user_id)
         .await
         .map_err(|error| match error {
             ListAttachmentsError::TopicUnavailable => not_found(request_id),
+            ListAttachmentsError::Forbidden => forbidden(request_id),
+            ListAttachmentsError::QuotaExceeded => quota_exceeded(request_id),
             ListAttachmentsError::Storage(error) => {
                 tracing::warn!(request_id = %request_id, error = %error, "Attachment read storage failed");
                 unavailable(request_id)
@@ -196,8 +240,9 @@ async fn read_response(
     );
     response.headers_mut().insert(
         header::CACHE_CONTROL,
-        HeaderValue::from_static("public, max-age=31536000, immutable"),
+        HeaderValue::from_static("private, no-store"),
     );
+    response.headers_mut().extend(response_headers);
     Ok(response)
 }
 
@@ -240,6 +285,8 @@ fn map_upload_error(request_id: RequestId, error: AttachmentError) -> ApiError {
     match error {
         AttachmentError::TopicUnavailable => not_found(request_id),
         AttachmentError::Forbidden => forbidden(request_id),
+        AttachmentError::BoardRestricted => board_posting_restricted(request_id),
+        AttachmentError::QuotaExceeded => quota_exceeded(request_id),
         AttachmentError::Invalid | AttachmentError::Image(_) => {
             invalid(request_id, "file", "附件内容或类型无效")
         }
@@ -278,6 +325,34 @@ fn forbidden(request_id: RequestId) -> ApiError {
             ErrorBody::new(
                 ErrorCode::from_static(error_codes::ATTACHMENT_FORBIDDEN),
                 "没有上传附件的权限",
+            ),
+            request_id,
+        )),
+    )
+}
+
+fn board_posting_restricted(request_id: RequestId) -> ApiError {
+    (
+        StatusCode::FORBIDDEN,
+        HeaderMap::new(),
+        Json(ErrorResponse::new(
+            ErrorBody::new(
+                ErrorCode::from_static(error_codes::BOARD_POSTING_RESTRICTED),
+                "当前账号在该板块内已被限制上传附件",
+            ),
+            request_id,
+        )),
+    )
+}
+
+fn quota_exceeded(request_id: RequestId) -> ApiError {
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        HeaderMap::new(),
+        Json(ErrorResponse::new(
+            ErrorBody::new(
+                ErrorCode::from_static(error_codes::COMMUNITY_QUOTA_EXCEEDED),
+                "当前用户组的附件上传额度已用尽或文件过大",
             ),
             request_id,
         )),

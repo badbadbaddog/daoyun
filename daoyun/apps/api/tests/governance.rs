@@ -6,6 +6,7 @@ use infrastructure::Database;
 use serde_json::Value;
 use sqlx::PgPool;
 use tower::ServiceExt;
+use uuid::Uuid;
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
 async fn reports_are_idempotent_and_admins_can_triage_a_report(pool: PgPool) {
@@ -824,6 +825,93 @@ async fn governance_policy_scores_high_risk_reports_and_exposes_alerts(pool: PgP
     assert_eq!(
         response_json(acknowledged).await["data"]["status"],
         "acknowledged"
+    );
+
+    let already_resolved = app
+        .oneshot(json_request_with_headers(
+            Method::PATCH,
+            &format!("/api/v1/admin/risk-alerts/{alert_id}"),
+            serde_json::json!({"status": "dismissed"}),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("resolved risk alert update must respond");
+    assert_eq!(already_resolved.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        response_json(already_resolved).await["error"]["code"],
+        "governance.alert_conflict"
+    );
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn concurrent_risk_alert_resolution_has_exactly_one_winner(pool: PgPool) {
+    let config = daoyun_api::AuthConfig::default().with_secure_cookies(false);
+    let app = daoyun_api::app_with_config(Database::from_pool(pool.clone()), config);
+    let _ = register_member(&app).await;
+    let (owner_cookies, owner_csrf) = login_owner(&app).await;
+    let alert_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO risk_alerts (id, kind, severity, score, status, details)
+         VALUES ($1, 'reporter_spike', 'high', 90, 'open', '{}'::jsonb)",
+    )
+    .bind(alert_id)
+    .execute(&pool)
+    .await
+    .expect("risk alert fixture must insert");
+
+    let acknowledge = app.clone().oneshot(json_request_with_headers(
+        Method::PATCH,
+        &format!("/api/v1/admin/risk-alerts/{alert_id}"),
+        serde_json::json!({"status": "acknowledged"}),
+        &owner_cookies,
+        Some(&owner_csrf),
+    ));
+    let dismiss = app.clone().oneshot(json_request_with_headers(
+        Method::PATCH,
+        &format!("/api/v1/admin/risk-alerts/{alert_id}"),
+        serde_json::json!({"status": "dismissed"}),
+        &owner_cookies,
+        Some(&owner_csrf),
+    ));
+    let (acknowledge, dismiss) = tokio::join!(acknowledge, dismiss);
+    let acknowledge = acknowledge.expect("acknowledge request must respond");
+    let dismiss = dismiss.expect("dismiss request must respond");
+    let statuses = [acknowledge.status(), dismiss.status()];
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| **status == StatusCode::OK)
+            .count(),
+        1
+    );
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| **status == StatusCode::CONFLICT)
+            .count(),
+        1
+    );
+    let stored_status =
+        sqlx::query_scalar::<_, String>("SELECT status FROM risk_alerts WHERE id = $1")
+            .bind(alert_id)
+            .fetch_one(&pool)
+            .await
+            .expect("resolved risk alert must be queryable");
+    assert!(matches!(
+        stored_status.as_str(),
+        "acknowledged" | "dismissed"
+    ));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM admin_audit_log
+             WHERE resource_type = 'risk_alert' AND resource_id = $1",
+        )
+        .bind(alert_id)
+        .fetch_one(&pool)
+        .await
+        .expect("risk alert audit count must be queryable"),
+        1
     );
 }
 

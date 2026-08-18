@@ -208,6 +208,41 @@ async fn messages_are_private_paginated_and_idempotent(pool: PgPool) {
         .await
         .expect("first message must send");
     assert!(first_message.created);
+
+    sqlx::query(
+        "DELETE FROM community_group_permissions
+         WHERE group_id = (
+             SELECT id FROM community_groups WHERE internal_key = 'registered_member'
+         ) AND permission_key = 'message.send'",
+    )
+    .execute(&pool)
+    .await
+    .expect("message permission fixture must revoke");
+    let replay = database
+        .send_direct_message(
+            NewDirectMessageRecord {
+                id: fixture_id(202),
+                conversation_id: conversation.id,
+                sender_id: first,
+                content: "hello".to_owned(),
+            },
+            Some(IdempotencyInput {
+                key: "message-key".to_owned(),
+                request_hash: vec![1; 32],
+            }),
+        )
+        .await
+        .expect_err("revoked sender must not replay a message");
+    assert!(matches!(replay, SendDirectMessageError::PermissionDenied));
+
+    sqlx::query(
+        "INSERT INTO community_group_permissions (group_id, permission_key)
+         SELECT id, 'message.send' FROM community_groups
+         WHERE internal_key = 'registered_member'",
+    )
+    .execute(&pool)
+    .await
+    .expect("message permission fixture must restore");
     let replay = database
         .send_direct_message(
             NewDirectMessageRecord {

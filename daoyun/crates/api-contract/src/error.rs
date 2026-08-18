@@ -62,6 +62,7 @@ pub mod error_codes {
     pub const GOVERNANCE_MODERATION_INVALID: &str = "governance.moderation_invalid";
     pub const GOVERNANCE_TARGET_STATE_CONFLICT: &str = "governance.target_state_conflict";
     pub const GOVERNANCE_ALERT_NOT_FOUND: &str = "governance.alert_not_found";
+    pub const GOVERNANCE_ALERT_CONFLICT: &str = "governance.alert_conflict";
     pub const OPERATIONS_ALERT_NOT_FOUND: &str = "operations.alert_not_found";
     pub const OPERATIONS_ALERT_CONFLICT: &str = "operations.alert_conflict";
     pub const OPERATIONS_RULE_NOT_FOUND: &str = "operations.rule_not_found";
@@ -72,10 +73,36 @@ pub mod error_codes {
     pub const INTERNAL_ERROR: &str = "system.internal_error";
     pub const METHOD_NOT_ALLOWED: &str = "system.method_not_allowed";
     pub const MESSAGE_RATE_LIMITED: &str = "message.rate_limited";
+    pub const COMMUNITY_PERMISSION_DENIED: &str = "community.permission_denied";
+    pub const COMMUNITY_QUOTA_EXCEEDED: &str = "community.quota_exceeded";
+    pub const COMMUNITY_GROUP_CONFLICT: &str = "community.group_conflict";
+    pub const COMMUNITY_GROUP_NOT_FOUND: &str = "community.group_not_found";
+    pub const COMMUNITY_GROUP_REVISION_CONFLICT: &str = "community.group_revision_conflict";
+    pub const COMMUNITY_MEMBERSHIP_CONFLICT: &str = "community.membership_conflict";
+    pub const COMMUNITY_MEMBERSHIP_NOT_FOUND: &str = "community.membership_not_found";
+    pub const ENTITLEMENT_CONFLICT: &str = "entitlement.conflict";
+    pub const ENTITLEMENT_NOT_FOUND: &str = "entitlement.not_found";
+    pub const ENTITLEMENT_TYPE_NOT_FOUND: &str = "entitlement.type_not_found";
+    pub const COMMUNITY_MEMBERSHIP_REVISION_CONFLICT: &str =
+        "community.membership_revision_conflict";
+    pub const CONTENT_ACCESS_POLICY_NOT_FOUND: &str = "content.access_policy_not_found";
+    pub const CONTENT_ACCESS_POLICY_REVISION_CONFLICT: &str =
+        "content.access_policy_revision_conflict";
+    pub const CONTENT_ACCESS_POLICY_SUBJECT_INVALID: &str = "content.access_policy_subject_invalid";
     pub const NOTIFICATION_NOT_FOUND: &str = "notification.not_found";
     pub const TOPIC_DELETE_FORBIDDEN: &str = "topic.delete_forbidden";
     pub const TOPIC_MODERATION_FORBIDDEN: &str = "topic.moderation_forbidden";
     pub const TOPIC_MODERATION_NOT_FOUND: &str = "topic.moderation_not_found";
+    pub const TOPIC_GOVERNANCE_FORBIDDEN: &str = "topic.governance_forbidden";
+    pub const TOPIC_GOVERNANCE_REVISION_CONFLICT: &str = "topic.governance_revision_conflict";
+    pub const TOPIC_GOVERNANCE_INVALID: &str = "topic.governance_invalid";
+    pub const TOPIC_LOCKED: &str = "topic.locked";
+    pub const BOARD_POSTING_RESTRICTED: &str = "board.posting_restricted";
+    pub const BOARD_RESTRICTION_FORBIDDEN: &str = "board.restriction_forbidden";
+    pub const BOARD_RESTRICTION_PROTECTED_TARGET: &str = "board.restriction_protected_target";
+    pub const BOARD_RESTRICTION_CONFLICT: &str = "board.restriction_conflict";
+    pub const BOARD_RESTRICTION_INVALID: &str = "board.restriction_invalid";
+    pub const BOARD_RESTRICTION_TARGET_NOT_FOUND: &str = "board.restriction_target_not_found";
     pub const NOT_READY: &str = "system.not_ready";
     pub const PATH_INVALID: &str = "request.path_invalid";
     pub const POST_NOT_FOUND: &str = "post.not_found";
@@ -85,6 +112,9 @@ pub mod error_codes {
     pub const USER_NOT_FOUND: &str = "user.not_found";
     pub const USER_ACTION_RESTRICTED: &str = "user.action_restricted";
     pub const PROFILE_REVISION_CONFLICT: &str = "profile.revision_conflict";
+    pub const MEMBERSHIP_LEVEL_CONFLICT: &str = "membership.level_conflict";
+    pub const MEMBERSHIP_LEVEL_NOT_FOUND: &str = "membership.level_not_found";
+    pub const MEMBERSHIP_LEVEL_REVISION_CONFLICT: &str = "membership.level_revision_conflict";
     pub const PLUGIN_INVALID_MANIFEST: &str = "plugin.invalid_manifest";
     pub const PLUGIN_INVALID_COMPONENT: &str = "plugin.invalid_component";
     pub const PLUGIN_NOT_FOUND: &str = "plugin.not_found";
@@ -93,6 +123,7 @@ pub mod error_codes {
     pub const PLUGIN_CAPABILITY_DENIED: &str = "plugin.capability_denied";
     pub const PLUGIN_EXECUTION_FAILED: &str = "plugin.execution_failed";
     pub const PLUGIN_RESOURCE_EXHAUSTED: &str = "plugin.resource_exhausted";
+    pub const PLUGIN_RATE_LIMITED: &str = "plugin.rate_limited";
     pub const PLUGIN_OUTPUT_INVALID: &str = "plugin.output_invalid";
     pub const RELATIONSHIP_SELF_BLOCK_NOT_ALLOWED: &str = "relationship.self_block_not_allowed";
     pub const RELATIONSHIP_SELF_FOLLOW_NOT_ALLOWED: &str = "relationship.self_follow_not_allowed";

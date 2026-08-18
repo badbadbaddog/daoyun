@@ -5,6 +5,11 @@ use sqlx::{FromRow, Postgres, Transaction, types::Uuid};
 use time::OffsetDateTime;
 
 use crate::admin::insert_audit;
+use crate::community_permissions::{
+    CommunityActionError, authorize_community_action_with_executor,
+    verify_community_action_with_executor,
+};
+use crate::idempotency::release_expired_key_and_prune;
 use crate::notifications::insert_notification;
 use crate::{Database, DatabaseError, IdempotencyInput, PublicUserSummaryRecord};
 
@@ -79,6 +84,8 @@ pub enum ListDirectMessagesError {
 #[derive(Debug)]
 pub enum SendDirectMessageError {
     ConversationUnavailable,
+    PermissionDenied,
+    QuotaExceeded,
     IdempotencyConflict,
     Database(DatabaseError),
 }
@@ -332,7 +339,30 @@ impl Database {
         idempotency: Option<IdempotencyInput>,
     ) -> Result<SendDirectMessageResult, SendDirectMessageError> {
         let mut transaction = self.pool.begin().await?;
+        if idempotency.is_some() {
+            verify_community_action_with_executor(
+                &mut transaction,
+                input.sender_id,
+                "message.send",
+                OffsetDateTime::now_utc(),
+            )
+            .await
+            .map_err(|error| match error {
+                CommunityActionError::PermissionDenied => SendDirectMessageError::PermissionDenied,
+                CommunityActionError::QuotaExceeded => SendDirectMessageError::QuotaExceeded,
+                CommunityActionError::Database(error) => {
+                    SendDirectMessageError::Database(DatabaseError::from(error))
+                }
+            })?;
+        }
         if let Some(idempotency) = idempotency.as_ref() {
+            release_expired_key_and_prune(
+                &mut transaction,
+                input.sender_id,
+                MESSAGE_ENDPOINT,
+                &idempotency.key,
+            )
+            .await?;
             let inserted = sqlx::query_as::<_, IdempotencyRow>(
                 "INSERT INTO idempotency_records (\
                      id, user_id, endpoint, idempotency_key, request_hash, \
@@ -375,6 +405,23 @@ impl Database {
                 });
             }
         }
+
+        authorize_community_action_with_executor(
+            &mut transaction,
+            input.sender_id,
+            "message.send",
+            Some(("message.send.daily", 1)),
+            None,
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(|error| match error {
+            CommunityActionError::PermissionDenied => SendDirectMessageError::PermissionDenied,
+            CommunityActionError::QuotaExceeded => SendDirectMessageError::QuotaExceeded,
+            CommunityActionError::Database(error) => {
+                SendDirectMessageError::Database(DatabaseError::from(error))
+            }
+        })?;
 
         let participant_id = sqlx::query_scalar::<_, Uuid>(
             "SELECT receiver_member.user_id \

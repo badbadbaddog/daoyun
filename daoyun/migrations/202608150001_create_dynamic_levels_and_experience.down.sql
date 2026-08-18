@@ -1,0 +1,7 @@
+DROP TABLE experience_ledger_entries;
+DROP TRIGGER users_initialize_experience_account ON users;
+DROP FUNCTION initialize_experience_account_for_user();
+DROP TABLE experience_accounts;
+DROP TRIGGER membership_levels_validate_published_thresholds ON membership_levels;
+DROP FUNCTION validate_published_membership_level_thresholds();
+DROP TABLE membership_levels;

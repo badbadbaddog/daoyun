@@ -24,6 +24,14 @@ pub enum AuthorizationRoleScope {
     Board,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthorizationScopeMode {
+    #[default]
+    Exact,
+    Subtree,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct AuthorizationRole {
     pub id: Uuid,
@@ -56,6 +64,7 @@ pub struct AuthorizationRoleAssignment {
     pub user: UserSummary,
     pub role: AuthorizationAssignedRole,
     pub scope_id: Option<Uuid>,
+    pub scope_mode: AuthorizationScopeMode,
     pub assigned_by: UserSummary,
     #[schema(value_type = String, format = DateTime)]
     pub created_at: String,
@@ -81,6 +90,8 @@ pub struct CreateAuthorizationAssignmentRequest {
     pub username: String,
     pub role_id: Uuid,
     pub scope_id: Option<Uuid>,
+    #[serde(default)]
+    pub scope_mode: AuthorizationScopeMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
