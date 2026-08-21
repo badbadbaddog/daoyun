@@ -76,6 +76,46 @@ pub struct PublicTopicDetailRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
+pub struct ModerationBoardRecord {
+    pub id: Uuid,
+    pub slug: String,
+    pub name: String,
+    pub tone: String,
+    pub capability_keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
+pub struct ModerationTopicRecord {
+    pub id: Uuid,
+    pub title: String,
+    pub excerpt: String,
+    pub author_id: Uuid,
+    pub author_username: String,
+    pub author_display_name: String,
+    pub author_avatar_url: Option<String>,
+    pub board_id: Uuid,
+    pub board_slug: String,
+    pub board_name: String,
+    pub board_tone: String,
+    pub published_at: OffsetDateTime,
+    pub last_activity_at: OffsetDateTime,
+    pub reply_count: i64,
+    pub like_count: i64,
+    pub view_count: i64,
+    pub moderation_status: String,
+    pub governance_revision: i64,
+    pub is_featured: bool,
+    pub is_pinned: bool,
+    pub is_locked: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ModerationTopicFilters {
+    pub board_id: Option<Uuid>,
+    pub search: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
 pub struct PublicTagRecord {
     pub slug: String,
     pub name: String,
@@ -285,6 +325,12 @@ pub enum ListPublicTopicsError {
 }
 
 #[derive(Debug)]
+pub enum ListModerationTopicsError {
+    InvalidCursor,
+    Database(DatabaseError),
+}
+
+#[derive(Debug)]
 pub enum ListPublicRepliesError {
     InvalidCursor,
     Database(DatabaseError),
@@ -349,6 +395,171 @@ pub enum TopicGovernanceError {
 }
 
 impl Database {
+    pub async fn list_moderation_boards(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<ModerationBoardRecord>, DatabaseError> {
+        Ok(sqlx::query_as::<_, ModerationBoardRecord>(
+            "WITH granted AS (
+                 SELECT DISTINCT board.id, permission.permission_key
+                 FROM boards AS board
+                 INNER JOIN role_assignments AS assignment ON assignment.user_id = $1
+                 INNER JOIN roles AS role ON role.id = assignment.role_id
+                 INNER JOIN role_permissions AS role_permission ON role_permission.role_id = role.id
+                 INNER JOIN permissions AS permission ON permission.id = role_permission.permission_id
+                 INNER JOIN users AS account ON account.id = assignment.user_id
+                 WHERE account.status IN ('active', 'restricted')
+                   AND permission.permission_key LIKE 'moderation.%'
+                   AND (
+                       (role.scope IN ('instance', 'site') AND assignment.scope_id IS NULL)
+                       OR (
+                           role.scope = 'board'
+                           AND assignment.scope_id IS NOT NULL
+                           AND daoyun_board_scope_covers(assignment.scope_id, assignment.scope_mode, board.id)
+                       )
+                   )
+                   AND board.deleted_at IS NULL
+             )
+             SELECT board.id, board.slug, board.name, board.tone,
+                    ARRAY(
+                        SELECT granted.permission_key
+                        FROM granted
+                        WHERE granted.id = board.id
+                        ORDER BY granted.permission_key
+                    ) AS capability_keys
+             FROM boards AS board
+             WHERE board.deleted_at IS NULL
+               AND EXISTS (
+                   SELECT 1 FROM granted
+                   WHERE granted.id = board.id AND granted.permission_key = 'moderation.topic'
+               )
+             ORDER BY board.position, board.id",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn list_moderation_topics(
+        &self,
+        user_id: Uuid,
+        filters: &ModerationTopicFilters,
+        cursor: Option<Uuid>,
+        limit: i64,
+    ) -> Result<Vec<ModerationTopicRecord>, ListModerationTopicsError> {
+        if let Some(cursor) = cursor {
+            let cursor_is_valid = sqlx::query_scalar::<_, bool>(
+                r#"WITH granted AS (
+                     SELECT DISTINCT board.id, permission.permission_key
+                     FROM boards AS board
+                     INNER JOIN role_assignments AS assignment ON assignment.user_id = $1
+                     INNER JOIN roles AS role ON role.id = assignment.role_id
+                     INNER JOIN role_permissions AS role_permission ON role_permission.role_id = role.id
+                     INNER JOIN permissions AS permission ON permission.id = role_permission.permission_id
+                     INNER JOIN users AS account ON account.id = assignment.user_id
+                     WHERE account.status IN ('active', 'restricted')
+                       AND permission.permission_key LIKE 'moderation.%'
+                       AND (
+                           (role.scope IN ('instance', 'site') AND assignment.scope_id IS NULL)
+                           OR (
+                               role.scope = 'board'
+                               AND assignment.scope_id IS NOT NULL
+                               AND daoyun_board_scope_covers(assignment.scope_id, assignment.scope_mode, board.id)
+                           )
+                       )
+                       AND board.deleted_at IS NULL
+                 ), allowed_boards AS (
+                     SELECT id FROM granted
+                     WHERE permission_key = 'moderation.topic'
+                 )
+                 SELECT EXISTS (
+                     SELECT 1
+                     FROM topics AS topic
+                     INNER JOIN boards AS board ON board.id = topic.board_id
+                     INNER JOIN allowed_boards ON allowed_boards.id = board.id
+                     INNER JOIN users AS author ON author.id = topic.author_id
+                     WHERE topic.id = $2
+                       AND topic.status = 'published'
+                       AND topic.deleted_at IS NULL
+                       AND board.deleted_at IS NULL
+                       AND author.status IN ('active', 'restricted')
+                       AND ($3::uuid IS NULL OR topic.board_id = $3)
+                       AND ($4::text IS NULL OR topic.search_vector @@ websearch_to_tsquery('simple', $4))
+                 )"#,
+            )
+            .bind(user_id)
+            .bind(cursor)
+            .bind(filters.board_id)
+            .bind(filters.search.as_deref())
+            .fetch_one(&self.pool)
+            .await?;
+            if !cursor_is_valid {
+                return Err(ListModerationTopicsError::InvalidCursor);
+            }
+        }
+
+        Ok(sqlx::query_as::<_, ModerationTopicRecord>(
+            "WITH granted AS (
+                 SELECT DISTINCT board.id, permission.permission_key
+                 FROM boards AS board
+                 INNER JOIN role_assignments AS assignment ON assignment.user_id = $1
+                 INNER JOIN roles AS role ON role.id = assignment.role_id
+                 INNER JOIN role_permissions AS role_permission ON role_permission.role_id = role.id
+                 INNER JOIN permissions AS permission ON permission.id = role_permission.permission_id
+                 INNER JOIN users AS account ON account.id = assignment.user_id
+                 WHERE account.status IN ('active', 'restricted')
+                   AND permission.permission_key LIKE 'moderation.%'
+                   AND (
+                       (role.scope IN ('instance', 'site') AND assignment.scope_id IS NULL)
+                       OR (
+                           role.scope = 'board'
+                           AND assignment.scope_id IS NOT NULL
+                           AND daoyun_board_scope_covers(assignment.scope_id, assignment.scope_mode, board.id)
+                       )
+                   )
+                   AND board.deleted_at IS NULL
+             ), allowed_boards AS (
+                 SELECT id FROM granted
+                 WHERE permission_key = 'moderation.topic'
+             )
+             SELECT t.id, t.title, t.excerpt,
+                    author.id AS author_id, author.username AS author_username,
+                    author.display_name AS author_display_name,
+                    author.avatar_url AS author_avatar_url,
+                    board.id AS board_id, board.slug AS board_slug,
+                    board.name AS board_name, board.tone AS board_tone,
+                    t.published_at, t.last_activity_at,
+                    t.reply_count, t.like_count, t.view_count,
+                    t.moderation_status, t.governance_revision,
+                    t.featured_at IS NOT NULL AS is_featured,
+                    t.pinned_at IS NOT NULL AS is_pinned,
+                    t.locked_at IS NOT NULL AS is_locked
+             FROM topics AS t
+             INNER JOIN boards AS board ON board.id = t.board_id
+             INNER JOIN allowed_boards ON allowed_boards.id = board.id
+             INNER JOIN users AS author ON author.id = t.author_id
+             WHERE t.status = 'published'
+               AND t.deleted_at IS NULL
+               AND board.deleted_at IS NULL
+               AND author.status IN ('active', 'restricted')
+               AND ($2::uuid IS NULL OR t.board_id = $2)
+               AND ($3::text IS NULL OR t.search_vector @@ websearch_to_tsquery('simple', $3))
+               AND ($4::uuid IS NULL OR (t.published_at, t.id) < (
+                   SELECT cursor_topic.published_at, cursor_topic.id
+                   FROM topics AS cursor_topic WHERE cursor_topic.id = $4
+               ))
+             ORDER BY t.published_at DESC, t.id DESC
+             LIMIT $5",
+        )
+        .bind(user_id)
+        .bind(filters.board_id)
+        .bind(filters.search.as_deref())
+        .bind(cursor)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     pub async fn govern_topic(
         &self,
         input: TopicGovernanceInput,
@@ -2087,6 +2298,32 @@ impl fmt::Display for ListPublicTopicsError {
             Self::InvalidCursor => formatter.write_str("topic cursor is not available"),
             Self::Database(_) => formatter.write_str("public topic list database operation failed"),
         }
+    }
+}
+
+impl fmt::Display for ListModerationTopicsError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidCursor => formatter.write_str("moderation topic cursor is not available"),
+            Self::Database(_) => {
+                formatter.write_str("moderation topic list database operation failed")
+            }
+        }
+    }
+}
+
+impl Error for ListModerationTopicsError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::InvalidCursor => None,
+            Self::Database(error) => Some(error),
+        }
+    }
+}
+
+impl From<sqlx::Error> for ListModerationTopicsError {
+    fn from(error: sqlx::Error) -> Self {
+        Self::Database(DatabaseError::from(error))
     }
 }
 

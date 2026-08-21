@@ -4,11 +4,11 @@ use crate::auth::{
 };
 use api_contract::{
     ApiResponse, BoardTone, CreateReplyRequest, CreateTopicRequest, ErrorBody, ErrorCode,
-    ErrorResponse, FieldErrors, GovernTopicRequest, ModerateTopicRequest, PageResponse,
-    ReplyRevision, RequestId, TopicAuthorSummary, TopicBoardSummary, TopicDetail,
-    TopicGovernanceAction, TopicGovernanceResult, TopicModerationResult, TopicModerationStatus,
-    TopicReply, TopicRevision, TopicScope, TopicSort, TopicSummary, TopicTag, TopicTagInput,
-    UpdateReplyRequest, UpdateTopicRequest, error_codes,
+    ErrorResponse, FieldErrors, GovernTopicRequest, ModerateTopicRequest, ModerationBoard,
+    ModerationTopic, PageResponse, ReplyRevision, RequestId, TopicAuthorSummary, TopicBoardSummary,
+    TopicDetail, TopicGovernanceAction, TopicGovernanceResult, TopicModerationResult,
+    TopicModerationStatus, TopicReply, TopicRevision, TopicScope, TopicSort, TopicSummary,
+    TopicTag, TopicTagInput, UpdateReplyRequest, UpdateTopicRequest, error_codes,
 };
 use axum::{
     Extension, Json, Router,
@@ -20,12 +20,13 @@ use axum::{
     routing::{get, patch},
 };
 use infrastructure::{
-    CreateReplyError, CreateTopicError, Database, IdempotencyInput, ListPublicRepliesError,
-    ListPublicTopicsError, ListTopicRevisionsError, NewReplyRecord, NewTagRecord, NewTopicRecord,
-    PublicReplyRecord, PublicTopicDetailRecord, PublicTopicFilters, PublicTopicRecord,
-    ReplyMutationError, TopicDeleteError, TopicGovernanceAction as InfrastructureGovernanceAction,
-    TopicGovernanceError, TopicGovernanceInput, TopicModerationError,
-    TopicSort as InfrastructureTopicSort, UpdateReplyRecord, UpdateTopicError, UpdateTopicRecord,
+    CreateReplyError, CreateTopicError, Database, IdempotencyInput, ListModerationTopicsError,
+    ListPublicRepliesError, ListPublicTopicsError, ListTopicRevisionsError, ModerationTopicFilters,
+    NewReplyRecord, NewTagRecord, NewTopicRecord, PublicReplyRecord, PublicTopicDetailRecord,
+    PublicTopicFilters, PublicTopicRecord, ReplyMutationError, TopicDeleteError,
+    TopicGovernanceAction as InfrastructureGovernanceAction, TopicGovernanceError,
+    TopicGovernanceInput, TopicModerationError, TopicSort as InfrastructureTopicSort,
+    UpdateReplyRecord, UpdateTopicError, UpdateTopicRecord,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -59,6 +60,15 @@ pub(crate) struct ListRepliesQuery {
     limit: Option<u16>,
 }
 
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct ListModerationTopicsQuery {
+    board_id: Option<Uuid>,
+    query: Option<String>,
+    cursor: Option<Uuid>,
+    limit: Option<u16>,
+}
+
 struct ValidatedCreateTopic {
     board_id: Option<Uuid>,
     title: String,
@@ -88,6 +98,14 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
     Router::new()
         .route("/api/v1/tags", get(list_tags))
         .route("/api/v1/topics", get(list).post(create))
+        .route(
+            "/api/v1/admin/moderation/boards",
+            get(list_moderation_boards),
+        )
+        .route(
+            "/api/v1/admin/moderation/topics",
+            get(list_moderation_topics),
+        )
         .route(
             "/api/v1/topics/{topic_id}",
             get(detail).patch(update).delete(delete_topic),
@@ -195,6 +213,106 @@ pub(crate) async fn list(
         response_headers,
         Json(PageResponse::new(topics, request_id, next_cursor)),
     ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/moderation/boards",
+    operation_id = "listModerationBoards",
+    tag = "admin",
+    responses(
+        (status = 200, body = ApiResponse<Vec<ModerationBoard>>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn list_moderation_boards(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+) -> Result<Json<ApiResponse<Vec<ModerationBoard>>>, ApiError> {
+    let (session, _) = authenticate_session(&database, &runtime, &headers, request_id).await?;
+    let records = database
+        .list_moderation_boards(session.user.id)
+        .await
+        .map_err(|error| {
+            tracing::warn!(request_id = %request_id, error = %error, "Moderation board list query failed");
+            read_error(service_unavailable(request_id))
+        })?;
+    let boards = records
+        .into_iter()
+        .map(moderation_board)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|()| read_error(invalid_record(request_id)))?;
+    Ok(Json(ApiResponse::new(boards, request_id)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/moderation/topics",
+    operation_id = "listModerationTopics",
+    tag = "admin",
+    params(ListModerationTopicsQuery),
+    responses(
+        (status = 200, body = PageResponse<ModerationTopic>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 422, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn list_moderation_topics(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    query: Result<Query<ListModerationTopicsQuery>, QueryRejection>,
+) -> Result<Json<PageResponse<ModerationTopic>>, ApiError> {
+    let Query(query) = query.map_err(|_| {
+        read_error(validation_error(
+            request_id,
+            "query",
+            "内容治理查询参数格式不正确",
+        ))
+    })?;
+    let filters = validate_moderation_query(&query)
+        .map_err(|(field, message)| read_error(validation_error(request_id, field, message)))?;
+    let (session, _) = authenticate_session(&database, &runtime, &headers, request_id).await?;
+    let limit = query.limit.unwrap_or(DEFAULT_LIMIT);
+    let mut records = database
+        .list_moderation_topics(
+            session.user.id,
+            &filters,
+            query.cursor,
+            i64::from(limit) + 1,
+        )
+        .await
+        .map_err(|error| match error {
+            ListModerationTopicsError::InvalidCursor => read_error(validation_error(
+                request_id,
+                "cursor",
+                "cursor 不属于当前主题结果集",
+            )),
+            ListModerationTopicsError::Database(error) => {
+                tracing::warn!(request_id = %request_id, error = ?error, "Moderation topic list query failed");
+                read_error(service_unavailable(request_id))
+            }
+        })?;
+    let has_next_page = records.len() > usize::from(limit);
+    records.truncate(usize::from(limit));
+    let next_cursor = has_next_page.then(|| {
+        records
+            .last()
+            .expect("a full moderation topic page is non-empty")
+            .id
+            .to_string()
+    });
+    let topics = records
+        .into_iter()
+        .map(moderation_topic)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|()| read_error(invalid_record(request_id)))?;
+    Ok(Json(PageResponse::new(topics, request_id, next_cursor)))
 }
 
 #[utoipa::path(
@@ -463,13 +581,13 @@ pub(crate) async fn delete_topic(
     params(("topic_id" = Uuid, Path), ("x-csrf-token" = String, Header)),
     request_body = ModerateTopicRequest,
     responses(
-        (status = 200, body = ApiResponse<TopicModerationResult>),
-        (status = 400, body = ErrorResponse),
-        (status = 401, body = ErrorResponse),
-        (status = 403, body = ErrorResponse),
-        (status = 404, body = ErrorResponse),
-        (status = 422, body = ErrorResponse),
-        (status = 503, body = ErrorResponse)
+        (status = 200, body = ApiResponse<TopicModerationResult>, headers(("x-request-id" = String))),
+        (status = 400, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 404, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 422, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
     )
 )]
 pub(crate) async fn moderate(
@@ -992,6 +1110,25 @@ fn validate_query(
     })
 }
 
+fn validate_moderation_query(
+    query: &ListModerationTopicsQuery,
+) -> Result<ModerationTopicFilters, (&'static str, &'static str)> {
+    let limit = query.limit.unwrap_or(DEFAULT_LIMIT);
+    if !(1..=MAX_LIMIT).contains(&limit) {
+        return Err(("limit", "limit 必须在 1 到 50 之间"));
+    }
+    let search = query.query.as_deref().map(str::trim);
+    if search.is_some_and(|value| {
+        !(1..=100).contains(&value.chars().count()) || value.chars().any(char::is_control)
+    }) {
+        return Err(("query", "query 必须为 1 到 100 个有效字符"));
+    }
+    Ok(ModerationTopicFilters {
+        board_id: query.board_id,
+        search: search.filter(|value| !value.is_empty()).map(str::to_owned),
+    })
+}
+
 fn valid_author_username(value: &str) -> bool {
     let mut characters = value.chars();
     let Some(first) = characters.next() else {
@@ -1311,6 +1448,52 @@ pub(crate) fn topic_summary(record: PublicTopicRecord) -> Result<TopicSummary, (
                 name: tag.name,
             })
             .collect(),
+    })
+}
+
+fn moderation_board(record: infrastructure::ModerationBoardRecord) -> Result<ModerationBoard, ()> {
+    Ok(ModerationBoard {
+        id: record.id,
+        slug: record.slug,
+        name: record.name,
+        tone: board_tone(&record.tone)?,
+        capability_keys: record.capability_keys,
+    })
+}
+
+fn moderation_topic(record: infrastructure::ModerationTopicRecord) -> Result<ModerationTopic, ()> {
+    let moderation_status = match record.moderation_status.as_str() {
+        "approved" => TopicModerationStatus::Approved,
+        "hidden" => TopicModerationStatus::Hidden,
+        "rejected" => TopicModerationStatus::Rejected,
+        _ => return Err(()),
+    };
+    Ok(ModerationTopic {
+        id: record.id,
+        title: record.title,
+        excerpt: record.excerpt,
+        author: TopicAuthorSummary {
+            id: record.author_id,
+            username: record.author_username,
+            display_name: record.author_display_name,
+            avatar_url: record.author_avatar_url,
+        },
+        board: TopicBoardSummary {
+            id: record.board_id,
+            slug: record.board_slug,
+            name: record.board_name,
+            tone: board_tone(&record.board_tone)?,
+        },
+        published_at: format_timestamp(record.published_at)?,
+        last_activity_at: format_timestamp(record.last_activity_at)?,
+        reply_count: u64::try_from(record.reply_count).map_err(|_| ())?,
+        like_count: u64::try_from(record.like_count).map_err(|_| ())?,
+        view_count: u64::try_from(record.view_count).map_err(|_| ())?,
+        moderation_status,
+        governance_revision: record.governance_revision,
+        is_featured: record.is_featured,
+        is_pinned: record.is_pinned,
+        is_locked: record.is_locked,
     })
 }
 

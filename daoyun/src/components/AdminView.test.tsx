@@ -18,6 +18,7 @@ import {
   updateMembershipLevelRule,
   updateSiteBranding,
 } from "../api/admin"
+import { listModerationBoards } from "../api/moderation"
 import { AdminView } from "./AdminView"
 
 vi.mock("../api/admin", async () => {
@@ -39,6 +40,11 @@ vi.mock("../api/admin", async () => {
   }
 })
 
+vi.mock("../api/moderation", async () => {
+  const actual = await vi.importActual<typeof import("../api/moderation")>("../api/moderation")
+  return { ...actual, listModerationBoards: vi.fn() }
+})
+
 vi.mock("./OperationsAdminPanel", () => ({
   OperationsAdminPanel: () => <section><h2>运营概览</h2><p>运维监控面板</p></section>,
 }))
@@ -53,6 +59,10 @@ vi.mock("./UserAdminPanel", () => ({
 
 vi.mock("./ReportAdminPanel", () => ({
   ReportAdminPanel: ({ requestedStatus, canResolve, onStatusChange }: { requestedStatus: string; canResolve: boolean; onStatusChange: (value: string) => void }) => <section><h2>举报处理工作台</h2><p>{`${requestedStatus}/${canResolve}`}</p><button type="button" onClick={() => onStatusChange("in_review")}>切换处理中</button></section>,
+}))
+
+vi.mock("./ModerationAdminPanel", () => ({
+  ModerationAdminPanel: ({ boards }: { boards: Array<{ name: string }> }) => <section><h2>主题治理工作台</h2><p>{boards.map((board) => board.name).join(",")}</p></section>,
 }))
 
 vi.mock("./AdminDashboard", () => ({
@@ -103,6 +113,7 @@ beforeEach(() => {
   vi.mocked(listAuthorizationPermissions).mockResolvedValue([])
   vi.mocked(listAuthorizationRoles).mockResolvedValue([])
   vi.mocked(listAuthorizationAssignments).mockResolvedValue({ assignments: [], nextCursor: null })
+  vi.mocked(listModerationBoards).mockResolvedValue([])
 })
 
 afterEach(() => { cleanup(); vi.clearAllMocks() })
@@ -336,5 +347,23 @@ describe("AdminView", () => {
     expect(screen.queryByRole("button", { name: "品牌配置" })).not.toBeInTheDocument()
     expect(getAdminSiteBranding).not.toHaveBeenCalled()
     expect(listAdminBoards).not.toHaveBeenCalled()
+  })
+
+  it("opens content governance for a board-scoped moderator", async () => {
+    vi.mocked(getAdminAccess).mockResolvedValueOnce({ capabilityKeys: [] })
+    vi.mocked(listModerationBoards).mockResolvedValueOnce([{
+      id: board.id,
+      slug: board.slug,
+      name: board.name,
+      tone: board.tone,
+      capabilityKeys: ["moderation.topic", "moderation.topic.pin"],
+    }])
+
+    render(<AdminView session={session} onBack={vi.fn()} requestedTab="moderation" />)
+
+    expect(await screen.findByRole("heading", { name: "主题治理工作台" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "内容治理" })).toHaveAttribute("aria-current", "page")
+    expect(screen.getByText("社区广场")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "品牌配置" })).not.toBeInTheDocument()
   })
 })

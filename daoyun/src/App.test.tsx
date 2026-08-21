@@ -17,6 +17,7 @@ import {
 import { listBoards } from "./api/boards"
 import { getPublicSiteBranding } from "./api/branding"
 import { getAdminAccess } from "./api/admin"
+import { listModerationBoards } from "./api/moderation"
 import { createReply, createTopic, getTopic, listReplies, listTags, listTopics } from "./api/topics"
 import type { ListTopicsOptions } from "./api/topics"
 import { getUserProfile, listUserRelations } from "./api/users"
@@ -41,6 +42,11 @@ vi.mock("./api/branding", () => ({
 vi.mock("./api/admin", async () => {
   const actual = await vi.importActual<typeof import("./api/admin")>("./api/admin")
   return { ...actual, getAdminAccess: vi.fn() }
+})
+
+vi.mock("./api/moderation", async () => {
+  const actual = await vi.importActual<typeof import("./api/moderation")>("./api/moderation")
+  return { ...actual, listModerationBoards: vi.fn() }
 })
 
 vi.mock("./components/AdminView", () => ({
@@ -215,6 +221,7 @@ beforeEach(() => {
   vi.mocked(listBoards).mockReturnValue(new Promise(() => {}))
   vi.mocked(getPublicSiteBranding).mockReset().mockResolvedValue(brandingFixture)
   vi.mocked(getAdminAccess).mockReset().mockResolvedValue({ capabilityKeys: [] })
+  vi.mocked(listModerationBoards).mockReset().mockResolvedValue([])
   vi.mocked(listTopics).mockReset()
   vi.mocked(listTopics).mockImplementation((options: ListTopicsOptions = {}) => {
     const normalizedQuery = options.query?.trim().toLocaleLowerCase("zh-CN") ?? ""
@@ -913,6 +920,26 @@ describe("DaoYun community home", () => {
     expect(screen.getByRole("menuitem", { name: "站点管理" })).toHaveAttribute("href", "#admin")
     expect(screen.queryByRole("menuitem", { name: "管理工作台" })).not.toBeInTheDocument()
     expect(screen.queryByRole("menuitem", { name: "系统后台" })).not.toBeInTheDocument()
+  })
+
+  it("shows the site administration entry to a board-scoped moderator", async () => {
+    const user = userEvent.setup()
+    vi.mocked(getCurrentSession).mockResolvedValue({
+      user: { id: topicFixtures[0].authorId, username: "moderator", email: "moderator@example.com", displayName: "社区版主" },
+      csrfToken: "d".repeat(64),
+    })
+    vi.mocked(listModerationBoards).mockResolvedValue([{
+      id: "019fc900-0000-0000-8000-000000000101",
+      slug: "general",
+      name: "社区广场",
+      tone: "green",
+      capabilityKeys: ["moderation.topic"],
+    }])
+
+    render(<App />)
+    await user.click(await screen.findByRole("button", { name: "打开个人菜单" }))
+
+    expect(screen.getByRole("menuitem", { name: "站点管理" })).toHaveAttribute("href", "#admin")
   })
 
   it("keeps one administration entry when the account has multiple capability groups", async () => {

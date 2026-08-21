@@ -20,6 +20,8 @@ import {
   uploadBrandAsset,
 } from "../api/admin"
 import type { AdminBoard, BrandAssetKind, BrandLink, GovernancePolicy, RiskAlert, SiteBranding, SiteBrandingInput } from "../api/admin"
+import { listModerationBoards } from "../api/moderation"
+import type { ModerationBoard } from "../api/moderation"
 import { MembershipAdminPanel } from "./MembershipAdminPanel"
 import { AuthorizationAdminPanel } from "./AuthorizationAdminPanel"
 import { OperationsAdminPanel } from "./OperationsAdminPanel"
@@ -28,8 +30,9 @@ import { UserAdminPanel } from "./UserAdminPanel"
 import { BoardAdminPanel } from "./BoardAdminPanel"
 import { ReportAdminPanel, type ReportStatusFilter } from "./ReportAdminPanel"
 import { AdminDashboard } from "./AdminDashboard"
+import { ModerationAdminPanel } from "./ModerationAdminPanel"
 
-export type AdminTab = "dashboard" | "users" | "branding" | "boards" | "reports" | "risk" | "membership" | "authorization" | "operations" | "plugins"
+export type AdminTab = "dashboard" | "users" | "branding" | "boards" | "reports" | "moderation" | "risk" | "membership" | "authorization" | "operations" | "plugins"
 type LoadState = "loading" | "ready" | "forbidden" | "error"
 
 interface AdminModuleDefinition {
@@ -44,6 +47,7 @@ const adminModules: AdminModuleDefinition[] = [
   { tab: "users", label: "用户管理", requirements: ["admin.users.read"] },
   { tab: "boards", label: "版块管理", requirements: ["admin.configuration.read"] },
   { tab: "reports", label: "举报处理", requirements: ["governance.reports.read"] },
+  { tab: "moderation", label: "内容治理", requirements: ["moderation.topic"] },
   { tab: "risk", label: "风控告警", requirements: ["governance.policy.read", "governance.alerts.read"] },
   { tab: "membership", label: "会员经济", requirements: ["membership.rules.read", "membership.medals.read", "membership.points.grant", "membership.medals.grant"], requirementMode: "any" },
   { tab: "branding", label: "品牌配置", requirements: ["admin.configuration.read"] },
@@ -81,6 +85,7 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
   const [status, setStatus] = useState<LoadState>(session === undefined || session ? "loading" : "forbidden")
   const [branding, setBranding] = useState<SiteBranding | null>(null)
   const [boards, setBoards] = useState<AdminBoard[]>([])
+  const [moderationBoards, setModerationBoards] = useState<ModerationBoard[]>([])
   const [availableTabs, setAvailableTabs] = useState<AdminTab[]>([])
   const [capabilityKeys, setCapabilityKeys] = useState<string[]>([])
   const [error, setError] = useState("")
@@ -94,14 +99,21 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
     setError("")
     setAvailableTabs([])
     setCapabilityKeys([])
-    getAdminAccess(controller.signal)
-      .then(async ({ capabilityKeys }) => {
+    Promise.all([
+      getAdminAccess(controller.signal),
+      listModerationBoards(controller.signal).catch(() => []),
+    ])
+      .then(async ([{ capabilityKeys }, scopedModerationBoards]) => {
         const capabilities = new Set(capabilityKeys)
         const allowedTaskTabs = adminModules
           .filter(({ tab: candidate, requirements, requirementMode }) => candidate !== "dashboard" && (
+            candidate === "moderation"
+              ? scopedModerationBoards.length > 0
+              : (
             requirementMode === "any"
               ? requirements.some((key) => capabilities.has(key))
               : requirements.every((key) => capabilities.has(key))
+              )
           ))
           .map(({ tab: candidate }) => candidate)
         if (allowedTaskTabs.length === 0) {
@@ -122,6 +134,7 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
         if (controller.signal.aborted) return
         setAvailableTabs(allowedTabs)
         setCapabilityKeys(capabilityKeys)
+        setModerationBoards(scopedModerationBoards)
         setTab((current) => allowedTabs.includes(current) ? current : allowedTabs[0])
         setBranding(configuration?.[0] ?? null)
         setBoards(configuration?.[1] ?? [])
@@ -218,6 +231,11 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
           onStatusChange={(statusFilter) => onQueryChange?.(statusFilter === "all" ? "" : `status=${statusFilter}`)}
           canResolve={capabilityKeys.includes("governance.reports.resolve")}
           canReadAudit={capabilityKeys.includes("audit.read")}
+        />
+      ) : tab === "moderation" ? (
+        <ModerationAdminPanel
+          boards={moderationBoards}
+          csrfToken={session?.csrfToken ?? ""}
         />
       ) : tab === "risk" ? (
         <RiskPanel csrfToken={session?.csrfToken ?? ""} />

@@ -148,11 +148,12 @@ pub use standard_entitlements::{
 };
 pub use topics::{
     CreateReplyError, CreateReplyResult, CreateTopicError, CreateTopicResult, IdempotencyInput,
-    ListPublicRepliesError, ListPublicTopicsError, ListTopicRevisionsError, NewReplyRecord,
-    NewTagRecord, NewTopicRecord, PublicReplyRecord, PublicTagRecord, PublicTagUsageRecord,
-    PublicTopicDetailRecord, PublicTopicFilters, PublicTopicRecord, ReplyMutationError,
-    ReplyRevisionRecord, TopicDeleteError, TopicGovernanceAction, TopicGovernanceError,
-    TopicGovernanceInput, TopicGovernanceResultRecord, TopicModerationError,
+    ListModerationTopicsError, ListPublicRepliesError, ListPublicTopicsError,
+    ListTopicRevisionsError, ModerationBoardRecord, ModerationTopicFilters, ModerationTopicRecord,
+    NewReplyRecord, NewTagRecord, NewTopicRecord, PublicReplyRecord, PublicTagRecord,
+    PublicTagUsageRecord, PublicTopicDetailRecord, PublicTopicFilters, PublicTopicRecord,
+    ReplyMutationError, ReplyRevisionRecord, TopicDeleteError, TopicGovernanceAction,
+    TopicGovernanceError, TopicGovernanceInput, TopicGovernanceResultRecord, TopicModerationError,
     TopicModerationResultRecord, TopicRevisionRecord, TopicSort, UpdateReplyRecord,
     UpdateReplyResult, UpdateTopicError, UpdateTopicRecord, UpdateTopicResult,
 };

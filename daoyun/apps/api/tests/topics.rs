@@ -981,6 +981,8 @@ async fn openapi_documents_public_topic_list_and_detail() {
     assert!(document["paths"]["/api/v1/topics"]["get"].is_object());
     assert!(document["paths"]["/api/v1/topics/{topic_id}"]["get"].is_object());
     assert!(document["paths"]["/api/v1/topics"]["post"].is_object());
+    assert!(document["paths"]["/api/v1/admin/moderation/boards"]["get"].is_object());
+    assert!(document["paths"]["/api/v1/admin/moderation/topics"]["get"].is_object());
     let list_parameters = document["paths"]["/api/v1/topics"]["get"]["parameters"]
         .as_array()
         .expect("topic list parameters must be documented");
@@ -1029,12 +1031,130 @@ async fn openapi_documents_public_topic_list_and_detail() {
         "BoardPostingRestrictionAction",
         "PutBoardUserRestrictionRequest",
         "BoardUserRestriction",
+        "ModerationBoard",
+        "ModerationTopic",
+        "PageResponse_ModerationTopic",
     ] {
         assert!(
             document["components"]["schemas"][schema].is_object(),
             "{schema}"
         );
     }
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn scoped_moderator_only_discovers_topics_in_assigned_boards(pool: PgPool) {
+    let config = daoyun_api::AuthConfig::default().with_secure_cookies(false);
+    let app = daoyun_api::app_with_config(Database::from_pool(pool.clone()), config);
+    let (member_cookies, _member_csrf) = register_member(&app).await;
+    let member_id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username = 'member'")
+        .fetch_one(&pool)
+        .await
+        .expect("member fixture must exist");
+    let owner_id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username = 'owner'")
+        .fetch_one(&pool)
+        .await
+        .expect("owner fixture must exist");
+    let assigned_board_id =
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM boards WHERE slug = 'general'")
+            .fetch_one(&pool)
+            .await
+            .expect("default board fixture must exist");
+    let other_board_id = fixture_id(701);
+    insert_board(&pool, other_board_id, "other", "public").await;
+    let moderator_role_id =
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM roles WHERE key = 'board_moderator'")
+            .fetch_one(&pool)
+            .await
+            .expect("board moderator role must be seeded");
+    sqlx::query(
+        "INSERT INTO role_assignments (id, user_id, role_id, assigned_by, scope_id, scope_mode)
+         VALUES (gen_random_uuid(), $1, $2, $4, $3, 'exact')",
+    )
+    .bind(member_id)
+    .bind(moderator_role_id)
+    .bind(assigned_board_id)
+    .bind(owner_id)
+    .execute(&pool)
+    .await
+    .expect("scoped moderator assignment must insert");
+    insert_topic(
+        &pool,
+        fixture_id(702),
+        assigned_board_id,
+        member_id,
+        "assigned topic",
+        "2026-08-21T10:00:00Z",
+        false,
+        false,
+    )
+    .await;
+    insert_topic(
+        &pool,
+        fixture_id(703),
+        other_board_id,
+        owner_id,
+        "unassigned topic",
+        "2026-08-21T11:00:00Z",
+        false,
+        false,
+    )
+    .await;
+
+    let boards = app
+        .clone()
+        .oneshot(get_request_with_headers(
+            "/api/v1/admin/moderation/boards",
+            &member_cookies,
+        ))
+        .await
+        .expect("moderation board list must respond");
+    assert_eq!(boards.status(), StatusCode::OK);
+    let boards_payload = response_json(boards).await;
+    assert_eq!(boards_payload["data"].as_array().map(Vec::len), Some(1));
+    assert_eq!(
+        boards_payload["data"][0]["id"],
+        assigned_board_id.to_string()
+    );
+    assert_eq!(
+        boards_payload["data"][0]["capability_keys"][0],
+        "moderation.topic"
+    );
+
+    let topics = app
+        .clone()
+        .oneshot(get_request_with_headers(
+            "/api/v1/admin/moderation/topics?limit=20",
+            &member_cookies,
+        ))
+        .await
+        .expect("moderation topic list must respond");
+    assert_eq!(topics.status(), StatusCode::OK);
+    let request_id = topics.headers()["x-request-id"]
+        .to_str()
+        .expect("request ID must be text")
+        .to_owned();
+    let topics_payload = response_json(topics).await;
+    assert_eq!(topics_payload["meta"]["request_id"], request_id);
+    assert_eq!(topics_payload["data"].as_array().map(Vec::len), Some(1));
+    assert_eq!(topics_payload["data"][0]["title"], "assigned topic");
+    assert_eq!(
+        topics_payload["data"][0]["board"]["id"],
+        assigned_board_id.to_string()
+    );
+
+    let invalid_cursor = app
+        .oneshot(get_request_with_headers(
+            &format!("/api/v1/admin/moderation/topics?cursor={}", fixture_id(703)),
+            &member_cookies,
+        ))
+        .await
+        .expect("out-of-scope moderation cursor must respond");
+    assert_eq!(invalid_cursor.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        response_json(invalid_cursor).await["error"]["code"],
+        "request.validation_failed"
+    );
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]

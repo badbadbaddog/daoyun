@@ -85,8 +85,8 @@ pub use messages::{
     DirectMessage, MarkConversationReadRequest, SendDirectMessageRequest,
 };
 pub use moderation::{
-    GovernTopicRequest, ModerateTopicRequest, TopicGovernanceAction, TopicGovernanceResult,
-    TopicModerationResult, TopicModerationStatus,
+    GovernTopicRequest, ModerateTopicRequest, ModerationBoard, ModerationTopic,
+    TopicGovernanceAction, TopicGovernanceResult, TopicModerationResult, TopicModerationStatus,
 };
 pub use notifications::{
     Notification, NotificationKind, NotificationTarget, NotificationUnreadCount,

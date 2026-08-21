@@ -6,6 +6,7 @@ import { AuthApiError, getCurrentSession, logout } from "./api/auth"
 import type { AuthSession } from "./api/auth"
 import { getPublicSiteBranding } from "./api/branding"
 import { getAdminAccess } from "./api/admin"
+import { listModerationBoards } from "./api/moderation"
 import type { SiteBranding } from "./api/admin"
 import { getInstallationStatus } from "./api/installation"
 import type { ConversationSummary } from "./api/messages"
@@ -290,7 +291,10 @@ function CommunityHome() {
     }
 
     const controller = new AbortController()
-    getAdminAccess(controller.signal).then(({ capabilityKeys }) => {
+    Promise.all([
+      getAdminAccess(controller.signal),
+      listModerationBoards(controller.signal).catch(() => []),
+    ]).then(([{ capabilityKeys }, moderationBoards]) => {
       if (controller.signal.aborted) return
       const capabilities = new Set(capabilityKeys)
       const hasSystemAccess = [
@@ -305,7 +309,7 @@ function CommunityHome() {
         ["governance.policy.read", "governance.alerts.read"],
       ].some((requirement) => requirement.every((key) => capabilities.has(key)))
       setSystemAdminAccess(hasSystemAccess ? "allowed" : "denied")
-      setManagementAccess(hasManagementAccess ? "allowed" : "denied")
+      setManagementAccess(hasManagementAccess || moderationBoards.length > 0 ? "allowed" : "denied")
     }).catch(() => {
       if (!controller.signal.aborted) {
         setSystemAdminAccess("unknown")
