@@ -5,8 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { AuthSession } from "../api/auth"
 import {
   AdminApiError,
+  createAdminGrowthLevel,
   getAdminAccess,
   getAdminSiteBranding,
+  getAdminGrowthLevels,
   getMembershipLevelRules,
   grantMembershipPoints,
   listAuthorizationAssignments,
@@ -16,6 +18,7 @@ import {
   deleteBrandAsset,
   uploadBrandAsset,
   updateMembershipLevelRule,
+  updateAdminGrowthLevel,
   updateSiteBranding,
 } from "../api/admin"
 import { listModerationBoards } from "../api/moderation"
@@ -29,6 +32,9 @@ vi.mock("../api/admin", async () => {
     getAdminSiteBranding: vi.fn(),
     listAdminBoards: vi.fn(),
     updateSiteBranding: vi.fn(),
+    getAdminGrowthLevels: vi.fn(),
+    createAdminGrowthLevel: vi.fn(),
+    updateAdminGrowthLevel: vi.fn(),
     getMembershipLevelRules: vi.fn(),
     updateMembershipLevelRule: vi.fn(),
     grantMembershipPoints: vi.fn(),
@@ -79,6 +85,21 @@ const membershipRules = [
   { levelKey: "lv_1", levelNumber: 1, levelDisplayName: "Lv1", requiredLifetimePoints: 0, enabled: true, updatedAt: "2026-08-07T01:00:00Z" },
   { levelKey: "lv_2", levelNumber: 2, levelDisplayName: "Lv2", requiredLifetimePoints: 25, enabled: true, updatedAt: "2026-08-07T01:00:00Z" },
 ]
+const growthLevels = [{
+  id: "019fc900-0000-7000-8000-000000000801",
+  internalKey: "traveler",
+  levelOrder: 2,
+  displayName: "旅者",
+  requiredExperience: 100,
+  iconAssetId: null,
+  color: "#1f8f5f",
+  description: "完成首次成长阶段",
+  status: "draft" as const,
+  revision: 1,
+  publishedAt: null,
+  createdAt: "2026-08-20T01:00:00Z",
+  updatedAt: "2026-08-20T01:00:00Z",
+}]
 const memberId = "019fc900-0000-7000-8000-000000000401"
 
 beforeEach(() => {
@@ -89,6 +110,7 @@ beforeEach(() => {
     "governance.policy.read",
     "governance.alerts.read",
     "membership.rules.read",
+    "membership.rules.write",
     "membership.points.grant",
     "membership.medals.grant",
     "authorization.roles.read",
@@ -105,6 +127,9 @@ beforeEach(() => {
   vi.mocked(uploadBrandAsset).mockResolvedValue({ ...branding, logoUrl: "/api/v1/site-branding/assets/logo" })
   vi.mocked(deleteBrandAsset).mockResolvedValue(branding)
   vi.mocked(getMembershipLevelRules).mockResolvedValue(membershipRules)
+  vi.mocked(getAdminGrowthLevels).mockResolvedValue(growthLevels)
+  vi.mocked(createAdminGrowthLevel).mockResolvedValue(growthLevels[0])
+  vi.mocked(updateAdminGrowthLevel).mockResolvedValue({ ...growthLevels[0], displayName: "行者", revision: 2, status: "published" })
   vi.mocked(updateMembershipLevelRule).mockResolvedValue({ ...membershipRules[1], requiredLifetimePoints: 30, enabled: true })
   vi.mocked(grantMembershipPoints).mockResolvedValue({
     created: true,
@@ -265,30 +290,66 @@ describe("AdminView", () => {
     expect(onQueryChange).toHaveBeenCalledWith("status=in_review")
   })
 
-  it("loads membership rules and saves a changed level name and threshold", async () => {
+  it("loads EXP growth levels and saves their status, threshold, and revision", async () => {
     const user = userEvent.setup()
     render(<AdminView session={session} onBack={vi.fn()} />)
 
     await user.click(await screen.findByRole("button", { name: "会员经济" }))
     expect(await screen.findByRole("heading", { name: "会员经济" })).toBeInTheDocument()
-    const name = screen.getByLabelText("lv_2 展示名称")
+    expect(screen.getByRole("heading", { name: "成长等级（EXP）" })).toBeInTheDocument()
+    const name = screen.getByLabelText("traveler 展示名称")
     await user.clear(name)
-    await user.type(name, "新会员")
-    const threshold = screen.getByLabelText("lv_2 累计积分阈值")
+    await user.type(name, "行者")
+    const threshold = screen.getByLabelText("traveler EXP 阈值")
     await user.clear(threshold)
-    await user.type(threshold, "30")
-    await user.click(screen.getByRole("button", { name: "保存 lv_2 规则" }))
+    await user.type(threshold, "120")
+    await user.selectOptions(screen.getByLabelText("traveler 状态"), "published")
+    await user.click(screen.getByRole("button", { name: "保存 traveler" }))
 
-    expect(updateMembershipLevelRule).toHaveBeenCalledWith("lv_2", { requiredLifetimePoints: 30, enabled: true, displayName: "新会员" }, session.csrfToken)
-    expect(await screen.findByText("lv_2 规则已保存")).toBeInTheDocument()
+    expect(updateAdminGrowthLevel).toHaveBeenCalledWith(growthLevels[0].id, expect.objectContaining({ expectedRevision: 1, displayName: "行者", requiredExperience: 120, status: "published" }), session.csrfToken)
+    expect(await screen.findByText("traveler 已保存")).toBeInTheDocument()
   })
 
-  it("keeps the lv_1 threshold fixed at zero", async () => {
+  it("shows the four independent membership economy boundaries without legacy point levels", async () => {
+    render(<AdminView session={session} onBack={vi.fn()} />)
+
+    await userEvent.setup().click(await screen.findByRole("button", { name: "会员经济" }))
+    expect(await screen.findByRole("heading", { name: "成长等级（EXP）" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "积分账本" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "勋章" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "标准权益" })).toBeInTheDocument()
+    expect(screen.queryByLabelText("lv_1 累计积分阈值")).not.toBeInTheDocument()
+  })
+
+  it("creates a draft EXP level without changing the points ledger", async () => {
     const user = userEvent.setup()
+    vi.mocked(createAdminGrowthLevel).mockResolvedValueOnce({
+      ...growthLevels[0],
+      id: "019fc900-0000-7000-8000-000000000802",
+      internalKey: "explorer",
+      levelOrder: 3,
+      displayName: "探索者",
+      requiredExperience: 300,
+    })
     render(<AdminView session={session} onBack={vi.fn()} />)
 
     await user.click(await screen.findByRole("button", { name: "会员经济" }))
-    expect(screen.getByLabelText("lv_1 累计积分阈值")).toBeDisabled()
+    await user.type(await screen.findByLabelText("内部键"), "explorer")
+    await user.type(screen.getByLabelText("等级顺序"), "3")
+    await user.type(screen.getByLabelText("展示名称"), "探索者")
+    await user.type(screen.getByLabelText("EXP 阈值"), "300")
+    await user.click(screen.getByRole("button", { name: "新建草稿等级" }))
+
+    expect(createAdminGrowthLevel).toHaveBeenCalledWith({
+      internalKey: "explorer",
+      levelOrder: 3,
+      displayName: "探索者",
+      requiredExperience: 300,
+      iconAssetId: null,
+      color: null,
+      description: "",
+    }, session.csrfToken)
+    expect(grantMembershipPoints).not.toHaveBeenCalled()
   })
 
   it("grants points and renders the resulting account level", async () => {
@@ -303,7 +364,7 @@ describe("AdminView", () => {
     await user.click(screen.getByRole("button", { name: "授予积分" }))
 
     expect(grantMembershipPoints).toHaveBeenCalledWith({ userId: memberId, amount: 30, reason: "campaign.reward", idempotencyKey: expect.any(String) }, session.csrfToken)
-    expect(await screen.findByText("已升级至 Lv2")).toBeInTheDocument()
+    expect(await screen.findByText("积分已记入账本")).toBeInTheDocument()
   })
 
   it("lets a points-only operator use the grant workspace without loading rule catalogs", async () => {
@@ -313,7 +374,17 @@ describe("AdminView", () => {
     expect(await screen.findByRole("heading", { name: "会员经济" })).toBeInTheDocument()
     expect(screen.getByLabelText("目标用户 UUID")).toBeInTheDocument()
     expect(screen.queryByLabelText("勋章目标用户 UUID")).not.toBeInTheDocument()
-    expect(getMembershipLevelRules).not.toHaveBeenCalled()
+    expect(getAdminGrowthLevels).not.toHaveBeenCalled()
+  })
+
+  it("lets an EXP write-only operator create a draft without loading the level catalog", async () => {
+    vi.mocked(getAdminAccess).mockResolvedValueOnce({ capabilityKeys: ["membership.rules.write"] })
+    render(<AdminView session={session} onBack={vi.fn()} requestedTab="membership" />)
+
+    expect(await screen.findByRole("heading", { name: "会员经济" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "新建草稿等级" })).toBeInTheDocument()
+    expect(screen.getByText("当前账号可创建成长等级，但不具备等级目录读取权限。")).toBeInTheDocument()
+    expect(getAdminGrowthLevels).not.toHaveBeenCalled()
   })
 
   it("opens the role and permission management tab", async () => {

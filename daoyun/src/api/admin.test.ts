@@ -5,11 +5,13 @@ import {
   createAuthorizationAssignment,
   createAuthorizationRole,
   createAdminBoard,
+  createAdminGrowthLevel,
   deleteBrandAsset,
   deleteAuthorizationAssignment,
   deleteAuthorizationRole,
   getAdminAccess,
   getAdminBoardDeletionImpact,
+  getAdminGrowthLevels,
   getMembershipLevelRules,
   getGovernancePolicy,
   getAdminSiteBranding,
@@ -22,6 +24,7 @@ import {
   listAdminAudit,
   updateMembershipLevelRule,
   updateAdminBoard,
+  updateAdminGrowthLevel,
   updateGovernancePolicy,
   updateAuthorizationRole,
   updateRiskAlert,
@@ -249,6 +252,60 @@ describe("admin API", () => {
     }))
   })
 
+  it("maps dynamic EXP levels and sends their versioned write contracts", async () => {
+    const growthLevelId = "019fc900-0000-7000-8000-000000000801"
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ data: [growthLevelDto(growthLevelId)], meta: { request_id: requestId } }))
+      .mockResolvedValueOnce(jsonResponse({ data: growthLevelDto(growthLevelId), meta: { request_id: requestId } }, 201))
+      .mockResolvedValueOnce(jsonResponse({ data: { ...growthLevelDto(growthLevelId), display_name: "行者", revision: 2, status: "published" }, meta: { request_id: requestId } }))
+
+    await expect(getAdminGrowthLevels()).resolves.toEqual([
+      expect.objectContaining({ id: growthLevelId, internalKey: "traveler", levelOrder: 2, requiredExperience: 100, status: "draft" }),
+    ])
+    await createAdminGrowthLevel({
+      internalKey: "traveler",
+      levelOrder: 2,
+      displayName: "旅者",
+      requiredExperience: 100,
+      iconAssetId: null,
+      color: "#1f8f5f",
+      description: "完成首次成长阶段",
+    }, "csrf")
+    await updateAdminGrowthLevel(growthLevelId, {
+      expectedRevision: 1,
+      levelOrder: 2,
+      displayName: "行者",
+      requiredExperience: 100,
+      iconAssetId: null,
+      color: "#1f8f5f",
+      description: "完成首次成长阶段",
+      status: "published",
+    }, "csrf")
+
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/admin/membership/levels", expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ "x-csrf-token": "csrf" }),
+      body: JSON.stringify({ internal_key: "traveler", level_order: 2, display_name: "旅者", required_experience: 100, icon_asset_id: null, color: "#1f8f5f", description: "完成首次成长阶段" }),
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(3, `/api/v1/admin/membership/levels/${growthLevelId}`, expect.objectContaining({
+      method: "PATCH",
+      headers: expect.objectContaining({ "x-csrf-token": "csrf" }),
+      body: JSON.stringify({ expected_revision: 1, level_order: 2, display_name: "行者", required_experience: 100, icon_asset_id: null, color: "#1f8f5f", description: "完成首次成长阶段", status: "published" }),
+    }))
+  })
+
+  it("accepts valid dynamic-level text measured by Unicode characters", async () => {
+    const growthLevelId = "019fc900-0000-7000-8000-000000000803"
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({
+      data: [{ ...growthLevelDto(growthLevelId), display_name: "😀".repeat(80), description: "😀".repeat(500) }],
+      meta: { request_id: requestId },
+    }))
+
+    await expect(getAdminGrowthLevels()).resolves.toEqual([
+      expect.objectContaining({ id: growthLevelId, displayName: "😀".repeat(80), description: "😀".repeat(500) }),
+    ])
+  })
+
   it("sends a points grant with idempotency and maps the resulting account", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({
       data: {
@@ -384,6 +441,24 @@ function riskAlertDto(id: string) {
 
 function membershipRuleDto(levelKey: string, requiredLifetimePoints: number, enabled: boolean, displayName = `Lv${levelKey.slice(3)}`) {
   return { level_key: levelKey, level_number: Number(levelKey.slice(3)), level_display_name: displayName, required_lifetime_points: requiredLifetimePoints, enabled, updated_at: "2026-08-07T01:00:00Z" }
+}
+
+function growthLevelDto(id: string) {
+  return {
+    id,
+    internal_key: "traveler",
+    level_order: 2,
+    display_name: "旅者",
+    required_experience: 100,
+    icon_asset_id: null,
+    color: "#1f8f5f",
+    description: "完成首次成长阶段",
+    status: "draft",
+    revision: 1,
+    published_at: null,
+    created_at: "2026-08-20T01:00:00Z",
+    updated_at: "2026-08-20T01:00:00Z",
+  }
 }
 
 function authorizationPermissionDto() {

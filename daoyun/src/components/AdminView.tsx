@@ -47,7 +47,7 @@ const adminModules: AdminModuleDefinition[] = [
   { tab: "reports", label: "举报处理", requirements: ["governance.reports.read"] },
   { tab: "moderation", label: "内容治理", requirements: ["moderation.topic"] },
   { tab: "risk", label: "风控告警", requirements: ["governance.policy.read", "governance.alerts.read"] },
-  { tab: "membership", label: "会员经济", requirements: ["membership.rules.read", "membership.medals.read", "membership.points.grant", "membership.medals.grant"], requirementMode: "any" },
+  { tab: "membership", label: "会员经济", requirements: ["membership.rules.read", "membership.rules.write", "membership.medals.read", "membership.medals.rules.write", "membership.points.grant", "membership.medals.grant"], requirementMode: "any" },
   { tab: "branding", label: "品牌配置", requirements: ["admin.configuration.read"] },
   { tab: "authorization", label: "角色与权限", requirements: ["authorization.roles.read", "authorization.assignments.read"] },
   { tab: "operations", label: "运维监控", requirements: ["operations.read"] },
@@ -236,7 +236,9 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
         <MembershipAdminPanel
           csrfToken={session?.csrfToken ?? ""}
           canReadLevelRules={capabilityKeys.includes("membership.rules.read")}
+          canWriteLevelRules={capabilityKeys.includes("membership.rules.write")}
           canReadMedalRules={capabilityKeys.includes("membership.medals.read")}
+          canWriteMedalRules={capabilityKeys.includes("membership.medals.rules.write")}
           canGrantPoints={capabilityKeys.includes("membership.points.grant")}
           canGrantMedals={capabilityKeys.includes("membership.medals.grant")}
         />

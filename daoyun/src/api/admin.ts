@@ -91,6 +91,39 @@ export interface MembershipLevelRule {
   updatedAt: string
 }
 
+export type GrowthLevelStatus = components["schemas"]["GrowthLevelStatus"]
+
+export interface AdminGrowthLevel {
+  id: string
+  internalKey: string
+  levelOrder: number
+  displayName: string
+  requiredExperience: number
+  iconAssetId: string | null
+  color: string | null
+  description: string
+  status: GrowthLevelStatus
+  revision: number
+  publishedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateAdminGrowthLevelInput {
+  internalKey: string
+  levelOrder: number
+  displayName: string
+  requiredExperience: number
+  iconAssetId: string | null
+  color: string | null
+  description: string
+}
+
+export interface UpdateAdminGrowthLevelInput extends Omit<CreateAdminGrowthLevelInput, "internalKey"> {
+  expectedRevision: number
+  status: GrowthLevelStatus
+}
+
 export interface MembershipLevelRuleInput {
   requiredLifetimePoints?: number
   enabled?: boolean
@@ -462,6 +495,38 @@ export async function listAdminAudit(options: ListAdminAuditOptions = {}): Promi
   return { entries: payload.data.map(mapValue) as AdminAuditEntry[], nextCursor: payload.meta.next_cursor }
 }
 
+export async function getAdminGrowthLevels(signal?: AbortSignal): Promise<AdminGrowthLevel[]> {
+  const response = await fetch("/api/v1/admin/membership/levels", {
+    headers: { Accept: "application/json" },
+    credentials: "include",
+    signal,
+  })
+  return parseResponse<AdminGrowthLevel[]>(response, (value): value is AdminGrowthLevelDto[] => Array.isArray(value) && value.every(isAdminGrowthLevelDto))
+}
+
+export async function createAdminGrowthLevel(input: CreateAdminGrowthLevelInput, csrfToken: string, signal?: AbortSignal): Promise<AdminGrowthLevel> {
+  const response = await fetch("/api/v1/admin/membership/levels", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken },
+    credentials: "include",
+    body: JSON.stringify(toCreateAdminGrowthLevelDto(input)),
+    signal,
+  })
+  return parseResponse(response, isAdminGrowthLevelDto)
+}
+
+export async function updateAdminGrowthLevel(levelId: string, input: UpdateAdminGrowthLevelInput, csrfToken: string, signal?: AbortSignal): Promise<AdminGrowthLevel> {
+  if (!uuidPattern.test(levelId)) throw new AdminApiError(422, "validation.failed", "动态等级标识格式无效")
+  const response = await fetch(`/api/v1/admin/membership/levels/${encodeURIComponent(levelId)}`, {
+    method: "PATCH",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken },
+    credentials: "include",
+    body: JSON.stringify(toUpdateAdminGrowthLevelDto(input)),
+    signal,
+  })
+  return parseResponse(response, isAdminGrowthLevelDto)
+}
+
 export async function getMembershipLevelRules(signal?: AbortSignal): Promise<MembershipLevelRule[]> {
   const response = await fetch("/api/v1/admin/membership/level-rules", {
     headers: { Accept: "application/json" },
@@ -648,6 +713,9 @@ type CreateAdminBoardRequestDto = components["schemas"]["CreateAdminBoardRequest
 type UpdateAdminBoardRequestDto = components["schemas"]["UpdateAdminBoardRequest"]
 type UpdateGovernancePolicyRequestDto = components["schemas"]["UpdateGovernancePolicyRequest"]
 type UpdateRiskAlertRequestDto = components["schemas"]["UpdateRiskAlertRequest"]
+type AdminGrowthLevelDto = components["schemas"]["AdminGrowthLevel"]
+type CreateGrowthLevelRequestDto = components["schemas"]["CreateGrowthLevelRequest"]
+type UpdateGrowthLevelRequestDto = components["schemas"]["UpdateGrowthLevelRequest"]
 type MembershipLevelRuleDto = components["schemas"]["MembershipLevelRule"]
 type UpdateMembershipLevelRuleRequestDto = components["schemas"]["UpdateMembershipLevelRuleRequest"]
 type GrantMembershipPointsRequestDto = components["schemas"]["GrantMembershipPointsRequest"]
@@ -690,6 +758,7 @@ function mapValue(value: unknown): unknown {
   if (isBoardDto(value)) return { id: value.id, parentId: value.parent_id ?? null, slug: value.slug, name: value.name, description: value.description, icon: value.icon, tone: value.tone, position: value.position, visibility: value.visibility, topicCount: value.topic_count, revision: value.revision }
   if (isBoardDeletionImpactDto(value)) return { boardId: value.board_id, childCount: value.child_count, topicCount: value.topic_count, replyCount: value.reply_count, canDelete: value.can_delete }
   if (isGovernancePolicyDto(value)) return { enabled: value.enabled, alertScoreThreshold: value.alert_score_threshold, reporterWindowMinutes: value.reporter_window_minutes, reporterAlertLimit: value.reporter_alert_limit }
+  if (isAdminGrowthLevelDto(value)) return { id: value.id, internalKey: value.internal_key, levelOrder: value.level_order, displayName: value.display_name, requiredExperience: value.required_experience, iconAssetId: value.icon_asset_id ?? null, color: value.color ?? null, description: value.description, status: value.status, revision: value.revision, publishedAt: value.published_at ?? null, createdAt: value.created_at, updatedAt: value.updated_at }
   if (isMembershipLevelRuleDto(value)) return { levelKey: value.level_key, levelNumber: value.level_number, levelDisplayName: value.level_display_name, requiredLifetimePoints: value.required_lifetime_points, enabled: value.enabled, updatedAt: value.updated_at }
   if (isMembershipPointsGrantDto(value)) return { account: mapValue(value.account) as MembershipAccount, created: value.created }
   if (isMembershipAccountDto(value)) return { userId: value.user_id, pointsBalance: value.points_balance, lifetimePoints: value.lifetime_points, levelKey: value.level_key, levelNumber: value.level_number, levelDisplayName: value.level_display_name, revision: value.revision, updatedAt: value.updated_at }
@@ -708,6 +777,8 @@ function mapValue(value: unknown): unknown {
 function toBrandingDto(value: SiteBrandingInput): UpdateSiteBrandingRequestDto { return { site_name: value.siteName, logo_url: value.logoUrl, favicon_url: value.faviconUrl, default_cover_url: value.defaultCoverUrl, navigation_links: value.navigationLinks, footer_text: value.footerText, footer_links: value.footerLinks, primary_color: value.primaryColor, accent_color: value.accentColor, theme_preset: value.themePreset, list_density: value.listDensity, home_mode: value.homeMode } }
 function toCreateBoardDto(value: AdminBoardInput): CreateAdminBoardRequestDto { return { parent_id: value.parentId, slug: value.slug, name: value.name, description: value.description, icon: value.icon, tone: value.tone, position: value.position, visibility: value.visibility } }
 function toUpdateBoardDto(value: AdminBoardUpdateInput): UpdateAdminBoardRequestDto { return { parent_id: value.parentId, slug: value.slug, name: value.name, description: value.description, icon: value.icon, tone: value.tone, position: value.position, visibility: value.visibility, expected_revision: value.expectedRevision } }
+function toCreateAdminGrowthLevelDto(value: CreateAdminGrowthLevelInput): CreateGrowthLevelRequestDto { return { internal_key: value.internalKey, level_order: value.levelOrder, display_name: value.displayName, required_experience: value.requiredExperience, icon_asset_id: value.iconAssetId, color: value.color, description: value.description } }
+function toUpdateAdminGrowthLevelDto(value: UpdateAdminGrowthLevelInput): UpdateGrowthLevelRequestDto { return { expected_revision: value.expectedRevision, level_order: value.levelOrder, display_name: value.displayName, required_experience: value.requiredExperience, icon_asset_id: value.iconAssetId, color: value.color, description: value.description, status: value.status } }
 function toMembershipLevelRuleDto(value: MembershipLevelRuleInput): UpdateMembershipLevelRuleRequestDto { return { required_lifetime_points: value.requiredLifetimePoints, enabled: value.enabled, display_name: value.displayName } }
 function toMembershipPointsGrantDto(value: MembershipPointsGrantInput): GrantMembershipPointsRequestDto { return { user_id: value.userId, amount: value.amount, reason: value.reason, idempotency_key: value.idempotencyKey ?? null } }
 
@@ -725,6 +796,9 @@ function isBoardDto(value: unknown): value is AdminBoardDto { return isRecord(va
 function isBoardDeletionImpactDto(value: unknown): value is AdminBoardDeletionImpactDto { return isRecord(value) && isUuid(value.board_id) && Number.isSafeInteger(value.child_count) && value.child_count >= 0 && Number.isSafeInteger(value.topic_count) && value.topic_count >= 0 && Number.isSafeInteger(value.reply_count) && value.reply_count >= 0 && typeof value.can_delete === "boolean" && value.can_delete === (value.child_count === 0 && value.topic_count === 0) }
 function isGovernancePolicy(value: unknown): value is GovernancePolicy { return isGovernancePolicyDto(value) }
 function isGovernancePolicyDto(value: unknown): value is GovernancePolicyDto { return isRecord(value) && typeof value.enabled === "boolean" && Number.isSafeInteger(value.alert_score_threshold) && value.alert_score_threshold >= 1 && value.alert_score_threshold <= 100 && Number.isSafeInteger(value.reporter_window_minutes) && value.reporter_window_minutes >= 1 && value.reporter_window_minutes <= 1440 && Number.isSafeInteger(value.reporter_alert_limit) && value.reporter_alert_limit >= 1 && value.reporter_alert_limit <= 100 }
+function isAdminGrowthLevelDto(value: unknown): value is AdminGrowthLevelDto { return isRecord(value) && isUuid(value.id) && typeof value.internal_key === "string" && /^[a-z][a-z0-9_]{2,63}$/.test(value.internal_key) && Number.isSafeInteger(value.level_order) && value.level_order >= 1 && isValidGrowthText(value.display_name, 1, 80, true) && Number.isSafeInteger(value.required_experience) && value.required_experience >= 0 && (value.icon_asset_id === null || value.icon_asset_id === undefined || isUuid(value.icon_asset_id)) && (value.color === null || value.color === undefined || (typeof value.color === "string" && /^#[0-9a-f]{6}$/i.test(value.color))) && isValidGrowthText(value.description, 0, 500, false) && isGrowthLevelStatus(value.status) && Number.isSafeInteger(value.revision) && value.revision >= 1 && (value.published_at === null || value.published_at === undefined || isTimestamp(value.published_at)) && isTimestamp(value.created_at) && isTimestamp(value.updated_at) }
+function isGrowthLevelStatus(value: unknown): value is GrowthLevelStatus { return value === "draft" || value === "published" || value === "disabled" || value === "archived" }
+function isValidGrowthText(value: unknown, minimumLength: number, maximumLength: number, mustBeTrimmed: boolean): value is string { return typeof value === "string" && (!mustBeTrimmed || value === value.trim()) && Array.from(value).length >= minimumLength && Array.from(value).length <= maximumLength && !Array.from(value).some((character) => /\p{Cc}/u.test(character)) }
 function isMembershipLevelRuleDto(value: unknown): value is MembershipLevelRuleDto { return isRecord(value) && typeof value.level_key === "string" && membershipLevelPattern.test(value.level_key) && Number.isSafeInteger(value.level_number) && value.level_number >= 1 && value.level_number <= 20 && value.level_key === `lv_${value.level_number}` && typeof value.level_display_name === "string" && value.level_display_name.trim().length > 0 && Number.isSafeInteger(value.required_lifetime_points) && value.required_lifetime_points >= 0 && typeof value.enabled === "boolean" && typeof value.updated_at === "string" }
 function isMembershipAccountDto(value: unknown): value is MembershipAccountDto { return isRecord(value) && isUuid(value.user_id) && Number.isSafeInteger(value.points_balance) && value.points_balance >= 0 && Number.isSafeInteger(value.lifetime_points) && value.lifetime_points >= 0 && typeof value.level_key === "string" && membershipLevelPattern.test(value.level_key) && Number.isSafeInteger(value.level_number) && value.level_number >= 1 && value.level_number <= 20 && value.level_key === `lv_${value.level_number}` && typeof value.level_display_name === "string" && value.level_display_name.trim().length > 0 && Number.isSafeInteger(value.revision) && value.revision >= 0 && typeof value.updated_at === "string" }
 function isMembershipPointsGrantDto(value: unknown): value is MembershipPointsGrantDto { return isRecord(value) && typeof value.created === "boolean" && isMembershipAccountDto(value.account) }
