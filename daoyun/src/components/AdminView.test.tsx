@@ -9,6 +9,7 @@ import {
   getAdminAccess,
   getAdminSiteBranding,
   getAdminGrowthLevels,
+  getMembershipMedalRules,
   getMembershipLevelRules,
   grantMembershipPoints,
   listAuthorizationAssignments,
@@ -33,6 +34,7 @@ vi.mock("../api/admin", async () => {
     listAdminBoards: vi.fn(),
     updateSiteBranding: vi.fn(),
     getAdminGrowthLevels: vi.fn(),
+    getMembershipMedalRules: vi.fn(),
     createAdminGrowthLevel: vi.fn(),
     updateAdminGrowthLevel: vi.fn(),
     getMembershipLevelRules: vi.fn(),
@@ -94,13 +96,16 @@ const growthLevels = [{
   iconAssetId: null,
   color: "#1f8f5f",
   description: "完成首次成长阶段",
-  status: "draft" as const,
+  status: "published" as const,
   revision: 1,
-  publishedAt: null,
+  publishedAt: "2026-08-20T01:00:00Z",
   createdAt: "2026-08-20T01:00:00Z",
   updatedAt: "2026-08-20T01:00:00Z",
 }]
 const memberId = "019fc900-0000-7000-8000-000000000401"
+const medalRules = [
+  { key: "medal_01", displayName: "勋章 01", enabled: true, requiredLifetimePoints: 0, updatedAt: "2026-08-20T01:00:00Z" },
+]
 
 beforeEach(() => {
   vi.mocked(getAdminAccess).mockResolvedValue({ capabilityKeys: [
@@ -111,6 +116,7 @@ beforeEach(() => {
     "governance.alerts.read",
     "membership.rules.read",
     "membership.rules.write",
+    "membership.medals.read",
     "membership.points.grant",
     "membership.medals.grant",
     "authorization.roles.read",
@@ -128,6 +134,7 @@ beforeEach(() => {
   vi.mocked(deleteBrandAsset).mockResolvedValue(branding)
   vi.mocked(getMembershipLevelRules).mockResolvedValue(membershipRules)
   vi.mocked(getAdminGrowthLevels).mockResolvedValue(growthLevels)
+  vi.mocked(getMembershipMedalRules).mockResolvedValue(medalRules)
   vi.mocked(createAdminGrowthLevel).mockResolvedValue(growthLevels[0])
   vi.mocked(updateAdminGrowthLevel).mockResolvedValue({ ...growthLevels[0], displayName: "行者", revision: 2, status: "published" })
   vi.mocked(updateMembershipLevelRule).mockResolvedValue({ ...membershipRules[1], requiredLifetimePoints: 30, enabled: true })
@@ -297,6 +304,7 @@ describe("AdminView", () => {
     await user.click(await screen.findByRole("button", { name: "会员经济" }))
     expect(await screen.findByRole("heading", { name: "会员经济" })).toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "成长等级（EXP）" })).toBeInTheDocument()
+    await user.click(screen.getByText("编辑 traveler"))
     const name = screen.getByLabelText("traveler 展示名称")
     await user.clear(name)
     await user.type(name, "行者")
@@ -310,6 +318,31 @@ describe("AdminView", () => {
     expect(await screen.findByText("traveler 已保存")).toBeInTheDocument()
   })
 
+  it("focuses the growth level list on published levels and lets operators include drafts", async () => {
+    const user = userEvent.setup()
+    vi.mocked(getAdminGrowthLevels).mockResolvedValueOnce([
+      ...growthLevels,
+      {
+        ...growthLevels[0],
+        id: "019fc900-0000-7000-8000-000000000803",
+        internalKey: "explorer",
+        levelOrder: 3,
+        displayName: "探索者",
+        status: "draft",
+        publishedAt: null,
+      },
+    ])
+    render(<AdminView session={session} onBack={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    expect(await screen.findByText("已发布 1 / 共 2")).toBeInTheDocument()
+    expect(screen.queryByText("explorer")).not.toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText("筛选成长等级"), "all")
+
+    expect(screen.getByText("explorer")).toBeInTheDocument()
+  })
+
   it("shows the four independent membership economy boundaries without legacy point levels", async () => {
     render(<AdminView session={session} onBack={vi.fn()} />)
 
@@ -319,6 +352,15 @@ describe("AdminView", () => {
     expect(screen.getByRole("heading", { name: "勋章" })).toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "标准权益" })).toBeInTheDocument()
     expect(screen.queryByLabelText("lv_1 累计积分阈值")).not.toBeInTheDocument()
+  })
+
+  it("renders the fixed medal catalog with its visual identifier", async () => {
+    const user = userEvent.setup()
+    render(<AdminView session={session} onBack={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+
+    expect(await screen.findByRole("img", { name: "勋章 01" })).toHaveAttribute("src", "/assets/membership/medals/medal1.gif")
   })
 
   it("creates a draft EXP level without changing the points ledger", async () => {
