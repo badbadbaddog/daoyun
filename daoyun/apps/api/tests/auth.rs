@@ -381,25 +381,6 @@ async fn recent_authentication_requires_csrf_and_creates_one_time_operation_stat
             && metadata["operation"] == "security.settings"
             && metadata.get("password").is_none()
     }));
-
-    let admin_recent = app
-        .clone()
-        .oneshot(recent_auth_request(
-            &cookie_header,
-            csrf_token,
-            "admin.privileged_write",
-            "correct horse battery staple",
-        ))
-        .await
-        .expect("admin recent auth route must respond");
-    assert_eq!(admin_recent.status(), StatusCode::OK);
-    let admin_records = sqlx::query_scalar::<_, i64>(
-        "SELECT count(*) FROM recent_authentications WHERE operation = 'admin.privileged_write'",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("admin recent auth state must be queryable");
-    assert_eq!(admin_records, 1);
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]

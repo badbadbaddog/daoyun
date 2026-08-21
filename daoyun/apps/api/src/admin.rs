@@ -63,10 +63,7 @@ use utoipa::IntoParams;
 use uuid::Uuid;
 
 use crate::CacheRuntime;
-use crate::auth::{
-    ADMIN_PRIVILEGED_RECENT_AUTH_OPERATION, ApiError, AuthRuntime, authenticate_session,
-    authenticate_state_change, recent_authentication_required,
-};
+use crate::auth::{ApiError, AuthRuntime, authenticate_session, authenticate_state_change};
 
 const ADMIN_BODY_LIMIT: usize = 32 * 1024;
 const MAX_BRAND_ASSET_BYTES: usize = 2 * 1024 * 1024;
@@ -3258,38 +3255,7 @@ pub(crate) async fn authorize_capability_write(
     permission_key: &str,
 ) -> Result<infrastructure::SessionRecord, ApiError> {
     let session = authenticate_state_change(database, runtime, headers, request_id).await?;
-    let session = authorize_capability(database, session, permission_key, request_id).await?;
-    if privileged_admin_recent_auth_required(permission_key) {
-        let recently_authenticated = database
-            .has_recent_authentication(
-                session.user.id,
-                session.id,
-                ADMIN_PRIVILEGED_RECENT_AUTH_OPERATION,
-            )
-            .await
-            .map_err(|error| database_error(request_id, error, "管理员近期认证状态查询失败"))?;
-        if !recently_authenticated {
-            return Err(recent_authentication_required(request_id));
-        }
-    }
-    Ok(session)
-}
-
-fn privileged_admin_recent_auth_required(permission_key: &str) -> bool {
-    matches!(
-        permission_key,
-        permission_keys::AUTHORIZATION_ROLES_WRITE
-            | permission_keys::AUTHORIZATION_ASSIGNMENTS_WRITE
-            | permission_keys::COMMUNITY_GROUPS_WRITE
-            | permission_keys::COMMUNITY_MEMBERSHIPS_WRITE
-            | permission_keys::CONTENT_ACCESS_POLICIES_WRITE
-            | permission_keys::ENTITLEMENT_TYPES_WRITE
-            | permission_keys::ENTITLEMENT_GRANTS_WRITE
-            | permission_keys::MEMBERSHIP_RULES_WRITE
-            | permission_keys::MEMBERSHIP_POINTS_GRANT
-            | permission_keys::MEMBERSHIP_MEDALS_GRANT
-            | permission_keys::MEMBERSHIP_MEDAL_RULES_WRITE
-    )
+    authorize_capability(database, session, permission_key, request_id).await
 }
 
 async fn authorize_capability(

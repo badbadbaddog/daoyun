@@ -913,23 +913,6 @@ async fn login(app: &axum::Router, username: &str, password: &str) -> (String, S
         .expect("login must respond");
     assert_eq!(response.status(), StatusCode::OK);
     let (cookies, csrf) = session_cookies(&response).await;
-    if username == "owner" {
-        let recent = app
-            .clone()
-            .oneshot(json_request(
-                Method::POST,
-                "/api/v1/auth/recent-auth",
-                json!({
-                    "operation": "admin.privileged_write",
-                    "password": password
-                }),
-                &cookies,
-                Some(&csrf),
-            ))
-            .await
-            .expect("admin recent authentication must respond");
-        assert_eq!(recent.status(), StatusCode::OK);
-    }
     (cookies, csrf)
 }
 

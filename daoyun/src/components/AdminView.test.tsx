@@ -337,6 +337,13 @@ describe("AdminView", () => {
     expect(screen.getByRole("button", { name: "风控告警" })).toBeInTheDocument()
   })
 
+  it("does not require a separate sensitive-operation verification panel", async () => {
+    render(<AdminView session={session} onBack={vi.fn()} />)
+
+    expect(await screen.findByRole("heading", { name: "站点管理" })).toBeInTheDocument()
+    expect(screen.queryByRole("heading", { name: "敏感管理操作" })).not.toBeInTheDocument()
+  })
+
   it("opens a governance-only account in the same site administration shell", async () => {
     vi.mocked(getAdminAccess).mockResolvedValueOnce({ capabilityKeys: ["governance.reports.read"] })
     render(<AdminView session={session} onBack={vi.fn()} />)

@@ -1099,7 +1099,7 @@ async fn authorization_catalog_requires_capabilities_and_preserves_public_contra
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
-async fn privileged_admin_write_requires_recent_authentication(pool: PgPool) {
+async fn privileged_admin_write_does_not_require_recent_authentication(pool: PgPool) {
     let config = daoyun_api::AuthConfig::default().with_secure_cookies(false);
     let app = daoyun_api::app_with_config(Database::from_pool(pool), config);
     initialize(&app).await;
@@ -1117,13 +1117,13 @@ async fn privileged_admin_write_requires_recent_authentication(pool: PgPool) {
     assert_eq!(login.status(), StatusCode::OK);
     let (owner_cookies, owner_csrf) = session_cookies(&login).await;
 
-    let denied = app
+    let created = app
         .oneshot(json_request(
             Method::POST,
             "/api/v1/admin/authorization/roles",
             json!({
-                "key": "missing_recent_auth",
-                "name": "Missing recent auth",
+                "key": "without_recent_auth",
+                "name": "Without recent auth",
                 "scope": "instance",
                 "permission_keys": ["authorization.roles.read"]
             }),
@@ -1132,11 +1132,7 @@ async fn privileged_admin_write_requires_recent_authentication(pool: PgPool) {
         ))
         .await
         .expect("privileged write without recent auth must respond");
-    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
-    assert_eq!(
-        response_json(denied).await["error"]["code"],
-        "auth.recent_auth_required"
-    );
+    assert_eq!(created.status(), StatusCode::CREATED);
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
@@ -1655,21 +1651,6 @@ async fn login_owner(app: &axum::Router) -> (String, String) {
         .expect("owner login must respond");
     assert_eq!(response.status(), StatusCode::OK);
     let (cookies, csrf) = session_cookies(&response).await;
-    let recent = app
-        .clone()
-        .oneshot(json_request(
-            Method::POST,
-            "/api/v1/auth/recent-auth",
-            json!({
-                "operation": "admin.privileged_write",
-                "password": "correct horse battery staple"
-            }),
-            &cookies,
-            Some(&csrf),
-        ))
-        .await
-        .expect("admin recent authentication must respond");
-    assert_eq!(recent.status(), StatusCode::OK);
     (cookies, csrf)
 }
 

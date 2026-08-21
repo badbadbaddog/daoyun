@@ -60,9 +60,7 @@ const AUTH_BODY_LIMIT: usize = 4 * 1024;
 const SESSION_MAX_AGE_SECONDS: u64 = 30 * 24 * 60 * 60;
 const OIDC_TRANSACTION_MAX_AGE_SECONDS: u64 = 5 * 60;
 const MAX_TRACKED_AUTH_ATTEMPT_WINDOWS: usize = 16_384;
-pub(crate) const ADMIN_PRIVILEGED_RECENT_AUTH_OPERATION: &str = "admin.privileged_write";
-const RECENT_AUTH_OPERATIONS: &[&str] =
-    &["security.settings", ADMIN_PRIVILEGED_RECENT_AUTH_OPERATION];
+const RECENT_AUTH_OPERATIONS: &[&str] = &["security.settings"];
 static PASSWORD_OPERATIONS: LazyLock<Semaphore> = LazyLock::new(|| Semaphore::new(4));
 static DUMMY_PASSWORD_HASH: LazyLock<String> = LazyLock::new(|| {
     let salt = SaltString::generate(&mut OsRng);
