@@ -16,6 +16,7 @@ import {
   getGovernancePolicy,
   getAdminSiteBranding,
   grantMembershipPoints,
+  listMembershipMedalOperations,
   listAuthorizationAssignments,
   listAuthorizationPermissions,
   listAuthorizationRoles,
@@ -30,6 +31,7 @@ import {
   updateRiskAlert,
   updateSiteBranding,
   uploadBrandAsset,
+  revokeMembershipMedal,
 } from "./admin"
 
 const requestId = "019fc900-0000-7000-8000-000000000001"
@@ -333,6 +335,53 @@ describe("admin API", () => {
       method: "POST",
       headers: expect.objectContaining({ "x-csrf-token": "csrf" }),
       body: JSON.stringify({ user_id: memberId, amount: 25, reason: "运营奖励", idempotency_key: "grant-1" }),
+    }))
+  })
+
+  it("maps medal operation pages and sends an auditable revocation", async () => {
+    const operationId = "019fc900-0000-7000-8000-000000000901"
+    const cursor = "019fc900-0000-7000-8000-000000000902"
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({
+        data: [{
+          id: operationId,
+          operation: "grant",
+          user_id: memberId,
+          username: "demo_member",
+          user_display_name: "演示成员",
+          medal_key: "medal_01",
+          medal_display_name: "勋章 01",
+          reason: "operator.award",
+          actor_id: userDto().id,
+          actor_username: "admin",
+          actor_display_name: "管理员",
+          created_at: "2026-08-22T01:00:00Z",
+        }],
+        meta: { request_id: requestId, next_cursor: cursor },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: { user_id: memberId, medal_key: "medal_01", revoked: true },
+        meta: { request_id: requestId },
+      }))
+
+    await expect(listMembershipMedalOperations({ userId: memberId, medalKey: "medal_01", limit: 25 })).resolves.toEqual({
+      operations: [expect.objectContaining({ id: operationId, operation: "grant", userId: memberId, medalDisplayName: "勋章 01" })],
+      nextCursor: cursor,
+    })
+    await expect(revokeMembershipMedal({ userId: memberId, medalKey: "medal_01", reason: "运营调整" }, "csrf")).resolves.toEqual({
+      userId: memberId,
+      medalKey: "medal_01",
+      revoked: true,
+    })
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      `/api/v1/admin/membership/medal-operations?user_id=${memberId}&medal_key=medal_01&limit=25`,
+      expect.objectContaining({ credentials: "include" }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/admin/membership/medal-revocations", expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ "x-csrf-token": "csrf" }),
+      body: JSON.stringify({ user_id: memberId, medal_key: "medal_01", reason: "运营调整" }),
     }))
   })
 

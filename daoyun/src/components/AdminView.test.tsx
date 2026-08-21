@@ -9,9 +9,12 @@ import {
   getAdminAccess,
   getAdminSiteBranding,
   getAdminGrowthLevels,
+  listMembershipMedalOperations,
   getMembershipMedalRules,
   getMembershipLevelRules,
+  grantMembershipMedal,
   grantMembershipPoints,
+  revokeMembershipMedal,
   listAuthorizationAssignments,
   listAuthorizationPermissions,
   listAuthorizationRoles,
@@ -35,11 +38,14 @@ vi.mock("../api/admin", async () => {
     updateSiteBranding: vi.fn(),
     getAdminGrowthLevels: vi.fn(),
     getMembershipMedalRules: vi.fn(),
+    listMembershipMedalOperations: vi.fn(),
     createAdminGrowthLevel: vi.fn(),
     updateAdminGrowthLevel: vi.fn(),
     getMembershipLevelRules: vi.fn(),
     updateMembershipLevelRule: vi.fn(),
+    grantMembershipMedal: vi.fn(),
     grantMembershipPoints: vi.fn(),
+    revokeMembershipMedal: vi.fn(),
     listAuthorizationAssignments: vi.fn(),
     listAuthorizationPermissions: vi.fn(),
     listAuthorizationRoles: vi.fn(),
@@ -106,6 +112,20 @@ const memberId = "019fc900-0000-7000-8000-000000000401"
 const medalRules = [
   { key: "medal_01", displayName: "勋章 01", enabled: true, requiredLifetimePoints: 0, updatedAt: "2026-08-20T01:00:00Z" },
 ]
+const medalOperations = [{
+  id: "019fc900-0000-7000-8000-000000000901",
+  operation: "grant" as const,
+  userId: memberId,
+  username: "medal_member",
+  userDisplayName: "勋章成员",
+  medalKey: "medal_01",
+  medalDisplayName: "勋章 01",
+  reason: "operator.award",
+  actorId: session.user.id,
+  actorUsername: session.user.username,
+  actorDisplayName: session.user.displayName,
+  createdAt: "2026-08-22T01:00:00Z",
+}]
 
 beforeEach(() => {
   vi.mocked(getAdminAccess).mockResolvedValue({ capabilityKeys: [
@@ -135,9 +155,14 @@ beforeEach(() => {
   vi.mocked(getMembershipLevelRules).mockResolvedValue(membershipRules)
   vi.mocked(getAdminGrowthLevels).mockResolvedValue(growthLevels)
   vi.mocked(getMembershipMedalRules).mockResolvedValue(medalRules)
+  vi.mocked(listMembershipMedalOperations).mockResolvedValue({ operations: medalOperations, nextCursor: null })
   vi.mocked(createAdminGrowthLevel).mockResolvedValue(growthLevels[0])
   vi.mocked(updateAdminGrowthLevel).mockResolvedValue({ ...growthLevels[0], displayName: "行者", revision: 2, status: "published" })
   vi.mocked(updateMembershipLevelRule).mockResolvedValue({ ...membershipRules[1], requiredLifetimePoints: 30, enabled: true })
+  vi.mocked(grantMembershipMedal).mockResolvedValue({
+    medal: { key: "medal_01", displayName: "勋章 01", assetUrl: "/assets/membership/medals/medal1.gif", sha256: "a".repeat(64), grantedAt: "2026-08-22T02:00:00Z" },
+    created: true,
+  })
   vi.mocked(grantMembershipPoints).mockResolvedValue({
     created: true,
     account: { userId: memberId, pointsBalance: 30, lifetimePoints: 30, levelKey: "lv_2", levelNumber: 2, levelDisplayName: "Lv2", revision: 2, updatedAt: "2026-08-07T01:00:00Z" },
@@ -317,6 +342,7 @@ describe("AdminView", () => {
     expect(updateAdminGrowthLevel).toHaveBeenCalledWith(growthLevels[0].id, expect.objectContaining({ expectedRevision: 1, displayName: "行者", requiredExperience: 120, status: "published" }), session.csrfToken)
     expect(await screen.findByText("traveler 已保存")).toBeInTheDocument()
   })
+  vi.mocked(revokeMembershipMedal).mockResolvedValue({ userId: memberId, medalKey: "medal_01", revoked: true })
 
   it("focuses the growth level list on published levels and lets operators include drafts", async () => {
     const user = userEvent.setup()
@@ -343,14 +369,30 @@ describe("AdminView", () => {
     expect(screen.getByText("explorer")).toBeInTheDocument()
   })
 
-  it("shows the four independent membership economy boundaries without legacy point levels", async () => {
+  it("separates growth, points, and medals into task-focused workspaces", async () => {
+    const user = userEvent.setup()
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    await userEvent.setup().click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(await screen.findByRole("button", { name: "会员经济" }))
     expect(await screen.findByRole("heading", { name: "成长等级（EXP）" })).toBeInTheDocument()
+    expect(screen.queryByRole("heading", { name: "积分账本" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("heading", { name: "勋章" })).not.toBeInTheDocument()
+    const growthTab = screen.getByRole("tab", { name: "成长运营" })
+    expect(growthTab).toHaveAttribute("tabindex", "0")
+    expect(screen.getByRole("tabpanel", { name: "成长运营" })).toBeInTheDocument()
+
+    growthTab.focus()
+    await user.keyboard("{ArrowRight}")
+    expect(screen.getByRole("tab", { name: "积分运营" })).toHaveFocus()
+    expect(screen.getByRole("tab", { name: "积分运营" })).toHaveAttribute("aria-selected", "true")
+
+    await user.click(screen.getByRole("tab", { name: "积分运营" }))
     expect(screen.getByRole("heading", { name: "积分账本" })).toBeInTheDocument()
+    expect(screen.queryByRole("heading", { name: "成长等级（EXP）" })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole("tab", { name: "勋章运营" }))
     expect(screen.getByRole("heading", { name: "勋章" })).toBeInTheDocument()
-    expect(screen.getByRole("heading", { name: "标准权益" })).toBeInTheDocument()
+    expect(screen.queryByRole("heading", { name: "标准权益" })).not.toBeInTheDocument()
     expect(screen.queryByLabelText("lv_1 累计积分阈值")).not.toBeInTheDocument()
   })
 
@@ -359,8 +401,50 @@ describe("AdminView", () => {
     render(<AdminView session={session} onBack={vi.fn()} />)
 
     await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(screen.getByRole("tab", { name: "勋章运营" }))
 
     expect(await screen.findByRole("img", { name: "勋章 01" })).toHaveAttribute("src", "/assets/membership/medals/medal1.gif")
+  })
+
+  it("loads medal operations and revokes an active medal with an audit reason", async () => {
+    const user = userEvent.setup()
+    render(<AdminView session={session} onBack={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(screen.getByRole("tab", { name: "勋章运营" }))
+    expect(await screen.findByText("勋章成员")).toBeInTheDocument()
+    expect(listMembershipMedalOperations).toHaveBeenCalledWith(expect.objectContaining({ limit: 25, signal: expect.any(AbortSignal) }))
+
+    await user.click(screen.getByRole("button", { name: "撤销 勋章 01" }))
+    await user.type(screen.getByLabelText("撤销原因"), "运营调整")
+    await user.click(screen.getByRole("button", { name: "确认撤销" }))
+
+    expect(revokeMembershipMedal).toHaveBeenCalledWith({ userId: memberId, medalKey: "medal_01", reason: "运营调整" }, session.csrfToken)
+    expect(await screen.findByText("勋章已撤销")).toBeInTheDocument()
+    expect(listMembershipMedalOperations).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps the newest medal operation response when an older request finishes later", async () => {
+    const user = userEvent.setup()
+    let resolveInitial!: (value: Awaited<ReturnType<typeof listMembershipMedalOperations>>) => void
+    const initialResponse = new Promise<Awaited<ReturnType<typeof listMembershipMedalOperations>>>((resolve) => { resolveInitial = resolve })
+    const refreshedOperation = { ...medalOperations[0], id: "019fc900-0000-7000-8000-000000000902", reason: "latest.award", createdAt: "2026-08-22T02:00:00Z" }
+    vi.mocked(listMembershipMedalOperations)
+      .mockReturnValueOnce(initialResponse)
+      .mockResolvedValueOnce({ operations: [refreshedOperation], nextCursor: null })
+    render(<AdminView session={session} onBack={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(screen.getByRole("tab", { name: "勋章运营" }))
+    await waitFor(() => expect(listMembershipMedalOperations).toHaveBeenCalledTimes(1))
+    await user.type(await screen.findByLabelText("勋章目标用户 UUID"), memberId)
+    await user.type(screen.getByLabelText("勋章授予理由"), "latest.award")
+    await user.click(screen.getByRole("button", { name: "手动发放勋章" }))
+
+    expect(await screen.findByText("latest.award", { exact: false })).toBeInTheDocument()
+    resolveInitial({ operations: medalOperations, nextCursor: null })
+    await waitFor(() => expect(screen.getByText("latest.award", { exact: false })).toBeInTheDocument())
+    expect(screen.queryByText("operator.award", { exact: false })).not.toBeInTheDocument()
   })
 
   it("creates a draft EXP level without changing the points ledger", async () => {
@@ -400,6 +484,7 @@ describe("AdminView", () => {
 
     await user.click(await screen.findByRole("button", { name: "会员经济" }))
     await screen.findByRole("heading", { name: "会员经济" })
+    await user.click(screen.getByRole("tab", { name: "积分运营" }))
     await user.type(screen.getByLabelText("目标用户 UUID"), memberId)
     await user.type(screen.getByLabelText("积分数量"), "30")
     await user.type(screen.getByLabelText(/^授予理由/), "campaign.reward")

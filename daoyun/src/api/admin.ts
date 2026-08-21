@@ -169,6 +169,43 @@ export interface MembershipMedalGrant {
   created: boolean
 }
 
+export type MembershipMedalOperationKind = "grant" | "automatic_grant" | "revoke"
+
+export interface MembershipMedalOperation {
+  id: string
+  operation: MembershipMedalOperationKind
+  userId: string
+  username: string
+  userDisplayName: string
+  medalKey: string
+  medalDisplayName: string
+  reason: string
+  actorId: string
+  actorUsername: string
+  actorDisplayName: string
+  createdAt: string
+}
+
+export interface ListMembershipMedalOperationsOptions {
+  userId?: string
+  medalKey?: string
+  cursor?: string
+  limit?: number
+  signal?: AbortSignal
+}
+
+export interface RevokeMembershipMedalInput {
+  userId: string
+  medalKey: string
+  reason: string
+}
+
+export interface MembershipMedalRevocation {
+  userId: string
+  medalKey: string
+  revoked: boolean
+}
+
 export interface RiskAlert {
   id: string
   kind: RiskAlertKind
@@ -581,6 +618,36 @@ export async function grantMembershipMedal(input: MembershipMedalGrantInput, csr
   return parseResponse(response, isMembershipMedalGrantDto)
 }
 
+export async function listMembershipMedalOperations(options: ListMembershipMedalOperationsOptions = {}): Promise<{ operations: MembershipMedalOperation[]; nextCursor: string | null }> {
+  if (options.medalKey && !membershipMedalPattern.test(options.medalKey)) throw new AdminApiError(422, "validation.failed", "勋章键必须是 medal_01 至 medal_17")
+  const params = new URLSearchParams()
+  if (options.userId) params.set("user_id", options.userId)
+  if (options.medalKey) params.set("medal_key", options.medalKey)
+  if (options.cursor) params.set("cursor", options.cursor)
+  if (options.limit !== undefined) params.set("limit", String(options.limit))
+  const response = await fetch(`/api/v1/admin/membership/medal-operations${params.size ? `?${params}` : ""}`, {
+    headers: { Accept: "application/json" },
+    credentials: "include",
+    signal: options.signal,
+  })
+  const payload = await readJson(response)
+  if (!response.ok) throw toApiError(response.status, payload)
+  if (!isMembershipMedalOperationPage(payload)) throw new AdminApiError(response.status, "response.invalid", "勋章操作记录响应格式无效")
+  return { operations: payload.data.map(mapMembershipMedalOperation), nextCursor: payload.meta.next_cursor }
+}
+
+export async function revokeMembershipMedal(input: RevokeMembershipMedalInput, csrfToken: string, signal?: AbortSignal): Promise<MembershipMedalRevocation> {
+  if (!membershipMedalPattern.test(input.medalKey)) throw new AdminApiError(422, "validation.failed", "勋章键必须是 medal_01 至 medal_17")
+  const response = await fetch("/api/v1/admin/membership/medal-revocations", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken },
+    credentials: "include",
+    body: JSON.stringify({ user_id: input.userId, medal_key: input.medalKey, reason: input.reason }),
+    signal,
+  })
+  return parseResponse(response, isMembershipMedalRevocationDto)
+}
+
 export async function listAuthorizationPermissions(signal?: AbortSignal): Promise<AuthorizationPermission[]> {
   const response = await fetch("/api/v1/admin/authorization/permissions", { headers: { Accept: "application/json" }, credentials: "include", signal })
   return parseResponse(response, (value): value is AuthorizationPermissionDto[] => Array.isArray(value) && value.every(isAuthorizationPermissionDto))
@@ -724,6 +791,21 @@ type MembershipAccountDto = components["schemas"]["MembershipAccount"]
 type MembershipMedalRuleDto = { key: string; display_name: string; enabled: boolean; required_lifetime_points: number | null; updated_at: string }
 type MembershipMedalDto = { key: string; display_name: string; asset_url: string; sha256: string; granted_at: string }
 type MembershipMedalGrantDto = { medal: MembershipMedalDto; created: boolean }
+type MembershipMedalOperationDto = {
+  id: string
+  operation: MembershipMedalOperationKind
+  user_id: string
+  username: string
+  user_display_name: string
+  medal_key: string
+  medal_display_name: string
+  reason: string
+  actor_id: string
+  actor_username: string
+  actor_display_name: string
+  created_at: string
+}
+type MembershipMedalRevocationDto = { user_id: string; medal_key: string; revoked: boolean }
 type AuthorizationPermissionDto = components["schemas"]["AuthorizationPermission"]
 type AuthorizationRoleDto = components["schemas"]["AuthorizationRole"]
 type AuthorizationAssignedRoleDto = components["schemas"]["AuthorizationAssignedRole"]
@@ -764,6 +846,7 @@ function mapValue(value: unknown): unknown {
   if (isMembershipAccountDto(value)) return { userId: value.user_id, pointsBalance: value.points_balance, lifetimePoints: value.lifetime_points, levelKey: value.level_key, levelNumber: value.level_number, levelDisplayName: value.level_display_name, revision: value.revision, updatedAt: value.updated_at }
   if (isMembershipMedalRuleDto(value)) return { key: value.key, displayName: value.display_name, enabled: value.enabled, requiredLifetimePoints: value.required_lifetime_points, updatedAt: value.updated_at }
   if (isMembershipMedalGrantDto(value)) return { medal: mapValue(value.medal) as MembershipMedal, created: value.created }
+  if (isMembershipMedalRevocationDto(value)) return { userId: value.user_id, medalKey: value.medal_key, revoked: value.revoked }
   if (isMembershipMedalDto(value)) return { key: value.key, displayName: value.display_name, assetUrl: value.asset_url, sha256: value.sha256, grantedAt: value.granted_at }
   if (isAuthorizationRoleAssignmentDto(value)) return { id: value.id, user: mapAuthorizationUser(value.user), role: { id: value.role.id, key: value.role.key, name: value.role.name, scope: value.role.scope, isSystem: value.role.is_system, revision: value.role.revision }, scopeId: value.scope_id ?? null, assignedBy: mapAuthorizationUser(value.assigned_by), createdAt: value.created_at }
   if (isAuthorizationRoleDto(value)) return { id: value.id, key: value.key, name: value.name, scope: value.scope, isSystem: value.is_system, permissionKeys: value.permission_keys, assignmentCount: value.assignment_count, revision: value.revision, createdAt: value.created_at, updatedAt: value.updated_at }
@@ -805,6 +888,10 @@ function isMembershipPointsGrantDto(value: unknown): value is MembershipPointsGr
 function isMembershipMedalRuleDto(value: unknown): value is MembershipMedalRuleDto { return isRecord(value) && typeof value.key === "string" && membershipMedalPattern.test(value.key) && value.display_name === `勋章 ${value.key.slice(-2)}` && typeof value.enabled === "boolean" && (value.required_lifetime_points === null || (Number.isSafeInteger(value.required_lifetime_points) && value.required_lifetime_points >= 0)) && typeof value.updated_at === "string" }
 function isMembershipMedalDto(value: unknown): value is MembershipMedalDto { return isRecord(value) && typeof value.key === "string" && membershipMedalPattern.test(value.key) && value.display_name === `勋章 ${value.key.slice(-2)}` && typeof value.asset_url === "string" && value.asset_url.startsWith("/assets/membership/medals/") && typeof value.sha256 === "string" && /^[0-9a-f]{64}$/.test(value.sha256) && typeof value.granted_at === "string" }
 function isMembershipMedalGrantDto(value: unknown): value is MembershipMedalGrantDto { return isRecord(value) && typeof value.created === "boolean" && isMembershipMedalDto(value.medal) }
+function isMembershipMedalOperationDto(value: unknown): value is MembershipMedalOperationDto { return isRecord(value) && isUuid(value.id) && (value.operation === "grant" || value.operation === "automatic_grant" || value.operation === "revoke") && isUuid(value.user_id) && isNonEmptyString(value.username) && isNonEmptyString(value.user_display_name) && typeof value.medal_key === "string" && membershipMedalPattern.test(value.medal_key) && value.medal_display_name === `勋章 ${value.medal_key.slice(-2)}` && typeof value.reason === "string" && value.reason.length <= 64 && isUuid(value.actor_id) && isNonEmptyString(value.actor_username) && isNonEmptyString(value.actor_display_name) && isTimestamp(value.created_at) }
+function isMembershipMedalOperationPage(value: unknown): value is { data: MembershipMedalOperationDto[]; meta: { request_id: string; next_cursor: string | null } } { return isPageEnvelope(value) && value.data.every(isMembershipMedalOperationDto) }
+function isMembershipMedalRevocationDto(value: unknown): value is MembershipMedalRevocationDto { return isRecord(value) && isUuid(value.user_id) && typeof value.medal_key === "string" && membershipMedalPattern.test(value.medal_key) && typeof value.revoked === "boolean" }
+function mapMembershipMedalOperation(value: MembershipMedalOperationDto): MembershipMedalOperation { return { id: value.id, operation: value.operation, userId: value.user_id, username: value.username, userDisplayName: value.user_display_name, medalKey: value.medal_key, medalDisplayName: value.medal_display_name, reason: value.reason, actorId: value.actor_id, actorUsername: value.actor_username, actorDisplayName: value.actor_display_name, createdAt: value.created_at } }
 function isAuthorizationRoleScope(value: unknown): value is AuthorizationRoleScope { return value === "instance" || value === "site" || value === "board" }
 function isAuthorizationPermissionDto(value: unknown): value is AuthorizationPermissionDto { return isRecord(value) && isNonEmptyString(value.key) && isNonEmptyString(value.name) && typeof value.description === "string" }
 function isAuthorizationRoleDto(value: unknown): value is AuthorizationRoleDto { return isRecord(value) && isUuid(value.id) && isNonEmptyString(value.key) && isNonEmptyString(value.name) && isAuthorizationRoleScope(value.scope) && typeof value.is_system === "boolean" && Array.isArray(value.permission_keys) && value.permission_keys.every(isNonEmptyString) && Number.isSafeInteger(value.assignment_count) && value.assignment_count >= 0 && Number.isSafeInteger(value.revision) && value.revision >= 1 && typeof value.created_at === "string" && typeof value.updated_at === "string" }

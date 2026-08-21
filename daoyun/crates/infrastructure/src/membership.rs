@@ -484,12 +484,11 @@ impl Database {
         {
             return Err(RevokeMembershipMedalError::Forbidden);
         }
-        let user_exists = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND status = 'active')",
-        )
-        .bind(user_id)
-        .fetch_one(&mut *transaction)
-        .await?;
+        let user_exists =
+            sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)")
+                .bind(user_id)
+                .fetch_one(&mut *transaction)
+                .await?;
         if !user_exists {
             return Err(RevokeMembershipMedalError::UserNotFound);
         }

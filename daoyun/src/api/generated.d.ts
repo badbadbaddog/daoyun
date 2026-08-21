@@ -401,6 +401,38 @@ export interface paths {
         patch: operations["updateMembershipGrowthLevel"];
         trace?: never;
     };
+    "/api/v1/admin/membership/medal-operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listMembershipMedalOperations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/membership/medal-revocations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["revokeMembershipMedal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/membership/medal-rules": {
         parameters: {
             query?: never;
@@ -459,6 +491,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["grantMembershipPoints"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/moderation/boards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listModerationBoards"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/moderation/topics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listModerationTopics"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2730,6 +2794,15 @@ export interface components {
             };
             meta: components["schemas"]["ResponseMeta"];
         };
+        ApiResponse_MembershipMedalRevocation: {
+            data: {
+                medal_key: string;
+                revoked: boolean;
+                /** Format: uuid */
+                user_id: string;
+            };
+            meta: components["schemas"]["ResponseMeta"];
+        };
         ApiResponse_MembershipMedalRule: {
             data: {
                 display_name: string;
@@ -3387,6 +3460,17 @@ export interface components {
                 required_lifetime_points?: number | null;
                 /** Format: date-time */
                 updated_at: string;
+            }[];
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        ApiResponse_Vec_ModerationBoard: {
+            data: {
+                capability_keys: string[];
+                /** Format: uuid */
+                id: string;
+                name: string;
+                slug: string;
+                tone: components["schemas"]["BoardTone"];
             }[];
             meta: components["schemas"]["ResponseMeta"];
         };
@@ -4184,6 +4268,32 @@ export interface components {
             created: boolean;
             medal: components["schemas"]["MembershipMedal"];
         };
+        MembershipMedalOperation: {
+            actor_display_name: string;
+            /** Format: uuid */
+            actor_id: string;
+            actor_username: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            medal_display_name: string;
+            medal_key: string;
+            operation: components["schemas"]["MembershipMedalOperationKind"];
+            reason: string;
+            user_display_name: string;
+            /** Format: uuid */
+            user_id: string;
+            username: string;
+        };
+        /** @enum {string} */
+        MembershipMedalOperationKind: "grant" | "automatic_grant" | "revoke";
+        MembershipMedalRevocation: {
+            medal_key: string;
+            revoked: boolean;
+            /** Format: uuid */
+            user_id: string;
+        };
         MembershipMedalRule: {
             display_name: string;
             enabled: boolean;
@@ -4245,6 +4355,38 @@ export interface components {
         ModerateTopicRequest: {
             reason?: string | null;
             status: components["schemas"]["TopicModerationStatus"];
+        };
+        ModerationBoard: {
+            capability_keys: string[];
+            /** Format: uuid */
+            id: string;
+            name: string;
+            slug: string;
+            tone: components["schemas"]["BoardTone"];
+        };
+        ModerationTopic: {
+            author: components["schemas"]["TopicAuthorSummary"];
+            board: components["schemas"]["TopicBoardSummary"];
+            excerpt: string;
+            /** Format: int64 */
+            governance_revision: number;
+            /** Format: uuid */
+            id: string;
+            is_featured: boolean;
+            is_locked: boolean;
+            is_pinned: boolean;
+            /** Format: date-time */
+            last_activity_at: string;
+            /** Format: int64 */
+            like_count: number;
+            moderation_status: components["schemas"]["TopicModerationStatus"];
+            /** Format: date-time */
+            published_at: string;
+            /** Format: int64 */
+            reply_count: number;
+            title: string;
+            /** Format: int64 */
+            view_count: number;
         };
         Notification: {
             actor?: null | components["schemas"]["UserSummary"];
@@ -4519,6 +4661,54 @@ export interface components {
                 /** Format: uuid */
                 id: string;
                 sender: components["schemas"]["UserSummary"];
+            }[];
+            meta: components["schemas"]["PageMeta"];
+        };
+        PageResponse_MembershipMedalOperation: {
+            data: {
+                actor_display_name: string;
+                /** Format: uuid */
+                actor_id: string;
+                actor_username: string;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: uuid */
+                id: string;
+                medal_display_name: string;
+                medal_key: string;
+                operation: components["schemas"]["MembershipMedalOperationKind"];
+                reason: string;
+                user_display_name: string;
+                /** Format: uuid */
+                user_id: string;
+                username: string;
+            }[];
+            meta: components["schemas"]["PageMeta"];
+        };
+        PageResponse_ModerationTopic: {
+            data: {
+                author: components["schemas"]["TopicAuthorSummary"];
+                board: components["schemas"]["TopicBoardSummary"];
+                excerpt: string;
+                /** Format: int64 */
+                governance_revision: number;
+                /** Format: uuid */
+                id: string;
+                is_featured: boolean;
+                is_locked: boolean;
+                is_pinned: boolean;
+                /** Format: date-time */
+                last_activity_at: string;
+                /** Format: int64 */
+                like_count: number;
+                moderation_status: components["schemas"]["TopicModerationStatus"];
+                /** Format: date-time */
+                published_at: string;
+                /** Format: int64 */
+                reply_count: number;
+                title: string;
+                /** Format: int64 */
+                view_count: number;
             }[];
             meta: components["schemas"]["PageMeta"];
         };
@@ -4975,6 +5165,12 @@ export interface components {
         };
         RevokeDeviceSessionData: {
             revoked: boolean;
+        };
+        RevokeMembershipMedalRequest: {
+            medal_key: string;
+            reason: string;
+            /** Format: uuid */
+            user_id: string;
         };
         RevokeStandardEntitlementRequest: {
             /** Format: int64 */
@@ -5679,7 +5875,9 @@ export interface operations {
     createAuthorizationAssignment: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "x-csrf-token": string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -7550,6 +7748,138 @@ export interface operations {
             };
         };
     };
+    listMembershipMedalOperations: {
+        parameters: {
+            query?: {
+                user_id?: string;
+                medal_key?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_MembershipMedalOperation"];
+                };
+            };
+            401: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    revokeMembershipMedal: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-csrf-token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeMembershipMedalRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_MembershipMedalRevocation"];
+                };
+            };
+            401: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     listMembershipMedalRules: {
         parameters: {
             query?: never;
@@ -7778,6 +8108,96 @@ export interface operations {
             };
             503: {
                 headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listModerationBoards: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Vec_ModerationBoard"];
+                };
+            };
+            401: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listModerationTopics: {
+        parameters: {
+            query?: {
+                board_id?: string;
+                query?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_ModerationTopic"];
+                };
+            };
+            401: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -13856,6 +14276,7 @@ export interface operations {
         responses: {
             200: {
                 headers: {
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -13864,6 +14285,7 @@ export interface operations {
             };
             400: {
                 headers: {
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -13872,6 +14294,7 @@ export interface operations {
             };
             401: {
                 headers: {
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -13880,6 +14303,7 @@ export interface operations {
             };
             403: {
                 headers: {
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -13888,6 +14312,7 @@ export interface operations {
             };
             404: {
                 headers: {
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -13896,6 +14321,7 @@ export interface operations {
             };
             422: {
                 headers: {
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -13904,6 +14330,7 @@ export interface operations {
             };
             503: {
                 headers: {
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {

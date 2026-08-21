@@ -868,6 +868,11 @@ async fn admin_medals_support_operations_and_revocation(pool: PgPool) {
     assert_eq!(operations["data"][0]["medal_key"], "medal_01");
     assert_eq!(operations["data"][0]["reason"], "operator.award");
 
+    sqlx::query("UPDATE users SET status = 'suspended' WHERE id = $1")
+        .bind(member_id)
+        .execute(&pool)
+        .await
+        .expect("member suspension fixture must update");
     let revocation = app
         .clone()
         .oneshot(json_request(
@@ -896,6 +901,11 @@ async fn admin_medals_support_operations_and_revocation(pool: PgPool) {
     assert_eq!(replay.status(), StatusCode::OK);
     assert_eq!(response_json(replay).await["data"]["revoked"], false);
 
+    sqlx::query("UPDATE users SET status = 'active' WHERE id = $1")
+        .bind(member_id)
+        .execute(&pool)
+        .await
+        .expect("member restoration fixture must update");
     let profile = app
         .clone()
         .oneshot(

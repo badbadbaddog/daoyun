@@ -4174,6 +4174,11 @@ body:has(.auth-overlay) {
 
 .membership-admin-panel { max-width: 980px; }
 .membership-admin-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(270px, .8fr); gap: 18px; }
+.membership-admin-grid--workspace { grid-template-columns: minmax(0, 1fr); }
+.membership-workspace-tabs { display: flex; gap: 4px; overflow-x: auto; margin: 16px 0; border-bottom: 1px solid var(--border); }
+.membership-workspace-tabs button { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; min-height: 38px; border: 0; border-bottom: 2px solid transparent; background: transparent; padding: 0 13px; color: var(--text-soft); font: inherit; font-size: 12px; font-weight: 750; cursor: pointer; }
+.membership-workspace-tabs button[aria-selected="true"] { border-bottom-color: var(--brand); color: var(--brand-strong); }
+.membership-workspace-tabs button:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 .membership-rule-section, .membership-grant-section { min-width: 0; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-raised); padding: 16px; }
 .membership-rule-section > .admin-form__heading, .membership-grant-section > .admin-form__heading { margin-bottom: 14px; }
 .membership-rule-section > .admin-form__heading svg, .membership-grant-section > .admin-form__heading svg { flex: 0 0 auto; color: var(--brand); }
@@ -4218,6 +4223,24 @@ body:has(.auth-overlay) {
 .membership-grant-result div { display: grid; gap: 3px; min-width: 0; }
 .membership-grant-result strong { font-size: 12px; overflow-wrap: anywhere; }
 .membership-grant-result span { color: var(--text-soft); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.membership-medal-operations { display: grid; gap: 12px; margin-top: 18px; border-top: 1px solid var(--border); padding-top: 16px; }
+.membership-operation-filters { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(150px, .7fr) auto; align-items: end; gap: 9px; }
+.membership-operation-filters label, .membership-revocation-form label { display: grid; gap: 5px; min-width: 0; color: var(--text-soft); font-size: 10px; font-weight: 700; }
+.membership-operation-filters input, .membership-operation-filters select, .membership-revocation-form input { width: 100%; min-width: 0; min-height: 34px; }
+.membership-operation-list { display: grid; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); }
+.membership-operation-row { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; min-width: 0; padding: 11px; }
+.membership-operation-row + .membership-operation-row { border-top: 1px solid var(--border); }
+.membership-operation-row > img { border: 1px solid var(--border); border-radius: 5px; background: var(--surface-raised); object-fit: contain; }
+.membership-operation-row__main, .membership-operation-row__meta { display: grid; min-width: 0; gap: 2px; }
+.membership-operation-row__main strong { overflow-wrap: anywhere; font-size: 12px; }
+.membership-operation-row__main span, .membership-operation-row__main small, .membership-operation-row__meta small { color: var(--text-soft); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
+.membership-operation-row__meta { justify-items: end; }
+.membership-operation-kind--revoke { color: var(--text-faint); }
+.membership-operation-more { justify-self: start; }
+.membership-revocation-form { display: grid; grid-template-columns: minmax(210px, 1fr) minmax(180px, 1fr) auto; align-items: end; gap: 11px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface-soft); padding: 12px; }
+.membership-revocation-form strong { font-size: 12px; }
+.membership-revocation-form p { margin: 3px 0 0; color: var(--text-soft); font-size: 10px; }
+.membership-revocation-actions { display: flex; gap: 7px; }
 .profile-medals { display: grid; gap: 7px; margin-top: 14px; color: var(--text-soft); font-size: 11px; }
 .profile-medals__list { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
 .profile-medals__list img { width: 34px; height: 34px; object-fit: contain; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); padding: 3px; }
@@ -4733,6 +4756,9 @@ body:has(.auth-overlay) {
   .admin-board-tree__row[data-depth="1"] { padding-left: 22px; }
   .admin-board-tree__row[data-depth="2"] { padding-left: 38px; }
   .membership-admin-grid { grid-template-columns: 1fr; }
+  .membership-operation-filters, .membership-revocation-form { grid-template-columns: 1fr; }
+  .membership-operation-row { grid-template-columns: 32px minmax(0, 1fr); align-items: start; }
+  .membership-operation-row__meta, .membership-operation-row > button { grid-column: 2; justify-items: start; justify-self: start; }
   .membership-growth-editor__fields { grid-template-columns: 1fr; }
   .membership-growth-editor__wide { grid-column: auto; }
   .authorization-permission-grid { grid-template-columns: 1fr; }
