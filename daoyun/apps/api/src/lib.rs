@@ -124,6 +124,8 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         admin::list_membership_medal_rules,
         admin::update_membership_medal_rule,
         admin::grant_membership_medal,
+        admin::list_membership_medal_operations,
+        admin::revoke_membership_medal,
         admin::get_governance_policy,
         admin::update_governance_policy,
         admin::list_risk_alerts,

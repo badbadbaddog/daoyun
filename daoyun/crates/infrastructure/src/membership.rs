@@ -65,6 +65,28 @@ pub struct GrantMembershipMedalResult {
     pub created: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
+pub struct MembershipMedalOperationRecord {
+    pub id: Uuid,
+    pub operation: String,
+    pub user_id: Uuid,
+    pub username: String,
+    pub user_display_name: String,
+    pub medal_key: String,
+    pub reason: String,
+    pub actor_id: Uuid,
+    pub actor_username: String,
+    pub actor_display_name: String,
+    pub created_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RevokeMembershipMedalResult {
+    pub user_id: Uuid,
+    pub medal_key: String,
+    pub revoked: bool,
+}
+
 #[derive(Debug)]
 pub struct UpdateMembershipLevelRuleRecord {
     pub level_key: String,
@@ -97,6 +119,21 @@ pub enum UpdateMembershipLevelRuleError {
 
 #[derive(Debug)]
 pub enum GrantMembershipMedalError {
+    Forbidden,
+    UserNotFound,
+    InvalidMedal,
+    InvalidReason,
+    Database(DatabaseError),
+}
+
+#[derive(Debug)]
+pub enum ListMembershipMedalOperationsError {
+    InvalidCursor,
+    Database(DatabaseError),
+}
+
+#[derive(Debug)]
+pub enum RevokeMembershipMedalError {
     Forbidden,
     UserNotFound,
     InvalidMedal,
@@ -214,6 +251,78 @@ impl Database {
             "SELECT medal_key, enabled, required_lifetime_points, updated_at
              FROM membership_medal_rules ORDER BY medal_key",
         )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn list_membership_medal_operations(
+        &self,
+        user_id: Option<Uuid>,
+        medal_key: Option<&str>,
+        cursor: Option<Uuid>,
+        limit: i64,
+    ) -> Result<Vec<MembershipMedalOperationRecord>, ListMembershipMedalOperationsError> {
+        if let Some(cursor) = cursor {
+            let valid = sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS (
+                     SELECT 1 FROM admin_audit_log AS audit
+                     WHERE audit.id = $1
+                       AND audit.resource_type = 'membership_medal'
+                       AND audit.action IN (
+                           'membership.medal.grant',
+                           'membership.medal.auto_grant',
+                           'membership.medal.revoke'
+                       )
+                       AND ($2::uuid IS NULL OR audit.resource_id = $2)
+                       AND ($3::text IS NULL OR audit.summary ->> 'medal_key' = $3)
+                 )",
+            )
+            .bind(cursor)
+            .bind(user_id)
+            .bind(medal_key)
+            .fetch_one(&self.pool)
+            .await?;
+            if !valid {
+                return Err(ListMembershipMedalOperationsError::InvalidCursor);
+            }
+        }
+
+        Ok(sqlx::query_as::<_, MembershipMedalOperationRecord>(
+            "SELECT audit.id,
+                    CASE audit.action
+                        WHEN 'membership.medal.grant' THEN 'grant'
+                        WHEN 'membership.medal.auto_grant' THEN 'automatic_grant'
+                        WHEN 'membership.medal.revoke' THEN 'revoke'
+                    END AS operation,
+                    target.id AS user_id, target.username,
+                    target.display_name AS user_display_name,
+                    audit.summary ->> 'medal_key' AS medal_key,
+                    COALESCE(audit.summary ->> 'reason', '') AS reason,
+                    actor.id AS actor_id, actor.username AS actor_username,
+                    actor.display_name AS actor_display_name, audit.created_at
+             FROM admin_audit_log AS audit
+             INNER JOIN users AS target ON target.id = audit.resource_id
+             INNER JOIN users AS actor ON actor.id = audit.actor_id
+             WHERE audit.resource_type = 'membership_medal'
+               AND audit.action IN (
+                   'membership.medal.grant',
+                   'membership.medal.auto_grant',
+                   'membership.medal.revoke'
+               )
+               AND ($1::uuid IS NULL OR audit.resource_id = $1)
+               AND ($2::text IS NULL OR audit.summary ->> 'medal_key' = $2)
+               AND ($3::uuid IS NULL OR (audit.created_at, audit.id) < (
+                   SELECT cursor.created_at, cursor.id
+                   FROM admin_audit_log AS cursor
+                   WHERE cursor.id = $3
+               ))
+             ORDER BY audit.created_at DESC, audit.id DESC
+             LIMIT $4",
+        )
+        .bind(user_id)
+        .bind(medal_key)
+        .bind(cursor)
+        .bind(limit)
         .fetch_all(&self.pool)
         .await?)
     }
@@ -349,6 +458,66 @@ impl Database {
         }
         transaction.commit().await?;
         Ok(GrantMembershipMedalResult { medal, created })
+    }
+
+    pub async fn revoke_membership_medal(
+        &self,
+        actor_id: Uuid,
+        user_id: Uuid,
+        medal_key: &str,
+        reason: &str,
+    ) -> Result<RevokeMembershipMedalResult, RevokeMembershipMedalError> {
+        if !medal_key_valid(medal_key) {
+            return Err(RevokeMembershipMedalError::InvalidMedal);
+        }
+        if !valid_medal_operation_reason(reason) {
+            return Err(RevokeMembershipMedalError::InvalidReason);
+        }
+        let mut transaction = self.pool.begin().await?;
+        if !has_permission_with_executor(
+            &mut transaction,
+            actor_id,
+            permission_keys::MEMBERSHIP_MEDALS_GRANT,
+            None,
+        )
+        .await?
+        {
+            return Err(RevokeMembershipMedalError::Forbidden);
+        }
+        let user_exists = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND status = 'active')",
+        )
+        .bind(user_id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        if !user_exists {
+            return Err(RevokeMembershipMedalError::UserNotFound);
+        }
+        let revoked =
+            sqlx::query("DELETE FROM membership_medals WHERE user_id = $1 AND medal_key = $2")
+                .bind(user_id)
+                .bind(medal_key)
+                .execute(&mut *transaction)
+                .await?
+                .rows_affected()
+                == 1;
+        if revoked {
+            insert_audit(
+                &mut transaction,
+                actor_id,
+                "membership.medal.revoke",
+                "membership_medal",
+                Some(user_id),
+                serde_json::json!({ "user_id": user_id, "medal_key": medal_key, "reason": reason }),
+            )
+            .await?;
+        }
+        transaction.commit().await?;
+        Ok(RevokeMembershipMedalResult {
+            user_id,
+            medal_key: medal_key.to_owned(),
+            revoked,
+        })
     }
 
     pub async fn update_membership_level_rule(
@@ -715,6 +884,12 @@ fn valid_reason(value: &str) -> bool {
         })
 }
 
+fn valid_medal_operation_reason(value: &str) -> bool {
+    value == value.trim()
+        && (1..=64).contains(&value.chars().count())
+        && !value.chars().any(char::is_control)
+}
+
 fn valid_idempotency_key(value: &str) -> bool {
     (1..=128).contains(&value.len())
         && value
@@ -735,6 +910,18 @@ impl From<sqlx::Error> for UpdateMembershipLevelRuleError {
 }
 
 impl From<sqlx::Error> for GrantMembershipMedalError {
+    fn from(error: sqlx::Error) -> Self {
+        Self::Database(DatabaseError::from(error))
+    }
+}
+
+impl From<sqlx::Error> for ListMembershipMedalOperationsError {
+    fn from(error: sqlx::Error) -> Self {
+        Self::Database(DatabaseError::from(error))
+    }
+}
+
+impl From<sqlx::Error> for RevokeMembershipMedalError {
     fn from(error: sqlx::Error) -> Self {
         Self::Database(DatabaseError::from(error))
     }
@@ -797,6 +984,33 @@ impl fmt::Display for GrantMembershipMedalError {
 }
 
 impl Error for GrantMembershipMedalError {}
+
+impl fmt::Display for ListMembershipMedalOperationsError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidCursor => {
+                formatter.write_str("membership medal operation cursor is invalid")
+            }
+            Self::Database(_) => formatter.write_str("membership medal operation query failed"),
+        }
+    }
+}
+
+impl Error for ListMembershipMedalOperationsError {}
+
+impl fmt::Display for RevokeMembershipMedalError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Forbidden => formatter.write_str("membership medal revocation is forbidden"),
+            Self::UserNotFound => formatter.write_str("medal target user was not found"),
+            Self::InvalidMedal => formatter.write_str("medal key is invalid"),
+            Self::InvalidReason => formatter.write_str("medal revocation reason is invalid"),
+            Self::Database(_) => formatter.write_str("membership medal revocation failed"),
+        }
+    }
+}
+
+impl Error for RevokeMembershipMedalError {}
 
 impl fmt::Display for UpdateMembershipMedalRuleError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {

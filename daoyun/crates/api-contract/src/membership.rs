@@ -146,6 +146,45 @@ pub struct MembershipMedalGrant {
     pub created: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MembershipMedalOperationKind {
+    Grant,
+    AutomaticGrant,
+    Revoke,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct MembershipMedalOperation {
+    pub id: uuid::Uuid,
+    pub operation: MembershipMedalOperationKind,
+    pub user_id: uuid::Uuid,
+    pub username: String,
+    pub user_display_name: String,
+    pub medal_key: String,
+    pub medal_display_name: String,
+    pub reason: String,
+    pub actor_id: uuid::Uuid,
+    pub actor_username: String,
+    pub actor_display_name: String,
+    #[schema(value_type = String, format = DateTime)]
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
+pub struct RevokeMembershipMedalRequest {
+    pub user_id: uuid::Uuid,
+    pub medal_key: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct MembershipMedalRevocation {
+    pub user_id: uuid::Uuid,
+    pub medal_key: String,
+    pub revoked: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct MembershipAccount {
     pub user_id: uuid::Uuid,

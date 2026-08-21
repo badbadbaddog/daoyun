@@ -77,8 +77,10 @@ pub use membership::{
     AdminGrowthLevel, CreateGrowthLevelRequest, ExperienceAccount, GrantMembershipMedalRequest,
     GrantMembershipPointsRequest, GrowthLevel, GrowthLevelStatus, Medal, MembershipAccount,
     MembershipCatalog, MembershipGroup, MembershipLevel, MembershipLevelRule, MembershipMedal,
-    MembershipMedalGrant, MembershipMedalRule, MembershipPointsGrant, UpdateGrowthLevelRequest,
-    UpdateMembershipLevelRuleRequest, UpdateMembershipMedalRuleRequest,
+    MembershipMedalGrant, MembershipMedalOperation, MembershipMedalOperationKind,
+    MembershipMedalRevocation, MembershipMedalRule, MembershipPointsGrant,
+    RevokeMembershipMedalRequest, UpdateGrowthLevelRequest, UpdateMembershipLevelRuleRequest,
+    UpdateMembershipMedalRuleRequest,
 };
 pub use messages::{
     ConversationLastMessage, ConversationReadState, ConversationSummary, CreateConversationRequest,

@@ -15,14 +15,16 @@ use api_contract::{
     FieldErrors, GovernancePolicy, GrantCommunityGroupMembershipRequest,
     GrantMembershipMedalRequest, GrantMembershipPointsRequest, GrantStandardEntitlementRequest,
     GrowthLevelStatus, MembershipAccount, MembershipLevelRule, MembershipMedal,
-    MembershipMedalGrant, MembershipMedalRule, MembershipPointsGrant, PageResponse,
+    MembershipMedalGrant, MembershipMedalOperation, MembershipMedalOperationKind,
+    MembershipMedalRevocation, MembershipMedalRule, MembershipPointsGrant, PageResponse,
     PutContentAccessPolicyRequest, PutStandardEntitlementTypeRequest, RequestId,
-    RevokeCommunityGroupMembershipRequest, RevokeStandardEntitlementRequest, RiskAlert,
-    RiskAlertKind, RiskAlertSeverity, RiskAlertStatus, SiteBranding, StandardEntitlementMutation,
-    StandardEntitlementType, UpdateAdminBoardRequest, UpdateAdminUserStatusRequest,
-    UpdateAuthorizationRoleRequest, UpdateCommunityGroupRequest, UpdateGovernancePolicyRequest,
-    UpdateGrowthLevelRequest, UpdateMembershipLevelRuleRequest, UpdateMembershipMedalRuleRequest,
-    UpdateRiskAlertRequest, UpdateSiteBrandingRequest, UserSummary, error_codes,
+    RevokeCommunityGroupMembershipRequest, RevokeMembershipMedalRequest,
+    RevokeStandardEntitlementRequest, RiskAlert, RiskAlertKind, RiskAlertSeverity, RiskAlertStatus,
+    SiteBranding, StandardEntitlementMutation, StandardEntitlementType, UpdateAdminBoardRequest,
+    UpdateAdminUserStatusRequest, UpdateAuthorizationRoleRequest, UpdateCommunityGroupRequest,
+    UpdateGovernancePolicyRequest, UpdateGrowthLevelRequest, UpdateMembershipLevelRuleRequest,
+    UpdateMembershipMedalRuleRequest, UpdateRiskAlertRequest, UpdateSiteBrandingRequest,
+    UserSummary, error_codes,
 };
 use axum::{
     Extension, Json, Router,
@@ -46,14 +48,15 @@ use infrastructure::{
     CreateCommunityGroupRecord, CreateGrowthLevelRecord, Database, GovernancePolicyRecord,
     GrantCommunityMembershipRecord, GrantMembershipMedalError, GrantStandardEntitlementRecord,
     ListAdminAuditError, ListAdminAuditFilter, ListAuthorizationAssignmentsError,
-    ListRiskAlertsError, MembershipAccountRecord, MembershipLevelRuleRecord, MembershipMedalRecord,
+    ListMembershipMedalOperationsError, ListRiskAlertsError, MembershipAccountRecord,
+    MembershipLevelRuleRecord, MembershipMedalOperationRecord, MembershipMedalRecord,
     MembershipMedalRuleRecord, MutateAuthorizationAssignmentError, MutateAuthorizationRoleError,
     MutateGrowthLevelError, PutContentAccessPolicyRecord, PutStandardEntitlementTypeRecord,
-    RevokeStandardEntitlementRecord, RiskAlertRecord, SiteBrandingRecord,
-    StandardEntitlementMutationError, StandardEntitlementRecord, StandardEntitlementTypeRecord,
-    UpdateAdminBoardRecord, UpdateAdminUserStatusError, UpdateAdminUserStatusRecord,
-    UpdateAuthorizationRoleRecord, UpdateCommunityGroupRecord, UpdateGrowthLevelRecord,
-    UpdateMembershipLevelRuleError, UpdateMembershipLevelRuleRecord,
+    RevokeMembershipMedalError, RevokeStandardEntitlementRecord, RiskAlertRecord,
+    SiteBrandingRecord, StandardEntitlementMutationError, StandardEntitlementRecord,
+    StandardEntitlementTypeRecord, UpdateAdminBoardRecord, UpdateAdminUserStatusError,
+    UpdateAdminUserStatusRecord, UpdateAuthorizationRoleRecord, UpdateCommunityGroupRecord,
+    UpdateGrowthLevelRecord, UpdateMembershipLevelRuleError, UpdateMembershipLevelRuleRecord,
     UpdateMembershipMedalRuleError, UpdateMembershipMedalRuleRecord, UpdateRiskAlertError,
     UpdateSiteBrandingRecord, permission_keys,
 };
@@ -69,6 +72,8 @@ const ADMIN_BODY_LIMIT: usize = 32 * 1024;
 const MAX_BRAND_ASSET_BYTES: usize = 2 * 1024 * 1024;
 const DEFAULT_AUDIT_LIMIT: u16 = 20;
 const MAX_AUDIT_LIMIT: u16 = 50;
+const DEFAULT_MEDAL_OPERATION_LIMIT: u16 = 25;
+const MAX_MEDAL_OPERATION_LIMIT: u16 = 100;
 const DEFAULT_ALERT_LIMIT: u16 = 20;
 const MAX_ALERT_LIMIT: u16 = 50;
 const DEFAULT_ASSIGNMENT_LIMIT: u16 = 20;
@@ -111,6 +116,15 @@ pub(crate) struct ListAuditQuery {
     resource_id: Option<Uuid>,
     user_id: Option<Uuid>,
     report_id: Option<Uuid>,
+    cursor: Option<Uuid>,
+    limit: Option<u16>,
+}
+
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct ListMembershipMedalOperationsQuery {
+    user_id: Option<Uuid>,
+    medal_key: Option<String>,
     cursor: Option<Uuid>,
     limit: Option<u16>,
 }
@@ -269,6 +283,14 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
         .route(
             "/api/v1/admin/membership/medals",
             post(grant_membership_medal),
+        )
+        .route(
+            "/api/v1/admin/membership/medal-operations",
+            get(list_membership_medal_operations),
+        )
+        .route(
+            "/api/v1/admin/membership/medal-revocations",
+            post(revoke_membership_medal),
         )
         .route(
             "/api/v1/admin/governance/policy",
@@ -2039,6 +2061,142 @@ pub(crate) async fn grant_membership_medal(
         MembershipMedalGrant {
             medal,
             created: result.created,
+        },
+        request_id,
+    )))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/membership/medal-operations",
+    operation_id = "listMembershipMedalOperations",
+    tag = "admin",
+    params(ListMembershipMedalOperationsQuery),
+    responses(
+        (status = 200, body = PageResponse<MembershipMedalOperation>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 422, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn list_membership_medal_operations(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    query: Result<Query<ListMembershipMedalOperationsQuery>, QueryRejection>,
+) -> Result<Json<PageResponse<MembershipMedalOperation>>, ApiError> {
+    authorize_capability_read(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::MEMBERSHIP_MEDALS_READ,
+    )
+    .await?;
+    let query = validate_membership_medal_operations_query(query)
+        .map_err(|(field, message)| validation_error(request_id, field, message))?;
+    let limit = query.limit.expect("validated medal operation limit");
+    let mut records = database
+        .list_membership_medal_operations(
+            query.user_id,
+            query.medal_key.as_deref(),
+            query.cursor,
+            i64::from(limit) + 1,
+        )
+        .await
+        .map_err(|error| match error {
+            ListMembershipMedalOperationsError::InvalidCursor => {
+                validation_error(request_id, "cursor", "cursor 不属于当前勋章操作记录")
+            }
+            ListMembershipMedalOperationsError::Database(error) => {
+                database_error(request_id, error, "勋章操作记录查询失败")
+            }
+        })?;
+    let next_cursor = if records.len() > usize::from(limit) {
+        records.truncate(usize::from(limit));
+        records.last().map(|record| record.id.to_string())
+    } else {
+        None
+    };
+    let operations = records
+        .into_iter()
+        .map(map_membership_medal_operation)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|()| invalid_record(request_id))?;
+    Ok(Json(PageResponse::new(operations, request_id, next_cursor)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/membership/medal-revocations",
+    operation_id = "revokeMembershipMedal",
+    tag = "admin",
+    params(("x-csrf-token" = String, Header)),
+    request_body = RevokeMembershipMedalRequest,
+    responses(
+        (status = 200, body = ApiResponse<MembershipMedalRevocation>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 404, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 422, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn revoke_membership_medal(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    request: Result<Json<RevokeMembershipMedalRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<MembershipMedalRevocation>>, ApiError> {
+    let session = authorize_capability_write(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::MEMBERSHIP_MEDALS_GRANT,
+    )
+    .await?;
+    let Json(request) =
+        request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
+    validate_membership_medal_revocation(&request)
+        .map_err(|(field, message)| validation_error(request_id, field, message))?;
+    let result = database
+        .revoke_membership_medal(
+            session.user.id,
+            request.user_id,
+            &request.medal_key,
+            &request.reason,
+        )
+        .await
+        .map_err(|error| match error {
+            RevokeMembershipMedalError::Forbidden => admin_error(
+                StatusCode::FORBIDDEN,
+                error_codes::ADMIN_FORBIDDEN,
+                "当前账号已失去勋章撤销权限",
+                request_id,
+            ),
+            RevokeMembershipMedalError::UserNotFound => admin_error(
+                StatusCode::NOT_FOUND,
+                error_codes::USER_NOT_FOUND,
+                "目标用户不存在",
+                request_id,
+            ),
+            RevokeMembershipMedalError::InvalidMedal
+            | RevokeMembershipMedalError::InvalidReason => {
+                validation_error(request_id, "request", "勋章撤销请求无效")
+            }
+            RevokeMembershipMedalError::Database(error) => {
+                database_error(request_id, error, "勋章撤销失败")
+            }
+        })?;
+    Ok(Json(ApiResponse::new(
+        MembershipMedalRevocation {
+            user_id: result.user_id,
+            medal_key: result.medal_key,
+            revoked: result.revoked,
         },
         request_id,
     )))
@@ -3902,6 +4060,75 @@ fn validate_membership_medal_grant(
         ));
     }
     Ok(())
+}
+
+fn validate_membership_medal_revocation(
+    request: &RevokeMembershipMedalRequest,
+) -> Result<(), (&'static str, &'static str)> {
+    if !valid_medal_key(&request.medal_key) {
+        return Err(("medal_key", "勋章键必须是 medal_01 至 medal_17"));
+    }
+    if request.reason != request.reason.trim()
+        || !(1..=64).contains(&request.reason.chars().count())
+        || request.reason.chars().any(char::is_control)
+    {
+        return Err(("reason", "撤销原因必须是 1 到 64 个有效字符"));
+    }
+    Ok(())
+}
+
+fn validate_membership_medal_operations_query(
+    query: Result<Query<ListMembershipMedalOperationsQuery>, QueryRejection>,
+) -> Result<ListMembershipMedalOperationsQuery, (&'static str, &'static str)> {
+    let Query(query) = query.map_err(|_| ("query", "勋章操作记录查询参数格式不正确"))?;
+    let limit = query.limit.unwrap_or(DEFAULT_MEDAL_OPERATION_LIMIT);
+    if !(1..=MAX_MEDAL_OPERATION_LIMIT).contains(&limit) {
+        return Err(("limit", "limit 必须在 1 到 100 之间"));
+    }
+    let medal_key = query
+        .medal_key
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    if medal_key
+        .as_deref()
+        .is_some_and(|value| !valid_medal_key(value))
+    {
+        return Err(("medal_key", "勋章键必须是 medal_01 至 medal_17"));
+    }
+    Ok(ListMembershipMedalOperationsQuery {
+        user_id: query.user_id,
+        medal_key,
+        cursor: query.cursor,
+        limit: Some(limit),
+    })
+}
+
+fn map_membership_medal_operation(
+    record: MembershipMedalOperationRecord,
+) -> Result<MembershipMedalOperation, ()> {
+    if !valid_medal_key(&record.medal_key) {
+        return Err(());
+    }
+    let operation = match record.operation.as_str() {
+        "grant" => MembershipMedalOperationKind::Grant,
+        "automatic_grant" => MembershipMedalOperationKind::AutomaticGrant,
+        "revoke" => MembershipMedalOperationKind::Revoke,
+        _ => return Err(()),
+    };
+    Ok(MembershipMedalOperation {
+        id: record.id,
+        operation,
+        user_id: record.user_id,
+        username: record.username,
+        user_display_name: record.user_display_name,
+        medal_key: record.medal_key.clone(),
+        medal_display_name: medal_display_name(&record.medal_key),
+        reason: record.reason,
+        actor_id: record.actor_id,
+        actor_username: record.actor_username,
+        actor_display_name: record.actor_display_name,
+        created_at: format_time(record.created_at),
+    })
 }
 
 fn valid_medal_key(value: &str) -> bool {

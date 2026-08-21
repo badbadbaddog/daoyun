@@ -127,6 +127,8 @@ async fn openapi_documents_membership_catalog() {
     assert!(document["paths"]["/api/v1/admin/membership/levels"]["get"].is_object());
     assert!(document["paths"]["/api/v1/admin/membership/levels"]["post"].is_object());
     assert!(document["paths"]["/api/v1/admin/membership/levels/{level_id}"]["patch"].is_object());
+    assert!(document["paths"]["/api/v1/admin/membership/medal-operations"]["get"].is_object());
+    assert!(document["paths"]["/api/v1/admin/membership/medal-revocations"]["post"].is_object());
     assert!(document["components"]["schemas"]["AdminGrowthLevel"].is_object());
     assert!(document["paths"]["/api/v1/users/me/groups"]["get"].is_object());
     assert!(document["components"]["schemas"]["CurrentCommunityGroups"].is_object());
@@ -806,7 +808,7 @@ async fn admin_content_access_policy_is_revisioned_and_enforced_on_topic_reads(p
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
-async fn admin_medals_are_granted_and_visible_on_public_profile(pool: PgPool) {
+async fn admin_medals_support_operations_and_revocation(pool: PgPool) {
     let app = daoyun_api::app_with_config(
         Database::from_pool(pool.clone()),
         daoyun_api::AuthConfig::default().with_secure_cookies(false),
@@ -848,7 +850,54 @@ async fn admin_medals_are_granted_and_visible_on_public_profile(pool: PgPool) {
         .expect("medal grant must respond");
     assert_eq!(grant.status(), StatusCode::OK);
     assert_eq!(response_json(grant).await["data"]["created"], true);
+    let operations = app
+        .clone()
+        .oneshot(get_request(
+            &format!(
+                "/api/v1/admin/membership/medal-operations?user_id={member_id}&medal_key=medal_01"
+            ),
+            &owner_cookies,
+        ))
+        .await
+        .expect("medal operations must respond");
+    assert_eq!(operations.status(), StatusCode::OK);
+    let operations = response_json(operations).await;
+    assert_eq!(operations["data"].as_array().map(Vec::len), Some(1));
+    assert_eq!(operations["data"][0]["operation"], "grant");
+    assert_eq!(operations["data"][0]["username"], "medal_member");
+    assert_eq!(operations["data"][0]["medal_key"], "medal_01");
+    assert_eq!(operations["data"][0]["reason"], "operator.award");
+
+    let revocation = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/membership/medal-revocations",
+            json!({"user_id": member_id, "medal_key": "medal_01", "reason": "operator.revoke"}),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("medal revocation must respond");
+    assert_eq!(revocation.status(), StatusCode::OK);
+    assert_eq!(response_json(revocation).await["data"]["revoked"], true);
+
+    let replay = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/membership/medal-revocations",
+            json!({"user_id": member_id, "medal_key": "medal_01", "reason": "operator.revoke"}),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("repeated medal revocation must respond");
+    assert_eq!(replay.status(), StatusCode::OK);
+    assert_eq!(response_json(replay).await["data"]["revoked"], false);
+
     let profile = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/api/v1/users/medal_member/medals")
@@ -858,7 +907,28 @@ async fn admin_medals_are_granted_and_visible_on_public_profile(pool: PgPool) {
         .await
         .expect("profile medals must respond");
     assert_eq!(profile.status(), StatusCode::OK);
-    assert_eq!(response_json(profile).await["data"][0]["key"], "medal_01");
+    assert_eq!(
+        response_json(profile).await["data"]
+            .as_array()
+            .map(Vec::len),
+        Some(0)
+    );
+
+    let operations = app
+        .oneshot(get_request(
+            &format!(
+                "/api/v1/admin/membership/medal-operations?user_id={member_id}&medal_key=medal_01"
+            ),
+            &owner_cookies,
+        ))
+        .await
+        .expect("updated medal operations must respond");
+    assert_eq!(operations.status(), StatusCode::OK);
+    let operations = response_json(operations).await;
+    assert_eq!(operations["data"].as_array().map(Vec::len), Some(2));
+    assert_eq!(operations["data"][0]["operation"], "revoke");
+    assert_eq!(operations["data"][0]["reason"], "operator.revoke");
+    assert_eq!(operations["data"][1]["operation"], "grant");
 }
 
 fn hash_token(value: String) -> Vec<u8> {

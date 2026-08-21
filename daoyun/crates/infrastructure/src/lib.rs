@@ -95,10 +95,11 @@ pub use governance::{
 pub use installation::{InitializeInstallationError, InstallationAdministrator};
 pub use membership::{
     AppendPointsLedgerError, GrantMembershipMedalError, GrantMembershipMedalResult,
-    MembershipAccountRecord, MembershipLedgerResult, MembershipLevelRuleRecord,
-    MembershipMedalRecord, MembershipMedalRuleRecord, UpdateMembershipLevelRuleError,
-    UpdateMembershipLevelRuleRecord, UpdateMembershipMedalRuleError,
-    UpdateMembershipMedalRuleRecord,
+    ListMembershipMedalOperationsError, MembershipAccountRecord, MembershipLedgerResult,
+    MembershipLevelRuleRecord, MembershipMedalOperationRecord, MembershipMedalRecord,
+    MembershipMedalRuleRecord, RevokeMembershipMedalError, RevokeMembershipMedalResult,
+    UpdateMembershipLevelRuleError, UpdateMembershipLevelRuleRecord,
+    UpdateMembershipMedalRuleError, UpdateMembershipMedalRuleRecord,
 };
 pub use messages::{
     ArchiveConversationError, ConversationLastMessageRecord, ConversationReadStateRecord,
