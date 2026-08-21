@@ -786,7 +786,7 @@ async fn publishing_enforces_community_permission_and_daily_quota_transactionall
         .create_published_topic(
             NewTopicRecord {
                 id: fixture_id(203),
-                ..input
+                ..input.clone()
             },
             Some(idempotency.clone()),
         )

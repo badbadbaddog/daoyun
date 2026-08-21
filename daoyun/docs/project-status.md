@@ -1,10 +1,43 @@
 # 刀云项目完成度
 
-更新时间：2026-08-15
+更新时间：2026-08-21
 
 当前分支：`codex/daoyun-home-foundation`
 
-当前基线：`8ce3005 feat: add admin configuration client`（工作区包含本状态文档所列的后续未提交实现）
+当前基线：`f4d3131 feat:complete-community-permissions-and-plugin-platform`（工作区包含本状态文档所列的后续未提交实现）
+
+### 已验证的修复
+
+`f4d3131` 为 `GET /api/v1/boards` 引入社区权限校验，处理函数新增了 `Extension<AuthRuntime>` 参数，
+但 `apps/api/src/boards.rs` 的 `router()` 没有注入该 extension。Axum 缺失 extension 属运行期错误，
+`cargo check` 无法发现，因此该提交上公开板块列表接口会返回 500。
+
+工作区中的代码改动是对应修复与配套测试：
+
+- `apps/api/src/lib.rs`：在路由树上追加全局 `.layer(axum::Extension(auth_runtime))`。
+- `crates/infrastructure/tests/community_permissions.rs`：新增 `grant_membership_write_permission` 夹具，
+  对应新增的 `community.memberships.write` 能力校验。
+- `crates/infrastructure/tests/topics.rs`：一处 `input.clone()` 编译修复。
+- `apps/api/tests/users.rs`：将管理员状态测试的过期时间改为相对当前时间，避免测试随日期失效。
+
+已用本机 PostgreSQL 55433 与 MSYS2 GNU toolchain 验证：`GET /api/v1/boards` 返回 200，
+`cargo test -p daoyun-api --test boards` 4 项通过，`cargo test --workspace` 全量通过；
+Rustfmt、workspace/all-targets Clippy `-D warnings`、TypeScript 类型检查和生产构建均通过。
+
+后续核实：`apps/api/src/lib.rs:534-654` 的 8 个 `app*` 构造函数全部汇聚到
+`app_with_all_runtimes`，因此该处全局 layer 修复覆盖所有入口；
+`apps/api/tests/boards.rs:38` 经由同一汇聚点验证修复。
+
+### 未实现的新增规格
+
+以下两份规格已完成设计但尚未实现，均承接此前无人认领的缺口：
+
+- [Outbox 保留与清理](specs/outbox-retention.md)：承接
+  `platform-async-processing-plan.md:55` 的 "outbox 无限增长" 风险。
+  当前 `completed` 与 `dead` 事件永不删除，表随运行时间单调增长。
+- [版块合并](specs/board-merge.md)：承接 `station-administration-redesign.md:124`
+  显式推给"后续规格"的合并预览、迁移与回滚语义。
+  当前版块在存在子版块或主题时只能被 `409` 拒绝删除，没有并入其他版块的手段。
 
 ## 状态口径
 

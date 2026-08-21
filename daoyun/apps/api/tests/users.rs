@@ -454,10 +454,13 @@ async fn admin_user_status_route_enforces_csrf_revision_rules_and_restricted_ses
     let member = register(&app, "statusmember", "状态成员").await;
     let owner = login(&app, "owner").await;
     let uri = format!("/api/v1/admin/users/{}/status", member.user_id);
+    let expires_at = (time::OffsetDateTime::now_utc() + time::Duration::days(1))
+        .format(&time::format_description::well_known::Rfc3339)
+        .expect("future expiry must format as RFC 3339");
     let restriction = serde_json::json!({
         "status": "restricted",
         "reason": "等待内容复核",
-        "expires_at": "2026-08-20T08:00:00Z",
+        "expires_at": expires_at,
         "expected_revision": 1
     });
 

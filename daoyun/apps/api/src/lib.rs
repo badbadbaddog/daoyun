@@ -633,13 +633,14 @@ pub fn app_with_all_runtimes(
         .merge(observability::router())
         .merge(operations::router(auth_runtime.clone()))
         .merge(plugins::router(auth_runtime.clone()))
-        .merge(users::router(auth_runtime))
+        .merge(users::router(auth_runtime.clone()))
         .route("/api/v1/openapi.json", get(openapi))
         // Source: https://docs.rs/axum/0.8.9/axum/struct.Router.html#method.fallback
         .fallback(rejection::not_found)
         // Source: https://docs.rs/axum/0.8.9/axum/struct.Router.html#method.method_not_allowed_fallback
         .method_not_allowed_fallback(rejection::method_not_allowed)
         .with_state(database)
+        .layer(axum::Extension(auth_runtime))
         .layer(axum::Extension(cache_runtime))
         .layer(axum::Extension(mfa_runtime))
         .layer(axum::Extension(observability_runtime.clone()))

@@ -52,7 +52,7 @@
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
 | 租约过期导致重复处理 | High | handler 设计幂等；完成操作校验租约 token |
-| outbox 无限增长 | Medium | dead 状态、批量清理任务和索引监控留到后续运维切片 |
+| outbox 无限增长 | Medium | dead 状态；批量清理任务、保留窗口和索引监控由 [Outbox 保留与清理规格](outbox-retention.md) 承接 |
 | Redis 依赖扩大构建树 | Medium | 先做依赖审计，默认 feature 关闭 |
 | 事务写入点遗漏 | High | 先接入单一真实事件并加入集成测试，再扩展覆盖面 |
 

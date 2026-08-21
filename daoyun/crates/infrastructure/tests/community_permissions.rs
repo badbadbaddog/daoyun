@@ -42,6 +42,7 @@ fn pure_permission_merge_is_independent_of_group_order() {
 async fn community_permission_snapshot_unions_allows_and_maximizes_quotas(pool: PgPool) {
     let database = Database::from_pool(pool.clone());
     let actor_id = insert_user(&pool, "permission_actor").await;
+    grant_membership_write_permission(&pool, actor_id).await;
     let user_id = insert_user(&pool, "permission_subject").await;
     let now = OffsetDateTime::now_utc();
     grant_group(
@@ -98,6 +99,7 @@ async fn community_permission_snapshot_unions_allows_and_maximizes_quotas(pool: 
 async fn account_status_and_expiry_take_priority_over_group_allows(pool: PgPool) {
     let database = Database::from_pool(pool.clone());
     let actor_id = insert_user(&pool, "status_actor").await;
+    grant_membership_write_permission(&pool, actor_id).await;
     let user_id = insert_user(&pool, "status_subject").await;
     let now = OffsetDateTime::now_utc();
     grant_group(
@@ -201,4 +203,34 @@ async fn insert_user(pool: &PgPool, username: &str) -> Uuid {
     .await
     .expect("user fixture must insert");
     user_id
+}
+
+async fn grant_membership_write_permission(pool: &PgPool, user_id: Uuid) {
+    let role_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO roles (id, key, name, scope, is_system)
+         VALUES ($1, 'test_membership_writer', 'Test membership writer', 'instance', FALSE)",
+    )
+    .bind(role_id)
+    .execute(pool)
+    .await
+    .expect("test membership writer role must insert");
+    sqlx::query(
+        "INSERT INTO role_permissions (role_id, permission_id)
+         SELECT $1, id FROM permissions WHERE permission_key = 'community.memberships.write'",
+    )
+    .bind(role_id)
+    .execute(pool)
+    .await
+    .expect("test membership writer permission must insert");
+    sqlx::query(
+        "INSERT INTO role_assignments (id, user_id, role_id, assigned_by, scope_id)
+         VALUES ($1, $2, $3, $2, NULL)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(user_id)
+    .bind(role_id)
+    .execute(pool)
+    .await
+    .expect("test membership writer role must be assigned");
 }
