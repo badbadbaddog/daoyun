@@ -278,6 +278,12 @@ async fn authorization_catalog_lists_permissions_roles_and_scoped_assignments(po
             .iter()
             .any(|permission| permission.key == permission_keys::AUTHORIZATION_ROLES_READ)
     );
+    let administration_read = permissions
+        .iter()
+        .find(|permission| permission.key == permission_keys::ADMIN_CONFIGURATION_READ)
+        .expect("administration read permission must be seeded");
+    assert_eq!(administration_read.name, "读取管理配置");
+    assert_eq!(administration_read.description, "查看受保护的管理配置。");
 
     let roles = database
         .list_authorization_roles()
