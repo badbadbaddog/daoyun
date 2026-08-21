@@ -7,6 +7,49 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn default_board_moderator_role_is_seeded_with_scoped_moderation_permissions(pool: PgPool) {
+    let role = sqlx::query_as::<_, (String, String, String, bool, i16, i64)>(
+        "SELECT key, name, scope, is_system, protection_level, revision
+         FROM roles
+         WHERE key = 'board_moderator'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("default board moderator role must be seeded");
+
+    assert_eq!(role.0, "board_moderator");
+    assert_eq!(role.1, "版主");
+    assert_eq!(role.2, "board");
+    assert!(!role.3);
+    assert_eq!(role.4, 1);
+    assert_eq!(role.5, 1);
+
+    let permission_keys = sqlx::query_scalar::<_, String>(
+        "SELECT permission.permission_key
+         FROM role_permissions AS role_permission
+         JOIN roles AS role ON role.id = role_permission.role_id
+         JOIN permissions AS permission ON permission.id = role_permission.permission_id
+         WHERE role.key = 'board_moderator'
+         ORDER BY permission.permission_key",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("default board moderator permissions must be queryable");
+
+    assert_eq!(
+        permission_keys,
+        vec![
+            "moderation.topic".to_owned(),
+            "moderation.topic.feature".to_owned(),
+            "moderation.topic.lock".to_owned(),
+            "moderation.topic.move".to_owned(),
+            "moderation.topic.pin".to_owned(),
+            "moderation.user.restrict_in_scope".to_owned(),
+        ]
+    );
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
 async fn capability_checks_apply_roles_scopes_and_user_status(pool: PgPool) {
     let database = Database::from_pool(pool.clone());
     let administrator_id = Uuid::now_v7();
