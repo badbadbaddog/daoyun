@@ -4,9 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
   AuthApiError,
+  getRegistrationPolicy,
   MfaChallengeRequiredError,
   login,
   register,
+  requestRegistrationEmailChallenge,
   startPasskeyAssertion,
   verifyPasskeyAssertion,
   verifyMfaChallenge,
@@ -19,7 +21,9 @@ vi.mock("../api/auth", async () => {
   return {
     ...actual,
     login: vi.fn(),
+    getRegistrationPolicy: vi.fn(),
     register: vi.fn(),
+    requestRegistrationEmailChallenge: vi.fn(),
     startPasskeyAssertion: vi.fn(),
     verifyPasskeyAssertion: vi.fn(),
     verifyMfaChallenge: vi.fn(),
@@ -38,7 +42,10 @@ const session: AuthSession = {
 
 beforeEach(() => {
   vi.mocked(login).mockReset()
+  vi.mocked(getRegistrationPolicy).mockReset()
+  vi.mocked(getRegistrationPolicy).mockResolvedValue({ emailVerificationRequired: false, codeExpiresInSeconds: 600, resendAfterSeconds: 60 })
   vi.mocked(register).mockReset()
+  vi.mocked(requestRegistrationEmailChallenge).mockReset()
   vi.mocked(startPasskeyAssertion).mockReset()
   vi.mocked(verifyPasskeyAssertion).mockReset()
   vi.mocked(verifyMfaChallenge).mockReset()
@@ -154,6 +161,37 @@ describe("AuthPanel", () => {
       email: "member@example.com",
       displayName: "社区成员",
       password: "123456",
+    })
+  })
+
+  it("requests and submits the registration email verification code when required", async () => {
+    vi.mocked(getRegistrationPolicy).mockResolvedValue({ emailVerificationRequired: true, codeExpiresInSeconds: 600, resendAfterSeconds: 60 })
+    vi.mocked(requestRegistrationEmailChallenge).mockResolvedValue({
+      challengeId: "019fc700-0000-7000-8000-000000000045",
+      expiresAt: "2026-08-24T12:10:00Z",
+      resendAfterSeconds: 60,
+    })
+    vi.mocked(register).mockResolvedValue(session)
+    const user = userEvent.setup()
+    render(<AuthPanel open mode="register" onClose={vi.fn()} onAuthenticated={vi.fn()} />)
+
+    await user.type(screen.getByRole("textbox", { name: "用户名" }), "member")
+    await user.type(screen.getByRole("textbox", { name: "邮箱" }), "member@example.com")
+    await user.type(screen.getByRole("textbox", { name: "显示名称" }), "社区成员")
+    await user.type(screen.getByLabelText("密码"), "123456")
+    const send = await screen.findByRole("button", { name: "发送验证码" })
+    await user.click(send)
+    expect(requestRegistrationEmailChallenge).toHaveBeenCalledWith("member@example.com")
+    await user.type(screen.getByRole("textbox", { name: "邮箱验证码" }), "654321")
+    await user.click(screen.getByRole("button", { name: "注册" }))
+
+    expect(register).toHaveBeenCalledWith({
+      username: "member",
+      email: "member@example.com",
+      displayName: "社区成员",
+      password: "123456",
+      emailChallengeId: "019fc700-0000-7000-8000-000000000045",
+      emailVerificationCode: "654321",
     })
   })
 

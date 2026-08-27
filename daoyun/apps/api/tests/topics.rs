@@ -371,12 +371,23 @@ async fn publishing_uses_the_default_board_and_replays_idempotently(pool: PgPool
     let app = daoyun_api::app_with_config(Database::from_pool(pool.clone()), config);
     let (cookie_header, csrf_token) = register_member(&app).await;
     let key = "topic-create-001";
+    let body = serde_json::json!({
+        "title": "首个主题",
+        "content": "客户端纯文本不会成为权威值",
+        "rich_content": {
+            "type": "doc",
+            "content": [{
+                "type": "paragraph",
+                "content": [{ "type": "text", "text": "这是正文" }]
+            }]
+        }
+    });
 
     let first = app
         .clone()
         .oneshot(json_request_with_headers_and_idempotency(
             "/api/v1/topics",
-            serde_json::json!({"title": "首个主题", "content": "这是正文"}),
+            body.clone(),
             &cookie_header,
             &csrf_token,
             key,
@@ -391,12 +402,14 @@ async fn publishing_uses_the_default_board_and_replays_idempotently(pool: PgPool
         .to_owned();
     assert_eq!(first_payload["data"]["board"]["slug"], "general");
     assert_eq!(first_payload["data"]["author"]["username"], "member");
+    assert_eq!(first_payload["data"]["content"], "这是正文");
+    assert_eq!(first_payload["data"]["rich_content"]["type"], "doc");
 
     let replay = app
         .clone()
         .oneshot(json_request_with_headers_and_idempotency(
             "/api/v1/topics",
-            serde_json::json!({"title": "首个主题", "content": "这是正文"}),
+            body,
             &cookie_header,
             &csrf_token,
             key,
@@ -407,6 +420,7 @@ async fn publishing_uses_the_default_board_and_replays_idempotently(pool: PgPool
     assert_eq!(response_json(replay).await["data"]["id"], topic_id);
 
     let conflict = app
+        .clone()
         .oneshot(json_request_with_headers_and_idempotency(
             "/api/v1/topics",
             serde_json::json!({"title": "同一键不同内容", "content": "正文"}),
@@ -542,6 +556,8 @@ async fn reply_routes_list_and_publish_with_auth_csrf_and_idempotency(pool: PgPo
     assert_eq!(first_payload["data"]["content"], "回复正文");
     assert_eq!(first_payload["data"]["revision_count"], 1);
     assert_eq!(first_payload["data"]["author"]["username"], "member");
+    assert_eq!(first_payload["data"]["floor_number"], 1);
+    assert!(first_payload["data"]["reply_to"].is_null());
 
     let replay = app
         .clone()
@@ -558,6 +574,7 @@ async fn reply_routes_list_and_publish_with_auth_csrf_and_idempotency(pool: PgPo
     assert_eq!(response_json(replay).await["data"]["id"], reply_id);
 
     let conflict = app
+        .clone()
         .oneshot(json_request_with_headers_and_idempotency(
             &reply_path,
             serde_json::json!({"content": "不同回复"}),
@@ -572,13 +589,51 @@ async fn reply_routes_list_and_publish_with_auth_csrf_and_idempotency(pool: PgPo
         response_json(conflict).await["error"]["code"],
         "request.idempotency_conflict"
     );
+
+    let second = app
+        .clone()
+        .oneshot(json_request_with_headers_and_idempotency(
+            &reply_path,
+            serde_json::json!({
+                "content": "回复一楼",
+                "reply_to_id": reply_id,
+            }),
+            &cookie_header,
+            &csrf_token,
+            "reply-create-002",
+        ))
+        .await
+        .expect("floor reply must respond");
+    assert_eq!(second.status(), StatusCode::CREATED);
+    let second_payload = response_json(second).await;
+    assert_eq!(second_payload["data"]["floor_number"], 2);
+    assert_eq!(second_payload["data"]["reply_to"]["id"], reply_id);
+    assert_eq!(second_payload["data"]["reply_to"]["floor_number"], 1);
+    assert_eq!(
+        second_payload["data"]["reply_to"]["author"]["username"],
+        "member"
+    );
+    assert_eq!(second_payload["data"]["reply_to"]["excerpt"], "回复正文");
+    assert_eq!(second_payload["data"]["reply_to"]["is_deleted"], false);
+
+    let listed = app
+        .clone()
+        .oneshot(get_request(&reply_path))
+        .await
+        .expect("floor reply list must respond");
+    assert_eq!(listed.status(), StatusCode::OK);
+    let listed_payload = response_json(listed).await;
+    assert_eq!(listed_payload["data"][0]["floor_number"], 1);
+    assert_eq!(listed_payload["data"][1]["floor_number"], 2);
+    assert_eq!(listed_payload["data"][1]["reply_to"]["id"], reply_id);
+
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT reply_count FROM topics WHERE id = $1")
             .bind(Uuid::parse_str(&topic_id).expect("topic id must be a UUID"))
             .fetch_one(&pool)
             .await
             .expect("topic reply count must be readable"),
-        1
+        2
     );
 }
 
@@ -623,6 +678,54 @@ async fn reply_routes_reject_invalid_paths_queries_and_bodies(pool: PgPool) {
         .expect("parent topic id must be text")
         .to_owned();
     let reply_path = format!("/api/v1/topics/{topic_id}/replies");
+
+    let other_topic = app
+        .clone()
+        .oneshot(json_request_with_headers_and_idempotency(
+            "/api/v1/topics",
+            serde_json::json!({"title": "另一个主题", "content": "另一篇正文"}),
+            &cookie_header,
+            &csrf_token,
+            "reply-validation-other-topic",
+        ))
+        .await
+        .expect("other topic request must respond");
+    let other_topic_id = response_json(other_topic).await["data"]["id"]
+        .as_str()
+        .expect("other topic id must be text")
+        .to_owned();
+    let other_reply = app
+        .clone()
+        .oneshot(json_request_with_headers_and_idempotency(
+            &format!("/api/v1/topics/{other_topic_id}/replies"),
+            serde_json::json!({"content": "其他主题回复"}),
+            &cookie_header,
+            &csrf_token,
+            "reply-validation-other-reply",
+        ))
+        .await
+        .expect("other topic reply must respond");
+    let other_reply_id = response_json(other_reply).await["data"]["id"].clone();
+
+    let cross_topic_target = app
+        .clone()
+        .oneshot(json_request_with_headers_and_idempotency(
+            &reply_path,
+            serde_json::json!({
+                "content": "不能引用其他主题",
+                "reply_to_id": other_reply_id,
+            }),
+            &cookie_header,
+            &csrf_token,
+            "reply-validation-cross-topic",
+        ))
+        .await
+        .expect("cross-topic reply target must respond");
+    assert_eq!(
+        cross_topic_target.status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert!(response_json(cross_topic_target).await["error"]["fields"]["reply_to_id"].is_array());
 
     let missing_csrf = app
         .clone()
@@ -677,6 +780,192 @@ async fn reply_routes_reject_invalid_paths_queries_and_bodies(pool: PgPool) {
         .expect("oversized reply must respond");
     assert_eq!(oversized.status(), StatusCode::UNPROCESSABLE_ENTITY);
     assert!(response_json(oversized).await["error"]["fields"]["body"].is_array());
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn reply_gated_topic_content_is_redacted_until_the_viewer_replies(pool: PgPool) {
+    let config = daoyun_api::AuthConfig::default().with_secure_cookies(false);
+    let app = daoyun_api::app_with_config(Database::from_pool(pool), config);
+    let (author_cookies, author_csrf) = register_member(&app).await;
+    let (reader_cookies, reader_csrf) =
+        register_additional_member(&app, "reader", "reader@example.com", "等待读者").await;
+    let (owner_cookies, _) = login_owner(&app).await;
+
+    let created = app
+        .clone()
+        .oneshot(json_request_with_headers_and_idempotency(
+            "/api/v1/topics",
+            serde_json::json!({
+                "title": "回复后可见主题",
+                "content": "客户端占位正文",
+                "rich_content": {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"type": "text", "text": "公开开头"}]
+                        },
+                        {
+                            "type": "replyGate",
+                            "content": [{
+                                "type": "paragraph",
+                                "content": [{"type": "text", "text": "隐藏答案 42"}]
+                            }]
+                        }
+                    ]
+                }
+            }),
+            &author_cookies,
+            &author_csrf,
+            "reply-gated-topic",
+        ))
+        .await
+        .expect("gated topic creation must respond");
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let topic_id = response_json(created).await["data"]["id"]
+        .as_str()
+        .expect("gated topic id must be text")
+        .to_owned();
+    let topic_path = format!("/api/v1/topics/{topic_id}");
+    let reply_path = format!("/api/v1/topics/{topic_id}/replies");
+
+    let gated_reply = app
+        .clone()
+        .oneshot(json_request_with_headers_and_idempotency(
+            &reply_path,
+            serde_json::json!({
+                "content": "公开回复",
+                "rich_content": {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"type": "text", "text": "公开回复"}]
+                        },
+                        {
+                            "type": "replyGate",
+                            "content": [{
+                                "type": "paragraph",
+                                "content": [{"type": "text", "text": "回复中的秘密 84"}]
+                            }]
+                        }
+                    ]
+                }
+            }),
+            &author_cookies,
+            &author_csrf,
+            "reply-gated-reply",
+        ))
+        .await
+        .expect("gated reply creation must respond");
+    assert_eq!(gated_reply.status(), StatusCode::CREATED);
+    let gated_reply_id = response_json(gated_reply).await["data"]["id"].clone();
+    let quoted_gated_reply = app
+        .clone()
+        .oneshot(json_request_with_headers_and_idempotency(
+            &reply_path,
+            serde_json::json!({
+                "content": "引用带门控的楼层",
+                "reply_to_id": gated_reply_id,
+            }),
+            &author_cookies,
+            &author_csrf,
+            "quoted-reply-gated-reply",
+        ))
+        .await
+        .expect("quoted gated reply creation must respond");
+    assert_eq!(quoted_gated_reply.status(), StatusCode::CREATED);
+
+    for request in [
+        get_request(&topic_path),
+        get_request_with_headers(&topic_path, &reader_cookies),
+    ] {
+        let locked = app
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("locked topic request must respond");
+        assert_eq!(locked.status(), StatusCode::OK);
+        let locked_payload = response_json(locked).await;
+        assert_eq!(locked_payload["data"]["has_locked_content"], true);
+        assert_eq!(
+            locked_payload["data"]["content"],
+            "公开开头\n回复主题后可见"
+        );
+        assert!(!locked_payload.to_string().contains("隐藏答案 42"));
+    }
+
+    for request in [
+        get_request(&reply_path),
+        get_request_with_headers(&reply_path, &reader_cookies),
+    ] {
+        let locked = app
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("locked reply list must respond");
+        let locked_payload = response_json(locked).await;
+        assert_eq!(locked_payload["data"][0]["has_locked_content"], true);
+        assert!(!locked_payload.to_string().contains("回复中的秘密 84"));
+    }
+
+    let hidden_search = app
+        .clone()
+        .oneshot(get_request("/api/v1/topics?query=42"))
+        .await
+        .expect("hidden-text search must respond");
+    assert_eq!(hidden_search.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(hidden_search).await["data"],
+        serde_json::json!([])
+    );
+
+    for cookies in [&author_cookies, &owner_cookies] {
+        let unlocked = app
+            .clone()
+            .oneshot(get_request_with_headers(&topic_path, cookies))
+            .await
+            .expect("privileged topic request must respond");
+        let unlocked_payload = response_json(unlocked).await;
+        assert_eq!(unlocked_payload["data"]["has_locked_content"], true);
+        assert!(unlocked_payload.to_string().contains("隐藏答案 42"));
+    }
+
+    let reply = app
+        .clone()
+        .oneshot(json_request_with_headers_and_idempotency(
+            &reply_path,
+            serde_json::json!({"content": "我已回复"}),
+            &reader_cookies,
+            &reader_csrf,
+            "unlock-gated-topic",
+        ))
+        .await
+        .expect("unlocking reply must respond");
+    assert_eq!(reply.status(), StatusCode::CREATED);
+
+    let unlocked = app
+        .clone()
+        .oneshot(get_request_with_headers(&topic_path, &reader_cookies))
+        .await
+        .expect("unlocked reader topic request must respond");
+    assert!(
+        response_json(unlocked)
+            .await
+            .to_string()
+            .contains("隐藏答案 42")
+    );
+
+    let unlocked_replies = app
+        .oneshot(get_request_with_headers(&reply_path, &reader_cookies))
+        .await
+        .expect("unlocked reply list must respond");
+    assert!(
+        response_json(unlocked_replies)
+            .await
+            .to_string()
+            .contains("回复中的秘密 84")
+    );
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
@@ -816,6 +1105,23 @@ async fn reply_item_routes_support_author_edits_revisions_and_soft_delete(pool: 
         .as_str()
         .expect("reply id must be text")
         .to_owned();
+    let replies_path = format!("/api/v1/topics/{topic_id}/replies");
+    let child = app
+        .clone()
+        .oneshot(json_request_with_headers_and_idempotency(
+            &replies_path,
+            serde_json::json!({
+                "content": "引用首楼的回复",
+                "reply_to_id": reply_id,
+            }),
+            &author_cookies,
+            &author_csrf,
+            "reply-edit-child-reference",
+        ))
+        .await
+        .expect("child reply request must respond");
+    assert_eq!(child.status(), StatusCode::CREATED);
+    assert_eq!(response_json(child).await["data"]["floor_number"], 2);
     let reply_path = format!("/api/v1/topics/{topic_id}/replies/{reply_id}");
 
     let unauthenticated_revisions = app
@@ -951,7 +1257,19 @@ async fn reply_item_routes_support_author_edits_revisions_and_soft_delete(pool: 
         .oneshot(get_request(&format!("/api/v1/topics/{topic_id}")))
         .await
         .expect("topic detail after reply delete must respond");
-    assert_eq!(response_json(detail).await["data"]["reply_count"], 0);
+    assert_eq!(response_json(detail).await["data"]["reply_count"], 1);
+
+    let remaining = app
+        .clone()
+        .oneshot(get_request(&replies_path))
+        .await
+        .expect("remaining replies must respond");
+    let remaining_payload = response_json(remaining).await;
+    assert_eq!(remaining_payload["data"].as_array().unwrap().len(), 1);
+    assert_eq!(remaining_payload["data"][0]["floor_number"], 2);
+    assert_eq!(remaining_payload["data"][0]["reply_to"]["id"], reply_id);
+    assert_eq!(remaining_payload["data"][0]["reply_to"]["is_deleted"], true);
+    assert!(remaining_payload["data"][0]["reply_to"]["excerpt"].is_null());
 
     let repeated = app
         .oneshot(state_change_request(
@@ -1021,6 +1339,7 @@ async fn openapi_documents_public_topic_list_and_detail() {
         "TopicSummary",
         "CreateTopicRequest",
         "CreateReplyRequest",
+        "ReplyReference",
         "TopicReply",
         "TopicTag",
         "TopicTagInput",
@@ -1034,12 +1353,27 @@ async fn openapi_documents_public_topic_list_and_detail() {
         "ModerationBoard",
         "ModerationTopic",
         "PageResponse_ModerationTopic",
+        "TopicModerationHistoryEntry",
+        "PageResponse_TopicModerationHistoryEntry",
     ] {
         assert!(
             document["components"]["schemas"][schema].is_object(),
             "{schema}"
         );
     }
+    assert!(
+        document["paths"]["/api/v1/admin/moderation/topics/{topic_id}/history"]["get"].is_object()
+    );
+    for property in ["floor_number", "reply_to", "has_locked_content"] {
+        assert!(
+            document["components"]["schemas"]["TopicReply"]["properties"][property].is_object(),
+            "{property}"
+        );
+    }
+    assert!(
+        document["components"]["schemas"]["CreateReplyRequest"]["properties"]["reply_to_id"]
+            .is_object()
+    );
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
@@ -1239,6 +1573,126 @@ async fn topic_governance_endpoint_enforces_revision_and_lock_state(pool: PgPool
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn topic_moderation_history_unifies_actions_and_requires_audit_read(pool: PgPool) {
+    let config = daoyun_api::AuthConfig::default().with_secure_cookies(false);
+    let app = daoyun_api::app_with_config(Database::from_pool(pool), config);
+    let (member_cookies, member_csrf) = register_member(&app).await;
+    let created = app
+        .clone()
+        .oneshot(json_request_with_headers_and_idempotency(
+            "/api/v1/topics",
+            serde_json::json!({"title": "处理记录主题", "content": "主题正文"}),
+            &member_cookies,
+            &member_csrf,
+            "moderation-history-topic",
+        ))
+        .await
+        .expect("topic creation must respond");
+    let topic_id = response_json(created).await["data"]["id"]
+        .as_str()
+        .expect("topic id must be text")
+        .to_owned();
+    let (owner_cookies, owner_csrf) = login_owner(&app).await;
+
+    let governed = app
+        .clone()
+        .oneshot(json_request_with_headers(
+            Method::PATCH,
+            &format!("/api/v1/topics/{topic_id}/governance"),
+            serde_json::json!({
+                "action": "pin",
+                "expected_revision": 1,
+                "reason": "重要公告"
+            }),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("governance request must respond");
+    assert_eq!(governed.status(), StatusCode::OK);
+
+    let moderated = app
+        .clone()
+        .oneshot(json_request_with_headers(
+            Method::PATCH,
+            &format!("/api/v1/topics/{topic_id}/moderation"),
+            serde_json::json!({"status": "hidden", "reason": "内容待复核"}),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("moderation request must respond");
+    assert_eq!(moderated.status(), StatusCode::OK);
+
+    let history_path = format!("/api/v1/admin/moderation/topics/{topic_id}/history?limit=1");
+    let anonymous = app
+        .clone()
+        .oneshot(get_request(&history_path))
+        .await
+        .expect("anonymous history request must respond");
+    assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
+
+    let forbidden = app
+        .clone()
+        .oneshot(get_request_with_headers(&history_path, &member_cookies))
+        .await
+        .expect("member history request must respond");
+    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+
+    let first = app
+        .clone()
+        .oneshot(get_request_with_headers(&history_path, &owner_cookies))
+        .await
+        .expect("first history page must respond");
+    assert_eq!(first.status(), StatusCode::OK);
+    let payload = response_json(first).await;
+    assert_eq!(payload["data"][0]["source"], "moderation");
+    assert_eq!(payload["data"][0]["action"], "hidden");
+    assert_eq!(payload["data"][0]["reason"], "内容待复核");
+    assert_eq!(payload["data"][0]["actor"]["username"], "owner");
+    let cursor = payload["meta"]["next_cursor"]
+        .as_str()
+        .expect("first page must have a cursor");
+
+    let second = app
+        .clone()
+        .oneshot(get_request_with_headers(
+            &format!("{history_path}&cursor={cursor}"),
+            &owner_cookies,
+        ))
+        .await
+        .expect("second history page must respond");
+    assert_eq!(second.status(), StatusCode::OK);
+    let payload = response_json(second).await;
+    assert_eq!(payload["data"][0]["source"], "governance");
+    assert_eq!(payload["data"][0]["action"], "pin");
+    assert_eq!(payload["data"][0]["reason"], "重要公告");
+    assert!(payload["meta"]["next_cursor"].is_null());
+
+    let invalid_cursor = app
+        .clone()
+        .oneshot(get_request_with_headers(
+            &format!("{history_path}&cursor={}", fixture_id(999)),
+            &owner_cookies,
+        ))
+        .await
+        .expect("invalid history cursor must respond");
+    assert_eq!(invalid_cursor.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let missing = app
+        .oneshot(get_request_with_headers(
+            &format!(
+                "/api/v1/admin/moderation/topics/{}/history",
+                fixture_id(998)
+            ),
+            &owner_cookies,
+        ))
+        .await
+        .expect("missing topic history request must respond");
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
 async fn scoped_board_restriction_api_blocks_member_topic_creation(pool: PgPool) {
     let config = daoyun_api::AuthConfig::default().with_secure_cookies(false);
     let app = daoyun_api::app_with_config(Database::from_pool(pool.clone()), config);
@@ -1388,6 +1842,29 @@ async fn register_member(app: &axum::Router) -> (String, String) {
         ))
         .await
         .expect("registration request must respond");
+    assert_eq!(registration.status(), StatusCode::CREATED);
+    session_cookies(&registration)
+}
+
+async fn register_additional_member(
+    app: &axum::Router,
+    username: &str,
+    email: &str,
+    display_name: &str,
+) -> (String, String) {
+    let registration = app
+        .clone()
+        .oneshot(json_request(
+            "/api/v1/auth/register",
+            serde_json::json!({
+                "username": username,
+                "email": email,
+                "display_name": display_name,
+                "password": "correct horse battery staple"
+            }),
+        ))
+        .await
+        .expect("additional registration request must respond");
     assert_eq!(registration.status(), StatusCode::CREATED);
     session_cookies(&registration)
 }

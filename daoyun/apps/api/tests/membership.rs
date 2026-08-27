@@ -127,6 +127,14 @@ async fn openapi_documents_membership_catalog() {
     assert!(document["paths"]["/api/v1/admin/membership/levels"]["get"].is_object());
     assert!(document["paths"]["/api/v1/admin/membership/levels"]["post"].is_object());
     assert!(document["paths"]["/api/v1/admin/membership/levels/{level_id}"]["patch"].is_object());
+    assert!(document["paths"]["/api/v1/admin/membership/levels/{level_id}"]["delete"].is_object());
+    for status in ["200", "401", "403", "404", "409", "422", "503"] {
+        assert!(
+            document["paths"]["/api/v1/admin/membership/levels/{level_id}"]["delete"]["responses"]
+                [status]["headers"]["x-request-id"]
+                .is_object()
+        );
+    }
     assert!(document["paths"]["/api/v1/admin/membership/medal-operations"]["get"].is_object());
     assert!(document["paths"]["/api/v1/admin/membership/medal-revocations"]["post"].is_object());
     assert!(document["components"]["schemas"]["AdminGrowthLevel"].is_object());
@@ -135,7 +143,9 @@ async fn openapi_documents_membership_catalog() {
     assert!(document["paths"]["/api/v1/admin/community/groups"]["get"].is_object());
     assert!(document["paths"]["/api/v1/admin/community/groups"]["post"].is_object());
     assert!(document["paths"]["/api/v1/admin/community/groups/{group_id}"]["patch"].is_object());
+    assert!(document["paths"]["/api/v1/admin/community/default-group"]["put"].is_object());
     assert!(document["paths"]["/api/v1/admin/community/memberships"]["post"].is_object());
+    assert!(document["paths"]["/api/v1/admin/community/memberships"]["get"].is_object());
     assert!(
         document["paths"]["/api/v1/admin/community/memberships/{membership_id}/revoke"]["post"]
             .is_object()
@@ -156,7 +166,7 @@ async fn openapi_documents_membership_catalog() {
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
 async fn admin_growth_levels_use_uuid_revision_and_lifecycle(pool: PgPool) {
     let app = daoyun_api::app_with_config(
-        Database::from_pool(pool),
+        Database::from_pool(pool.clone()),
         daoyun_api::AuthConfig::default().with_secure_cookies(false),
     );
     initialize(&app).await;
@@ -198,8 +208,9 @@ async fn admin_growth_levels_use_uuid_revision_and_lifecycle(pool: PgPool) {
         .as_str()
         .expect("created level id must be text");
     assert!(Uuid::parse_str(level_id).is_ok());
-    assert_eq!(created["data"]["status"], "draft");
+    assert_eq!(created["data"]["status"], "published");
     assert_eq!(created["data"]["revision"], 1);
+    assert!(created["data"]["published_at"].is_string());
 
     let updated = app
         .clone()
@@ -228,6 +239,7 @@ async fn admin_growth_levels_use_uuid_revision_and_lifecycle(pool: PgPool) {
     assert!(updated["data"]["published_at"].is_string());
 
     let stale = app
+        .clone()
         .oneshot(json_request(
             Method::PATCH,
             &format!("/api/v1/admin/membership/levels/{level_id}"),
@@ -247,6 +259,81 @@ async fn admin_growth_levels_use_uuid_revision_and_lifecycle(pool: PgPool) {
         .await
         .expect("stale growth level update must respond");
     assert_eq!(stale.status(), StatusCode::CONFLICT);
+
+    let deleted = app
+        .clone()
+        .oneshot(json_request(
+            Method::DELETE,
+            &format!("/api/v1/admin/membership/levels/{level_id}"),
+            json!({}),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .expect("growth level delete must respond");
+    assert_eq!(deleted.status(), StatusCode::OK);
+    let delete_request_id = deleted.headers()["x-request-id"]
+        .to_str()
+        .expect("delete request id must be text")
+        .to_owned();
+    let deleted = response_json(deleted).await;
+    assert_eq!(deleted["data"], true);
+    assert_eq!(deleted["meta"]["request_id"], delete_request_id);
+
+    let levels = app
+        .clone()
+        .oneshot(get_request("/api/v1/admin/membership/levels", &cookies))
+        .await
+        .expect("growth level list must respond after delete");
+    let levels = response_json(levels).await;
+    let assigned_level_id = levels["data"][0]["id"]
+        .as_str()
+        .expect("assigned level id must be text");
+    let assigned_delete = app
+        .clone()
+        .oneshot(json_request(
+            Method::DELETE,
+            &format!("/api/v1/admin/membership/levels/{assigned_level_id}"),
+            json!({}),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .expect("assigned growth level delete must respond");
+    assert_eq!(assigned_delete.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        response_json(assigned_delete).await["error"]["code"],
+        "membership.level_conflict"
+    );
+
+    let zero_experience_level = app
+        .clone()
+        .oneshot(get_request("/api/v1/admin/membership/levels", &cookies))
+        .await
+        .expect("growth level list must remain available");
+    let zero_experience_level = response_json(zero_experience_level).await;
+    let zero_experience_level_id = zero_experience_level["data"][0]["id"]
+        .as_str()
+        .expect("zero experience level id must be text");
+    sqlx::query("DELETE FROM experience_accounts")
+        .execute(&pool)
+        .await
+        .expect("experience account fixtures must be removable");
+    let zero_experience_delete = app
+        .oneshot(json_request(
+            Method::DELETE,
+            &format!("/api/v1/admin/membership/levels/{zero_experience_level_id}"),
+            json!({}),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .expect("zero experience growth level delete must respond");
+    assert_eq!(zero_experience_delete.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        response_json(zero_experience_delete).await["error"]["code"],
+        "membership.level_conflict"
+    );
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
@@ -623,6 +710,26 @@ async fn admin_community_groups_and_memberships_are_revisioned_and_idempotent(po
         .expect("membership id must be text")
         .to_owned();
 
+    let memberships = app
+        .clone()
+        .oneshot(get_request(
+            &format!("/api/v1/admin/community/memberships?user_id={member_id}"),
+            &owner_cookies,
+        ))
+        .await
+        .expect("community memberships must respond");
+    assert_eq!(memberships.status(), StatusCode::OK);
+    let memberships = response_json(memberships).await;
+    let active_memberships = memberships["data"]
+        .as_array()
+        .expect("community memberships must be an array");
+    assert_eq!(active_memberships.len(), 2);
+    assert!(active_memberships.iter().any(|membership| {
+        membership["id"] == membership_id
+            && membership["group"]["internal_key"] == "event_member"
+            && membership["membership_kind"] == "additional"
+    }));
+
     let visible = app
         .clone()
         .oneshot(get_request("/api/v1/users/me/groups", &member_cookies))
@@ -657,6 +764,22 @@ async fn admin_community_groups_and_memberships_are_revisioned_and_idempotent(po
     assert_eq!(revoked["data"]["membership"]["revision"], 2);
     assert!(revoked["data"]["membership"]["revoked_at"].is_string());
 
+    let memberships = app
+        .clone()
+        .oneshot(get_request(
+            &format!("/api/v1/admin/community/memberships?user_id={member_id}"),
+            &owner_cookies,
+        ))
+        .await
+        .expect("updated community memberships must respond");
+    assert_eq!(memberships.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(memberships).await["data"]
+            .as_array()
+            .map(Vec::len),
+        Some(1)
+    );
+
     let replay = app
         .oneshot(json_request(
             Method::POST,
@@ -673,6 +796,213 @@ async fn admin_community_groups_and_memberships_are_revisioned_and_idempotent(po
         .expect("community membership revoke replay must respond");
     assert_eq!(replay.status(), StatusCode::OK);
     assert_eq!(response_json(replay).await["data"]["replayed"], true);
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn admin_can_change_the_default_group_for_future_registrations(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    initialize(&app).await;
+    let (owner_cookies, owner_csrf) = login(&app, "owner", "correct horse battery staple").await;
+    let existing_owner_group = sqlx::query_scalar::<_, String>(
+        "SELECT groups.internal_key
+         FROM community_group_memberships AS memberships
+         JOIN community_groups AS groups ON groups.id = memberships.group_id
+         JOIN users ON users.id = memberships.user_id
+         WHERE users.username = 'owner' AND memberships.revoked_at IS NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("owner base group must be queryable");
+    assert_eq!(existing_owner_group, "registered_member");
+
+    let groups = app
+        .clone()
+        .oneshot(get_request(
+            "/api/v1/admin/community/groups",
+            &owner_cookies,
+        ))
+        .await
+        .expect("community groups must respond");
+    assert_eq!(groups.status(), StatusCode::OK);
+    let groups = response_json(groups).await;
+    let current_default = groups["data"]
+        .as_array()
+        .expect("groups must be an array")
+        .iter()
+        .find(|group| group["is_default"] == true)
+        .expect("one group must be the registration default");
+    let current_default_id = current_default["id"]
+        .as_str()
+        .expect("default group id must be text")
+        .to_owned();
+    let current_default_revision = current_default["revision"]
+        .as_i64()
+        .expect("default group revision must be an integer");
+    let ineligible_group_id = groups["data"]
+        .as_array()
+        .expect("groups must be an array")
+        .iter()
+        .find(|group| group["is_base"] == false)
+        .and_then(|group| group["id"].as_str())
+        .expect("an additional group must exist")
+        .to_owned();
+
+    let ineligible = app
+        .clone()
+        .oneshot(json_request(
+            Method::PUT,
+            "/api/v1/admin/community/default-group",
+            json!({
+                "group_id": ineligible_group_id,
+                "expected_default_group_id": current_default_id,
+                "expected_default_revision": current_default_revision
+            }),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("additional group default update must respond");
+    assert_eq!(ineligible.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let created = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/community/groups",
+            json!({
+                "internal_key": "new_member",
+                "display_name": "新会员",
+                "description": "之后注册用户的基础组",
+                "is_base": true,
+                "display_order": 100,
+                "permission_keys": ["board.read", "topic.read"],
+                "quotas": {}
+            }),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("base group create must respond");
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let created = response_json(created).await;
+    assert_eq!(created["data"]["is_default"], false);
+    let replacement_group_id = created["data"]["id"]
+        .as_str()
+        .expect("replacement group id must be text")
+        .to_owned();
+
+    let missing_csrf = app
+        .clone()
+        .oneshot(json_request(
+            Method::PUT,
+            "/api/v1/admin/community/default-group",
+            json!({
+                "group_id": replacement_group_id,
+                "expected_default_group_id": current_default_id,
+                "expected_default_revision": current_default_revision
+            }),
+            &owner_cookies,
+            None,
+        ))
+        .await
+        .expect("default group write without CSRF must respond");
+    assert_eq!(missing_csrf.status(), StatusCode::FORBIDDEN);
+
+    let changed = app
+        .clone()
+        .oneshot(json_request(
+            Method::PUT,
+            "/api/v1/admin/community/default-group",
+            json!({
+                "group_id": replacement_group_id,
+                "expected_default_group_id": current_default_id,
+                "expected_default_revision": current_default_revision
+            }),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("default group update must respond");
+    assert_eq!(changed.status(), StatusCode::OK);
+    let changed = response_json(changed).await;
+    assert_eq!(changed["data"]["id"], replacement_group_id);
+    assert_eq!(changed["data"]["is_default"], true);
+
+    let audit = app
+        .clone()
+        .oneshot(get_request(
+            "/api/v1/admin/audit?action=community.group.default.update",
+            &owner_cookies,
+        ))
+        .await
+        .expect("default group audit must respond");
+    assert_eq!(audit.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(audit).await["data"][0]["action"],
+        "community.group.default.update"
+    );
+
+    let stale = app
+        .clone()
+        .oneshot(json_request(
+            Method::PUT,
+            "/api/v1/admin/community/default-group",
+            json!({
+                "group_id": current_default_id,
+                "expected_default_group_id": current_default_id,
+                "expected_default_revision": current_default_revision
+            }),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .expect("stale default group update must respond");
+    assert_eq!(stale.status(), StatusCode::CONFLICT);
+
+    let registered = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/auth/register",
+            json!({
+                "username": "future_default_member",
+                "email": "future-default@example.com",
+                "display_name": "未来成员",
+                "password": "correct horse battery staple"
+            }),
+            "",
+            None,
+        ))
+        .await
+        .expect("future member registration must respond");
+    assert_eq!(registered.status(), StatusCode::CREATED);
+
+    let future_group = sqlx::query_scalar::<_, String>(
+        "SELECT groups.internal_key
+         FROM community_group_memberships AS memberships
+         JOIN community_groups AS groups ON groups.id = memberships.group_id
+         JOIN users ON users.id = memberships.user_id
+         WHERE users.username = 'future_default_member' AND memberships.revoked_at IS NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("future member base group must be queryable");
+    assert_eq!(future_group, "new_member");
+
+    let unchanged_owner_group = sqlx::query_scalar::<_, String>(
+        "SELECT groups.internal_key
+         FROM community_group_memberships AS memberships
+         JOIN community_groups AS groups ON groups.id = memberships.group_id
+         JOIN users ON users.id = memberships.user_id
+         WHERE users.username = 'owner' AND memberships.revoked_at IS NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("owner base group must remain queryable");
+    assert_eq!(unchanged_owner_group, "registered_member");
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]

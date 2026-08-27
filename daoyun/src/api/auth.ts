@@ -2,6 +2,8 @@ import type { components } from "./generated"
 
 const SESSION_ENDPOINT = "/api/v1/auth/session"
 const REGISTER_ENDPOINT = "/api/v1/auth/register"
+const REGISTRATION_POLICY_ENDPOINT = "/api/v1/auth/registration-policy"
+const REGISTRATION_EMAIL_CHALLENGES_ENDPOINT = "/api/v1/auth/registration-email-challenges"
 const LOGIN_ENDPOINT = "/api/v1/auth/login"
 const LOGOUT_ENDPOINT = "/api/v1/auth/logout"
 const RECENT_AUTH_ENDPOINT = "/api/v1/auth/recent-auth"
@@ -114,6 +116,20 @@ export interface RegisterInput {
   email: string
   displayName: string
   password: string
+  emailChallengeId?: string
+  emailVerificationCode?: string
+}
+
+export interface RegistrationPolicy {
+  emailVerificationRequired: boolean
+  codeExpiresInSeconds: number
+  resendAfterSeconds: number
+}
+
+export interface RegistrationEmailChallenge {
+  challengeId: string
+  expiresAt: string
+  resendAfterSeconds: number
 }
 
 export interface LoginInput {
@@ -169,7 +185,6 @@ type ChangePasswordRequestDto = components["schemas"]["ChangePasswordRequest"]
 type UnlinkExternalIdentityDto = components["schemas"]["ApiResponse_UnlinkExternalIdentityData"]
 type LogoutDto = components["schemas"]["ApiResponse_LogoutData"]
 type ErrorResponseDto = components["schemas"]["ErrorResponse"]
-type RegisterRequestDto = components["schemas"]["RegisterRequest"]
 type LoginRequestDto = components["schemas"]["LoginRequest"]
 type AuthEnvelope = { data: unknown; meta: components["schemas"]["ResponseMeta"] }
 type OidcClaimResponse = AuthEnvelope & {
@@ -197,6 +212,16 @@ type MfaSetupEnvelope = AuthEnvelope & { data: { secret_base32: string; otpauth_
 type MfaEnableEnvelope = AuthEnvelope & { data: { enabled: true; csrf_token: string; recovery_codes: string[] } }
 type MfaDisableEnvelope = AuthEnvelope & { data: { disabled: true; csrf_token: string } }
 type MfaRecoveryEnvelope = AuthEnvelope & { data: { recovery_codes: string[]; csrf_token: string } }
+type RegistrationPolicyEnvelope = AuthEnvelope & {
+  data: {
+    email_verification_required: boolean
+    code_expires_in_seconds: number
+    resend_after_seconds: number
+  }
+}
+type RegistrationEmailChallengeEnvelope = AuthEnvelope & {
+  data: { challenge_id: string; expires_at: string; resend_after_seconds: number }
+}
 
 export class AuthApiError extends Error {
   readonly status: number
@@ -237,11 +262,13 @@ export async function getCurrentSession(signal?: AbortSignal): Promise<AuthSessi
 }
 
 export async function register(input: RegisterInput, signal?: AbortSignal): Promise<AuthSession> {
-  const body: RegisterRequestDto = {
+  const body = {
     username: input.username,
     email: input.email,
     display_name: input.displayName,
     password: input.password,
+    ...(input.emailChallengeId ? { email_challenge_id: input.emailChallengeId } : {}),
+    ...(input.emailVerificationCode ? { email_verification_code: input.emailVerificationCode } : {}),
   }
   const response = await fetch(REGISTER_ENDPOINT, {
     method: "POST",
@@ -261,6 +288,45 @@ export async function register(input: RegisterInput, signal?: AbortSignal): Prom
     throw new Error("注册响应格式无效")
   }
   return mapSession(payload)
+}
+
+export async function getRegistrationPolicy(signal?: AbortSignal): Promise<RegistrationPolicy> {
+  const response = await fetch(REGISTRATION_POLICY_ENDPOINT, {
+    headers: { Accept: "application/json" },
+    credentials: "include",
+    signal,
+  })
+  const payload = await readJson(response)
+  if (!response.ok) throw toApiError(response.status, payload)
+  if (!isRegistrationPolicyResponse(payload)) throw new Error("注册策略响应格式无效")
+  return {
+    emailVerificationRequired: payload.data.email_verification_required,
+    codeExpiresInSeconds: payload.data.code_expires_in_seconds,
+    resendAfterSeconds: payload.data.resend_after_seconds,
+  }
+}
+
+export async function requestRegistrationEmailChallenge(
+  email: string,
+  signal?: AbortSignal,
+): Promise<RegistrationEmailChallenge> {
+  const response = await fetch(REGISTRATION_EMAIL_CHALLENGES_ENDPOINT, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ email }),
+    signal,
+  })
+  const payload = await readJson(response)
+  if (!response.ok) throw toApiError(response.status, payload)
+  if (response.status !== 202 || !isRegistrationEmailChallengeResponse(payload)) {
+    throw new Error("邮箱验证码响应格式无效")
+  }
+  return {
+    challengeId: payload.data.challenge_id,
+    expiresAt: payload.data.expires_at,
+    resendAfterSeconds: payload.data.resend_after_seconds,
+  }
 }
 
 export async function login(input: LoginInput, signal?: AbortSignal): Promise<AuthSession> {
@@ -1194,6 +1260,30 @@ function isUnlinkExternalIdentityResponse(value: unknown): value is UnlinkExtern
     && value.data.unlinked === true
     && typeof value.data.csrf_token === "string"
     && tokenPattern.test(value.data.csrf_token)
+}
+
+function isRegistrationPolicyResponse(value: unknown): value is RegistrationPolicyEnvelope {
+  return isEnvelope(value)
+    && isRecord(value.data)
+    && typeof value.data.email_verification_required === "boolean"
+    && typeof value.data.code_expires_in_seconds === "number"
+    && Number.isSafeInteger(value.data.code_expires_in_seconds)
+    && value.data.code_expires_in_seconds > 0
+    && typeof value.data.resend_after_seconds === "number"
+    && Number.isSafeInteger(value.data.resend_after_seconds)
+    && value.data.resend_after_seconds > 0
+}
+
+function isRegistrationEmailChallengeResponse(
+  value: unknown,
+): value is RegistrationEmailChallengeEnvelope {
+  return isEnvelope(value)
+    && isRecord(value.data)
+    && isUuid(value.data.challenge_id)
+    && isTimestamp(value.data.expires_at)
+    && typeof value.data.resend_after_seconds === "number"
+    && Number.isSafeInteger(value.data.resend_after_seconds)
+    && value.data.resend_after_seconds > 0
 }
 
 function isDeviceSession(value: unknown): value is DeviceSessionDto {

@@ -34,12 +34,14 @@ pub use admin::{
     OperationsAlert, OperationsAlertCounts, OperationsAlertRule, OperationsAlertRuleKind,
     OperationsAlertRuleReference, OperationsAlertStatus, OperationsDatabaseSummary,
     OperationsHttpSummary, OperationsOutboxSummary, OperationsSummary, RiskAlert, RiskAlertKind,
-    RiskAlertSeverity, RiskAlertStatus, SiteBranding, UpdateAdminBoardRequest,
-    UpdateAuthorizationRoleRequest, UpdateGovernancePolicyRequest, UpdateOperationsAlertRequest,
-    UpdateOperationsAlertRuleRequest, UpdateRiskAlertRequest, UpdateSiteBrandingRequest,
+    RiskAlertSeverity, RiskAlertStatus, SiteBranding, SmtpSettings, SmtpTlsMode,
+    TestSmtpSettingsRequest, UpdateAdminBoardRequest, UpdateAuthorizationRoleRequest,
+    UpdateGovernancePolicyRequest, UpdateOperationsAlertRequest, UpdateOperationsAlertRuleRequest,
+    UpdateRiskAlertRequest, UpdateSiteBrandingRequest, UpdateSmtpSettingsRequest,
 };
 pub use attachments::{
-    AttachmentCleanupResult, AttachmentScanStatus, AttachmentStatus, TopicAttachment,
+    AttachmentCleanupResult, AttachmentScanStatus, AttachmentStatus, DraftImageAttachment,
+    TopicAttachment,
 };
 pub use auth::{
     AuthenticatedSession, AuthenticatedUser, ChangePasswordData, ChangePasswordRequest,
@@ -51,7 +53,8 @@ pub use auth::{
     PasskeyCredentialParameter, PasskeyCredentialSummary, PasskeyDeleteData,
     PasskeyRegistrationData, PasskeyRegistrationOptions, PasskeyRegistrationOptionsData,
     PasskeyRegistrationVerifyRequest, PasskeyRp, PasskeyUser, RecentAuthData, RecentAuthRequest,
-    RegisterRequest, RevokeDeviceSessionData, UnlinkExternalIdentityData,
+    RegisterRequest, RegistrationEmailChallengeData, RegistrationEmailChallengeRequest,
+    RegistrationPolicy, RevokeDeviceSessionData, UnlinkExternalIdentityData,
 };
 pub use board::{BoardSummary, BoardTone};
 pub use board_restrictions::{
@@ -62,7 +65,8 @@ pub use community::{
     CommunityGroupMembershipMutation, CommunityGroupStatus, CommunityGroupSummary,
     CommunityPermissionSource, CreateCommunityGroupRequest, CurrentCommunityGroups,
     GrantCommunityGroupMembershipRequest, RevokeCommunityGroupMembershipRequest,
-    StandardEntitlementPermissionSource, UpdateCommunityGroupRequest,
+    SetDefaultCommunityGroupRequest, StandardEntitlementPermissionSource,
+    UpdateCommunityGroupRequest,
 };
 pub use content_access::{
     ContentAccessOperator, ContentAccessPolicy, ContentAccessSubject, ContentAccessSubjectType,
@@ -88,7 +92,9 @@ pub use messages::{
 };
 pub use moderation::{
     GovernTopicRequest, ModerateTopicRequest, ModerationBoard, ModerationTopic,
-    TopicGovernanceAction, TopicGovernanceResult, TopicModerationResult, TopicModerationStatus,
+    TopicGovernanceAction, TopicGovernanceResult, TopicModerationHistoryAction,
+    TopicModerationHistoryEntry, TopicModerationHistorySource, TopicModerationResult,
+    TopicModerationStatus,
 };
 pub use notifications::{
     Notification, NotificationKind, NotificationTarget, NotificationUnreadCount,
@@ -117,9 +123,9 @@ pub use standard_entitlements::{
     RevokeStandardEntitlementRequest, StandardEntitlementMutation, StandardEntitlementType,
 };
 pub use topic::{
-    CreateReplyRequest, CreateTopicRequest, ReplyRevision, TopicAuthorSummary, TopicBoardSummary,
-    TopicDetail, TopicReply, TopicRevision, TopicScope, TopicSort, TopicSummary, TopicTag,
-    TopicTagInput, UpdateReplyRequest, UpdateTopicRequest,
+    CreateReplyRequest, CreateTopicRequest, ReplyReference, ReplyRevision, TopicAuthorSummary,
+    TopicBoardSummary, TopicDetail, TopicReply, TopicRevision, TopicScope, TopicSort, TopicSummary,
+    TopicTag, TopicTagInput, UpdateReplyRequest, UpdateTopicRequest,
 };
 pub use user::{
     AdminUserContentItem, AdminUserContentKind, AdminUserDetail, AdminUserStatus,

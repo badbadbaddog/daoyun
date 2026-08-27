@@ -170,6 +170,48 @@ pub struct UpdateSiteBrandingRequest {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
+pub enum SmtpTlsMode {
+    Tls,
+    Starttls,
+    None,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SmtpSettings {
+    pub host: String,
+    pub port: u16,
+    pub username: Option<String>,
+    pub password_configured: bool,
+    pub tls_mode: SmtpTlsMode,
+    pub from_email: String,
+    pub from_name: String,
+    pub enabled: bool,
+    pub registration_email_verification_enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
+pub struct UpdateSmtpSettingsRequest {
+    pub host: String,
+    pub port: u16,
+    pub username: Option<String>,
+    #[schema(value_type = Option<String>, format = Password)]
+    pub password: Option<String>,
+    #[serde(default)]
+    pub clear_password: bool,
+    pub tls_mode: SmtpTlsMode,
+    pub from_email: String,
+    pub from_name: String,
+    pub enabled: bool,
+    pub registration_email_verification_enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
+pub struct TestSmtpSettingsRequest {
+    pub recipient_email: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum AdminBoardVisibility {
     Public,
     Hidden,

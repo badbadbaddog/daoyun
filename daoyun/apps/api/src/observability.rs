@@ -480,6 +480,7 @@ struct OtlpTracingRuntime {
 
 impl OtlpTracingRuntime {
     fn build(endpoint: &str) -> Result<Self, ObservabilityConfigError> {
+        crate::install_rustls_crypto_provider();
         // Source: https://docs.rs/opentelemetry-otlp/0.32.0/opentelemetry_otlp/#http-transport-port-4318
         let exporter = SpanExporter::builder()
             .with_http()

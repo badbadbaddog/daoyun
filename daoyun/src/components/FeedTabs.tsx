@@ -1,10 +1,11 @@
-import { Clock3, Flame, Sparkles, Users2 } from "lucide-react"
+import { Clock3, Flame, MessageCircle, Sparkles, Users2 } from "lucide-react"
 
 import type { FeedFilter } from "../types/community"
 
 const tabs: Array<{ id: FeedFilter; label: string; icon: typeof Clock3 }> = [
-  { id: "latest", label: "最新", icon: Clock3 },
-  { id: "hot", label: "热门", icon: Flame },
+  { id: "latest", label: "最新发帖", icon: Clock3 },
+  { id: "active", label: "最新回复", icon: MessageCircle },
+  { id: "hot", label: "热门讨论", icon: Flame },
   { id: "featured", label: "精华", icon: Sparkles },
   { id: "following", label: "关注", icon: Users2 },
 ]

@@ -6,6 +6,7 @@ import {
   createOidcClaimAccount,
   createRecentAuthentication,
   getOidcClaim,
+  getRegistrationPolicy,
   getCurrentSession,
   listDeviceSessions,
   listExternalIdentities,
@@ -14,6 +15,7 @@ import {
   login,
   logout,
   register,
+  requestRegistrationEmailChallenge,
   revokeDeviceSession,
   startPasskeyAssertion,
   startPasskeyRegistration,
@@ -98,6 +100,73 @@ describe("auth API client", () => {
         email: "member@example.com",
         display_name: "社区成员",
         password: "correct horse battery staple",
+      }),
+    }))
+  })
+
+  it("loads registration policy, requests a code, and includes verification in registration", async () => {
+    const challengeId = "019fc700-0000-7000-8000-000000000045"
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: {
+          email_verification_required: true,
+          code_expires_in_seconds: 600,
+          resend_after_seconds: 60,
+        },
+        meta: { request_id: "019fc700-0000-7000-8000-000000000005" },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: {
+          challenge_id: challengeId,
+          expires_at: "2026-08-24T12:10:00Z",
+          resend_after_seconds: 60,
+        },
+        meta: { request_id: "019fc700-0000-7000-8000-000000000006" },
+      }), { status: 202, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: {
+          user: {
+            id: "019fc700-0000-7000-8000-000000000004",
+            username: "member",
+            email: "member@example.com",
+            display_name: "社区成员",
+          },
+          csrf_token: "b".repeat(64),
+        },
+        meta: { request_id: "019fc700-0000-7000-8000-000000000007" },
+      }), { status: 201, headers: { "Content-Type": "application/json" } }))
+
+    await expect(getRegistrationPolicy()).resolves.toEqual({
+      emailVerificationRequired: true,
+      codeExpiresInSeconds: 600,
+      resendAfterSeconds: 60,
+    })
+    await expect(requestRegistrationEmailChallenge("member@example.com")).resolves.toEqual({
+      challengeId,
+      expiresAt: "2026-08-24T12:10:00Z",
+      resendAfterSeconds: 60,
+    })
+    await register({
+      username: "member",
+      email: "member@example.com",
+      displayName: "社区成员",
+      password: "123456",
+      emailChallengeId: challengeId,
+      emailVerificationCode: "654321",
+    })
+
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/auth/registration-email-challenges", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ email: "member@example.com" }),
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/v1/auth/register", expect.objectContaining({
+      body: JSON.stringify({
+        username: "member",
+        email: "member@example.com",
+        display_name: "社区成员",
+        password: "123456",
+        email_challenge_id: challengeId,
+        email_verification_code: "654321",
       }),
     }))
   })

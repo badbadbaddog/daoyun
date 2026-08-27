@@ -1,11 +1,14 @@
-import { Image, Link2, LoaderCircle, Paperclip, Send, X } from "lucide-react"
+import { LoaderCircle, Send, X } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { createTopic, TopicApiError } from "../api/topics"
+import { uploadDraftImage } from "../api/attachments"
 import type { AuthSession } from "../api/auth"
 import type { Topic } from "../types/community"
 import type { Board, TopicTag } from "../types/community"
 import { parseTopicTags } from "../utils/tags"
+import { plainTextDocument, type RichTextDocument } from "../editor/richContent"
+import { RichTextEditor } from "./RichTextEditor"
 
 interface TopicComposerProps {
   open: boolean
@@ -20,10 +23,12 @@ type FieldErrors = Record<string, string[]>
 
 export function TopicComposer({ open, boards, session, availableTags = [], onClose, onPublished }: TopicComposerProps) {
   const titleRef = useRef<HTMLInputElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
   const submittingRef = useRef(false)
   const idempotencyKeyRef = useRef<string | null>(null)
   const [title, setTitle] = useState("")
   const [content, setContent] = useState("")
+  const [richContent, setRichContent] = useState<RichTextDocument>(() => plainTextDocument(""))
   const [boardId, setBoardId] = useState("")
   const [tagInput, setTagInput] = useState("")
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
@@ -39,7 +44,6 @@ export function TopicComposer({ open, boards, session, availableTags = [], onClo
   useEffect(() => {
     if (!open) return
 
-    titleRef.current?.focus()
     setBoardId((current) => {
       const next = boards.some((board) => board.id === current) ? current : boards[0]?.id || ""
       if (next !== current) idempotencyKeyRef.current = null
@@ -47,16 +51,52 @@ export function TopicComposer({ open, boards, session, availableTags = [], onClo
     })
     setFieldErrors({})
     setFormError("")
+  }, [boards, open])
+
+  useEffect(() => {
+    if (!open) return
+
+    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    titleRef.current?.focus()
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !submittingRef.current) close()
     }
+    const handleTab = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return
+      const focusable = dialogRef.current
+        ? Array.from(dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+          .filter((element) => !element.hasAttribute("disabled") && element.tabIndex >= 0)
+        : []
+      if (focusable.length === 0) {
+        event.preventDefault()
+        return
+      }
+      const first = focusable[0]
+      const last = focusable.at(-1) ?? first
+      if (event.shiftKey && (document.activeElement === first || !dialogRef.current?.contains(document.activeElement))) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
     document.addEventListener("keydown", handleEscape)
-    return () => document.removeEventListener("keydown", handleEscape)
-  }, [boards, open])
+    document.addEventListener("keydown", handleTab)
+    return () => {
+      document.removeEventListener("keydown", handleEscape)
+      document.removeEventListener("keydown", handleTab)
+      document.body.style.overflow = previousOverflow
+      if (returnFocus?.isConnected) returnFocus.focus()
+    }
+  }, [open])
 
   function close() {
     setTitle("")
     setContent("")
+    setRichContent(plainTextDocument(""))
     setTagInput("")
     setFieldErrors({})
     setFormError("")
@@ -97,6 +137,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], onClo
         {
           title: title.trim(),
           content: content.trim(),
+          richContent,
           boardId: selectedBoard?.id,
           ...(tags.length > 0 ? { tags } : {}),
         },
@@ -127,7 +168,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], onClo
     <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.currentTarget === event.target && !submitting) close()
     }}>
-      <div className="composer-dialog" role="dialog" aria-modal="true" aria-labelledby="composer-title">
+      <div ref={dialogRef} className="composer-dialog" role="dialog" aria-modal="true" aria-labelledby="composer-title">
         <div className="dialog-header">
           <div>
             <p>{selectedBoard?.name ?? "社区广场"}</p>
@@ -166,21 +207,29 @@ export function TopicComposer({ open, boards, session, availableTags = [], onClo
             />
             {inputError("title") && <p id="composer-title-error" className="composer-field-error">{inputError("title")}</p>}
           </label>
-          <label>
-            <span>正文</span>
-            <textarea
-              rows={8}
-              value={content}
+          <div className="composer-field">
+            <span className="composer-field__label">正文</span>
+            <RichTextEditor
+              value={richContent}
+              ariaLabel="正文"
               placeholder="补充背景、你的判断和希望大家讨论的问题"
-              aria-invalid={inputError("content") ? "true" : undefined}
-              aria-describedby={inputError("content") ? "composer-content-error" : undefined}
-              onChange={(event) => {
-                setContent(event.target.value)
-                idempotencyKeyRef.current = null
+              maxCharacters={1_000_000}
+              onImageUpload={session
+                ? (file, onProgress, signal) => uploadDraftImage(file, session.csrfToken, onProgress, signal)
+                : undefined}
+              disabled={submitting}
+              invalid={Boolean(inputError("content") || inputError("rich_content"))}
+              errorMessageId={(inputError("content") || inputError("rich_content")) ? "composer-content-error" : undefined}
+              onChange={(document, plainText) => {
+                if (plainText !== content || JSON.stringify(document) !== JSON.stringify(richContent)) {
+                  idempotencyKeyRef.current = null
+                }
+                setRichContent(document)
+                setContent(plainText)
               }}
             />
-            {inputError("content") && <p id="composer-content-error" className="composer-field-error">{inputError("content")}</p>}
-          </label>
+            {(inputError("content") || inputError("rich_content")) && <p id="composer-content-error" className="composer-field-error">{inputError("content") ?? inputError("rich_content")}</p>}
+          </div>
           <label>
             <span>标签</span>
             <input
@@ -204,17 +253,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], onClo
           </label>
           {formError && <p className="composer-form-error" role="alert">{formError}</p>}
           <div className="dialog-toolbar">
-            <div>
-              <button className="icon-button" type="button" aria-label="添加图片" title="图片" disabled>
-                <Image size={18} aria-hidden="true" />
-              </button>
-              <button className="icon-button" type="button" aria-label="添加附件" title="附件" disabled>
-                <Paperclip size={18} aria-hidden="true" />
-              </button>
-              <button className="icon-button" type="button" aria-label="添加链接" title="链接" disabled>
-                <Link2 size={18} aria-hidden="true" />
-              </button>
-            </div>
+            <span className="dialog-toolbar__hint">内容将自动保存为安全的结构化格式</span>
             <button className="primary-button" type="submit" disabled={submitting}>
               {submitting ? <LoaderCircle className="topic-loading__spinner" size={16} aria-hidden="true" /> : <Send size={16} aria-hidden="true" />}
               {submitting ? "正在发布" : "发布"}
@@ -225,6 +264,16 @@ export function TopicComposer({ open, boards, session, availableTags = [], onClo
     </div>
   )
 }
+
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[contenteditable='true']",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",")
 
 function createIdempotencyKey(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {

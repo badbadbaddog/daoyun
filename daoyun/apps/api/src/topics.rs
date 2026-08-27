@@ -5,10 +5,12 @@ use crate::auth::{
 use api_contract::{
     ApiResponse, BoardTone, CreateReplyRequest, CreateTopicRequest, ErrorBody, ErrorCode,
     ErrorResponse, FieldErrors, GovernTopicRequest, ModerateTopicRequest, ModerationBoard,
-    ModerationTopic, PageResponse, ReplyRevision, RequestId, TopicAuthorSummary, TopicBoardSummary,
-    TopicDetail, TopicGovernanceAction, TopicGovernanceResult, TopicModerationResult,
-    TopicModerationStatus, TopicReply, TopicRevision, TopicScope, TopicSort, TopicSummary,
-    TopicTag, TopicTagInput, UpdateReplyRequest, UpdateTopicRequest, error_codes,
+    ModerationTopic, PageResponse, ReplyReference, ReplyRevision, RequestId, TopicAuthorSummary,
+    TopicBoardSummary, TopicDetail, TopicGovernanceAction, TopicGovernanceResult,
+    TopicModerationHistoryAction, TopicModerationHistoryEntry, TopicModerationHistorySource,
+    TopicModerationResult, TopicModerationStatus, TopicReply, TopicRevision, TopicScope, TopicSort,
+    TopicSummary, TopicTag, TopicTagInput, UpdateReplyRequest, UpdateTopicRequest, UserSummary,
+    error_codes,
 };
 use axum::{
     Extension, Json, Router,
@@ -21,18 +23,22 @@ use axum::{
 };
 use infrastructure::{
     CreateReplyError, CreateTopicError, Database, IdempotencyInput, ListModerationTopicsError,
-    ListPublicRepliesError, ListPublicTopicsError, ListTopicRevisionsError, ModerationTopicFilters,
-    NewReplyRecord, NewTagRecord, NewTopicRecord, PublicReplyRecord, PublicTopicDetailRecord,
-    PublicTopicFilters, PublicTopicRecord, ReplyMutationError, TopicDeleteError,
-    TopicGovernanceAction as InfrastructureGovernanceAction, TopicGovernanceError,
-    TopicGovernanceInput, TopicModerationError, TopicSort as InfrastructureTopicSort,
-    UpdateReplyRecord, UpdateTopicError, UpdateTopicRecord,
+    ListPublicRepliesError, ListPublicTopicsError, ListTopicModerationHistoryError,
+    ListTopicRevisionsError, ModerationTopicFilters, NewReplyRecord, NewTagRecord, NewTopicRecord,
+    PublicReplyRecord, PublicTopicDetailRecord, PublicTopicFilters, PublicTopicRecord,
+    ReplyMutationError, TopicDeleteError, TopicGovernanceAction as InfrastructureGovernanceAction,
+    TopicGovernanceError, TopicGovernanceInput, TopicModerationError,
+    TopicSort as InfrastructureTopicSort, UpdateReplyRecord, UpdateTopicError, UpdateTopicRecord,
+    permission_keys,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use time::{OffsetDateTime, UtcOffset, format_description::well_known::Rfc3339};
 use utoipa::IntoParams;
 use uuid::Uuid;
+
+use crate::admin::authorize_capability_read;
+use crate::rich_content::{redact_reply_gates, validate_and_project};
 
 const DEFAULT_LIMIT: u16 = 20;
 const MAX_LIMIT: u16 = 50;
@@ -69,21 +75,32 @@ pub(crate) struct ListModerationTopicsQuery {
     limit: Option<u16>,
 }
 
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct ListTopicModerationHistoryQuery {
+    cursor: Option<Uuid>,
+    limit: Option<u16>,
+}
+
 struct ValidatedCreateTopic {
     board_id: Option<Uuid>,
     title: String,
     content: String,
+    rich_content: Option<serde_json::Value>,
     excerpt: String,
     tags: Vec<NewTagRecord>,
 }
 
 struct ValidatedCreateReply {
     content: String,
+    rich_content: Option<serde_json::Value>,
+    reply_to_id: Option<Uuid>,
 }
 
 struct ValidatedUpdateReply {
     base_revision: i32,
     content: String,
+    rich_content: Option<serde_json::Value>,
 }
 
 struct ValidatedUpdateTopic {
@@ -91,6 +108,7 @@ struct ValidatedUpdateTopic {
     title: Option<String>,
     excerpt: Option<String>,
     content: Option<String>,
+    rich_content: Option<serde_json::Value>,
     tags: Option<Vec<NewTagRecord>>,
 }
 
@@ -105,6 +123,10 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
         .route(
             "/api/v1/admin/moderation/topics",
             get(list_moderation_topics),
+        )
+        .route(
+            "/api/v1/admin/moderation/topics/{topic_id}/history",
+            get(list_topic_moderation_history),
         )
         .route(
             "/api/v1/topics/{topic_id}",
@@ -317,6 +339,82 @@ pub(crate) async fn list_moderation_topics(
 
 #[utoipa::path(
     get,
+    path = "/api/v1/admin/moderation/topics/{topic_id}/history",
+    operation_id = "listTopicModerationHistory",
+    tag = "admin",
+    params(("topic_id" = Uuid, Path), ListTopicModerationHistoryQuery),
+    responses(
+        (status = 200, body = PageResponse<TopicModerationHistoryEntry>, headers(("x-request-id" = String))),
+        (status = 400, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 404, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 422, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn list_topic_moderation_history(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    path: Result<Path<Uuid>, PathRejection>,
+    query: Result<Query<ListTopicModerationHistoryQuery>, QueryRejection>,
+) -> Result<Json<PageResponse<TopicModerationHistoryEntry>>, ApiError> {
+    let Path(topic_id) = path.map_err(|_| create_path_invalid(request_id))?;
+    let Query(query) = query.map_err(|_| {
+        read_error(validation_error(
+            request_id,
+            "query",
+            "处理记录查询参数格式不正确",
+        ))
+    })?;
+    let limit = validate_topic_moderation_history_query(&query)
+        .map_err(|(field, message)| read_error(validation_error(request_id, field, message)))?;
+    authorize_capability_read(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::AUDIT_READ,
+    )
+    .await?;
+    let mut records = database
+        .list_topic_moderation_history(topic_id, query.cursor, i64::from(limit) + 1)
+        .await
+        .map_err(|error| match error {
+            ListTopicModerationHistoryError::TopicUnavailable => {
+                topic_moderation_not_found(request_id)
+            }
+            ListTopicModerationHistoryError::InvalidCursor => read_error(validation_error(
+                request_id,
+                "cursor",
+                "cursor 不属于当前主题处理记录",
+            )),
+            ListTopicModerationHistoryError::Database(error) => {
+                tracing::warn!(request_id = %request_id, error = %error, "Topic moderation history query failed");
+                read_error(service_unavailable(request_id))
+            }
+        })?;
+    let has_next_page = records.len() > usize::from(limit);
+    records.truncate(usize::from(limit));
+    let next_cursor = has_next_page.then(|| {
+        records
+            .last()
+            .expect("a full topic moderation history page is non-empty")
+            .id
+            .to_string()
+    });
+    let entries = records
+        .into_iter()
+        .map(topic_moderation_history_entry)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|()| read_error(invalid_record(request_id)))?;
+    Ok(Json(PageResponse::new(entries, request_id, next_cursor)))
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/tags",
     operation_id = "listTags",
     tag = "topics",
@@ -379,6 +477,7 @@ pub(crate) async fn create(
     let session = authenticate_state_change(&database, &runtime, &headers, request_id).await?;
     let request_hash = request_hash(&input);
     let topic_id = Uuid::now_v7();
+    let stored_content = storage_content(&input.content, input.rich_content.as_ref());
     let result = database
         .create_published_topic(
             NewTopicRecord {
@@ -387,7 +486,8 @@ pub(crate) async fn create(
                 author_id: session.user.id,
                 title: input.title,
                 excerpt: input.excerpt,
-                content: input.content,
+                content: stored_content,
+                rich_content: input.rich_content,
                 tags: input.tags,
             },
             idempotency_key.map(|key| IdempotencyInput { key, request_hash }),
@@ -400,6 +500,7 @@ pub(crate) async fn create(
             CreateTopicError::PermissionDenied => community_permission_denied(request_id),
             CreateTopicError::QuotaExceeded => community_quota_exceeded(request_id),
             CreateTopicError::IdempotencyConflict => idempotency_conflict(request_id),
+            CreateTopicError::AttachmentUnavailable => rich_attachment_unavailable(request_id),
             CreateTopicError::Database(error) => {
                 tracing::warn!(
                     request_id = %request_id,
@@ -410,7 +511,7 @@ pub(crate) async fn create(
             }
         })?;
     let record = database
-        .public_topic(result.topic_id)
+        .public_topic_for_viewer(result.topic_id, Some(session.user.id))
         .await
         .map_err(|error| {
             tracing::warn!(
@@ -503,6 +604,10 @@ pub(crate) async fn update(
     let input = validate_update_request(request)
         .map_err(|fields| create_validation_error(request_id, fields))?;
     let session = authenticate_state_change(&database, &runtime, &headers, request_id).await?;
+    let stored_content = match (&input.content, &input.rich_content) {
+        (Some(content), rich_content) => Some(storage_content(content, rich_content.as_ref())),
+        (None, _) => None,
+    };
     let result = database
         .update_published_topic(UpdateTopicRecord {
             topic_id,
@@ -510,7 +615,8 @@ pub(crate) async fn update(
             base_revision: input.base_revision,
             title: input.title,
             excerpt: input.excerpt,
-            content: input.content,
+            content: stored_content,
+            rich_content: input.rich_content,
             tags: input.tags,
         })
         .await
@@ -518,13 +624,14 @@ pub(crate) async fn update(
             UpdateTopicError::TopicUnavailable => create_not_found(request_id),
             UpdateTopicError::Forbidden => topic_edit_forbidden(request_id),
             UpdateTopicError::RevisionConflict => topic_revision_conflict(request_id),
+            UpdateTopicError::AttachmentUnavailable => rich_attachment_unavailable(request_id),
             UpdateTopicError::Database(error) => {
                 tracing::warn!(request_id = %request_id, error = %error, "Topic update failed");
                 service_unavailable_create(request_id)
             }
         })?;
     let record = database
-        .public_topic(result.topic_id)
+        .public_topic_for_viewer(result.topic_id, Some(session.user.id))
         .await
         .map_err(|error| {
             tracing::warn!(request_id = %request_id, error = %error, "Updated topic lookup failed");
@@ -879,6 +986,7 @@ pub(crate) async fn create_reply(
     let session = authenticate_state_change(&database, &runtime, &headers, request_id).await?;
     let request_hash = reply_request_hash(topic_id, &input);
     let reply_id = Uuid::now_v7();
+    let stored_content = storage_content(&input.content, input.rich_content.as_ref());
     let result = database
         .create_published_reply(
             NewReplyRecord {
@@ -886,7 +994,9 @@ pub(crate) async fn create_reply(
                 revision_id: Uuid::now_v7(),
                 topic_id,
                 author_id: session.user.id,
-                content: input.content,
+                content: stored_content,
+                rich_content: input.rich_content,
+                reply_to_id: input.reply_to_id,
             },
             idempotency_key.map(|key| IdempotencyInput { key, request_hash }),
         )
@@ -899,6 +1009,16 @@ pub(crate) async fn create_reply(
             CreateReplyError::PermissionDenied => community_permission_denied(request_id),
             CreateReplyError::QuotaExceeded => community_quota_exceeded(request_id),
             CreateReplyError::IdempotencyConflict => idempotency_conflict(request_id),
+            CreateReplyError::InvalidReplyTarget => {
+                let mut fields = FieldErrors::new();
+                add_field_error(
+                    &mut fields,
+                    "reply_to_id",
+                    "被回复楼层不存在或不属于当前主题",
+                );
+                create_validation_error(request_id, fields)
+            }
+            CreateReplyError::AttachmentUnavailable => rich_attachment_unavailable(request_id),
             CreateReplyError::Database(error) => {
                 tracing::warn!(
                     request_id = %request_id,
@@ -909,7 +1029,7 @@ pub(crate) async fn create_reply(
             }
         })?;
     let record = database
-        .public_reply(result.reply_id)
+        .public_reply_for_viewer(result.reply_id, Some(session.user.id))
         .await
         .map_err(|error| {
             tracing::warn!(
@@ -964,18 +1084,20 @@ pub(crate) async fn update_reply(
     let input = validate_update_reply(request)
         .map_err(|fields| create_validation_error(request_id, fields))?;
     let session = authenticate_state_change(&database, &runtime, &headers, request_id).await?;
+    let stored_content = storage_content(&input.content, input.rich_content.as_ref());
     let result = database
         .update_published_reply(UpdateReplyRecord {
             topic_id,
             reply_id,
             author_id: session.user.id,
             base_revision: input.base_revision,
-            content: input.content,
+            content: stored_content,
+            rich_content: input.rich_content,
         })
         .await
         .map_err(|error| reply_mutation_error(error, request_id, "Reply update failed"))?;
     let record = database
-        .public_reply(result.reply_id)
+        .public_reply_for_viewer(result.reply_id, Some(session.user.id))
         .await
         .map_err(|error| {
             tracing::warn!(request_id = %request_id, error = %error, "Updated reply lookup failed");
@@ -1129,6 +1251,16 @@ fn validate_moderation_query(
     })
 }
 
+fn validate_topic_moderation_history_query(
+    query: &ListTopicModerationHistoryQuery,
+) -> Result<u16, (&'static str, &'static str)> {
+    let limit = query.limit.unwrap_or(DEFAULT_LIMIT);
+    if !(1..=MAX_LIMIT).contains(&limit) {
+        return Err(("limit", "limit 必须在 1 到 50 之间"));
+    }
+    Ok(limit)
+}
+
 fn valid_author_username(value: &str) -> bool {
     let mut characters = value.chars();
     let Some(first) = characters.next() else {
@@ -1155,7 +1287,13 @@ fn validate_create_request(
 ) -> Result<ValidatedCreateTopic, FieldErrors> {
     let mut fields = FieldErrors::new();
     let title = request.title.trim().to_owned();
-    let content = request.content.trim().to_owned();
+    let (content, rich_content) = validate_body_content(
+        request.content,
+        request.rich_content,
+        1_000_000,
+        "正文必须为 1 到 1,000,000 个字符且不能包含非法控制字符",
+        &mut fields,
+    );
     let tags = validate_tags(request.tags, &mut fields);
     if !(1..=160).contains(&title.chars().count()) || title.chars().any(char::is_control) {
         add_field_error(
@@ -1164,18 +1302,12 @@ fn validate_create_request(
             "标题必须为 1 到 160 个字符且不能包含控制字符",
         );
     }
-    if !(1..=1_000_000).contains(&content.chars().count())
-        || content.chars().any(disallowed_content_control)
-    {
-        add_field_error(
-            &mut fields,
-            "content",
-            "正文必须为 1 到 1,000,000 个字符且不能包含非法控制字符",
-        );
-    }
-
     if fields.is_empty() {
-        let excerpt = content
+        let excerpt_source = rich_content
+            .clone()
+            .map(|document| redact_reply_gates(document, false).plain_text)
+            .unwrap_or_else(|| content.clone());
+        let excerpt = excerpt_source
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ")
@@ -1186,6 +1318,7 @@ fn validate_create_request(
             board_id: request.board_id,
             title,
             content,
+            rich_content,
             excerpt,
             tags,
         })
@@ -1232,18 +1365,24 @@ fn validate_tags(inputs: Vec<TopicTagInput>, fields: &mut FieldErrors) -> Vec<Ne
 
 fn validate_create_reply(request: CreateReplyRequest) -> Result<ValidatedCreateReply, FieldErrors> {
     let mut fields = FieldErrors::new();
-    let content = request.content.trim().to_owned();
-    if !(1..=100_000).contains(&content.chars().count())
-        || content.chars().any(disallowed_content_control)
-    {
-        add_field_error(
-            &mut fields,
-            "content",
-            "回复必须为 1 到 100,000 个字符且不能包含非法控制字符",
-        );
-    }
+    let CreateReplyRequest {
+        content,
+        rich_content,
+        reply_to_id,
+    } = request;
+    let (content, rich_content) = validate_body_content(
+        content,
+        rich_content,
+        100_000,
+        "回复必须为 1 到 100,000 个字符且不能包含非法控制字符",
+        &mut fields,
+    );
     if fields.is_empty() {
-        Ok(ValidatedCreateReply { content })
+        Ok(ValidatedCreateReply {
+            content,
+            rich_content,
+            reply_to_id,
+        })
     } else {
         Err(fields)
     }
@@ -1254,20 +1393,18 @@ fn validate_update_reply(request: UpdateReplyRequest) -> Result<ValidatedUpdateR
     if request.base_revision == 0 || request.base_revision > i32::MAX as u32 {
         add_field_error(&mut fields, "base_revision", "base_revision 必须是正整数");
     }
-    let content = request.content.trim().to_owned();
-    if !(1..=100_000).contains(&content.chars().count())
-        || content.chars().any(disallowed_content_control)
-    {
-        add_field_error(
-            &mut fields,
-            "content",
-            "回复必须为 1 到 100,000 个字符且不能包含非法控制字符",
-        );
-    }
+    let (content, rich_content) = validate_body_content(
+        request.content,
+        request.rich_content,
+        100_000,
+        "回复必须为 1 到 100,000 个字符且不能包含非法控制字符",
+        &mut fields,
+    );
     if fields.is_empty() {
         Ok(ValidatedUpdateReply {
             base_revision: request.base_revision as i32,
             content,
+            rich_content,
         })
     } else {
         Err(fields)
@@ -1291,17 +1428,32 @@ fn validate_update_request(
             "标题必须为 1 到 160 个字符且不能包含控制字符",
         );
     }
-    let content = request.content.map(|value| value.trim().to_owned());
-    if content.as_deref().is_some_and(|value| {
-        !(1..=1_000_000).contains(&value.chars().count())
-            || value.chars().any(disallowed_content_control)
-    }) {
-        add_field_error(
-            &mut fields,
-            "content",
-            "正文必须为 1 到 1,000,000 个字符且不能包含非法控制字符",
-        );
-    }
+    let (content, rich_content) = if let Some(rich_content) = request.rich_content {
+        match validate_and_project(rich_content, 1_000_000) {
+            Ok((rich_content, content)) => (Some(content), Some(rich_content)),
+            Err(_) => {
+                add_field_error(
+                    &mut fields,
+                    "rich_content",
+                    "富文本正文包含不支持或不安全的内容",
+                );
+                (request.content.map(|value| value.trim().to_owned()), None)
+            }
+        }
+    } else {
+        let content = request.content.map(|value| value.trim().to_owned());
+        if content.as_deref().is_some_and(|value| {
+            !(1..=1_000_000).contains(&value.chars().count())
+                || value.chars().any(disallowed_content_control)
+        }) {
+            add_field_error(
+                &mut fields,
+                "content",
+                "正文必须为 1 到 1,000,000 个字符且不能包含非法控制字符",
+            );
+        }
+        (content, None)
+    };
     let tags = request
         .tags
         .map(|values| validate_tags(values, &mut fields));
@@ -1309,7 +1461,11 @@ fn validate_update_request(
         add_field_error(&mut fields, "body", "至少需要修改标题、正文或标签");
     }
     if fields.is_empty() {
-        let excerpt = content.as_deref().map(|value| {
+        let excerpt_source = rich_content
+            .clone()
+            .map(|document| redact_reply_gates(document, false).plain_text)
+            .or_else(|| content.clone());
+        let excerpt = excerpt_source.as_deref().map(|value| {
             value
                 .split_whitespace()
                 .collect::<Vec<_>>()
@@ -1323,11 +1479,37 @@ fn validate_update_request(
             title,
             excerpt,
             content,
+            rich_content,
             tags,
         })
     } else {
         Err(fields)
     }
+}
+
+fn validate_body_content(
+    fallback_content: String,
+    rich_content: Option<serde_json::Value>,
+    max_chars: usize,
+    plain_content_message: &'static str,
+    fields: &mut FieldErrors,
+) -> (String, Option<serde_json::Value>) {
+    if let Some(rich_content) = rich_content {
+        return match validate_and_project(rich_content, max_chars) {
+            Ok((rich_content, content)) => (content, Some(rich_content)),
+            Err(_) => {
+                add_field_error(fields, "rich_content", "富文本正文包含不支持或不安全的内容");
+                (fallback_content.trim().to_owned(), None)
+            }
+        };
+    }
+    let content = fallback_content.trim().to_owned();
+    if !(1..=max_chars).contains(&content.chars().count())
+        || content.chars().any(disallowed_content_control)
+    {
+        add_field_error(fields, "content", plain_content_message);
+    }
+    (content, None)
 }
 
 fn disallowed_content_control(character: char) -> bool {
@@ -1361,6 +1543,10 @@ fn request_hash(input: &ValidatedCreateTopic) -> Vec<u8> {
     hasher.update(input.title.as_bytes());
     hasher.update([0]);
     hasher.update(input.content.as_bytes());
+    if let Some(rich_content) = &input.rich_content {
+        hasher.update([0]);
+        hasher.update(serde_json::to_vec(rich_content).expect("validated rich content is JSON"));
+    }
     for tag in &input.tags {
         hasher.update([0]);
         hasher.update(tag.slug.as_bytes());
@@ -1375,6 +1561,14 @@ fn reply_request_hash(topic_id: Uuid, input: &ValidatedCreateReply) -> Vec<u8> {
     hasher.update(topic_id.as_bytes());
     hasher.update([0]);
     hasher.update(input.content.as_bytes());
+    if let Some(rich_content) = &input.rich_content {
+        hasher.update([0]);
+        hasher.update(serde_json::to_vec(rich_content).expect("validated rich content is JSON"));
+    }
+    if let Some(reply_to_id) = input.reply_to_id {
+        hasher.update([0]);
+        hasher.update(reply_to_id.as_bytes());
+    }
     hasher.finalize().to_vec()
 }
 
@@ -1407,9 +1601,16 @@ fn valid_tag_slug(value: &str) -> bool {
 }
 
 fn topic_detail(record: PublicTopicDetailRecord) -> Result<TopicDetail, ()> {
+    let (content, rich_content, has_locked_content) = redact_record_content(
+        record.content,
+        record.rich_content,
+        record.reply_gate_unlocked,
+    );
     Ok(TopicDetail {
         summary: topic_summary(record.summary)?,
-        content: record.content,
+        content,
+        rich_content,
+        has_locked_content,
         content_revision: u32::try_from(record.content_revision).map_err(|_| ())?,
     })
 }
@@ -1497,23 +1698,124 @@ fn moderation_topic(record: infrastructure::ModerationTopicRecord) -> Result<Mod
     })
 }
 
+fn topic_moderation_history_entry(
+    record: infrastructure::TopicModerationHistoryRecord,
+) -> Result<TopicModerationHistoryEntry, ()> {
+    let source = match record.source.as_str() {
+        "moderation" => TopicModerationHistorySource::Moderation,
+        "governance" => TopicModerationHistorySource::Governance,
+        _ => return Err(()),
+    };
+    let action = match record.action.as_str() {
+        "approved" => TopicModerationHistoryAction::Approved,
+        "hidden" => TopicModerationHistoryAction::Hidden,
+        "rejected" => TopicModerationHistoryAction::Rejected,
+        "pin" => TopicModerationHistoryAction::Pin,
+        "unpin" => TopicModerationHistoryAction::Unpin,
+        "feature" => TopicModerationHistoryAction::Feature,
+        "unfeature" => TopicModerationHistoryAction::Unfeature,
+        "lock" => TopicModerationHistoryAction::Lock,
+        "unlock" => TopicModerationHistoryAction::Unlock,
+        "move" => TopicModerationHistoryAction::Move,
+        _ => return Err(()),
+    };
+    Ok(TopicModerationHistoryEntry {
+        id: record.id,
+        source,
+        action,
+        actor: UserSummary {
+            id: record.actor_id,
+            username: record.actor_username,
+            display_name: record.actor_display_name,
+            avatar_url: record.actor_avatar_url,
+        },
+        reason: record.reason,
+        created_at: format_timestamp(record.created_at)?,
+    })
+}
+
 fn topic_reply(record: PublicReplyRecord) -> Result<TopicReply, ()> {
+    let reply_to = match record.reply_to_id {
+        Some(id) => {
+            let is_deleted = record.reply_to_is_deleted.ok_or(())?;
+            let excerpt = if is_deleted {
+                None
+            } else if let Some(rich_content) = record.reply_to_rich_content {
+                quote_excerpt(
+                    &redact_reply_gates(rich_content, record.reply_gate_unlocked).plain_text,
+                )
+            } else {
+                record.reply_to_excerpt
+            };
+            Some(ReplyReference {
+                id,
+                floor_number: u64::try_from(record.reply_to_floor_number.ok_or(())?)
+                    .map_err(|_| ())?,
+                author: TopicAuthorSummary {
+                    id: record.reply_to_author_id.ok_or(())?,
+                    username: record.reply_to_author_username.ok_or(())?,
+                    display_name: record.reply_to_author_display_name.ok_or(())?,
+                    avatar_url: record.reply_to_author_avatar_url,
+                },
+                excerpt,
+                is_deleted,
+            })
+        }
+        None => None,
+    };
+    let (content, rich_content, has_locked_content) = redact_record_content(
+        record.content,
+        record.rich_content,
+        record.reply_gate_unlocked,
+    );
     Ok(TopicReply {
         id: record.id,
         topic_id: record.topic_id,
+        floor_number: u64::try_from(record.floor_number).map_err(|_| ())?,
+        reply_to,
         author: TopicAuthorSummary {
             id: record.author_id,
             username: record.author_username,
             display_name: record.author_display_name,
             avatar_url: record.author_avatar_url,
         },
-        content: record.content,
+        content,
+        rich_content,
+        has_locked_content,
         created_at: format_timestamp(record.created_at)?,
         updated_at: format_timestamp(record.updated_at)?,
         revision_count: u32::try_from(record.revision_count).map_err(|_| ())?,
         like_count: u64::try_from(record.like_count).map_err(|_| ())?,
         viewer_liked: record.viewer_liked,
     })
+}
+
+fn quote_excerpt(content: &str) -> Option<String> {
+    let excerpt = content.chars().take(160).collect::<String>();
+    (!excerpt.is_empty()).then_some(excerpt)
+}
+
+fn storage_content(content: &str, rich_content: Option<&serde_json::Value>) -> String {
+    rich_content
+        .cloned()
+        .map(|document| redact_reply_gates(document, false).plain_text)
+        .unwrap_or_else(|| content.to_owned())
+}
+
+fn redact_record_content(
+    content: String,
+    rich_content: Option<serde_json::Value>,
+    unlocked: bool,
+) -> (String, Option<serde_json::Value>, bool) {
+    let Some(rich_content) = rich_content else {
+        return (content, None, false);
+    };
+    let projection = redact_reply_gates(rich_content, unlocked);
+    (
+        projection.plain_text,
+        Some(projection.document),
+        projection.has_locked_content,
+    )
 }
 
 fn topic_revision(record: infrastructure::TopicRevisionRecord) -> Result<TopicRevision, ()> {
@@ -1528,6 +1830,7 @@ fn topic_revision(record: infrastructure::TopicRevisionRecord) -> Result<TopicRe
             avatar_url: record.editor_avatar_url,
         },
         content: record.content,
+        rich_content: record.rich_content,
         created_at: format_timestamp(record.created_at)?,
     })
 }
@@ -1544,6 +1847,7 @@ fn reply_revision(record: infrastructure::ReplyRevisionRecord) -> Result<ReplyRe
             avatar_url: record.editor_avatar_url,
         },
         content: record.content,
+        rich_content: record.rich_content,
         created_at: format_timestamp(record.created_at)?,
     })
 }
@@ -1805,6 +2109,7 @@ fn reply_mutation_error(
     match error {
         ReplyMutationError::ReplyUnavailable => reply_not_found(request_id),
         ReplyMutationError::RevisionConflict => reply_revision_conflict(request_id),
+        ReplyMutationError::AttachmentUnavailable => rich_attachment_unavailable(request_id),
         ReplyMutationError::Database(error) => {
             tracing::warn!(request_id = %request_id, error = %error, context, "Reply mutation failed");
             service_unavailable_reply_mutation(request_id)
@@ -1881,6 +2186,16 @@ fn create_validation_error(request_id: RequestId, fields: FieldErrors) -> ApiErr
     );
     body.fields = fields;
     create_error(StatusCode::UNPROCESSABLE_ENTITY, body, request_id)
+}
+
+fn rich_attachment_unavailable(request_id: RequestId) -> ApiError {
+    let mut fields = FieldErrors::default();
+    add_field_error(
+        &mut fields,
+        "rich_content",
+        "正文图片已过期、无权使用或尚未上传完成，请重新上传",
+    );
+    create_validation_error(request_id, fields)
 }
 
 fn topic_board_unavailable(request_id: RequestId) -> ApiError {

@@ -1,9 +1,10 @@
-import { Award, Coins, History, LoaderCircle, Plus, RotateCcw, Save, Sparkles, Trophy } from "lucide-react"
+import { Award, Coins, History, LoaderCircle, Pencil, Plus, RotateCcw, Save, Sparkles, Trash2, Trophy, UsersRound } from "lucide-react"
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
 
 import {
   AdminApiError,
   createAdminGrowthLevel,
+  deleteAdminGrowthLevel,
   getAdminGrowthLevels,
   getMembershipMedalRules,
   grantMembershipMedal,
@@ -21,6 +22,8 @@ import type {
   MembershipMedalRule,
   MembershipPointsGrant,
 } from "../api/admin"
+import { GrowthLevelFormDialog, type GrowthLevelDraft } from "./GrowthLevelFormDialog"
+import { CommunityGroupAdminPanel } from "./CommunityGroupAdminPanel"
 
 interface MembershipAdminPanelProps {
   csrfToken: string
@@ -30,6 +33,11 @@ interface MembershipAdminPanelProps {
   canWriteMedalRules: boolean
   canGrantPoints: boolean
   canGrantMedals: boolean
+  canReadGroups: boolean
+  canWriteGroups: boolean
+  canReadGroupMemberships: boolean
+  canWriteGroupMemberships: boolean
+  canReadUsers: boolean
 }
 
 interface GrantDraft {
@@ -45,18 +53,8 @@ interface MedalDraft {
   reason: string
 }
 
-interface GrowthLevelDraft {
-  internalKey: string
-  levelOrder: string
-  displayName: string
-  requiredExperience: string
-  color: string
-  description: string
-}
-
-type GrowthLevelFilter = "published" | "draft" | "inactive" | "all"
-type MembershipWorkspace = "growth" | "points" | "medals"
-type WorkspaceCapabilities = Pick<MembershipAdminPanelProps, "canReadLevelRules" | "canWriteLevelRules" | "canGrantPoints" | "canReadMedalRules" | "canGrantMedals">
+type MembershipWorkspace = "growth" | "points" | "medals" | "groups"
+type WorkspaceCapabilities = Pick<MembershipAdminPanelProps, "canReadLevelRules" | "canWriteLevelRules" | "canGrantPoints" | "canReadMedalRules" | "canGrantMedals" | "canReadGroups" | "canWriteGroups">
 
 const reasonPattern = /^[a-z][a-z0-9._-]{1,63}$/
 const growthLevelKeyPattern = /^[a-z][a-z0-9_]{2,63}$/
@@ -69,15 +67,27 @@ export function MembershipAdminPanel({
   canWriteMedalRules,
   canGrantPoints,
   canGrantMedals,
+  canReadGroups,
+  canWriteGroups,
+  canReadGroupMemberships,
+  canWriteGroupMemberships,
+  canReadUsers,
 }: MembershipAdminPanelProps) {
-  const [workspace, setWorkspace] = useState<MembershipWorkspace>(() => initialWorkspace({ canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals }))
+  const [workspace, setWorkspace] = useState<MembershipWorkspace>(() => initialWorkspace({ canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals, canReadGroups, canWriteGroups }))
   const [growthLevels, setGrowthLevels] = useState<AdminGrowthLevel[]>([])
   const [growthLoading, setGrowthLoading] = useState(canReadLevelRules)
   const [growthError, setGrowthError] = useState("")
   const [growthMessage, setGrowthMessage] = useState("")
-  const [growthFilter, setGrowthFilter] = useState<GrowthLevelFilter>("published")
   const [savingGrowthId, setSavingGrowthId] = useState<string | null>(null)
   const [creatingGrowth, setCreatingGrowth] = useState(false)
+  const [growthCreateOpen, setGrowthCreateOpen] = useState(false)
+  const [editingGrowth, setEditingGrowth] = useState<AdminGrowthLevel | null>(null)
+  const [deletingGrowth, setDeletingGrowth] = useState(false)
+  const [growthDeleteTarget, setGrowthDeleteTarget] = useState<AdminGrowthLevel | null>(null)
+  const growthFormTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const growthMutationRef = useRef(false)
+  const growthDeleteDialogRef = useRef<HTMLDivElement | null>(null)
+  const growthDeleteTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [growthDraft, setGrowthDraft] = useState<GrowthLevelDraft>(newGrowthLevelDraft)
   const [grantDraft, setGrantDraft] = useState<GrantDraft>(newGrantDraft)
   const [grantBusy, setGrantBusy] = useState(false)
@@ -103,10 +113,10 @@ export function MembershipAdminPanel({
   const medalOperationsRequestId = useRef(0)
 
   useEffect(() => {
-    if (!workspaceAvailable(workspace, { canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals })) {
-      setWorkspace(initialWorkspace({ canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals }))
+    if (!workspaceAvailable(workspace, { canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals, canReadGroups, canWriteGroups })) {
+      setWorkspace(initialWorkspace({ canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals, canReadGroups, canWriteGroups }))
     }
-  }, [workspace, canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals])
+  }, [workspace, canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals, canReadGroups, canWriteGroups])
 
   useEffect(() => {
     if (!canReadLevelRules) {
@@ -181,13 +191,14 @@ export function MembershipAdminPanel({
   }, [workspace, canReadMedalRules, loadMedalOperations])
 
   function changeGrowthLevel(levelId: string, patch: Partial<AdminGrowthLevel>) {
-    setGrowthLevels((current) => current.map((level) => level.id === levelId ? { ...level, ...patch } : level))
+    setEditingGrowth((current) => current?.id === levelId ? { ...current, ...patch } : current)
     setGrowthMessage("")
     setGrowthError("")
   }
 
   async function saveGrowthLevel(level: AdminGrowthLevel) {
-    if (!canWriteLevelRules) return
+    if (!canWriteLevelRules || growthMutationRef.current) return
+    growthMutationRef.current = true
     setSavingGrowthId(level.id)
     setGrowthError("")
     setGrowthMessage("")
@@ -200,20 +211,22 @@ export function MembershipAdminPanel({
         iconAssetId: level.iconAssetId,
         color: level.color,
         description: level.description,
-        status: level.status,
+        status: "published",
       }, csrfToken)
       setGrowthLevels((current) => sortGrowthLevels(current.map((item) => item.id === saved.id ? saved : item)))
+      completeGrowthLevelForm()
       setGrowthMessage(`${saved.internalKey} 已保存`)
     } catch (reason) {
       setGrowthError(reason instanceof AdminApiError ? reason.message : "成长等级保存失败，请稍后重试。")
     } finally {
+      growthMutationRef.current = false
       setSavingGrowthId(null)
     }
   }
 
   async function createGrowthLevel(event: FormEvent) {
     event.preventDefault()
-    if (!canWriteLevelRules) return
+    if (!canWriteLevelRules || growthMutationRef.current) return
     setGrowthError("")
     setGrowthMessage("")
     const input = toGrowthLevelInput(growthDraft)
@@ -221,17 +234,105 @@ export function MembershipAdminPanel({
       setGrowthError("请填写合法的内部键、等级顺序、名称和 EXP 阈值。")
       return
     }
+    growthMutationRef.current = true
     setCreatingGrowth(true)
     try {
       const saved = await createAdminGrowthLevel(input, csrfToken)
       setGrowthLevels((current) => sortGrowthLevels([...current, saved]))
-      setGrowthDraft(newGrowthLevelDraft())
-      setGrowthFilter("draft")
-      setGrowthMessage(`${saved.internalKey} 草稿已创建`)
+      completeGrowthLevelForm()
+      setGrowthMessage(`${saved.internalKey} 已创建并生效`)
     } catch (reason) {
       setGrowthError(reason instanceof AdminApiError ? reason.message : "成长等级创建失败，请稍后重试。")
     } finally {
+      growthMutationRef.current = false
       setCreatingGrowth(false)
+    }
+  }
+
+  function openGrowthCreate(trigger: HTMLButtonElement) {
+    growthFormTriggerRef.current = trigger
+    setGrowthDraft(newGrowthLevelDraft())
+    setEditingGrowth(null)
+    setGrowthDeleteTarget(null)
+      setGrowthCreateOpen(true)
+    setGrowthError("")
+    setGrowthMessage("")
+  }
+
+  function openGrowthEdit(level: AdminGrowthLevel, trigger: HTMLButtonElement) {
+    growthFormTriggerRef.current = trigger
+    setEditingGrowth({ ...level })
+    setGrowthCreateOpen(false)
+    setGrowthDeleteTarget(null)
+    setGrowthError("")
+    setGrowthMessage("")
+  }
+
+  function closeGrowthLevelForm() {
+    if (growthMutationRef.current) return
+    const trigger = growthFormTriggerRef.current
+    setGrowthCreateOpen(false)
+    setEditingGrowth(null)
+    setGrowthDraft(newGrowthLevelDraft())
+    setGrowthError("")
+    window.requestAnimationFrame(() => trigger?.focus())
+  }
+
+  function completeGrowthLevelForm() {
+    const trigger = growthFormTriggerRef.current
+    setGrowthCreateOpen(false)
+    setEditingGrowth(null)
+    setGrowthDraft(newGrowthLevelDraft())
+    window.requestAnimationFrame(() => trigger?.focus())
+  }
+
+  function submitGrowthEdit(event: FormEvent) {
+    event.preventDefault()
+    if (editingGrowth) void saveGrowthLevel(editingGrowth)
+  }
+
+  async function confirmDeleteGrowthLevel() {
+    if (!canWriteLevelRules || !growthDeleteTarget) return
+    const target = growthDeleteTarget
+    setDeletingGrowth(true)
+    setGrowthError("")
+    setGrowthMessage("")
+    try {
+      await deleteAdminGrowthLevel(target.id, csrfToken)
+      setGrowthLevels((current) => current.filter((level) => level.id !== target.id))
+      if (editingGrowth?.id === target.id) setEditingGrowth(null)
+      setGrowthMessage(`${target.internalKey} 已删除`)
+      setGrowthDeleteTarget((current) => current?.id === target.id ? null : current)
+    } catch (reason) {
+      setGrowthError(reason instanceof AdminApiError ? reason.message : "成长等级删除失败，请稍后重试。")
+    } finally {
+      setDeletingGrowth(false)
+    }
+  }
+
+  function cancelGrowthLevelDelete() {
+    const trigger = growthDeleteTriggerRef.current
+    setGrowthDeleteTarget(null)
+    window.requestAnimationFrame(() => trigger?.focus())
+  }
+
+  function handleGrowthDeleteDialogKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape" && !deletingGrowth) {
+      event.preventDefault()
+      cancelGrowthLevelDelete()
+      return
+    }
+    if (event.key !== "Tab") return
+    const controls = [...(growthDeleteDialogRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])]
+    if (controls.length === 0) return
+    const first = controls[0]
+    const last = controls[controls.length - 1]
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
     }
   }
 
@@ -334,10 +435,9 @@ export function MembershipAdminPanel({
     }
   }
 
-  const publishedGrowthLevelCount = growthLevels.filter((level) => level.status === "published").length
-  const visibleGrowthLevels = growthLevels.filter((level) => matchesGrowthFilter(level, growthFilter))
   const activeMedalOperationIds = activeMembershipMedalOperationIds(medalOperations)
-  const availableWorkspaces = membershipWorkspaces({ canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals })
+  const availableWorkspaces = membershipWorkspaces({ canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals, canReadGroups, canWriteGroups })
+  const growthDialogOpen = growthCreateOpen || editingGrowth !== null || growthDeleteTarget !== null
 
   function handleWorkspaceKeyDown(event: KeyboardEvent<HTMLButtonElement>, currentWorkspace: MembershipWorkspace) {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return
@@ -354,41 +454,26 @@ export function MembershipAdminPanel({
   }
 
   return (
-    <div className="admin-panel membership-admin-panel">
+    <>
+    <div className="admin-panel membership-admin-panel" inert={growthDialogOpen ? true : undefined} aria-hidden={growthDialogOpen ? "true" : undefined}>
       <div className="admin-panel__heading">
         <div><p>成长、消费与荣誉</p><h2>会员经济</h2></div>
-        <span className="admin-badge">已发布 {publishedGrowthLevelCount} / 共 {growthLevels.length}</span>
+        {workspace === "growth" && <span className="admin-badge">共 {growthLevels.length} 个等级</span>}
       </div>
       <p className="admin-panel__description">成长等级由 EXP 决定；积分是可消费账本；勋章和标准权益均不授予后台治理权限。</p>
       <div className="membership-workspace-tabs" role="tablist" aria-label="会员运营工作区">
         {(canReadLevelRules || canWriteLevelRules) && <button id="membership-growth-tab" type="button" role="tab" data-membership-workspace="growth" tabIndex={workspace === "growth" ? 0 : -1} aria-selected={workspace === "growth"} aria-controls="membership-growth-workspace" onKeyDown={(event) => handleWorkspaceKeyDown(event, "growth")} onClick={() => setWorkspace("growth")}><Sparkles size={15} aria-hidden="true" />成长运营</button>}
         {canGrantPoints && <button id="membership-points-tab" type="button" role="tab" data-membership-workspace="points" tabIndex={workspace === "points" ? 0 : -1} aria-selected={workspace === "points"} aria-controls="membership-points-workspace" onKeyDown={(event) => handleWorkspaceKeyDown(event, "points")} onClick={() => setWorkspace("points")}><Coins size={15} aria-hidden="true" />积分运营</button>}
         {(canReadMedalRules || canGrantMedals) && <button id="membership-medals-tab" type="button" role="tab" data-membership-workspace="medals" tabIndex={workspace === "medals" ? 0 : -1} aria-selected={workspace === "medals"} aria-controls="membership-medals-workspace" onKeyDown={(event) => handleWorkspaceKeyDown(event, "medals")} onClick={() => setWorkspace("medals")}><Award size={15} aria-hidden="true" />勋章运营</button>}
+        {canReadGroups && <button id="membership-groups-tab" type="button" role="tab" data-membership-workspace="groups" tabIndex={workspace === "groups" ? 0 : -1} aria-selected={workspace === "groups"} aria-controls="membership-groups-workspace" onKeyDown={(event) => handleWorkspaceKeyDown(event, "groups")} onClick={() => setWorkspace("groups")}><UsersRound size={15} aria-hidden="true" />用户组</button>}
       </div>
       <div className="membership-admin-grid membership-admin-grid--workspace">
         {workspace === "growth" && (canReadLevelRules || canWriteLevelRules) && <section id="membership-growth-workspace" role="tabpanel" className="membership-rule-section" aria-labelledby="membership-growth-tab">
-          <div className="admin-form__heading membership-section-heading"><div><h3 id="membership-growth-heading">成长等级（EXP）</h3><p>积分变更不会增加 EXP，也不会改变成长等级。</p></div><Sparkles size={18} aria-hidden="true" /></div>
-          {!canReadLevelRules ? <div className="admin-empty" role="status"><Sparkles size={20} aria-hidden="true" /><span>当前账号可创建成长等级，但不具备等级目录读取权限。</span></div> : growthLoading ? <div className="admin-state" role="status"><LoaderCircle className="topic-loading__spinner" size={20} aria-hidden="true" /><span>正在读取成长等级</span></div> : growthLevels.length === 0 ? <div className="admin-empty" role="status"><Sparkles size={20} aria-hidden="true" /><span>尚未创建成长等级</span></div> : <>
-            <label className="membership-list-filter" htmlFor="growth-level-filter"><span>筛选成长等级</span><select id="growth-level-filter" value={growthFilter} onChange={(event) => setGrowthFilter(event.target.value as GrowthLevelFilter)}><option value="published">已发布（前台生效）</option><option value="draft">草稿</option><option value="inactive">已停用与已归档</option><option value="all">全部</option></select></label>
-            {visibleGrowthLevels.length === 0 ? <div className="admin-empty" role="status"><Sparkles size={20} aria-hidden="true" /><span>当前筛选条件下没有成长等级</span></div> : <div className="membership-growth-grid">
-              {visibleGrowthLevels.map((level) => <GrowthLevelCard key={level.id} level={level} canWrite={canWriteLevelRules} pending={savingGrowthId === level.id} onChange={changeGrowthLevel} onSave={saveGrowthLevel} />)}
-            </div>}
-          </>}
-          {canWriteLevelRules && <form className="admin-form" onSubmit={(event) => void createGrowthLevel(event)}>
-            <div className="admin-form__heading"><h4>新建草稿等级</h4><Plus size={16} aria-hidden="true" /></div>
-            <div className="admin-form__grid">
-              <label htmlFor="new-growth-key"><span>内部键</span><input id="new-growth-key" value={growthDraft.internalKey} maxLength={64} placeholder="traveler" onChange={(event) => setGrowthDraft({ ...growthDraft, internalKey: event.target.value })} required /></label>
-              <label htmlFor="new-growth-order"><span>等级顺序</span><input id="new-growth-order" type="number" min={1} step={1} value={growthDraft.levelOrder} onChange={(event) => setGrowthDraft({ ...growthDraft, levelOrder: event.target.value })} required /></label>
-              <label htmlFor="new-growth-name"><span>展示名称</span><input id="new-growth-name" value={growthDraft.displayName} maxLength={80} onChange={(event) => setGrowthDraft({ ...growthDraft, displayName: event.target.value })} required /></label>
-              <label htmlFor="new-growth-experience"><span>EXP 阈值</span><input id="new-growth-experience" type="number" min={0} step={1} value={growthDraft.requiredExperience} onChange={(event) => setGrowthDraft({ ...growthDraft, requiredExperience: event.target.value })} required /></label>
-            </div>
-            <div className="admin-form__grid">
-              <label htmlFor="new-growth-color"><span>颜色（可选）</span><input id="new-growth-color" value={growthDraft.color} placeholder="#1f8f5f" maxLength={7} onChange={(event) => setGrowthDraft({ ...growthDraft, color: event.target.value })} /></label>
-              <label htmlFor="new-growth-description"><span>描述</span><input id="new-growth-description" value={growthDraft.description} maxLength={500} onChange={(event) => setGrowthDraft({ ...growthDraft, description: event.target.value })} /></label>
-            </div>
-            <button className="secondary-button" type="submit" disabled={creatingGrowth}>{creatingGrowth ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}新建草稿等级</button>
-          </form>}
-          {(growthError || growthMessage) && <p className={growthError ? "form-alert" : "admin-success"} role={growthError ? "alert" : "status"}>{growthError || growthMessage}</p>}
+          <div className="admin-form__heading membership-section-heading"><div><h3 id="membership-growth-heading">成长等级（EXP）</h3><p>保存后立即生效；积分变更不会增加 EXP，也不会改变成长等级。</p></div>{canWriteLevelRules && <button className="secondary-button membership-growth-create-trigger" type="button" aria-haspopup="dialog" onClick={(event) => openGrowthCreate(event.currentTarget)}><Plus size={14} aria-hidden="true" />新增等级</button>}</div>
+          {!canReadLevelRules ? <div className="admin-empty" role="status"><Sparkles size={20} aria-hidden="true" /><span>当前账号可创建成长等级，但不具备等级目录读取权限。</span></div> : growthLoading ? <div className="admin-state" role="status"><LoaderCircle className="topic-loading__spinner" size={20} aria-hidden="true" /><span>正在读取成长等级</span></div> : growthLevels.length === 0 ? <div className="admin-empty" role="status"><Sparkles size={20} aria-hidden="true" /><span>尚未创建成长等级</span></div> : <ul className="membership-growth-list" aria-label="成长等级列表">
+            {growthLevels.map((level) => <GrowthLevelRow key={level.id} level={level} canWrite={canWriteLevelRules} pending={deletingGrowth || savingGrowthId === level.id} onEdit={(trigger) => openGrowthEdit(level, trigger)} onDelete={(trigger) => { growthDeleteTriggerRef.current = trigger; setGrowthDeleteTarget(level); setGrowthError(""); setGrowthMessage("") }} />)}
+          </ul>}
+          {!growthCreateOpen && !editingGrowth && (growthError || growthMessage) && <p className={growthError ? "form-alert" : "admin-success"} role={growthError ? "alert" : "status"}>{growthError || growthMessage}</p>}
         </section>}
 
         {workspace === "points" && canGrantPoints && <section id="membership-points-workspace" role="tabpanel" className="membership-grant-section" aria-labelledby="membership-points-tab">
@@ -403,19 +488,22 @@ export function MembershipAdminPanel({
           {grantResult && <GrantResult result={grantResult} />}
         </section>}
 
+        {workspace === "groups" && canReadGroups && <section id="membership-groups-workspace" role="tabpanel" className="membership-rule-section" aria-labelledby="membership-groups-tab"><CommunityGroupAdminPanel csrfToken={csrfToken} canWrite={canWriteGroups} canReadMemberships={canReadGroupMemberships} canWriteMemberships={canWriteGroupMemberships} canReadUsers={canReadUsers} /></section>}
+
         {workspace === "medals" && (canReadMedalRules || canGrantMedals) && <section id="membership-medals-workspace" role="tabpanel" className="membership-grant-section" aria-labelledby="membership-medals-tab">
           <div className="admin-form__heading membership-section-heading"><div><h3 id="membership-medal-heading">勋章</h3><p>勋章是独立的荣誉标识，可按累计积分阈值自动授予或手动发放。</p></div><Award size={18} aria-hidden="true" /></div>
-          {canReadMedalRules && <><p className="membership-catalog-note">固定勋章目录：可调整自动授予条件，已发放的勋章保留历史记录。</p><div className="membership-medal-grid">
+          {canReadMedalRules && <><p className="membership-catalog-note">固定勋章目录：可调整自动授予条件，已发放的勋章保留历史记录。</p><ul className="membership-medal-list" aria-label="勋章规则列表">
             {medalRules.map((rule) => {
               const pending = savingMedalKey === rule.key
-              return <article className="membership-medal-card" key={rule.key}>
-                <header><img src={medalAssetPath(rule.key)} alt={rule.displayName} width="36" height="36" /><div><strong>{rule.displayName}</strong><small>{rule.key}</small></div><span className={rule.enabled ? "membership-status membership-status--published" : "membership-status membership-status--draft"}>{rule.enabled ? "自动授予中" : "未启用"}</span></header>
+              return <li className="membership-medal-row" key={rule.key}>
+                <header><img src={medalAssetPath(rule.key)} alt={rule.displayName} width="36" height="36" /><div><strong>{rule.displayName}</strong><small>{rule.key}</small></div></header>
                 <label htmlFor={`medal-threshold-${rule.key}`}><span>累计积分阈值</span><input id={`medal-threshold-${rule.key}`} type="number" min={0} value={rule.requiredLifetimePoints ?? ""} disabled={!canWriteMedalRules || pending} onChange={(event) => setMedalRules((current) => current.map((item) => item.key === rule.key ? { ...item, requiredLifetimePoints: event.target.value === "" ? null : Number(event.target.value) } : item))} /></label>
                 <label className="admin-checkbox" htmlFor={`medal-enabled-${rule.key}`}><input id={`medal-enabled-${rule.key}`} type="checkbox" checked={rule.enabled} disabled={!canWriteMedalRules || pending} onChange={(event) => setMedalRules((current) => current.map((item) => item.key === rule.key ? { ...item, enabled: event.target.checked } : item))} /><span>启用自动授予</span></label>
+                <span className={rule.enabled ? "membership-status membership-status--published" : "membership-status membership-status--draft"}>{rule.enabled ? "自动授予中" : "未启用"}</span>
                 {canWriteMedalRules ? <button className="secondary-button membership-rule-save" type="button" disabled={pending} onClick={() => void saveMedalRule(rule)}>{pending ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" /> : <Save size={14} aria-hidden="true" />}保存 {rule.key}</button> : <small>仅具有勋章规则读取权限</small>}
-              </article>
+              </li>
             })}
-          </div></>}
+          </ul></>}
           {canGrantMedals && (canReadMedalRules ? <form className="admin-form" onSubmit={(event) => void awardMedal(event)}>
             <label htmlFor="membership-medal-user-id"><span>勋章目标用户 UUID</span><input id="membership-medal-user-id" value={medalDraft.userId} onChange={(event) => setMedalDraft({ ...medalDraft, userId: event.target.value })} required /></label>
             <label htmlFor="membership-medal-key"><span>勋章</span><select id="membership-medal-key" value={medalDraft.medalKey} onChange={(event) => setMedalDraft({ ...medalDraft, medalKey: event.target.value })} disabled={medalRules.length === 0}>{medalRules.map((rule) => <option value={rule.key} key={rule.key}>{rule.displayName}</option>)}</select></label>
@@ -450,47 +538,45 @@ export function MembershipAdminPanel({
         </section>}
       </div>
     </div>
+    {growthCreateOpen && <GrowthLevelFormDialog mode="create" value={growthDraft} pending={creatingGrowth} error={growthError} onChange={(patch) => { setGrowthDraft((current) => ({ ...current, ...patch })); setGrowthError("") }} onSubmit={(event) => void createGrowthLevel(event)} onClose={closeGrowthLevelForm} />}
+    {editingGrowth && <GrowthLevelFormDialog mode="edit" value={editingGrowth} pending={savingGrowthId === editingGrowth.id} error={growthError} onChange={(patch) => changeGrowthLevel(editingGrowth.id, patch)} onSubmit={submitGrowthEdit} onClose={closeGrowthLevelForm} />}
+    {growthDeleteTarget && <div className="dialog-backdrop membership-growth-dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target && !deletingGrowth) cancelGrowthLevelDelete() }}><div ref={growthDeleteDialogRef} className="membership-growth-delete" role="dialog" aria-modal="true" aria-labelledby="membership-growth-delete-heading" aria-describedby="membership-growth-delete-description" onKeyDown={handleGrowthDeleteDialogKeyDown}>
+      <div><strong id="membership-growth-delete-heading">删除成长等级</strong><p id="membership-growth-delete-description">确定删除“{growthDeleteTarget.displayName}（{growthDeleteTarget.internalKey}）”吗？正在被会员使用或会破坏等级起点时无法删除。</p></div>
+      <div className="membership-growth-form-actions"><button className="secondary-button" type="button" disabled={deletingGrowth} autoFocus onClick={cancelGrowthLevelDelete}>取消</button><button className="danger-button" type="button" disabled={deletingGrowth} onClick={() => void confirmDeleteGrowthLevel()}>{deletingGrowth ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}确认删除</button></div>
+    </div></div>}
+    </>
   )
 }
 
-function GrowthLevelCard({
+function GrowthLevelRow({
   level,
   canWrite,
   pending,
-  onChange,
-  onSave,
+  onEdit,
+  onDelete,
 }: {
   level: AdminGrowthLevel
   canWrite: boolean
   pending: boolean
-  onChange: (levelId: string, patch: Partial<AdminGrowthLevel>) => void
-  onSave: (level: AdminGrowthLevel) => Promise<void>
+  onEdit: (trigger: HTMLButtonElement) => void
+  onDelete: (trigger: HTMLButtonElement) => void
 }) {
   return (
-    <article className="membership-growth-card">
-      <header>
-        <span className="membership-level-mark">Lv {level.levelOrder}</span>
-        <div><strong>{level.displayName}</strong><small>{level.internalKey}</small></div>
-        <span className={`membership-status membership-status--${level.status}`}>{growthStatusLabel(level.status)}</span>
-      </header>
-      <dl>
-        <div><dt>EXP 阈值</dt><dd>{level.requiredExperience.toLocaleString("zh-CN")}</dd></div>
-        <div><dt>主题颜色</dt><dd>{level.color ?? "未设置"}</dd></div>
-      </dl>
-      <p>{level.description || "未填写等级说明"}</p>
-      {canWrite ? <details className="membership-growth-editor">
-        <summary>编辑 {level.internalKey}</summary>
-        <div className="membership-growth-editor__fields">
-          <label htmlFor={`growth-name-${level.id}`}><span>{level.internalKey} 展示名称</span><input id={`growth-name-${level.id}`} value={level.displayName} maxLength={80} disabled={pending} onChange={(event) => onChange(level.id, { displayName: event.target.value })} /></label>
-          <label htmlFor={`growth-order-${level.id}`}><span>{level.internalKey} 等级顺序</span><input id={`growth-order-${level.id}`} type="number" min={1} step={1} value={level.levelOrder} disabled={pending} onChange={(event) => onChange(level.id, { levelOrder: Number(event.target.value) })} /></label>
-          <label htmlFor={`growth-experience-${level.id}`}><span>{level.internalKey} EXP 阈值</span><input id={`growth-experience-${level.id}`} type="number" min={0} step={1} value={level.requiredExperience} disabled={pending} onChange={(event) => onChange(level.id, { requiredExperience: Number(event.target.value) })} /></label>
-          <label htmlFor={`growth-status-${level.id}`}><span>{level.internalKey} 状态</span><select id={`growth-status-${level.id}`} value={level.status} disabled={pending} onChange={(event) => onChange(level.id, { status: event.target.value as AdminGrowthLevel["status"] })}><option value="draft">草稿</option><option value="published">已发布</option><option value="disabled">已停用</option><option value="archived">已归档</option></select></label>
-          <label htmlFor={`growth-color-${level.id}`}><span>{level.internalKey} 颜色</span><input id={`growth-color-${level.id}`} value={level.color ?? ""} placeholder="#1f8f5f" maxLength={7} disabled={pending} onChange={(event) => onChange(level.id, { color: event.target.value || null })} /></label>
-          <label className="membership-growth-editor__wide" htmlFor={`growth-description-${level.id}`}><span>{level.internalKey} 描述</span><input id={`growth-description-${level.id}`} value={level.description} maxLength={500} disabled={pending} onChange={(event) => onChange(level.id, { description: event.target.value })} /></label>
-        </div>
-        <button className="secondary-button membership-rule-save" type="button" disabled={pending} onClick={() => void onSave(level)}>{pending ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" /> : <Save size={14} aria-hidden="true" />}保存 {level.internalKey}</button>
-      </details> : <small>仅具有成长等级读取权限</small>}
-    </article>
+    <li className="membership-growth-row">
+      <div className="membership-growth-row__overview">
+        <header>
+          <span className="membership-level-mark">Lv {level.levelOrder}</span>
+          <div><strong>{level.displayName}</strong><small>{level.internalKey}</small></div>
+        </header>
+        <dl>
+          <div><dt>EXP 阈值</dt><dd>{level.requiredExperience.toLocaleString("zh-CN")}</dd></div>
+          <div><dt>主题颜色</dt><dd>{level.color ?? "未设置"}</dd></div>
+        </dl>
+        <p>{level.description || "未填写等级说明"}</p>
+        {canWrite && <div className="membership-growth-row__actions"><button className="secondary-button" type="button" aria-haspopup="dialog" disabled={pending} onClick={(event) => onEdit(event.currentTarget)}><Pencil size={13} aria-hidden="true" />编辑 {level.internalKey}</button><button className="danger-button" type="button" aria-haspopup="dialog" disabled={pending} onClick={(event) => onDelete(event.currentTarget)}><Trash2 size={13} aria-hidden="true" />删除 {level.internalKey}</button></div>}
+      </div>
+      {!canWrite && <small className="membership-growth-readonly">仅具有成长等级读取权限</small>}
+    </li>
   )
 }
 
@@ -517,14 +603,6 @@ function sortGrowthLevels(levels: AdminGrowthLevel[]): AdminGrowthLevel[] {
   return [...levels].sort((left, right) => left.levelOrder - right.levelOrder || left.internalKey.localeCompare(right.internalKey))
 }
 
-function growthStatusLabel(status: AdminGrowthLevel["status"]): string {
-  return status === "published" ? "已发布" : status === "disabled" ? "已停用" : status === "archived" ? "已归档" : "草稿"
-}
-
-function matchesGrowthFilter(level: AdminGrowthLevel, filter: GrowthLevelFilter): boolean {
-  return filter === "all" || level.status === filter || (filter === "inactive" && (level.status === "disabled" || level.status === "archived"))
-}
-
 function medalAssetPath(key: string): string {
   return `/assets/membership/medals/medal${Number(key.slice(-2))}.gif`
 }
@@ -532,17 +610,19 @@ function medalAssetPath(key: string): string {
 function initialWorkspace(capabilities: WorkspaceCapabilities): MembershipWorkspace {
   if (workspaceAvailable("growth", capabilities)) return "growth"
   if (workspaceAvailable("points", capabilities)) return "points"
-  return "medals"
+  if (workspaceAvailable("medals", capabilities)) return "medals"
+  return "groups"
 }
 
 function workspaceAvailable(workspace: MembershipWorkspace, capabilities: WorkspaceCapabilities): boolean {
   if (workspace === "growth") return capabilities.canReadLevelRules || capabilities.canWriteLevelRules
   if (workspace === "points") return capabilities.canGrantPoints
-  return capabilities.canReadMedalRules || capabilities.canGrantMedals
+  if (workspace === "medals") return capabilities.canReadMedalRules || capabilities.canGrantMedals
+  return capabilities.canReadGroups
 }
 
 function membershipWorkspaces(capabilities: WorkspaceCapabilities): MembershipWorkspace[] {
-  return (["growth", "points", "medals"] as const).filter((workspace) => workspaceAvailable(workspace, capabilities))
+  return (["growth", "points", "medals", "groups"] as const).filter((workspace) => workspaceAvailable(workspace, capabilities))
 }
 
 function activeMembershipMedalOperationIds(operations: MembershipMedalOperation[]): Set<string> {

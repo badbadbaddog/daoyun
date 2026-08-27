@@ -2,8 +2,8 @@ use crate::auth::{
     ApiError, AuthRuntime, authenticate_optional_session, authenticate_state_change,
 };
 use api_contract::{
-    ApiResponse, AttachmentScanStatus, AttachmentStatus, ErrorBody, ErrorCode, ErrorResponse,
-    RequestId, TopicAttachment, error_codes,
+    ApiResponse, AttachmentScanStatus, AttachmentStatus, DraftImageAttachment, ErrorBody,
+    ErrorCode, ErrorResponse, RequestId, TopicAttachment, error_codes,
 };
 use axum::{
     Extension, Json, Router,
@@ -11,11 +11,11 @@ use axum::{
     extract::{DefaultBodyLimit, Path, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::Response,
-    routing::get,
+    routing::{get, post},
 };
 use infrastructure::{
-    AttachmentError, AttachmentRecord, CreateAttachmentInput, Database, ListAttachmentsError,
-    MAX_ATTACHMENT_BYTES,
+    AttachmentError, AttachmentRecord, CreateAttachmentInput, CreateDraftImageAttachmentInput,
+    Database, DraftImageAttachmentRecord, ListAttachmentsError, MAX_ATTACHMENT_BYTES,
 };
 use uuid::Uuid;
 
@@ -23,6 +23,7 @@ const MAX_NAME_BYTES: usize = 255;
 
 pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
     Router::new()
+        .route("/api/v1/attachments/drafts", post(upload_draft))
         .route(
             "/api/v1/topics/{topic_id}/attachments",
             get(list).post(upload),
@@ -34,6 +35,68 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
         )
         .layer(DefaultBodyLimit::max(MAX_ATTACHMENT_BYTES + 1))
         .layer(Extension(runtime))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/attachments/drafts",
+    operation_id = "uploadDraftImageAttachment",
+    tag = "topics",
+    params(
+        ("x-csrf-token" = String, Header, description = "Session-bound CSRF token"),
+        ("x-file-name" = String, Header, description = "Original file name")
+    ),
+    request_body(content = Vec<u8>, description = "Raw image bytes", content_type = "application/octet-stream"),
+    responses(
+        (status = 201, description = "Private draft image metadata", body = ApiResponse<DraftImageAttachment>, headers(("x-request-id" = String))),
+        (status = 401, description = "The request has no active session", body = ErrorResponse),
+        (status = 403, description = "The CSRF token or upload capability is invalid", body = ErrorResponse),
+        (status = 422, description = "The image headers or content are invalid", body = ErrorResponse),
+        (status = 429, description = "The upload quota is exhausted", body = ErrorResponse),
+        (status = 503, description = "The attachment service is unavailable", body = ErrorResponse)
+    )
+)]
+pub(crate) async fn upload_draft(
+    State(database): State<Database>,
+    Extension(runtime): Extension<AuthRuntime>,
+    Extension(request_id): Extension<RequestId>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<(StatusCode, Json<ApiResponse<DraftImageAttachment>>), ApiError> {
+    let encoded_file_name = headers
+        .get("x-file-name")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= MAX_NAME_BYTES)
+        .ok_or_else(|| invalid(request_id, "x-file-name", "文件名无效"))?;
+    let file_name = decode_file_name(encoded_file_name)
+        .filter(|value| !value.is_empty() && value.len() <= MAX_NAME_BYTES)
+        .ok_or_else(|| invalid(request_id, "x-file-name", "文件名无效"))?;
+    let mime_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| invalid(request_id, "content_type", "MIME 类型无效"))?;
+    if body.len() > MAX_ATTACHMENT_BYTES {
+        return Err(invalid(request_id, "body", "图片不能超过 50 MiB"));
+    }
+    let session = authenticate_state_change(&database, &runtime, &headers, request_id).await?;
+    let record = database
+        .create_draft_image_attachment(CreateDraftImageAttachmentInput {
+            id: Uuid::now_v7(),
+            uploader_id: session.user.id,
+            original_name: file_name,
+            mime_type: mime_type.to_owned(),
+            bytes: body.to_vec(),
+        })
+        .await
+        .map_err(|error| map_upload_error(request_id, error))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(ApiResponse::new(to_draft_contract(record), request_id)),
+    ))
 }
 
 #[utoipa::path(
@@ -275,6 +338,25 @@ fn to_contract(record: AttachmentRecord) -> TopicAttachment {
             .thumbnail_key
             .map(|_| format!("/api/v1/attachments/{id}/thumbnail")),
     }
+}
+
+fn to_draft_contract(record: DraftImageAttachmentRecord) -> DraftImageAttachment {
+    DraftImageAttachment {
+        id: record.id,
+        original_name: record.original_name,
+        mime_type: record.mime_type,
+        size_bytes: u64::try_from(record.size_bytes).expect("database size is non-negative"),
+        expires_at: record
+            .expires_at
+            .format(&time::format_description::well_known::Rfc3339)
+            .expect("database timestamp must format"),
+    }
+}
+
+fn decode_file_name(value: &str) -> Option<String> {
+    url::form_urlencoded::parse(format!("name={value}").as_bytes())
+        .next()
+        .map(|(_, value)| value.into_owned())
 }
 
 fn hex(bytes: &[u8]) -> String {

@@ -10,16 +10,98 @@ use api_contract::{
     MfaChallengeData, MfaCodeRequest, MfaDisableData, MfaEnableData, MfaRecoveryCodesData,
     MfaSetupData, MfaStatus, MfaVerifyRequest, ModerateTopicRequest, Notification,
     NotificationKind, NotificationTarget, NotificationUnreadCount, OidcAuthorizationStartData,
-    OidcProvider, PageResponse, PostLikeState, RecentAuthData, ReplyRevision, ReportReason,
+    OidcProvider, PageResponse, PostLikeState, RecentAuthData, RegistrationEmailChallengeData,
+    RegistrationEmailChallengeRequest, RegistrationPolicy, ReplyRevision, ReportReason,
     ReportResolution, ReportStatus, ReportTargetType, RequestId, SendDirectMessageRequest,
-    SiteBranding, TopicAuthorSummary, TopicBoardSummary, TopicDetail, TopicModerationResult,
-    TopicModerationStatus, TopicReply, TopicScope, TopicSort, TopicSummary,
-    UnlinkExternalIdentityData, UpdateAdminBoardRequest, UpdateAdminUserStatusRequest,
-    UpdateReplyRequest, UpdateSiteBrandingRequest, UpdateUserProfileRequest, UserProfile,
-    UserProfileViewer, UserSummary, error_codes,
+    SiteBranding, SmtpSettings, SmtpTlsMode, TestSmtpSettingsRequest, TopicAuthorSummary,
+    TopicBoardSummary, TopicDetail, TopicModerationHistoryAction, TopicModerationHistoryEntry,
+    TopicModerationHistorySource, TopicModerationResult, TopicModerationStatus, TopicReply,
+    TopicScope, TopicSort, TopicSummary, UnlinkExternalIdentityData, UpdateAdminBoardRequest,
+    UpdateAdminUserStatusRequest, UpdateReplyRequest, UpdateSiteBrandingRequest,
+    UpdateSmtpSettingsRequest, UpdateUserProfileRequest, UserProfile, UserProfileViewer,
+    UserSummary, error_codes,
 };
 use serde_json::json;
 use uuid::Uuid;
+
+#[test]
+fn registration_email_contracts_keep_verification_secrets_write_only() {
+    let policy = serde_json::to_value(RegistrationPolicy {
+        email_verification_required: true,
+        code_expires_in_seconds: 600,
+        resend_after_seconds: 60,
+    })
+    .expect("registration policy must serialize");
+    assert_eq!(policy["email_verification_required"], true);
+
+    let request: RegistrationEmailChallengeRequest = serde_json::from_value(json!({
+        "email": "member@example.com"
+    }))
+    .expect("challenge request must deserialize");
+    assert_eq!(request.email, "member@example.com");
+
+    let challenge_id = fixed_uuid(401);
+    let challenge = serde_json::to_value(RegistrationEmailChallengeData {
+        challenge_id,
+        expires_at: "2026-08-24T12:10:00Z".to_owned(),
+        resend_after_seconds: 60,
+    })
+    .expect("challenge response must serialize");
+    assert_eq!(challenge["challenge_id"], challenge_id.to_string());
+    assert!(!challenge.to_string().contains("123456"));
+
+    let register: api_contract::RegisterRequest = serde_json::from_value(json!({
+        "username": "member",
+        "email": "member@example.com",
+        "display_name": "Member",
+        "password": "secret12",
+        "email_challenge_id": challenge_id,
+        "email_verification_code": "123456"
+    }))
+    .expect("verified registration request must deserialize");
+    assert_eq!(register.email_challenge_id, Some(challenge_id));
+    assert_eq!(register.email_verification_code.as_deref(), Some("123456"));
+}
+
+#[test]
+fn smtp_settings_contract_never_serializes_the_password() {
+    let settings = serde_json::to_value(SmtpSettings {
+        host: "smtp.example.com".to_owned(),
+        port: 587,
+        username: Some("mailer".to_owned()),
+        password_configured: true,
+        tls_mode: SmtpTlsMode::Starttls,
+        from_email: "noreply@example.com".to_owned(),
+        from_name: "DaoYun".to_owned(),
+        enabled: true,
+        registration_email_verification_enabled: true,
+    })
+    .expect("SMTP settings must serialize");
+    assert_eq!(settings["password_configured"], true);
+    assert!(!settings.to_string().contains("password_ciphertext"));
+    assert!(!settings.to_string().contains("super-secret"));
+
+    let update: UpdateSmtpSettingsRequest = serde_json::from_value(json!({
+        "host": "smtp.example.com",
+        "port": 587,
+        "username": "mailer",
+        "password": "super-secret",
+        "clear_password": false,
+        "tls_mode": "starttls",
+        "from_email": "noreply@example.com",
+        "from_name": "DaoYun",
+        "enabled": true,
+        "registration_email_verification_enabled": true
+    }))
+    .expect("SMTP update must deserialize");
+    assert_eq!(update.password.as_deref(), Some("super-secret"));
+
+    let test: TestSmtpSettingsRequest = serde_json::from_value(json!({
+        "recipient_email": "admin@example.com"
+    }))
+    .expect("SMTP test request must deserialize");
+    assert_eq!(test.recipient_email, "admin@example.com");
+}
 
 #[test]
 fn branding_contract_adds_layout_fields_without_breaking_old_update_requests() {
@@ -941,7 +1023,9 @@ fn topic_summary_and_detail_serialize_only_the_public_contract() {
     let payload = serde_json::to_value(TopicDetail {
         summary,
         content: "正文".to_owned(),
+        rich_content: None,
         content_revision: 1,
+        has_locked_content: false,
     })
     .expect("topic detail must serialize");
 
@@ -974,7 +1058,9 @@ fn topic_summary_and_detail_serialize_only_the_public_contract() {
             "is_pinned": false,
             "tags": [],
             "content": "正文",
-            "content_revision": 1
+            "rich_content": null,
+            "content_revision": 1,
+            "has_locked_content": false
         })
     );
     for private_field in ["email", "status", "hot_score", "deleted_at"] {
@@ -1010,6 +1096,34 @@ fn topic_sort_and_error_codes_are_stable() {
 }
 
 #[test]
+fn topic_moderation_history_exposes_only_traceable_fields() {
+    let id = fixed_uuid(501);
+    let value = serde_json::to_value(TopicModerationHistoryEntry {
+        id,
+        source: TopicModerationHistorySource::Governance,
+        action: TopicModerationHistoryAction::Pin,
+        actor: UserSummary {
+            id: fixed_user_id(),
+            username: "owner".to_owned(),
+            display_name: "站长".to_owned(),
+            avatar_url: None,
+        },
+        reason: Some("重要公告".to_owned()),
+        created_at: "2026-08-25T08:00:00Z".to_owned(),
+    })
+    .expect("topic moderation history must serialize");
+
+    assert_eq!(value["id"], id.to_string());
+    assert_eq!(value["source"], "governance");
+    assert_eq!(value["action"], "pin");
+    assert_eq!(value["actor"]["username"], "owner");
+    assert_eq!(value["reason"], "重要公告");
+    for private_field in ["email", "from_board_id", "to_board_id", "revision"] {
+        assert!(!value.to_string().contains(private_field));
+    }
+}
+
+#[test]
 fn create_topic_request_deserializes_with_an_optional_board() {
     let request: CreateTopicRequest = serde_json::from_value(json!({
         "title": "发布主题",
@@ -1034,6 +1148,8 @@ fn topic_reply_contract_exposes_only_public_content_and_author_fields() {
             .expect("fixture must be a UUID"),
         topic_id: Uuid::parse_str("019fc800-0000-7000-8000-000000000101")
             .expect("fixture must be a UUID"),
+        floor_number: 3,
+        reply_to: None,
         author: TopicAuthorSummary {
             id: fixed_user_id(),
             username: "member".to_owned(),
@@ -1041,6 +1157,8 @@ fn topic_reply_contract_exposes_only_public_content_and_author_fields() {
             avatar_url: None,
         },
         content: "回复正文".to_owned(),
+        rich_content: None,
+        has_locked_content: false,
         created_at: "2026-08-03T12:00:00Z".to_owned(),
         updated_at: "2026-08-03T12:00:00Z".to_owned(),
         revision_count: 1,
@@ -1050,6 +1168,8 @@ fn topic_reply_contract_exposes_only_public_content_and_author_fields() {
     let value = serde_json::to_value(reply).expect("reply must serialize");
 
     assert_eq!(value["content"], "回复正文");
+    assert_eq!(value["floor_number"], 3);
+    assert!(value["reply_to"].is_null());
     assert_eq!(value["author"]["username"], "member");
     assert_eq!(value["like_count"], 4);
     assert!(value["viewer_liked"].is_null());
@@ -1120,6 +1240,7 @@ fn reply_update_and_revision_contracts_are_stable() {
             avatar_url: None,
         },
         content: "更新后的回复".to_owned(),
+        rich_content: None,
         created_at: "2026-08-03T12:30:00Z".to_owned(),
     };
 
@@ -1136,6 +1257,7 @@ fn reply_update_and_revision_contracts_are_stable() {
                 "avatar_url": null
             },
             "content": "更新后的回复",
+            "rich_content": null,
             "created_at": "2026-08-03T12:30:00Z"
         })
     );

@@ -17,6 +17,7 @@ import {
 import { useEffect, useRef, useState } from "react"
 
 import type { AuthSession } from "../api/auth"
+import { uploadDraftImage } from "../api/attachments"
 import { createReport, ReportApiError, type ReportReason } from "../api/reports"
 import { RelationApiError, setPostLike, setTopicBookmark } from "../api/relations"
 import {
@@ -29,8 +30,11 @@ import {
   updateTopic,
 } from "../api/topics"
 import type { TopicDetail, TopicReply, TopicRevision } from "../api/topics"
+import { plainTextDocument, type RichTextDocument } from "../editor/richContent"
 import { parseTopicTags } from "../utils/tags"
 import { ReplyItem } from "./ReplyItem"
+import { RichTextContent } from "./RichTextContent"
+import { RichTextEditor } from "./RichTextEditor"
 import { UserAvatar } from "./UserAvatar"
 
 interface TopicDetailViewProps {
@@ -64,12 +68,15 @@ export function TopicDetailView({
   const [requestVersion, setRequestVersion] = useState(0)
   const [loadingMore, setLoadingMore] = useState(false)
   const [content, setContent] = useState("")
+  const [richContent, setRichContent] = useState<RichTextDocument>(() => plainTextDocument(""))
+  const [replyTarget, setReplyTarget] = useState<TopicReply | null>(null)
   const [fieldError, setFieldError] = useState("")
   const [formError, setFormError] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [editing, setEditing] = useState(false)
   const [draftTitle, setDraftTitle] = useState("")
   const [draftContent, setDraftContent] = useState("")
+  const [draftRichContent, setDraftRichContent] = useState<RichTextDocument>(() => plainTextDocument(""))
   const [draftTags, setDraftTags] = useState("")
   const [editError, setEditError] = useState("")
   const [revisionConflict, setRevisionConflict] = useState(false)
@@ -87,6 +94,7 @@ export function TopicDetailView({
   const [reportMessage, setReportMessage] = useState("")
   const [reportError, setReportError] = useState("")
   const deleteConfirmRef = useRef<HTMLButtonElement>(null)
+  const replyFormRef = useRef<HTMLFormElement>(null)
 
   useEffect(() => {
     if (confirmingDelete) deleteConfirmRef.current?.focus()
@@ -107,6 +115,7 @@ export function TopicDetailView({
         setTopic(loadedTopic)
         setDraftTitle(loadedTopic.title)
         setDraftContent(loadedTopic.content)
+        setDraftRichContent(loadedTopic.richContent ?? plainTextDocument(loadedTopic.content))
         setDraftTags(loadedTopic.tags.map((tag) => tag.name).join(", "))
         setEditing(false)
         setRevisionConflict(false)
@@ -131,6 +140,7 @@ export function TopicDetailView({
     if (!topic || !canEdit) return
     setDraftTitle(topic.title)
     setDraftContent(topic.content)
+    setDraftRichContent(topic.richContent ?? plainTextDocument(topic.content))
     setDraftTags(topic.tags.map((tag) => tag.name).join(", "))
     setEditError("")
     setRevisionConflict(false)
@@ -158,6 +168,7 @@ export function TopicDetailView({
     if (!topic) return
     setDraftTitle(topic.title)
     setDraftContent(topic.content)
+    setDraftRichContent(topic.richContent ?? plainTextDocument(topic.content))
     setDraftTags(topic.tags.map((tag) => tag.name).join(", "))
     setEditError("")
     setRevisionConflict(false)
@@ -183,11 +194,13 @@ export function TopicDetailView({
         baseRevision: topic.contentRevision,
         title,
         content: contentValue,
+        richContent: draftRichContent,
         tags: parseTopicTags(draftTags, topic.tags),
       }, { csrfToken: session.csrfToken })
       setTopic(updated)
       setDraftTitle(updated.title)
       setDraftContent(updated.content)
+      setDraftRichContent(updated.richContent ?? plainTextDocument(updated.content))
       setDraftTags(updated.tags.map((tag) => tag.name).join(", "))
       setEditing(false)
       setRevisionConflict(false)
@@ -201,6 +214,7 @@ export function TopicDetailView({
           error.fields.body?.[0]
           ?? error.fields.title?.[0]
           ?? error.fields.content?.[0]
+          ?? error.fields.rich_content?.[0]
           ?? error.fields.tags?.[0]
           ?? error.message,
         )
@@ -270,17 +284,20 @@ export function TopicDetailView({
       const reply = await createReply(topicId, normalizedContent, {
         csrfToken: session.csrfToken,
         idempotencyKey,
-      })
+        replyToId: replyTarget?.id,
+      }, richContent)
       setReplies((current) => current.some((item) => item.id === reply.id)
         ? current
         : [...current, reply])
       setTopic((current) => current ? { ...current, replies: current.replies + 1 } : current)
       setContent("")
+      setRichContent(plainTextDocument(""))
+      setReplyTarget(null)
       idempotencyKeyRef.current = null
       onReplyPublished(topicId)
     } catch (error) {
       if (error instanceof TopicApiError) {
-        setFieldError(error.fields.content?.[0] ?? "")
+        setFieldError(error.fields.content?.[0] ?? error.fields.rich_content?.[0] ?? "")
         setFormError(error.fields.body?.[0] ?? error.message)
       } else {
         setFormError("回复服务暂时不可用，请稍后重试")
@@ -302,6 +319,22 @@ export function TopicDetailView({
       ? { ...current, replies: Math.max(0, current.replies - 1) }
       : current)
     onReplyDeleted(topicId)
+    if (replyTarget?.id === replyId) clearReplyTarget()
+  }
+
+  function clearReplyTarget() {
+    setReplyTarget(null)
+    idempotencyKeyRef.current = null
+  }
+
+  function beginReplyTo(reply: TopicReply) {
+    if (!session) {
+      onLogin()
+      return
+    }
+    setReplyTarget(reply)
+    idempotencyKeyRef.current = null
+    queueMicrotask(() => replyFormRef.current?.querySelector<HTMLElement>("[role='textbox']")?.focus())
   }
 
   async function toggleBookmark() {
@@ -451,10 +484,23 @@ export function TopicDetailView({
               <span>标题</span>
               <input value={draftTitle} maxLength={160} onChange={(event) => setDraftTitle(event.target.value)} />
             </label>
-            <label>
-              <span>正文</span>
-              <textarea rows={10} value={draftContent} onChange={(event) => setDraftContent(event.target.value)} />
-            </label>
+            <div className="composer-field">
+              <span className="composer-field__label">正文</span>
+              <RichTextEditor
+                value={draftRichContent}
+                onChange={(document, plainText) => {
+                  setDraftRichContent(document)
+                  setDraftContent(plainText)
+                }}
+                ariaLabel="编辑主题正文"
+                placeholder="补充主题正文"
+                maxCharacters={1_000_000}
+                onImageUpload={session
+                  ? (file, onProgress, signal) => uploadDraftImage(file, session.csrfToken, onProgress, signal)
+                  : undefined}
+                disabled={submitting}
+              />
+            </div>
             <label>
               <span>标签</span>
               <input value={draftTags} placeholder="用逗号分隔标签" onChange={(event) => setDraftTags(event.target.value)} />
@@ -478,7 +524,10 @@ export function TopicDetailView({
             </div>
           </form>
         ) : (
-          <div className="topic-detail__content">{topic.content}</div>
+          <RichTextContent
+            className="topic-detail__content"
+            document={topic.richContent ?? plainTextDocument(topic.content)}
+          />
         )}
         <div className="topic-interactions" aria-label="主题互动">
           <button
@@ -568,7 +617,7 @@ export function TopicDetailView({
             ) : revisions.length === 0 ? <span>暂无修订历史</span> : revisions.map((revision) => (
               <article key={revision.id} className="topic-revision">
                 <header><strong>第 {revision.revisionNumber} 版</strong><time>{revision.createdAt}</time></header>
-                <p>{revision.content}</p>
+                <RichTextContent document={revision.richContent ?? plainTextDocument(revision.content)} />
               </article>
             ))}
           </div>
@@ -586,12 +635,12 @@ export function TopicDetailView({
           <div className="reply-empty" role="status">还没有回复</div>
         ) : (
           <ol className="reply-list">
-            {replies.map((reply, index) => (
+            {replies.map((reply) => (
               <li key={reply.id}>
                 <ReplyItem
                   reply={reply}
-                  floor={index + 1}
                   session={session}
+                  onReplyTo={beginReplyTo}
                   onLogin={onLogin}
                   onUpdated={handleReplyUpdated}
                   onDeleted={handleReplyDeleted}
@@ -610,24 +659,35 @@ export function TopicDetailView({
         )}
 
         {session ? (
-          <form className="reply-form" onSubmit={(event) => { event.preventDefault(); void submitReply() }} aria-busy={submitting}>
-            <label htmlFor="reply-content">参与讨论</label>
-            <textarea
-              id="reply-content"
-              rows={5}
-              value={content}
+          <form ref={replyFormRef} className="reply-form" onSubmit={(event) => { event.preventDefault(); void submitReply() }} aria-busy={submitting}>
+            <span className="composer-field__label">参与讨论</span>
+            {replyTarget && (
+              <div className="reply-target" role="status">
+                <div><span>回复 #{replyTarget.floorNumber} @{replyTarget.author.username}</span><p>{replyTarget.content.slice(0, 160)}</p></div>
+                <button className="icon-button" type="button" aria-label="取消回复指定楼层" title="取消回复指定楼层" onClick={clearReplyTarget}><X size={15} aria-hidden="true" /></button>
+              </div>
+            )}
+            <RichTextEditor
+              value={richContent}
+              ariaLabel="参与讨论"
               placeholder="写下你的回复"
-              aria-invalid={fieldError ? "true" : undefined}
-              aria-describedby={fieldError ? "reply-content-error" : undefined}
-              onChange={(event) => {
-                setContent(event.target.value)
-                idempotencyKeyRef.current = null
+              maxCharacters={100_000}
+              onImageUpload={(file, onProgress, signal) => uploadDraftImage(file, session.csrfToken, onProgress, signal)}
+              disabled={submitting}
+              invalid={Boolean(fieldError)}
+              errorMessageId={fieldError ? "reply-content-error" : undefined}
+              onChange={(document, plainText) => {
+                if (plainText !== content || JSON.stringify(document) !== JSON.stringify(richContent)) {
+                  idempotencyKeyRef.current = null
+                }
+                setRichContent(document)
+                setContent(plainText)
               }}
             />
             {fieldError && <p id="reply-content-error" className="composer-field-error">{fieldError}</p>}
             {formError && <p className="composer-form-error" role="alert">{formError}</p>}
             <div className="reply-form__actions">
-              <span>{[...content].length.toLocaleString("zh-CN")} / 100,000</span>
+              <span>请友善交流，聚焦主题</span>
               <button className="primary-button" type="submit" disabled={submitting}>
                 {submitting ? <LoaderCircle className="topic-loading__spinner" size={16} aria-hidden="true" /> : <Send size={16} aria-hidden="true" />}
                 {submitting ? "正在发布" : "发布回复"}

@@ -376,7 +376,7 @@ async fn admin_user_read_model_searches_and_pages_without_exposing_credentials(p
     .await
     .expect("role assignment fixture must insert");
     insert_topic(&pool, topic, board, target, "published", false).await;
-    sqlx::query("INSERT INTO posts (id, topic_id, author_id, kind, content, status) VALUES ($1, $2, $3, 'reply', '回复内容', 'published')")
+    sqlx::query("INSERT INTO posts (id, topic_id, author_id, kind, content, status, floor_number) VALUES ($1, $2, $3, 'reply', '回复内容', 'published', 1)")
         .bind(reply).bind(topic).bind(target).execute(&pool).await.expect("reply fixture must insert");
     sqlx::query("INSERT INTO content_reports (id, reporter_id, target_type, target_id, reason) VALUES ($1, $2, 'topic', $3, 'spam')")
         .bind(report).bind(administrator).bind(topic).execute(&pool).await.expect("report fixture must insert");

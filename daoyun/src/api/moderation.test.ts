@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   governTopic,
   listModerationBoards,
+  listTopicModerationHistory,
   listModerationTopics,
   moderateTopic,
 } from "./moderation"
@@ -91,8 +92,75 @@ describe("moderation API", () => {
       body: JSON.stringify({ action: "pin", expected_revision: 4, reason: "板块公告" }),
     }))
   })
+
+  it("maps a paginated topic moderation history", async () => {
+    const historyId = "019fc900-0000-7000-8000-000000000401"
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
+      data: [{
+        id: historyId,
+        source: "governance",
+        action: "pin",
+        actor: { id: userId, username: "owner", display_name: "站长", avatar_url: null },
+        reason: "重要公告",
+        created_at: "2026-08-25T08:00:00Z",
+      }],
+      meta: { request_id: requestId, next_cursor: historyId },
+    }))
+
+    await expect(listTopicModerationHistory({ topicId, limit: 10 })).resolves.toEqual({
+      entries: [{
+        id: historyId,
+        source: "governance",
+        action: "pin",
+        actor: { id: userId, username: "owner", displayName: "站长", avatarUrl: null },
+        reason: "重要公告",
+        createdAt: "2026-08-25T08:00:00Z",
+      }],
+      nextCursor: historyId,
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/v1/admin/moderation/topics/${topicId}/history?limit=10`,
+      expect.objectContaining({ credentials: "include" }),
+    )
+  })
+
+  it("rejects successful responses without a valid request id or page cursor", async () => {
+    const mismatchedRequestId = "019fc900-0000-7000-8000-000000000002"
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ data: [], meta: { request_id: requestId } }, 200, mismatchedRequestId))
+      .mockResolvedValueOnce(jsonResponse({ data: [], meta: {} }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: [],
+        meta: { request_id: requestId, next_cursor: 42 },
+      }))
+
+    await expect(listModerationBoards()).rejects.toMatchObject({
+      code: "response.invalid",
+      message: "内容治理板块响应格式无效",
+    })
+    await expect(listModerationBoards()).rejects.toMatchObject({
+      code: "response.invalid",
+      message: "内容治理板块响应格式无效",
+    })
+    await expect(listModerationTopics()).rejects.toMatchObject({
+      code: "response.invalid",
+      message: "内容治理主题响应格式无效",
+    })
+  })
 })
 
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
+function jsonResponse(body: unknown, status = 200, headerRequestId?: string): Response {
+  const requestIdFromBody = typeof body === "object" && body !== null && "meta" in body
+    && typeof body.meta === "object" && body.meta !== null && "request_id" in body.meta
+    && typeof body.meta.request_id === "string"
+    ? body.meta.request_id
+    : undefined
+  const responseRequestId = headerRequestId ?? requestIdFromBody
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "content-type": "application/json",
+      ...(responseRequestId ? { "x-request-id": responseRequestId } : {}),
+    },
+  })
 }

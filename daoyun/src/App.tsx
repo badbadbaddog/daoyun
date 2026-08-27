@@ -50,6 +50,7 @@ const userHashPattern = /^#user\/([a-z][a-z0-9_]{2,31})$/
 const messagesHashPattern = /^#messages(?:\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}))?$/i
 const feedHashes: Record<FeedFilter, string> = {
   latest: "feed",
+  active: "active",
   hot: "hot",
   featured: "featured",
   following: "following",
@@ -404,7 +405,7 @@ function CommunityHome() {
 
     const controller = new AbortController()
     setTopicLoadStatus("loading")
-    const sort = activeFeed === "hot" ? "popular" : "latest"
+    const sort = activeFeed === "hot" ? "popular" : activeFeed === "active" ? "active" : "latest"
     listTopics({
       query,
       tag: selectedTag || undefined,

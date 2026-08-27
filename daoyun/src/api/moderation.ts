@@ -6,9 +6,13 @@ const MAX_LIMIT = 50
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const tones = new Set(["green", "blue", "amber", "rose"])
 const moderationStatuses = new Set(["approved", "hidden", "rejected"])
+const historySources = new Set(["moderation", "governance"])
+const historyActions = new Set(["approved", "hidden", "rejected", "pin", "unpin", "feature", "unfeature", "lock", "unlock", "move"])
 
 export type ModerationStatus = "approved" | "hidden" | "rejected"
 export type ModerationAction = "pin" | "unpin" | "feature" | "unfeature" | "lock" | "unlock" | "move"
+export type TopicModerationHistorySource = "moderation" | "governance"
+export type TopicModerationHistoryAction = ModerationStatus | ModerationAction
 
 export interface ModerationBoard {
   id: string
@@ -39,6 +43,27 @@ export interface ModerationTopic {
 export interface ModerationTopicPage {
   topics: ModerationTopic[]
   nextCursor: string | null
+}
+
+export interface TopicModerationHistoryEntry {
+  id: string
+  source: TopicModerationHistorySource
+  action: TopicModerationHistoryAction
+  actor: { id: string; username: string; displayName: string; avatarUrl: string | null }
+  reason: string | null
+  createdAt: string
+}
+
+export interface TopicModerationHistoryPage {
+  entries: TopicModerationHistoryEntry[]
+  nextCursor: string | null
+}
+
+export interface ListTopicModerationHistoryOptions {
+  topicId: string
+  cursor?: string
+  limit?: number
+  signal?: AbortSignal
 }
 
 export interface ListModerationTopicsOptions {
@@ -78,7 +103,7 @@ export async function listModerationBoards(signal?: AbortSignal): Promise<Modera
   })
   const payload = await readJson(response)
   if (!response.ok) throw toApiError(response.status, payload)
-  if (!isEnvelope(payload) || !Array.isArray(payload.data) || !payload.data.every(isModerationBoardDto)) {
+  if (!isEnvelope(response, payload) || !Array.isArray(payload.data) || !payload.data.every(isModerationBoardDto)) {
     throw new ModerationApiError(response.status, "response.invalid", "内容治理板块响应格式无效")
   }
   return payload.data.map(mapModerationBoard)
@@ -101,11 +126,35 @@ export async function listModerationTopics(options: ListModerationTopicsOptions 
   })
   const payload = await readJson(response)
   if (!response.ok) throw toApiError(response.status, payload)
-  if (!isPageEnvelope(payload) || !payload.data.every(isModerationTopicDto)) {
+  if (!isPageEnvelope(response, payload) || !payload.data.every(isModerationTopicDto)) {
     throw new ModerationApiError(response.status, "response.invalid", "内容治理主题响应格式无效")
   }
   return {
     topics: payload.data.map(mapModerationTopic),
+    nextCursor: payload.meta.next_cursor ?? null,
+  }
+}
+
+export async function listTopicModerationHistory(options: ListTopicModerationHistoryOptions): Promise<TopicModerationHistoryPage> {
+  const limit = options.limit ?? DEFAULT_LIMIT
+  if (!isUuid(options.topicId) || !Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) {
+    throw new ModerationApiError(422, "validation.failed", "处理记录查询参数无效")
+  }
+  const params = new URLSearchParams()
+  if (options.cursor) params.set("cursor", options.cursor)
+  params.set("limit", String(limit))
+  const response = await fetch(`${MODERATION_TOPICS_ENDPOINT}/${encodeURIComponent(options.topicId)}/history?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+    credentials: "include",
+    signal: options.signal,
+  })
+  const payload = await readJson(response)
+  if (!response.ok) throw toApiError(response.status, payload)
+  if (!isHistoryPageEnvelope(response, payload)) {
+    throw new ModerationApiError(response.status, "response.invalid", "主题处理记录响应格式无效")
+  }
+  return {
+    entries: payload.data.map(mapTopicModerationHistory),
     nextCursor: payload.meta.next_cursor ?? null,
   }
 }
@@ -125,7 +174,7 @@ export async function moderateTopic(
   })
   const payload = await readJson(response)
   if (!response.ok) throw toApiError(response.status, payload)
-  if (!isEnvelope(payload) || !isModerationResultDto(payload.data)) {
+  if (!isEnvelope(response, payload) || !isModerationResultDto(payload.data)) {
     throw new ModerationApiError(response.status, "response.invalid", "主题审核响应格式无效")
   }
   return { topicId: payload.data.topic_id, status: payload.data.status }
@@ -151,7 +200,7 @@ export async function governTopic(
   })
   const payload = await readJson(response)
   if (!response.ok) throw toApiError(response.status, payload)
-  if (!isEnvelope(payload) || !isGovernanceResultDto(payload.data)) {
+  if (!isEnvelope(response, payload) || !isGovernanceResultDto(payload.data)) {
     throw new ModerationApiError(response.status, "response.invalid", "主题治理响应格式无效")
   }
   return {
@@ -166,7 +215,7 @@ export async function governTopic(
 
 interface EnvelopeDto {
   data: unknown
-  meta?: { request_id?: unknown; next_cursor?: unknown }
+  meta: { request_id: string; next_cursor?: unknown }
 }
 
 async function readJson(response: Response): Promise<unknown> {
@@ -177,16 +226,30 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
-function isEnvelope(value: unknown): value is EnvelopeDto {
-  return isRecord(value) && "data" in value && isRecord(value.meta)
+function isEnvelope(response: Response, value: unknown): value is EnvelopeDto {
+  return isRecord(value) && "data" in value && isResponseMeta(response, value.meta)
 }
 
-function isPageEnvelope(value: unknown): value is { data: ModerationTopicDto[]; meta: { next_cursor?: string | null } } {
+function isPageEnvelope(response: Response, value: unknown): value is { data: ModerationTopicDto[]; meta: { request_id: string; next_cursor?: string | null } } {
   return isRecord(value)
     && Array.isArray(value.data)
-    && isRecord(value.meta)
+    && isResponseMeta(response, value.meta)
     && value.data.every(isModerationTopicDto)
     && (value.meta.next_cursor === undefined || value.meta.next_cursor === null || typeof value.meta.next_cursor === "string")
+}
+
+function isHistoryPageEnvelope(response: Response, value: unknown): value is { data: TopicModerationHistoryDto[]; meta: { request_id: string; next_cursor?: string | null } } {
+  return isRecord(value)
+    && Array.isArray(value.data)
+    && isResponseMeta(response, value.meta)
+    && value.data.every(isTopicModerationHistoryDto)
+    && (value.meta.next_cursor === undefined || value.meta.next_cursor === null || typeof value.meta.next_cursor === "string")
+}
+
+function isResponseMeta(response: Response, value: unknown): value is { request_id: string; next_cursor?: unknown } {
+  return isRecord(value)
+    && isUuid(value.request_id)
+    && response.headers.get("x-request-id") === value.request_id
 }
 
 function isModerationBoardDto(value: unknown): value is ModerationBoardDto {
@@ -234,6 +297,18 @@ function isGovernanceResultDto(value: unknown): value is GovernanceResultDto {
     && isSafePositiveInteger(value.governance_revision)
 }
 
+function isTopicModerationHistoryDto(value: unknown): value is TopicModerationHistoryDto {
+  return isRecord(value)
+    && isUuid(value.id)
+    && typeof value.source === "string"
+    && historySources.has(value.source)
+    && typeof value.action === "string"
+    && historyActions.has(value.action)
+    && isAuthorDto(value.actor)
+    && isNullableString(value.reason)
+    && isNonEmptyString(value.created_at)
+}
+
 function isAuthorDto(value: unknown): value is AuthorDto {
   return isRecord(value) && isUuid(value.id) && isNonEmptyString(value.username) && isNonEmptyString(value.display_name) && isNullableString(value.avatar_url)
 }
@@ -263,6 +338,17 @@ function mapModerationTopic(value: ModerationTopicDto): ModerationTopic {
     featured: value.is_featured,
     pinned: value.is_pinned,
     locked: value.is_locked,
+  }
+}
+
+function mapTopicModerationHistory(value: TopicModerationHistoryDto): TopicModerationHistoryEntry {
+  return {
+    id: value.id,
+    source: value.source as TopicModerationHistorySource,
+    action: value.action as TopicModerationHistoryAction,
+    actor: { id: value.actor.id, username: value.actor.username, displayName: value.actor.display_name, avatarUrl: value.actor.avatar_url },
+    reason: value.reason,
+    createdAt: value.created_at,
   }
 }
 
@@ -303,6 +389,14 @@ type GovernanceResultDto = {
   is_featured: boolean
   is_locked: boolean
   governance_revision: number
+}
+type TopicModerationHistoryDto = {
+  id: string
+  source: string
+  action: string
+  actor: AuthorDto
+  reason: string | null
+  created_at: string
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

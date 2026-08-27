@@ -107,6 +107,7 @@ pub struct RecentAuthenticationRecord {
 pub enum RegisterUserError {
     NotInitialized,
     IdentityUnavailable,
+    EmailVerificationInvalid,
     Database(DatabaseError),
 }
 
@@ -695,7 +696,7 @@ impl Database {
     }
 
     pub async fn register_user(&self, user: NewUserRecord) -> Result<(), RegisterUserError> {
-        self.register_user_inner(user, None, None).await
+        self.register_user_inner(user, None, None, None).await
     }
 
     pub async fn register_user_with_session(
@@ -703,7 +704,19 @@ impl Database {
         user: NewUserRecord,
         session: NewSessionRecord,
     ) -> Result<(), RegisterUserError> {
-        self.register_user_inner(user, Some(session), None).await
+        self.register_user_inner(user, Some(session), None, None)
+            .await
+    }
+
+    pub async fn register_user_with_session_and_email_challenge(
+        &self,
+        user: NewUserRecord,
+        session: NewSessionRecord,
+        challenge_id: Uuid,
+        email: String,
+    ) -> Result<(), RegisterUserError> {
+        self.register_user_inner(user, Some(session), None, Some((challenge_id, email)))
+            .await
     }
 
     pub async fn register_user_with_session_and_external_identity(
@@ -715,7 +728,7 @@ impl Database {
         if identity.user_id != user.id || !valid_external_identity_input(&identity) {
             return Err(RegisterUserError::IdentityUnavailable);
         }
-        self.register_user_inner(user, Some(session), Some(identity))
+        self.register_user_inner(user, Some(session), Some(identity), None)
             .await
     }
 
@@ -724,6 +737,7 @@ impl Database {
         user: NewUserRecord,
         session: Option<NewSessionRecord>,
         external_identity: Option<NewExternalIdentityRecord>,
+        registration_email_challenge: Option<(Uuid, String)>,
     ) -> Result<(), RegisterUserError> {
         let mut transaction = self.pool.begin().await?;
         let is_initialized = sqlx::query_scalar::<_, bool>(
@@ -734,6 +748,22 @@ impl Database {
 
         if !is_initialized {
             return Err(RegisterUserError::NotInitialized);
+        }
+
+        if let Some((challenge_id, email)) = registration_email_challenge {
+            let consumed = sqlx::query(
+                "UPDATE registration_email_challenges \
+                 SET consumed_at = CURRENT_TIMESTAMP \
+                 WHERE id = $1 AND email = $2 AND delivered_at IS NOT NULL \
+                   AND consumed_at IS NULL AND attempts < 5 AND expires_at > CURRENT_TIMESTAMP",
+            )
+            .bind(challenge_id)
+            .bind(email)
+            .execute(&mut *transaction)
+            .await?;
+            if consumed.rows_affected() != 1 {
+                return Err(RegisterUserError::EmailVerificationInvalid);
+            }
         }
 
         let insert_result = sqlx::query(
@@ -1091,6 +1121,9 @@ impl fmt::Display for RegisterUserError {
         match self {
             Self::NotInitialized => formatter.write_str("instance is not initialized"),
             Self::IdentityUnavailable => formatter.write_str("username or email is unavailable"),
+            Self::EmailVerificationInvalid => {
+                formatter.write_str("registration email verification is invalid")
+            }
             Self::Database(_) => formatter.write_str("user registration database operation failed"),
         }
     }
@@ -1234,7 +1267,9 @@ impl From<sqlx::Error> for BindExternalIdentityError {
 impl Error for RegisterUserError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::NotInitialized | Self::IdentityUnavailable => None,
+            Self::NotInitialized | Self::IdentityUnavailable | Self::EmailVerificationInvalid => {
+                None
+            }
             Self::Database(error) => Some(error),
         }
     }

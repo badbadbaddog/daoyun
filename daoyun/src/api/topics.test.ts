@@ -52,8 +52,11 @@ const topicPayload = {
 const replyPayload = {
   id: "019fc800-0000-7000-8000-000000000201",
   topic_id: topicPayload.id,
+  floor_number: 8,
+  reply_to: null,
   author: topicPayload.author,
   content: "回复正文",
+  has_locked_content: false,
   created_at: "2026-08-03T10:10:00Z",
   updated_at: "2026-08-03T10:10:00Z",
   revision_count: 1,
@@ -99,7 +102,7 @@ describe("topics API client", () => {
 
   it("posts a topic with credentials, csrf and idempotency headers", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
-      data: { ...topicPayload, content: "这是主题正文", content_revision: 1 },
+      data: { ...topicPayload, content: "这是主题正文", content_revision: 1, has_locked_content: false },
       meta: { request_id: "019fc800-0000-7000-8000-000000000102" },
     }), { status: 201, headers: { "Content-Type": "application/json" } }))
 
@@ -136,7 +139,7 @@ describe("topics API client", () => {
   it("loads a topic detail and its chronological replies", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({
-        data: { ...topicPayload, content: "完整主题正文", content_revision: 1 },
+        data: { ...topicPayload, content: "完整主题正文", content_revision: 1, has_locked_content: false },
         meta: { request_id: "019fc800-0000-7000-8000-000000000102" },
       }), { status: 200, headers: { "Content-Type": "application/json" } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -155,7 +158,10 @@ describe("topics API client", () => {
     })
     await expect(listReplies(topicPayload.id)).resolves.toMatchObject({
       replies: [expect.objectContaining({
+        floorNumber: 8,
+        replyTo: null,
         content: "回复正文",
+        hasLockedContent: false,
         revisionCount: 1,
         likeCount: 3,
         liked: true,
@@ -200,9 +206,11 @@ describe("topics API client", () => {
       meta: { request_id: "019fc800-0000-7000-8000-000000000102" },
     }), { status: 201, headers: { "Content-Type": "application/json" } }))
 
+    const replyToId = "019fc800-0000-7000-8000-000000000199"
     await expect(createReply(topicPayload.id, "回复正文", {
       csrfToken: "c".repeat(64),
       idempotencyKey: "reply-create-001",
+      replyToId,
     })).resolves.toMatchObject({ content: "回复正文" })
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/v1/topics/${topicPayload.id}/replies`,
@@ -213,7 +221,7 @@ describe("topics API client", () => {
           "x-csrf-token": "c".repeat(64),
           "idempotency-key": "reply-create-001",
         }),
-        body: JSON.stringify({ content: "回复正文" }),
+        body: JSON.stringify({ content: "回复正文", reply_to_id: replyToId }),
       }),
     )
   })
@@ -323,7 +331,7 @@ describe("topics API client", () => {
         meta: { request_id: "019fc800-0000-7000-8000-000000000102" },
       }), { status: 200, headers: { "Content-Type": "application/json" } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
-        data: { ...topicPayload, title: "已编辑", content: "更新正文", content_revision: 2 },
+        data: { ...topicPayload, title: "已编辑", content: "更新正文", content_revision: 2, has_locked_content: false },
         meta: { request_id: "019fc800-0000-7000-8000-000000000103" },
       }), { status: 200, headers: { "Content-Type": "application/json" } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({

@@ -4,6 +4,7 @@ import {
   History,
   LoaderCircle,
   RefreshCw,
+  Reply as ReplyIcon,
   Save,
   ThumbsUp,
   Trash2,
@@ -12,6 +13,7 @@ import {
 import { useEffect, useRef, useState } from "react"
 
 import type { AuthSession } from "../api/auth"
+import { uploadDraftImage } from "../api/attachments"
 import { createReport, ReportApiError, type ReportReason } from "../api/reports"
 import { RelationApiError, setPostLike } from "../api/relations"
 import {
@@ -21,12 +23,15 @@ import {
   updateReply,
 } from "../api/topics"
 import type { ReplyRevision, TopicReply } from "../api/topics"
+import { plainTextDocument, type RichTextDocument } from "../editor/richContent"
+import { RichTextContent } from "./RichTextContent"
+import { RichTextEditor } from "./RichTextEditor"
 import { UserAvatar } from "./UserAvatar"
 
 interface ReplyItemProps {
   reply: TopicReply
-  floor: number
   session: AuthSession | null
+  onReplyTo: (reply: TopicReply) => void
   onUpdated: (reply: TopicReply) => void
   onDeleted: (replyId: string) => void
   onRefresh: () => void
@@ -37,8 +42,8 @@ type LoadStatus = "loading" | "ready" | "error"
 
 export function ReplyItem({
   reply,
-  floor,
   session,
+  onReplyTo,
   onUpdated,
   onDeleted,
   onRefresh,
@@ -47,6 +52,9 @@ export function ReplyItem({
   const confirmButtonRef = useRef<HTMLButtonElement>(null)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(reply.content)
+  const [draftRichContent, setDraftRichContent] = useState<RichTextDocument>(
+    () => reply.richContent ?? plainTextDocument(reply.content),
+  )
   const [busyAction, setBusyAction] = useState<"edit" | "delete" | "like" | null>(null)
   const [error, setError] = useState("")
   const [conflict, setConflict] = useState(false)
@@ -68,6 +76,7 @@ export function ReplyItem({
   function beginEditing() {
     if (!canEdit) return
     setDraft(reply.content)
+    setDraftRichContent(reply.richContent ?? plainTextDocument(reply.content))
     setError("")
     setConflict(false)
     setConfirmingDelete(false)
@@ -77,6 +86,7 @@ export function ReplyItem({
 
   function cancelEditing() {
     setDraft(reply.content)
+    setDraftRichContent(reply.richContent ?? plainTextDocument(reply.content))
     setError("")
     setConflict(false)
     setEditing(false)
@@ -95,9 +105,11 @@ export function ReplyItem({
       const updated = await updateReply(reply.topicId, reply.id, {
         baseRevision: reply.revisionCount,
         content,
+        richContent: draftRichContent,
       }, { csrfToken: session.csrfToken })
       onUpdated(updated)
       setDraft(updated.content)
+      setDraftRichContent(updated.richContent ?? plainTextDocument(updated.content))
       setEditing(false)
       setConflict(false)
       setShowRevisions(false)
@@ -107,7 +119,7 @@ export function ReplyItem({
         setConflict(true)
         setError("回复已被其他操作更新，请刷新后重试")
       } else if (caught instanceof TopicApiError) {
-        setError(caught.fields.content?.[0] ?? caught.fields.body?.[0] ?? caught.message)
+        setError(caught.fields.content?.[0] ?? caught.fields.rich_content?.[0] ?? caught.fields.body?.[0] ?? caught.message)
       } else {
         setError("回复编辑服务暂时不可用，请稍后重试")
       }
@@ -210,7 +222,7 @@ export function ReplyItem({
   }
 
   return (
-    <article className="reply-item">
+    <article className="reply-item" id={`reply-${reply.id}`}>
       <a
         className="reply-item__avatar"
         href={`#user/${reply.author.username}`}
@@ -229,16 +241,36 @@ export function ReplyItem({
           <span>@{reply.author.username}</span>
           <time>{reply.createdAt}</time>
           {reply.revisionCount > 1 && <span>已编辑</span>}
-          <span className="reply-floor">#{floor}</span>
+          <span className="reply-floor">#{reply.floorNumber}</span>
         </header>
+
+        {reply.replyTo && (
+          <a className="reply-reference" href={`#reply-${reply.replyTo.id}`}>
+            <span>引用 #{reply.replyTo.floorNumber}</span>
+            <strong>@{reply.replyTo.author.username}</strong>
+            <p>{reply.replyTo.isDeleted ? "该楼层已删除" : reply.replyTo.excerpt ?? "该楼层暂不可见"}</p>
+          </a>
+        )}
 
         {editing ? (
           <form className="reply-edit-form" onSubmit={(event) => { event.preventDefault(); void submitEdit() }} aria-busy={busyAction === "edit"}>
-            <label>
-              <span className="sr-only">编辑回复内容</span>
-              <textarea rows={5} value={draft} onChange={(event) => setDraft(event.target.value)} />
-            </label>
-            {error && <p className="composer-form-error" role="alert">{error}</p>}
+            <RichTextEditor
+              value={draftRichContent}
+              onChange={(document, plainText) => {
+                setDraftRichContent(document)
+                setDraft(plainText)
+              }}
+              ariaLabel="编辑回复内容"
+              placeholder="修改回复内容"
+              maxCharacters={100_000}
+              onImageUpload={session
+                ? (file, onProgress, signal) => uploadDraftImage(file, session.csrfToken, onProgress, signal)
+                : undefined}
+              disabled={busyAction !== null}
+              invalid={Boolean(error)}
+              errorMessageId={error ? `reply-edit-error-${reply.id}` : undefined}
+            />
+            {error && <p id={`reply-edit-error-${reply.id}`} className="composer-form-error" role="alert">{error}</p>}
             {conflict && (
               <button className="secondary-button" type="button" onClick={refreshAfterConflict}>
                 <RefreshCw size={14} aria-hidden="true" />
@@ -246,7 +278,7 @@ export function ReplyItem({
               </button>
             )}
             <div className="reply-edit-form__actions">
-              <span>{[...draft].length.toLocaleString("zh-CN")} / 100,000</span>
+              <span>修改后会保留修订记录</span>
               <button className="secondary-button" type="button" onClick={cancelEditing} disabled={busyAction !== null}>
                 <X size={14} aria-hidden="true" />
                 取消
@@ -258,11 +290,18 @@ export function ReplyItem({
             </div>
           </form>
         ) : (
-          <div className="reply-content">{reply.content}</div>
+          <RichTextContent
+            className="reply-content"
+            document={reply.richContent ?? plainTextDocument(reply.content)}
+          />
         )}
 
         {!editing && (
           <div className="reply-item__interactions">
+            <button className="secondary-button" type="button" aria-label={`回复 ${reply.floorNumber} 楼`} onClick={() => onReplyTo(reply)}>
+              <ReplyIcon size={14} aria-hidden="true" />
+              回复
+            </button>
             <button
               className="secondary-button"
               type="button"
@@ -345,7 +384,7 @@ export function ReplyItem({
             ) : revisions.length === 0 ? <span>暂无回复修订历史</span> : revisions.map((revision) => (
               <div key={revision.id} className="reply-revision">
                 <div><strong>第 {revision.revisionNumber} 版</strong><time>{revision.createdAt}</time></div>
-                <p>{revision.content}</p>
+                <RichTextContent document={revision.richContent ?? plainTextDocument(revision.content)} />
               </div>
             ))}
           </div>

@@ -4,6 +4,13 @@ export const DEFAULT_LOCAL_API_URL = "http://127.0.0.1:3000"
 export const DEFAULT_LOCAL_DATABASE_URL = "postgresql://daoyun@127.0.0.1:55433/daoyun_dev"
 export const DEFAULT_LOCAL_BIND_ADDRESS = "127.0.0.1:3000"
 
+export const LOCAL_MODERATION_FIXTURE = Object.freeze({
+  sourceBoardSlug: "general",
+  targetBoardSlug: "feedback",
+  targetTopicCount: 24,
+  historyEntryCount: 23,
+})
+
 // These credentials are intentionally limited to the loopback-only development scripts.
 export const LOCAL_TEST_ACCOUNTS = Object.freeze([
   Object.freeze({

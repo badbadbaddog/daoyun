@@ -103,17 +103,18 @@ async fn capability_checks_apply_roles_scopes_and_user_status(pool: PgPool) {
 
     sqlx::query(
         "INSERT INTO roles (id, key, name, scope, is_system)
-         VALUES ($1, 'board_moderator', 'Board moderator', 'board', FALSE)",
+         VALUES ($1, 'test_board_moderator_capability', 'Board moderator', 'board', FALSE)",
     )
     .bind(Uuid::now_v7())
     .execute(&pool)
     .await
     .expect("scoped role must be insertable");
-    let role_id =
-        sqlx::query_scalar::<_, Uuid>("SELECT id FROM roles WHERE key = 'board_moderator'")
-            .fetch_one(&pool)
-            .await
-            .expect("scoped role must be queryable");
+    let role_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM roles WHERE key = 'test_board_moderator_capability'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("scoped role must be queryable");
     let permission_id =
         sqlx::query_scalar::<_, Uuid>("SELECT id FROM permissions WHERE permission_key = $1")
             .bind(permission_keys::MODERATION_TOPIC)
@@ -282,7 +283,7 @@ async fn authorization_catalog_lists_permissions_roles_and_scoped_assignments(po
     let role_id = Uuid::now_v7();
     sqlx::query(
         "INSERT INTO roles (id, key, name, scope, is_system) \
-         VALUES ($1, 'board_moderator', 'Board moderator', 'board', FALSE)",
+         VALUES ($1, 'test_board_moderator_catalog', 'Board moderator', 'board', FALSE)",
     )
     .bind(role_id)
     .execute(&pool)
@@ -336,7 +337,7 @@ async fn authorization_catalog_lists_permissions_roles_and_scoped_assignments(po
         .iter()
         .find(|role| role.id == role_id)
         .expect("custom role must be listed");
-    assert_eq!(moderator.key, "board_moderator");
+    assert_eq!(moderator.key, "test_board_moderator_catalog");
     assert_eq!(moderator.scope, "board");
     assert!(!moderator.is_system);
     assert_eq!(moderator.permission_keys, vec!["moderation.topic"]);
@@ -356,7 +357,7 @@ async fn authorization_catalog_lists_permissions_roles_and_scoped_assignments(po
     assert_eq!(assignments.len(), 1);
     assert_eq!(assignments[0].id, assignment_id);
     assert_eq!(assignments[0].user_username, "moderator");
-    assert_eq!(assignments[0].role_key, "board_moderator");
+    assert_eq!(assignments[0].role_key, "test_board_moderator_catalog");
     assert_eq!(assignments[0].scope_id, Some(board_id));
     assert_eq!(assignments[0].assigned_by_username, "owner");
 

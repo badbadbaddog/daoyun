@@ -370,6 +370,13 @@ async fn topic_tags_are_publicly_listed_and_filter_topics(pool: PgPool) {
                 title: "带标签主题".to_owned(),
                 excerpt: "带标签主题".to_owned(),
                 content: "正文".to_owned(),
+                rich_content: Some(json!({
+                    "type": "doc",
+                    "content": [{
+                        "type": "paragraph",
+                        "content": [{ "type": "text", "text": "正文" }]
+                    }]
+                })),
                 tags: vec![NewTagRecord {
                     slug: "rust".to_owned(),
                     name: "Rust".to_owned(),
@@ -388,6 +395,7 @@ async fn topic_tags_are_publicly_listed_and_filter_topics(pool: PgPool) {
                 title: "复用标签主题".to_owned(),
                 excerpt: "复用标签主题".to_owned(),
                 content: "正文".to_owned(),
+                rich_content: None,
                 tags: vec![NewTagRecord {
                     slug: "rust".to_owned(),
                     name: "不能覆盖既有名称".to_owned(),
@@ -405,6 +413,13 @@ async fn topic_tags_are_publicly_listed_and_filter_topics(pool: PgPool) {
         .expect("tagged detail must be visible");
     assert_eq!(detail.summary.tags[0].slug, "rust");
     assert_eq!(detail.content_revision, 1);
+    assert_eq!(
+        detail
+            .rich_content
+            .as_ref()
+            .and_then(|value| value["type"].as_str()),
+        Some("doc")
+    );
 
     let filtered = database
         .list_public_topics(
@@ -459,6 +474,13 @@ async fn editing_topic_appends_revision_and_rejects_stale_or_other_authors(pool:
         .await
         .expect("existing edit tag must insert");
     let database = Database::from_pool(pool.clone());
+    let rich_content = json!({
+        "type": "doc",
+        "content": [{
+            "type": "paragraph",
+            "content": [{"type": "text", "text": "新的正文", "marks": [{"type": "bold"}]}]
+        }]
+    });
     let updated = database
         .update_published_topic(UpdateTopicRecord {
             topic_id: fixture_id(101),
@@ -467,6 +489,7 @@ async fn editing_topic_appends_revision_and_rejects_stale_or_other_authors(pool:
             title: Some("已编辑主题".to_owned()),
             excerpt: Some("新的摘要".to_owned()),
             content: Some("新的正文".to_owned()),
+            rich_content: Some(rich_content.clone()),
             tags: Some(vec![NewTagRecord {
                 slug: "edited".to_owned(),
                 name: "已编辑".to_owned(),
@@ -483,6 +506,7 @@ async fn editing_topic_appends_revision_and_rejects_stale_or_other_authors(pool:
         .expect("edited topic must be visible");
     assert_eq!(detail.content, "新的正文");
     assert_eq!(detail.content_revision, 2);
+    assert_eq!(detail.rich_content.as_ref(), Some(&rich_content));
     assert_eq!(detail.summary.tags[0].slug, "edited");
     assert_eq!(detail.summary.tags[0].name, "官方标签");
 
@@ -493,6 +517,61 @@ async fn editing_topic_appends_revision_and_rejects_stale_or_other_authors(pool:
         .expect("author revisions must be visible");
     assert_eq!(revisions.len(), 2);
     assert_eq!(revisions[1].content, "新的正文");
+    assert_eq!(revisions[1].rich_content.as_ref(), Some(&rich_content));
+
+    let metadata_only = database
+        .update_published_topic(UpdateTopicRecord {
+            topic_id: fixture_id(101),
+            author_id: author,
+            base_revision: 2,
+            title: Some("仅更新标题".to_owned()),
+            excerpt: None,
+            content: None,
+            rich_content: None,
+            tags: None,
+        })
+        .await
+        .expect("metadata-only edit must preserve rich content");
+    assert_eq!(metadata_only.revision_number, 3);
+    let preserved = database
+        .public_topic(fixture_id(101))
+        .await
+        .expect("metadata-only detail must load")
+        .expect("metadata-only topic must stay visible");
+    assert_eq!(preserved.rich_content.as_ref(), Some(&rich_content));
+
+    let plain_text_update = database
+        .update_published_topic(UpdateTopicRecord {
+            topic_id: fixture_id(101),
+            author_id: author,
+            base_revision: 3,
+            title: None,
+            excerpt: Some("纯文本摘要".to_owned()),
+            content: Some("纯文本正文".to_owned()),
+            rich_content: None,
+            tags: None,
+        })
+        .await
+        .expect("plain-text edit must clear old rich content");
+    assert_eq!(plain_text_update.revision_number, 4);
+    let cleared = database
+        .public_topic(fixture_id(101))
+        .await
+        .expect("plain-text detail must load")
+        .expect("plain-text topic must stay visible");
+    assert_eq!(cleared.content, "纯文本正文");
+    assert_eq!(cleared.rich_content, None);
+    let updated_revisions = database
+        .list_topic_revisions(fixture_id(101), author)
+        .await
+        .expect("updated revisions must load")
+        .expect("updated revisions must remain visible");
+    assert_eq!(updated_revisions.len(), 4);
+    assert_eq!(
+        updated_revisions[2].rich_content.as_ref(),
+        Some(&rich_content)
+    );
+    assert_eq!(updated_revisions[3].rich_content, None);
     assert!(
         database
             .list_topic_revisions(fixture_id(101), other)
@@ -505,10 +584,11 @@ async fn editing_topic_appends_revision_and_rejects_stale_or_other_authors(pool:
         .update_published_topic(UpdateTopicRecord {
             topic_id: fixture_id(101),
             author_id: other,
-            base_revision: 2,
+            base_revision: 4,
             title: Some("越权".to_owned()),
             excerpt: None,
             content: None,
+            rich_content: None,
             tags: None,
         })
         .await
@@ -523,6 +603,7 @@ async fn editing_topic_appends_revision_and_rejects_stale_or_other_authors(pool:
             title: Some("过期编辑".to_owned()),
             excerpt: None,
             content: None,
+            rich_content: None,
             tags: None,
         })
         .await
@@ -544,6 +625,7 @@ async fn publishing_updates_the_board_count_once_for_an_idempotent_request(pool:
         title: "发布主题".to_owned(),
         excerpt: "发布主题".to_owned(),
         content: "这是主题正文".to_owned(),
+        rich_content: None,
         tags: Vec::new(),
     };
     let idempotency = IdempotencyInput {
@@ -566,6 +648,7 @@ async fn publishing_updates_the_board_count_once_for_an_idempotent_request(pool:
                 title: "发布主题".to_owned(),
                 excerpt: "发布主题".to_owned(),
                 content: "这是主题正文".to_owned(),
+                rich_content: None,
                 tags: Vec::new(),
             },
             Some(idempotency.clone()),
@@ -584,6 +667,7 @@ async fn publishing_updates_the_board_count_once_for_an_idempotent_request(pool:
                 title: "不同内容".to_owned(),
                 excerpt: "不同内容".to_owned(),
                 content: "不同正文".to_owned(),
+                rich_content: None,
                 tags: Vec::new(),
             },
             Some(IdempotencyInput {
@@ -637,6 +721,7 @@ async fn expired_topic_idempotency_key_can_be_reused_and_is_pruned(pool: PgPool)
                 title: "第一次发布".to_owned(),
                 excerpt: "第一次发布".to_owned(),
                 content: "第一次正文".to_owned(),
+                rich_content: None,
                 tags: Vec::new(),
             },
             Some(IdempotencyInput {
@@ -669,6 +754,7 @@ async fn expired_topic_idempotency_key_can_be_reused_and_is_pruned(pool: PgPool)
                 title: "第二次发布".to_owned(),
                 excerpt: "第二次发布".to_owned(),
                 content: "第二次正文".to_owned(),
+                rich_content: None,
                 tags: Vec::new(),
             },
             Some(IdempotencyInput {
@@ -720,6 +806,7 @@ async fn publishing_enforces_community_permission_and_daily_quota_transactionall
                 title: "无权限主题".to_owned(),
                 excerpt: "无权限".to_owned(),
                 content: "不应写入".to_owned(),
+                rich_content: None,
                 tags: Vec::new(),
             },
             Some(IdempotencyInput {
@@ -761,6 +848,7 @@ async fn publishing_enforces_community_permission_and_daily_quota_transactionall
         title: "配额主题".to_owned(),
         excerpt: "配额".to_owned(),
         content: "仅能创建一次".to_owned(),
+        rich_content: None,
         tags: Vec::new(),
     };
     let idempotency = IdempotencyInput {
@@ -823,6 +911,7 @@ async fn publishing_enforces_community_permission_and_daily_quota_transactionall
                 title: "超额主题".to_owned(),
                 excerpt: "超额".to_owned(),
                 content: "不应写入".to_owned(),
+                rich_content: None,
                 tags: Vec::new(),
             },
             Some(IdempotencyInput {
@@ -869,6 +958,7 @@ async fn publishing_rejects_a_hidden_or_missing_board(pool: PgPool) {
                 title: "主题".to_owned(),
                 excerpt: "主题".to_owned(),
                 content: "正文".to_owned(),
+                rich_content: None,
                 tags: Vec::new(),
             },
             None,
@@ -893,6 +983,7 @@ async fn concurrent_idempotent_publishing_has_one_topic_and_one_count_increment(
             title: "并发发布".to_owned(),
             excerpt: "并发发布".to_owned(),
             content: "相同正文".to_owned(),
+            rich_content: None,
             tags: Vec::new(),
         },
         Some(IdempotencyInput {
@@ -908,6 +999,7 @@ async fn concurrent_idempotent_publishing_has_one_topic_and_one_count_increment(
             title: "并发发布".to_owned(),
             excerpt: "并发发布".to_owned(),
             content: "相同正文".to_owned(),
+            rich_content: None,
             tags: Vec::new(),
         },
         Some(IdempotencyInput {
@@ -964,6 +1056,7 @@ async fn a_late_board_count_failure_rolls_back_topic_and_idempotency(pool: PgPoo
                 title: "回滚主题".to_owned(),
                 excerpt: "回滚主题".to_owned(),
                 content: "正文".to_owned(),
+                rich_content: None,
                 tags: Vec::new(),
             },
             Some(IdempotencyInput {
@@ -1091,6 +1184,8 @@ async fn publishing_a_reply_is_transactional_and_idempotent(pool: PgPool) {
                 topic_id: topic,
                 author_id: author,
                 content: "第一条回复".to_owned(),
+                rich_content: None,
+                reply_to_id: None,
             },
             Some(idempotency.clone()),
         )
@@ -1106,6 +1201,8 @@ async fn publishing_a_reply_is_transactional_and_idempotent(pool: PgPool) {
                 topic_id: topic,
                 author_id: author,
                 content: "第一条回复".to_owned(),
+                rich_content: None,
+                reply_to_id: None,
             },
             Some(idempotency.clone()),
         )
@@ -1122,6 +1219,8 @@ async fn publishing_a_reply_is_transactional_and_idempotent(pool: PgPool) {
                 topic_id: topic,
                 author_id: author,
                 content: "不同回复".to_owned(),
+                rich_content: None,
+                reply_to_id: None,
             },
             Some(IdempotencyInput {
                 key: "reply-create-001".to_owned(),
@@ -1194,6 +1293,7 @@ async fn editing_a_reply_appends_revisions_and_hides_it_from_other_authors(pool:
             author_id: author,
             base_revision: 1,
             content: "更新后的回复".to_owned(),
+            rich_content: None,
         })
         .await
         .expect("author reply edit must succeed");
@@ -1231,6 +1331,7 @@ async fn editing_a_reply_appends_revisions_and_hides_it_from_other_authors(pool:
             author_id: other,
             base_revision: 2,
             content: "越权编辑".to_owned(),
+            rich_content: None,
         })
         .await
         .expect_err("other author reply edit must be hidden");
@@ -1243,6 +1344,7 @@ async fn editing_a_reply_appends_revisions_and_hides_it_from_other_authors(pool:
             author_id: author,
             base_revision: 1,
             content: "过期编辑".to_owned(),
+            rich_content: None,
         })
         .await
         .expect_err("stale reply edit must conflict");
@@ -1379,6 +1481,7 @@ async fn content_mutations_are_atomically_audited_without_user_content(pool: PgP
                 title: "PRIVATE_TOPIC_TITLE".to_owned(),
                 excerpt: "PRIVATE_TOPIC_EXCERPT".to_owned(),
                 content: "PRIVATE_TOPIC_BODY".to_owned(),
+                rich_content: None,
                 tags: vec![NewTagRecord {
                     slug: "private-tag".to_owned(),
                     name: "PRIVATE_TAG_NAME".to_owned(),
@@ -1397,6 +1500,7 @@ async fn content_mutations_are_atomically_audited_without_user_content(pool: PgP
                 title: "PRIVATE_TOPIC_TITLE".to_owned(),
                 excerpt: "PRIVATE_TOPIC_EXCERPT".to_owned(),
                 content: "PRIVATE_TOPIC_BODY".to_owned(),
+                rich_content: None,
                 tags: vec![NewTagRecord {
                     slug: "private-tag".to_owned(),
                     name: "PRIVATE_TAG_NAME".to_owned(),
@@ -1416,6 +1520,7 @@ async fn content_mutations_are_atomically_audited_without_user_content(pool: PgP
             title: Some("PRIVATE_UPDATED_TITLE".to_owned()),
             excerpt: None,
             content: Some("PRIVATE_UPDATED_TOPIC_BODY".to_owned()),
+            rich_content: None,
             tags: None,
         })
         .await
@@ -1433,6 +1538,8 @@ async fn content_mutations_are_atomically_audited_without_user_content(pool: PgP
                 topic_id: topic,
                 author_id: author,
                 content: "PRIVATE_REPLY_BODY".to_owned(),
+                rich_content: None,
+                reply_to_id: None,
             },
             Some(reply_idempotency.clone()),
         )
@@ -1446,6 +1553,8 @@ async fn content_mutations_are_atomically_audited_without_user_content(pool: PgP
                 topic_id: topic,
                 author_id: author,
                 content: "PRIVATE_REPLY_BODY".to_owned(),
+                rich_content: None,
+                reply_to_id: None,
             },
             Some(reply_idempotency),
         )
@@ -1460,6 +1569,7 @@ async fn content_mutations_are_atomically_audited_without_user_content(pool: PgP
             author_id: author,
             base_revision: 1,
             content: "PRIVATE_UPDATED_REPLY_BODY".to_owned(),
+            rich_content: None,
         })
         .await
         .expect("reply update must succeed");
@@ -1549,6 +1659,7 @@ async fn audit_insert_failure_rolls_back_topic_and_idempotency(pool: PgPool) {
                 title: "审计失败回滚".to_owned(),
                 excerpt: "审计失败回滚".to_owned(),
                 content: "正文".to_owned(),
+                rich_content: None,
                 tags: Vec::new(),
             },
             Some(IdempotencyInput {
@@ -1701,6 +1812,8 @@ async fn topic_governance_actions_are_revisioned_atomic_and_lock_replies(pool: P
                 topic_id: topic,
                 author_id: author,
                 content: "blocked".to_owned(),
+                rich_content: None,
+                reply_to_id: None,
             },
             None,
         )
@@ -1821,6 +1934,7 @@ async fn board_user_restrictions_block_topics_and_replies_only_in_the_target_boa
                 title: "blocked topic".to_owned(),
                 excerpt: "blocked".to_owned(),
                 content: "blocked".to_owned(),
+                rich_content: None,
                 tags: Vec::new(),
             },
             None,
@@ -1837,6 +1951,8 @@ async fn board_user_restrictions_block_topics_and_replies_only_in_the_target_boa
                 topic_id: existing_topic,
                 author_id: author,
                 content: "blocked reply".to_owned(),
+                rich_content: None,
+                reply_to_id: None,
             },
             None,
         )
@@ -1853,6 +1969,7 @@ async fn board_user_restrictions_block_topics_and_replies_only_in_the_target_boa
                 title: "allowed topic".to_owned(),
                 excerpt: "allowed".to_owned(),
                 content: "allowed".to_owned(),
+                rich_content: None,
                 tags: Vec::new(),
             },
             None,
@@ -1964,10 +2081,10 @@ async fn insert_reply(
 ) {
     let number = id.as_u128() & 0xffff;
     sqlx::query(
-        "INSERT INTO posts (id, topic_id, author_id, kind, content, status, created_at, deleted_at) \
+        "INSERT INTO posts (id, topic_id, author_id, kind, content, status, created_at, deleted_at, floor_number) \
          VALUES ($1, $2, $3, 'reply', $4, $5, \
                  '2026-08-03T10:00:00Z'::timestamptz + ($6 * INTERVAL '1 second'), \
-                 CASE WHEN $7 THEN CURRENT_TIMESTAMP END)",
+                 CASE WHEN $7 THEN CURRENT_TIMESTAMP END, $6)",
     )
     .bind(id)
     .bind(topic_id)

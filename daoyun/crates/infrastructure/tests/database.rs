@@ -23,6 +23,40 @@ async fn migrations_build_an_uninitialized_singleton_from_an_empty_database(pool
         .expect("a fully migrated database must be ready");
 }
 
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn email_verification_migration_creates_secure_configuration_and_challenges(pool: PgPool) {
+    let tables = sqlx::query_as::<_, (bool, bool)>(
+        "SELECT to_regclass('smtp_configuration') IS NOT NULL, \
+                to_regclass('registration_email_challenges') IS NOT NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("email tables lookup must succeed");
+    assert_eq!(tables, (true, true));
+
+    let defaults = sqlx::query_as::<_, (bool, bool, String, i32)>(
+        "SELECT enabled, registration_email_verification_enabled, tls_mode, port::integer \
+         FROM smtp_configuration WHERE singleton",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("SMTP singleton must exist");
+    assert_eq!(defaults, (false, false, "starttls".to_owned(), 587));
+
+    let invalid_attempts = sqlx::query(
+        "INSERT INTO registration_email_challenges (\
+             id, email, code_hash, code_ciphertext, attempts, expires_at, resend_after\
+         ) VALUES ($1, 'member@example.com', '$argon2id$v=19$fixture', decode(repeat('01', 40), 'hex'), 6, CURRENT_TIMESTAMP + INTERVAL '10 minutes', CURRENT_TIMESTAMP + INTERVAL '1 minute')",
+    )
+    .bind(Uuid::now_v7())
+    .execute(&pool)
+    .await;
+    assert!(
+        invalid_attempts.is_err(),
+        "attempts above five must be rejected"
+    );
+}
+
 #[sqlx::test(migrations = false)]
 async fn readiness_rejects_a_database_with_missing_migrations(pool: PgPool) {
     let database = Database::from_pool(pool);
@@ -1313,7 +1347,7 @@ async fn assert_identity_row_counts(pool: &PgPool, expected: i64) {
 
     assert_eq!(users, expected, "unexpected user row count");
     assert_eq!(credentials, expected, "unexpected credential row count");
-    assert_eq!(roles, expected, "unexpected role row count");
+    assert_eq!(roles, expected + 1, "unexpected role row count");
     assert_eq!(
         assignments, expected,
         "unexpected role assignment row count"

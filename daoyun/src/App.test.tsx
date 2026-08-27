@@ -241,6 +241,7 @@ beforeEach(() => {
     authorId: "019fc700-0000-7000-8000-000000000004",
     authorUsername: "member",
     contentRevision: 1,
+    hasLockedContent: false,
   })
   vi.mocked(listReplies).mockReset().mockResolvedValue({ replies: [], nextCursor: null })
   vi.mocked(createReply).mockReset()
@@ -536,6 +537,33 @@ describe("DaoYun community home", () => {
     expect(getTopic).toHaveBeenCalledWith(topicFixtures[0].id, expect.any(AbortSignal))
     await user.click(screen.getByRole("button", { name: "返回主题列表" }))
     expect(await screen.findByRole("heading", { name: "社区动态" })).toBeInTheDocument()
+  })
+
+  it("uses latest posts as the default topic ordering", async () => {
+    render(<App />)
+
+    expect(await screen.findByRole("tab", { name: "最新发帖" })).toHaveAttribute("aria-selected", "true")
+    expect(screen.getByRole("tab", { name: "最新回复" })).toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: "热门讨论" })).toBeInTheDocument()
+    expect(listTopics).toHaveBeenLastCalledWith(expect.objectContaining({ sort: "latest" }))
+  })
+
+  it("requests topics ordered by latest reply", async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(await screen.findByRole("tab", { name: "最新回复" }))
+
+    expect(listTopics).toHaveBeenLastCalledWith(expect.objectContaining({ sort: "active" }))
+  })
+
+  it("requests topics ordered by popularity", async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(await screen.findByRole("tab", { name: "热门讨论" }))
+
+    expect(listTopics).toHaveBeenLastCalledWith(expect.objectContaining({ sort: "popular" }))
   })
 
   it("switches to the featured topic feed", async () => {

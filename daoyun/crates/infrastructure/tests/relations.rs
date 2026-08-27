@@ -459,15 +459,16 @@ async fn insert_reply(
     deleted: bool,
 ) {
     sqlx::query(
-        "INSERT INTO posts (id, topic_id, author_id, kind, content, status, deleted_at) \
+        "INSERT INTO posts (id, topic_id, author_id, kind, content, status, deleted_at, floor_number) \
          VALUES ($1, $2, $3, 'reply', 'Reply', $4, \
-                 CASE WHEN $5 THEN CURRENT_TIMESTAMP END)",
+                 CASE WHEN $5 THEN CURRENT_TIMESTAMP END, $6)",
     )
     .bind(id)
     .bind(topic_id)
     .bind(author_id)
     .bind(status)
     .bind(deleted)
+    .bind(i64::try_from(id.as_u128() & 0x7fff_ffff).expect("fixture floor must fit i64"))
     .execute(pool)
     .await
     .expect("reply fixture must insert");

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -6,8 +6,10 @@ import type { AuthSession } from "../api/auth"
 import {
   AdminApiError,
   createAdminGrowthLevel,
+  deleteAdminGrowthLevel,
   getAdminAccess,
   getAdminSiteBranding,
+  getSmtpSettings,
   getAdminGrowthLevels,
   listMembershipMedalOperations,
   getMembershipMedalRules,
@@ -24,6 +26,8 @@ import {
   updateMembershipLevelRule,
   updateAdminGrowthLevel,
   updateSiteBranding,
+  updateSmtpSettings,
+  testSmtpSettings,
 } from "../api/admin"
 import { listModerationBoards } from "../api/moderation"
 import { AdminView } from "./AdminView"
@@ -34,12 +38,16 @@ vi.mock("../api/admin", async () => {
     ...actual,
     getAdminAccess: vi.fn(),
     getAdminSiteBranding: vi.fn(),
+    getSmtpSettings: vi.fn(),
     listAdminBoards: vi.fn(),
     updateSiteBranding: vi.fn(),
+    updateSmtpSettings: vi.fn(),
+    testSmtpSettings: vi.fn(),
     getAdminGrowthLevels: vi.fn(),
     getMembershipMedalRules: vi.fn(),
     listMembershipMedalOperations: vi.fn(),
     createAdminGrowthLevel: vi.fn(),
+    deleteAdminGrowthLevel: vi.fn(),
     updateAdminGrowthLevel: vi.fn(),
     getMembershipLevelRules: vi.fn(),
     updateMembershipLevelRule: vi.fn(),
@@ -88,6 +96,7 @@ const session: AuthSession = {
   csrfToken: "a".repeat(64),
 }
 const branding = { siteName: "刀云", logoUrl: null, faviconUrl: null, defaultCoverUrl: null, navigationLinks: [], footerText: null, footerLinks: [], primaryColor: "#1f8f5f", accentColor: "#d97706", themePreset: "default" as const, listDensity: "comfortable" as const, homeMode: "latest" as const }
+const smtpSettings = { host: "smtp.example.com", port: 587, username: "mailer", passwordConfigured: true, tlsMode: "starttls" as const, fromEmail: "noreply@example.com", fromName: "刀云", enabled: true, registrationEmailVerificationEnabled: true }
 const board = { id: "019fc900-0000-7000-8000-000000000101", parentId: null, slug: "general", name: "社区广场", description: "公开讨论", icon: "messages", tone: "green" as const, position: 0, visibility: "public" as const, topicCount: 2, revision: 1 }
 const membershipRules = [
   { levelKey: "lv_1", levelNumber: 1, levelDisplayName: "Lv1", requiredLifetimePoints: 0, enabled: true, updatedAt: "2026-08-07T01:00:00Z" },
@@ -148,8 +157,11 @@ beforeEach(() => {
     "plugins.invoke",
   ] })
   vi.mocked(getAdminSiteBranding).mockResolvedValue(branding)
+  vi.mocked(getSmtpSettings).mockResolvedValue(smtpSettings)
   vi.mocked(listAdminBoards).mockResolvedValue([board])
   vi.mocked(updateSiteBranding).mockResolvedValue(branding)
+  vi.mocked(updateSmtpSettings).mockResolvedValue(smtpSettings)
+  vi.mocked(testSmtpSettings).mockResolvedValue(true)
   vi.mocked(uploadBrandAsset).mockResolvedValue({ ...branding, logoUrl: "/api/v1/site-branding/assets/logo" })
   vi.mocked(deleteBrandAsset).mockResolvedValue(branding)
   vi.mocked(getMembershipLevelRules).mockResolvedValue(membershipRules)
@@ -157,6 +169,7 @@ beforeEach(() => {
   vi.mocked(getMembershipMedalRules).mockResolvedValue(medalRules)
   vi.mocked(listMembershipMedalOperations).mockResolvedValue({ operations: medalOperations, nextCursor: null })
   vi.mocked(createAdminGrowthLevel).mockResolvedValue(growthLevels[0])
+  vi.mocked(deleteAdminGrowthLevel).mockResolvedValue(true)
   vi.mocked(updateAdminGrowthLevel).mockResolvedValue({ ...growthLevels[0], displayName: "行者", revision: 2, status: "published" })
   vi.mocked(updateMembershipLevelRule).mockResolvedValue({ ...membershipRules[1], requiredLifetimePoints: 30, enabled: true })
   vi.mocked(grantMembershipMedal).mockResolvedValue({
@@ -181,6 +194,19 @@ describe("AdminView", () => {
 
     expect(await screen.findByRole("main")).toBeInTheDocument()
     expect(screen.queryByRole("region", { name: "站点管理" })).not.toBeInTheDocument()
+  })
+
+  it("switches the standalone administration shell between light and dark themes", async () => {
+    const user = userEvent.setup()
+    document.documentElement.dataset.theme = "light"
+    localStorage.setItem("daoyun-theme", "light")
+
+    render(<AdminView session={session} onBack={vi.fn()} />)
+    await user.click(await screen.findByRole("button", { name: "切换为深色主题" }))
+
+    expect(document.documentElement.dataset.theme).toBe("dark")
+    expect(localStorage.getItem("daoyun-theme")).toBe("dark")
+    expect(screen.getByRole("button", { name: "切换为浅色主题" })).toBeInTheDocument()
   })
 
   it("shows a protected state without private requests when signed out", () => {
@@ -322,29 +348,84 @@ describe("AdminView", () => {
     expect(onQueryChange).toHaveBeenCalledWith("status=in_review")
   })
 
-  it("loads EXP growth levels and saves their status, threshold, and revision", async () => {
+  it("edits EXP growth levels without exposing lifecycle status", async () => {
     const user = userEvent.setup()
     render(<AdminView session={session} onBack={vi.fn()} />)
 
     await user.click(await screen.findByRole("button", { name: "会员经济" }))
-    expect(await screen.findByRole("heading", { name: "会员经济" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "会员经济", level: 1 })).toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "成长等级（EXP）" })).toBeInTheDocument()
-    await user.click(screen.getByText("编辑 traveler"))
-    const name = screen.getByLabelText("traveler 展示名称")
+    expect(screen.queryByText("已发布")).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("traveler 状态")).not.toBeInTheDocument()
+    const editTrigger = screen.getByRole("button", { name: "编辑 traveler" })
+    await user.click(editTrigger)
+    const dialog = screen.getByRole("dialog", { name: "编辑成长等级" })
+    const name = within(dialog).getByLabelText("展示名称")
+    expect(name).toHaveFocus()
     await user.clear(name)
     await user.type(name, "行者")
-    const threshold = screen.getByLabelText("traveler EXP 阈值")
+    const threshold = within(dialog).getByLabelText("EXP 阈值")
     await user.clear(threshold)
     await user.type(threshold, "120")
-    await user.selectOptions(screen.getByLabelText("traveler 状态"), "published")
-    await user.click(screen.getByRole("button", { name: "保存 traveler" }))
+    await user.click(within(dialog).getByRole("button", { name: "保存更改" }))
 
     expect(updateAdminGrowthLevel).toHaveBeenCalledWith(growthLevels[0].id, expect.objectContaining({ expectedRevision: 1, displayName: "行者", requiredExperience: 120, status: "published" }), session.csrfToken)
     expect(await screen.findByText("traveler 已保存")).toBeInTheDocument()
   })
+
+  it("configures and tests SMTP without exposing the saved password", async () => {
+    const user = userEvent.setup()
+    render(<AdminView session={session} onBack={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "邮件服务" }))
+    expect(await screen.findByRole("heading", { name: "SMTP 邮件服务" })).toBeInTheDocument()
+    expect(screen.getByLabelText("SMTP 密码")).toHaveAttribute("placeholder", "已保存，留空则不修改")
+    expect(screen.queryByDisplayValue(/password/i)).not.toBeInTheDocument()
+
+    await user.clear(screen.getByLabelText("SMTP 主机"))
+    await user.type(screen.getByLabelText("SMTP 主机"), "smtp2.example.com")
+    await user.click(screen.getByRole("button", { name: "保存邮件配置" }))
+    expect(updateSmtpSettings).toHaveBeenCalledWith(expect.objectContaining({
+      host: "smtp2.example.com",
+      password: "",
+      clearPassword: false,
+      registrationEmailVerificationEnabled: true,
+    }), session.csrfToken)
+
+    await user.type(screen.getByLabelText("测试收件邮箱"), "admin@example.com")
+    await user.click(screen.getByRole("button", { name: "发送测试邮件" }))
+    expect(testSmtpSettings).toHaveBeenCalledWith("admin@example.com", session.csrfToken)
+    expect(await screen.findByText("测试邮件已发送")).toBeInTheDocument()
+  })
+
+  it("presents the growth-level editor as a grouped form with a live summary", async () => {
+    const user = userEvent.setup()
+    render(<AdminView session={session} onBack={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(screen.getByRole("button", { name: "编辑 traveler" }))
+    const dialog = screen.getByRole("dialog", { name: "编辑成长等级" })
+    const preview = within(dialog).getByRole("region", { name: "等级预览" })
+
+    expect(preview).toHaveTextContent("Lv 2")
+    expect(preview).toHaveTextContent("旅者")
+    expect(preview).toHaveTextContent("100 EXP")
+    expect(within(dialog).getByRole("group", { name: "基本信息" })).toBeInTheDocument()
+    expect(within(dialog).getByRole("group", { name: "成长规则" })).toBeInTheDocument()
+    expect(within(dialog).getByRole("group", { name: "视觉与说明" })).toBeInTheDocument()
+    expect(within(dialog).getByText("保存后立即生效")).toBeInTheDocument()
+
+    await user.clear(within(dialog).getByLabelText("展示名称"))
+    await user.type(within(dialog).getByLabelText("展示名称"), "远行者")
+    await user.clear(within(dialog).getByLabelText("EXP 阈值"))
+    await user.type(within(dialog).getByLabelText("EXP 阈值"), "360")
+
+    expect(preview).toHaveTextContent("远行者")
+    expect(preview).toHaveTextContent("360 EXP")
+  })
   vi.mocked(revokeMembershipMedal).mockResolvedValue({ userId: memberId, medalKey: "medal_01", revoked: true })
 
-  it("focuses the growth level list on published levels and lets operators include drafts", async () => {
+  it("shows every growth level without a status filter", async () => {
     const user = userEvent.setup()
     vi.mocked(getAdminGrowthLevels).mockResolvedValueOnce([
       ...growthLevels,
@@ -354,19 +435,17 @@ describe("AdminView", () => {
         internalKey: "explorer",
         levelOrder: 3,
         displayName: "探索者",
-        status: "draft",
-        publishedAt: null,
+        status: "published",
+        publishedAt: "2026-08-20T01:00:00Z",
       },
     ])
     render(<AdminView session={session} onBack={vi.fn()} />)
 
     await user.click(await screen.findByRole("button", { name: "会员经济" }))
-    expect(await screen.findByText("已发布 1 / 共 2")).toBeInTheDocument()
-    expect(screen.queryByText("explorer")).not.toBeInTheDocument()
-
-    await user.selectOptions(screen.getByLabelText("筛选成长等级"), "all")
-
+    expect(await screen.findByText("共 2 个等级")).toBeInTheDocument()
     expect(screen.getByText("explorer")).toBeInTheDocument()
+    expect(screen.queryByLabelText("筛选成长等级")).not.toBeInTheDocument()
+    expect(within(screen.getByRole("list", { name: "成长等级列表" })).getAllByRole("listitem")).toHaveLength(2)
   })
 
   it("separates growth, points, and medals into task-focused workspaces", async () => {
@@ -394,6 +473,19 @@ describe("AdminView", () => {
     expect(screen.getByRole("heading", { name: "勋章" })).toBeInTheDocument()
     expect(screen.queryByRole("heading", { name: "标准权益" })).not.toBeInTheDocument()
     expect(screen.queryByLabelText("lv_1 累计积分阈值")).not.toBeInTheDocument()
+  })
+
+  it("presents growth levels and medal rules as scan-friendly lists", async () => {
+    const user = userEvent.setup()
+    render(<AdminView session={session} onBack={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    const growthList = await screen.findByRole("list", { name: "成长等级列表" })
+    expect(within(growthList).getAllByRole("listitem")).toHaveLength(growthLevels.length)
+
+    await user.click(screen.getByRole("tab", { name: "勋章运营" }))
+    const medalList = await screen.findByRole("list", { name: "勋章规则列表" })
+    expect(within(medalList).getAllByRole("listitem")).toHaveLength(medalRules.length)
   })
 
   it("renders the fixed medal catalog with its visual identifier", async () => {
@@ -447,7 +539,7 @@ describe("AdminView", () => {
     expect(screen.queryByText("operator.award", { exact: false })).not.toBeInTheDocument()
   })
 
-  it("creates a draft EXP level without changing the points ledger", async () => {
+  it("creates an immediately active EXP level from a modal form", async () => {
     const user = userEvent.setup()
     vi.mocked(createAdminGrowthLevel).mockResolvedValueOnce({
       ...growthLevels[0],
@@ -460,11 +552,24 @@ describe("AdminView", () => {
     render(<AdminView session={session} onBack={vi.fn()} />)
 
     await user.click(await screen.findByRole("button", { name: "会员经济" }))
-    await user.type(await screen.findByLabelText("内部键"), "explorer")
-    await user.type(screen.getByLabelText("等级顺序"), "3")
-    await user.type(screen.getByLabelText("展示名称"), "探索者")
-    await user.type(screen.getByLabelText("EXP 阈值"), "300")
-    await user.click(screen.getByRole("button", { name: "新建草稿等级" }))
+    expect(screen.queryByLabelText("内部键")).not.toBeInTheDocument()
+    const createTrigger = screen.getByRole("button", { name: "新增等级" })
+    await user.click(createTrigger)
+    let dialog = screen.getByRole("dialog", { name: "新增成长等级" })
+    expect(within(dialog).getByLabelText("内部键")).toHaveFocus()
+    await user.type(within(dialog).getByLabelText("内部键"), "temporary")
+    await user.click(within(dialog).getByRole("button", { name: "取消" }))
+    await waitFor(() => expect(createTrigger).toHaveFocus())
+    expect(screen.queryByRole("dialog", { name: "新增成长等级" })).not.toBeInTheDocument()
+
+    await user.click(createTrigger)
+    dialog = screen.getByRole("dialog", { name: "新增成长等级" })
+    expect(within(dialog).getByLabelText("内部键")).toHaveValue("")
+    await user.type(within(dialog).getByLabelText("内部键"), "explorer")
+    await user.type(within(dialog).getByLabelText("等级顺序"), "3")
+    await user.type(within(dialog).getByLabelText("展示名称"), "探索者")
+    await user.type(within(dialog).getByLabelText("EXP 阈值"), "300")
+    await user.click(within(dialog).getByRole("button", { name: "创建并生效" }))
 
     expect(createAdminGrowthLevel).toHaveBeenCalledWith({
       internalKey: "explorer",
@@ -476,6 +581,113 @@ describe("AdminView", () => {
       description: "",
     }, session.csrfToken)
     expect(grantMembershipPoints).not.toHaveBeenCalled()
+    expect(await screen.findByText("explorer 已创建并生效")).toBeInTheDocument()
+    expect(screen.queryByLabelText("内部键")).not.toBeInTheDocument()
+  })
+
+  it("closes the growth-level modal with Escape and restores focus", async () => {
+    const user = userEvent.setup()
+    render(<AdminView session={session} onBack={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    const editTrigger = screen.getByRole("button", { name: "编辑 traveler" })
+    await user.click(editTrigger)
+    expect(screen.getByRole("dialog", { name: "编辑成长等级" })).toBeInTheDocument()
+
+    await user.keyboard("{Escape}")
+
+    expect(screen.queryByRole("dialog", { name: "编辑成长等级" })).not.toBeInTheDocument()
+    await waitFor(() => expect(editTrigger).toHaveFocus())
+    expect(screen.getByText("旅者")).toBeInTheDocument()
+  })
+
+  it("keeps keyboard focus inside the growth-level modal", async () => {
+    const user = userEvent.setup()
+    render(<AdminView session={session} onBack={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(screen.getByRole("button", { name: "新增等级" }))
+    const dialog = screen.getByRole("dialog", { name: "新增成长等级" })
+    const background = document.querySelector(".membership-admin-panel")
+    expect(background).toHaveAttribute("inert")
+    expect(background).toHaveAttribute("aria-hidden", "true")
+
+    await user.keyboard("{Shift>}{Tab}{/Shift}")
+    expect(within(dialog).getByRole("button", { name: "关闭新增成长等级" })).toHaveFocus()
+    await user.keyboard("{Shift>}{Tab}{/Shift}")
+    expect(within(dialog).getByRole("button", { name: "创建并生效" })).toHaveFocus()
+    await user.tab()
+    expect(within(dialog).getByRole("button", { name: "关闭新增成长等级" })).toHaveFocus()
+  })
+
+  it("submits the growth-level modal only once and cannot close it while pending", async () => {
+    const user = userEvent.setup()
+    let finishCreate!: () => void
+    vi.mocked(createAdminGrowthLevel).mockImplementationOnce(() => new Promise((resolve) => {
+      finishCreate = () => resolve({ ...growthLevels[0], id: "019fc900-0000-7000-8000-000000000802", internalKey: "explorer" })
+    }))
+    render(<AdminView session={session} onBack={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(screen.getByRole("button", { name: "新增等级" }))
+    const dialog = screen.getByRole("dialog", { name: "新增成长等级" })
+    await user.type(within(dialog).getByLabelText("内部键"), "explorer")
+    await user.type(within(dialog).getByLabelText("等级顺序"), "3")
+    await user.type(within(dialog).getByLabelText("展示名称"), "探索者")
+    await user.type(within(dialog).getByLabelText("EXP 阈值"), "300")
+
+    fireEvent.submit(dialog)
+    fireEvent.submit(dialog)
+    expect(createAdminGrowthLevel).toHaveBeenCalledTimes(1)
+    await user.keyboard("{Escape}")
+    expect(screen.getByRole("dialog", { name: "新增成长等级" })).toBeInTheDocument()
+
+    finishCreate()
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "新增成长等级" })).not.toBeInTheDocument())
+  })
+
+  it("requires confirmation before deleting a growth level", async () => {
+    const user = userEvent.setup()
+    render(<AdminView session={session} onBack={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(screen.getByRole("button", { name: "删除 traveler" }))
+    const dialog = screen.getByRole("dialog", { name: "删除成长等级" })
+    expect(within(dialog).getByText("旅者", { exact: false })).toBeInTheDocument()
+    expect(within(dialog).getByRole("button", { name: "取消" })).toHaveFocus()
+    await user.click(within(dialog).getByRole("button", { name: "取消" }))
+    expect(deleteAdminGrowthLevel).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.getByRole("button", { name: "删除 traveler" })).toHaveFocus())
+
+    await user.click(screen.getByRole("button", { name: "删除 traveler" }))
+    await user.click(screen.getByRole("button", { name: "确认删除" }))
+    expect(deleteAdminGrowthLevel).toHaveBeenCalledWith(growthLevels[0].id, session.csrfToken)
+    await waitFor(() => expect(screen.queryByText("traveler")).not.toBeInTheDocument())
+  })
+
+  it("locks every growth-level action while a deletion is pending", async () => {
+    const user = userEvent.setup()
+    let finishDelete!: () => void
+    vi.mocked(getAdminGrowthLevels).mockResolvedValueOnce([
+      ...growthLevels,
+      { ...growthLevels[0], id: "019fc900-0000-7000-8000-000000000803", internalKey: "explorer", levelOrder: 3, displayName: "探索者" },
+    ])
+    vi.mocked(deleteAdminGrowthLevel).mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+      finishDelete = () => resolve(true)
+    }))
+    render(<AdminView session={session} onBack={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(screen.getByRole("button", { name: "删除 traveler" }))
+    await user.click(screen.getByRole("button", { name: "确认删除" }))
+
+    const background = document.querySelector(".membership-admin-panel") as HTMLElement
+    expect(within(background).getByText("删除 traveler").closest("button")).toBeDisabled()
+    expect(within(background).getByText("删除 explorer").closest("button")).toBeDisabled()
+    expect(screen.getByRole("dialog", { name: "删除成长等级" })).toHaveTextContent("traveler")
+
+    finishDelete()
+    await waitFor(() => expect(screen.queryByText("traveler")).not.toBeInTheDocument())
   })
 
   it("grants points and renders the resulting account level", async () => {
@@ -483,7 +695,7 @@ describe("AdminView", () => {
     render(<AdminView session={session} onBack={vi.fn()} />)
 
     await user.click(await screen.findByRole("button", { name: "会员经济" }))
-    await screen.findByRole("heading", { name: "会员经济" })
+    await screen.findByRole("heading", { name: "会员经济", level: 1 })
     await user.click(screen.getByRole("tab", { name: "积分运营" }))
     await user.type(screen.getByLabelText("目标用户 UUID"), memberId)
     await user.type(screen.getByLabelText("积分数量"), "30")
@@ -498,18 +710,18 @@ describe("AdminView", () => {
     vi.mocked(getAdminAccess).mockResolvedValueOnce({ capabilityKeys: ["membership.points.grant"] })
     render(<AdminView session={session} onBack={vi.fn()} requestedTab="membership" />)
 
-    expect(await screen.findByRole("heading", { name: "会员经济" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "会员经济", level: 1 })).toBeInTheDocument()
     expect(screen.getByLabelText("目标用户 UUID")).toBeInTheDocument()
     expect(screen.queryByLabelText("勋章目标用户 UUID")).not.toBeInTheDocument()
     expect(getAdminGrowthLevels).not.toHaveBeenCalled()
   })
 
-  it("lets an EXP write-only operator create a draft without loading the level catalog", async () => {
+  it("lets an EXP write-only operator create an active level without loading the level catalog", async () => {
     vi.mocked(getAdminAccess).mockResolvedValueOnce({ capabilityKeys: ["membership.rules.write"] })
     render(<AdminView session={session} onBack={vi.fn()} requestedTab="membership" />)
 
-    expect(await screen.findByRole("heading", { name: "会员经济" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "新建草稿等级" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "会员经济", level: 1 })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "新增等级" })).toBeInTheDocument()
     expect(screen.getByText("当前账号可创建成长等级，但不具备等级目录读取权限。")).toBeInTheDocument()
     expect(getAdminGrowthLevels).not.toHaveBeenCalled()
   })
@@ -519,7 +731,7 @@ describe("AdminView", () => {
     render(<AdminView session={session} onBack={vi.fn()} />)
 
     await user.click(await screen.findByRole("button", { name: "角色与权限" }))
-    expect(await screen.findByRole("heading", { name: "角色与权限" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "角色与权限", level: 1 })).toBeInTheDocument()
     expect(listAuthorizationPermissions).toHaveBeenCalled()
     expect(listAuthorizationRoles).toHaveBeenCalled()
     expect(listAuthorizationAssignments).toHaveBeenCalledWith(expect.objectContaining({ limit: 50 }))
@@ -528,17 +740,31 @@ describe("AdminView", () => {
   it("shows system and governance tasks in one capability-filtered navigation", async () => {
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    expect(await screen.findByRole("heading", { name: "站点管理" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "工作台" })).toBeInTheDocument()
+    expect(screen.getByText("聚合待处理事项与站点状态。")).toBeInTheDocument()
     expect(screen.getByRole("navigation", { name: "站点管理导航" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "品牌配置" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "举报处理" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "风控告警" })).toBeInTheDocument()
   })
 
+  it("offers a compact module selector that follows the same navigation state", async () => {
+    const user = userEvent.setup()
+    const onTabChange = vi.fn()
+    render(<AdminView session={session} onBack={vi.fn()} onTabChange={onTabChange} />)
+
+    const selector = await screen.findByLabelText("管理模块")
+    await user.selectOptions(selector, "reports")
+
+    expect(screen.getByRole("heading", { name: "举报处理", level: 1 })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "举报处理" })).toHaveAttribute("aria-current", "page")
+    expect(onTabChange).toHaveBeenCalledWith("reports")
+  })
+
   it("does not require a separate sensitive-operation verification panel", async () => {
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    expect(await screen.findByRole("heading", { name: "站点管理" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "工作台" })).toBeInTheDocument()
     expect(screen.queryByRole("heading", { name: "敏感管理操作" })).not.toBeInTheDocument()
   })
 
@@ -546,7 +772,7 @@ describe("AdminView", () => {
     vi.mocked(getAdminAccess).mockResolvedValueOnce({ capabilityKeys: ["governance.reports.read"] })
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    expect(await screen.findByRole("heading", { name: "站点管理" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "工作台" })).toBeInTheDocument()
     expect(screen.getByRole("navigation", { name: "站点管理导航" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "举报处理" })).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "品牌配置" })).not.toBeInTheDocument()
@@ -567,7 +793,13 @@ describe("AdminView", () => {
     render(<AdminView session={session} onBack={vi.fn()} requestedTab="moderation" />)
 
     expect(await screen.findByRole("heading", { name: "主题治理工作台" })).toBeInTheDocument()
+    expect(document.querySelector(".admin-view--moderation")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "内容治理" })).toHaveAttribute("aria-current", "page")
+    const contentGovernanceNavigation = screen.getByRole("group", { name: "内容治理子导航" })
+    expect(within(contentGovernanceNavigation).getByText("主题治理工作台")).toHaveAttribute("aria-current", "page")
+    const sidebarAccount = screen.getByRole("group", { name: "当前管理员" })
+    expect(within(sidebarAccount).getByText(session.user.displayName)).toBeInTheDocument()
+    expect(within(sidebarAccount).getByText(`@${session.user.username}`)).toBeInTheDocument()
     expect(screen.getByText("社区广场")).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "品牌配置" })).not.toBeInTheDocument()
   })

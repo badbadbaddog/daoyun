@@ -3,11 +3,166 @@ use axum::{
     http::{Method, Request, StatusCode},
     response::Response,
 };
-use infrastructure::Database;
+use infrastructure::{Database, UpdateSmtpConfigurationRecord};
 use serde_json::{Value, json};
 use sqlx::{PgPool, postgres::PgPoolOptions};
-use std::time::Duration;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tower::ServiceExt;
+
+#[derive(Default)]
+struct RecordingEmailSender {
+    messages: Mutex<Vec<(String, String)>>,
+}
+
+impl daoyun_api::EmailSender for RecordingEmailSender {
+    fn send<'a>(
+        &'a self,
+        _settings: daoyun_api::SmtpConnectionSettings,
+        email: daoyun_api::OutboundEmail,
+    ) -> daoyun_api::EmailSenderFuture<'a> {
+        self.messages
+            .lock()
+            .expect("recording sender lock must be available")
+            .push((email.recipient_email, email.body));
+        Box::pin(async { Ok(()) })
+    }
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn enabled_registration_email_verification_requires_a_delivered_one_time_code(pool: PgPool) {
+    let database = Database::from_pool(pool.clone());
+    let sender = Arc::new(RecordingEmailSender::default());
+    let email_runtime = daoyun_api::EmailRuntime::from_key_and_sender([31_u8; 32], sender.clone());
+    let app = daoyun_api::app_with_email_runtime(
+        database.clone(),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+        email_runtime.clone(),
+    );
+    initialize_instance(&app).await;
+    let owner_id =
+        sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM users WHERE username = 'owner'")
+            .fetch_one(&pool)
+            .await
+            .expect("owner id must be queryable");
+    database
+        .update_smtp_configuration(
+            owner_id,
+            UpdateSmtpConfigurationRecord {
+                host: "smtp.example.com".to_owned(),
+                port: 587,
+                username: None,
+                password_ciphertext: None,
+                tls_mode: "starttls".to_owned(),
+                from_email: "noreply@example.com".to_owned(),
+                from_name: "DaoYun".to_owned(),
+                enabled: true,
+                registration_email_verification_enabled: true,
+            },
+        )
+        .await
+        .expect("SMTP fixture must save");
+
+    let policy = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/auth/registration-policy")
+                .body(Body::empty())
+                .expect("policy request must build"),
+        )
+        .await
+        .expect("registration policy must respond");
+    assert_eq!(policy.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(policy).await["data"]["email_verification_required"],
+        true
+    );
+
+    let requested = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/auth/registration-email-challenges",
+            json!({"email": "verified@example.com"}),
+        ))
+        .await
+        .expect("email challenge request must respond");
+    assert_eq!(requested.status(), StatusCode::ACCEPTED);
+    let challenge_id = response_json(requested).await["data"]["challenge_id"]
+        .as_str()
+        .expect("challenge id must be text")
+        .to_owned();
+
+    let worker = daoyun_api::OutboxWorker::new(
+        database.clone(),
+        vec![Arc::new(daoyun_api::RegistrationEmailHandler::new(
+            database.clone(),
+            email_runtime,
+        ))],
+        daoyun_api::OutboxWorkerConfig::default(),
+    )
+    .expect("email worker must build");
+    let run = worker.run_once().await.expect("email worker must run");
+    assert_eq!(run.completed, 1);
+    let code = {
+        let messages = sender
+            .messages
+            .lock()
+            .expect("recorded email must be readable");
+        assert_eq!(messages[0].0, "verified@example.com");
+        messages[0]
+            .1
+            .split(|character: char| !character.is_ascii_digit())
+            .find(|value| value.len() == 6)
+            .expect("verification email must contain a six digit code")
+            .to_owned()
+    };
+
+    let missing_code = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/auth/register",
+            json!({
+                "username": "unverified",
+                "email": "verified@example.com",
+                "display_name": "Unverified",
+                "password": "123456"
+            }),
+        ))
+        .await
+        .expect("registration without code must respond");
+    assert_eq!(missing_code.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let registered = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/auth/register",
+            json!({
+                "username": "verified",
+                "email": "verified@example.com",
+                "display_name": "Verified",
+                "password": "123456",
+                "email_challenge_id": challenge_id,
+                "email_verification_code": code
+            }),
+        ))
+        .await
+        .expect("verified registration must respond");
+    assert_eq!(registered.status(), StatusCode::CREATED);
+    let consumed = sqlx::query_scalar::<_, bool>(
+        "SELECT consumed_at IS NOT NULL FROM registration_email_challenges WHERE id = $1",
+    )
+    .bind(uuid::Uuid::parse_str(&challenge_id).expect("challenge UUID must parse"))
+    .fetch_one(&pool)
+    .await
+    .expect("challenge consumption must be queryable");
+    assert!(consumed);
+}
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
 async fn registration_creates_a_cookie_session_that_can_be_refreshed_and_revoked(pool: PgPool) {

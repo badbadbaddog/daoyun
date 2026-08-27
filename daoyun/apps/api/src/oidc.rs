@@ -750,6 +750,7 @@ enum OidcHttpError {
 #[allow(dead_code)]
 impl OidcDiscoveryClient {
     fn new() -> Result<Self, OidcDiscoveryError> {
+        crate::install_rustls_crypto_provider();
         // Source: https://docs.rs/reqwest/0.13.4/reqwest/struct.ClientBuilder.html
         let client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(3))
@@ -770,6 +771,7 @@ impl OidcDiscoveryClient {
 
     #[cfg(test)]
     fn for_tests_with_timeout(timeout: Duration) -> Self {
+        crate::install_rustls_crypto_provider();
         let client = reqwest::Client::builder()
             .timeout(timeout)
             .redirect(reqwest::redirect::Policy::none())

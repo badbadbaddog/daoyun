@@ -9,6 +9,29 @@ pub struct RegisterRequest {
     pub display_name: String,
     #[schema(value_type = String, format = Password, min_length = 6, max_length = 128)]
     pub password: String,
+    pub email_challenge_id: Option<Uuid>,
+    #[schema(value_type = Option<String>, format = Password, min_length = 6, max_length = 6)]
+    pub email_verification_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct RegistrationPolicy {
+    pub email_verification_required: bool,
+    pub code_expires_in_seconds: u32,
+    pub resend_after_seconds: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
+pub struct RegistrationEmailChallengeRequest {
+    pub email: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct RegistrationEmailChallengeData {
+    pub challenge_id: Uuid,
+    #[schema(value_type = String, format = DateTime)]
+    pub expires_at: String,
+    pub resend_after_seconds: u32,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]

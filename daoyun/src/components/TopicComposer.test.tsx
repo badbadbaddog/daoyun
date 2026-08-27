@@ -78,7 +78,12 @@ describe("TopicComposer", () => {
     await user.click(screen.getByRole("button", { name: "发布" }))
 
     expect(createTopic).toHaveBeenCalledWith(
-      { title: "发布主题", content: "这是正文", boardId: boards[0].id },
+      expect.objectContaining({
+        title: "发布主题",
+        content: "这是正文",
+        boardId: boards[0].id,
+        richContent: expect.objectContaining({ type: "doc" }),
+      }),
       expect.objectContaining({ csrfToken: session.csrfToken, idempotencyKey: expect.any(String) }),
     )
     expect(onPublished).toHaveBeenCalledWith(topic)
@@ -122,5 +127,45 @@ describe("TopicComposer", () => {
     expect(createTopic).toHaveBeenCalledTimes(2)
     expect(vi.mocked(createTopic).mock.calls[1][1].idempotencyKey)
       .toBe(vi.mocked(createTopic).mock.calls[0][1].idempotencyKey)
+  })
+
+  it("traps focus, locks background scrolling and restores the opener", async () => {
+    const user = userEvent.setup()
+    const opener = document.createElement("button")
+    opener.textContent = "打开发布窗口"
+    document.body.append(opener)
+    opener.focus()
+    const view = render(
+      <TopicComposer
+        open
+        boards={boards}
+        session={session}
+        onClose={vi.fn()}
+        onPublished={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole("textbox", { name: "标题" })).toHaveFocus()
+    expect(document.body.style.overflow).toBe("hidden")
+
+    screen.getByRole("button", { name: "发布" }).focus()
+    await user.tab()
+    expect(screen.getByRole("button", { name: "关闭发布窗口" })).toHaveFocus()
+
+    await user.tab({ shift: true })
+    expect(screen.getByRole("button", { name: "发布" })).toHaveFocus()
+
+    view.rerender(
+      <TopicComposer
+        open={false}
+        boards={boards}
+        session={session}
+        onClose={vi.fn()}
+        onPublished={vi.fn()}
+      />,
+    )
+    expect(document.body.style.overflow).toBe("")
+    expect(opener).toHaveFocus()
+    opener.remove()
   })
 })

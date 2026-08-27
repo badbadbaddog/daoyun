@@ -76,6 +76,7 @@ pub struct AdminCommunityGroup {
     pub display_name: String,
     pub description: String,
     pub is_base: bool,
+    pub is_default: bool,
     pub status: CommunityGroupStatus,
     pub display_order: i32,
     pub permission_keys: Vec<String>,
@@ -85,6 +86,13 @@ pub struct AdminCommunityGroup {
     pub created_at: String,
     #[schema(value_type = String, format = DateTime)]
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
+pub struct SetDefaultCommunityGroupRequest {
+    pub group_id: Uuid,
+    pub expected_default_group_id: Uuid,
+    pub expected_default_revision: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]

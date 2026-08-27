@@ -14,7 +14,11 @@ use crate::community_permissions::{
 use crate::{Database, DatabaseError};
 
 pub const MAX_ATTACHMENT_BYTES: usize = 50 * 1024 * 1024;
+const MAX_IMAGE_DIMENSION: u32 = 12_000;
+const MAX_IMAGE_PIXELS: u64 = 25_000_000;
+const MAX_IMAGE_DECODE_BYTES: u64 = 128 * 1024 * 1024;
 const DEFAULT_RETENTION_DAYS: i32 = 365;
+const DRAFT_RETENTION_HOURS: i64 = 24;
 const ORPHAN_GRACE_HOURS: i64 = 24;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,6 +29,24 @@ pub struct CreateAttachmentInput {
     pub original_name: String,
     pub mime_type: String,
     pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateDraftImageAttachmentInput {
+    pub id: Uuid,
+    pub uploader_id: Uuid,
+    pub original_name: String,
+    pub mime_type: String,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
+pub struct DraftImageAttachmentRecord {
+    pub id: Uuid,
+    pub original_name: String,
+    pub mime_type: String,
+    pub size_bytes: i64,
+    pub expires_at: OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
@@ -127,46 +149,7 @@ impl Database {
         {
             return Err(AttachmentError::BoardRestricted);
         }
-        authorize_community_action_with_executor(
-            &mut transaction,
-            input.uploader_id,
-            "attachment.upload",
-            Some(("attachment.upload.daily", 1)),
-            Some((
-                "attachment.file.bytes",
-                i64::try_from(input.bytes.len()).expect("validated size fits i64"),
-            )),
-            OffsetDateTime::now_utc(),
-        )
-        .await
-        .map_err(|error| match error {
-            CommunityActionError::PermissionDenied => AttachmentError::Forbidden,
-            CommunityActionError::QuotaExceeded => AttachmentError::QuotaExceeded,
-            CommunityActionError::Database(error) => AttachmentError::from(error),
-        })?;
-        let upload_bytes = i64::try_from(input.bytes.len()).expect("validated size fits i64");
-        let storage_used = sqlx::query_scalar::<_, i64>(
-            "SELECT COALESCE(SUM(size_bytes), 0)::bigint
-             FROM topic_attachments
-             WHERE uploader_id = $1 AND deleted_at IS NULL
-               AND status IN ('pending', 'ready')",
-        )
-        .bind(input.uploader_id)
-        .fetch_one(&mut *transaction)
-        .await?;
-        let storage_limit = community_quota_limit_with_executor(
-            &mut transaction,
-            input.uploader_id,
-            "attachment.storage.bytes",
-            OffsetDateTime::now_utc(),
-        )
-        .await?;
-        if storage_used
-            .checked_add(upload_bytes)
-            .is_none_or(|required| required > storage_limit)
-        {
-            return Err(AttachmentError::QuotaExceeded);
-        }
+        authorize_attachment_upload(&mut transaction, input.uploader_id, input.bytes.len()).await?;
         self.attachment_store
             .put(&storage_key, &input.bytes)
             .await
@@ -231,6 +214,97 @@ impl Database {
             }
             return Err(AttachmentError::from(error));
         }
+        Ok(record)
+    }
+
+    pub async fn create_draft_image_attachment(
+        &self,
+        input: CreateDraftImageAttachmentInput,
+    ) -> Result<DraftImageAttachmentRecord, AttachmentError> {
+        validate_draft_image_upload(&input)?;
+        scan_bytes(&input.bytes)?;
+
+        let extension = extension_for(&input.mime_type);
+        let storage_key = format!("drafts/{}/{}{}", input.uploader_id, input.id, extension);
+        let thumbnail_key = format!("drafts/{}/{}-thumb.webp", input.uploader_id, input.id);
+        let thumbnail_bytes = make_thumbnail(
+            &input.bytes,
+            image_format(&input.mime_type).ok_or(AttachmentError::Invalid)?,
+        )?;
+        let hash = sha256(&input.bytes);
+
+        let mut transaction = self.pool.begin().await?;
+        let active_uploader = sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR UPDATE",
+        )
+        .bind(input.uploader_id)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        if active_uploader.is_none() {
+            return Err(AttachmentError::Forbidden);
+        }
+        authorize_attachment_upload(&mut transaction, input.uploader_id, input.bytes.len()).await?;
+
+        self.attachment_store
+            .put(&storage_key, &input.bytes)
+            .await
+            .map_err(AttachmentError::Storage)?;
+        if let Err(error) = self
+            .attachment_store
+            .put(&thumbnail_key, &thumbnail_bytes)
+            .await
+        {
+            remove_object(&self.attachment_store, &storage_key).await;
+            return Err(AttachmentError::Storage(error));
+        }
+
+        let record = match sqlx::query_as::<_, DraftImageAttachmentRecord>(
+            "INSERT INTO topic_attachments
+                (id, topic_id, uploader_id, storage_key, original_name, mime_type,
+                 size_bytes, sha256, status, scan_status, scanned_at, expires_at)
+             VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, 'ready', 'clean', CURRENT_TIMESTAMP,
+                     CURRENT_TIMESTAMP + ($8::bigint * INTERVAL '1 hour'))
+             RETURNING id, original_name, mime_type, size_bytes, expires_at",
+        )
+        .bind(input.id)
+        .bind(input.uploader_id)
+        .bind(&storage_key)
+        .bind(&input.original_name)
+        .bind(&input.mime_type)
+        .bind(i64::try_from(input.bytes.len()).expect("validated size fits i64"))
+        .bind(&hash)
+        .bind(DRAFT_RETENTION_HOURS)
+        .fetch_one(&mut *transaction)
+        .await
+        {
+            Ok(record) => record,
+            Err(error) => {
+                remove_object(&self.attachment_store, &storage_key).await;
+                remove_object(&self.attachment_store, &thumbnail_key).await;
+                return Err(AttachmentError::from(error));
+            }
+        };
+
+        if let Err(error) = insert_audit(
+            &mut transaction,
+            input.uploader_id,
+            "attachment.draft.create",
+            "attachment",
+            Some(input.id),
+            json!({"mime_type": input.mime_type}),
+        )
+        .await
+        {
+            remove_object(&self.attachment_store, &storage_key).await;
+            remove_object(&self.attachment_store, &thumbnail_key).await;
+            return Err(AttachmentError::from(error));
+        }
+        if let Err(error) = transaction.commit().await {
+            remove_object(&self.attachment_store, &storage_key).await;
+            remove_object(&self.attachment_store, &thumbnail_key).await;
+            return Err(AttachmentError::from(error));
+        }
+
         Ok(record)
     }
 
@@ -490,16 +564,114 @@ struct AttachmentTopicRow {
     deleted_at: Option<OffsetDateTime>,
 }
 
+async fn authorize_attachment_upload(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    uploader_id: Uuid,
+    byte_len: usize,
+) -> Result<(), AttachmentError> {
+    let effective_at = OffsetDateTime::now_utc();
+    let upload_bytes = i64::try_from(byte_len).expect("validated size fits i64");
+    if has_instance_super_admin_role(transaction, uploader_id).await? {
+        authorize_community_action_with_executor(
+            transaction,
+            uploader_id,
+            "attachment.upload",
+            None,
+            None,
+            effective_at,
+        )
+        .await
+        .map_err(|error| match error {
+            CommunityActionError::PermissionDenied => AttachmentError::Forbidden,
+            CommunityActionError::QuotaExceeded => AttachmentError::QuotaExceeded,
+            CommunityActionError::Database(error) => AttachmentError::from(error),
+        })?;
+        return Ok(());
+    }
+    authorize_community_action_with_executor(
+        transaction,
+        uploader_id,
+        "attachment.upload",
+        Some(("attachment.upload.daily", 1)),
+        Some(("attachment.file.bytes", upload_bytes)),
+        effective_at,
+    )
+    .await
+    .map_err(|error| match error {
+        CommunityActionError::PermissionDenied => AttachmentError::Forbidden,
+        CommunityActionError::QuotaExceeded => AttachmentError::QuotaExceeded,
+        CommunityActionError::Database(error) => AttachmentError::from(error),
+    })?;
+    let storage_used = sqlx::query_scalar::<_, i64>(
+        "SELECT COALESCE(SUM(size_bytes), 0)::bigint
+         FROM topic_attachments
+         WHERE uploader_id = $1 AND deleted_at IS NULL
+           AND status IN ('pending', 'ready')",
+    )
+    .bind(uploader_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    let storage_limit = community_quota_limit_with_executor(
+        transaction,
+        uploader_id,
+        "attachment.storage.bytes",
+        effective_at,
+    )
+    .await?;
+    if storage_used
+        .checked_add(upload_bytes)
+        .is_none_or(|required| required > storage_limit)
+    {
+        return Err(AttachmentError::QuotaExceeded);
+    }
+    Ok(())
+}
+
+async fn has_instance_super_admin_role(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT EXISTS(
+             SELECT 1
+             FROM role_assignments AS assignment
+             INNER JOIN roles AS role ON role.id = assignment.role_id
+             WHERE assignment.user_id = $1
+               AND assignment.scope_id IS NULL
+               AND role.key = 'super_admin'
+         )",
+    )
+    .bind(user_id)
+    .fetch_one(&mut **transaction)
+    .await
+}
+
 fn validate_upload(input: &CreateAttachmentInput) -> Result<(), AttachmentError> {
-    if input.bytes.is_empty() || input.bytes.len() > MAX_ATTACHMENT_BYTES {
+    validate_upload_fields(&input.original_name, &input.mime_type, &input.bytes, false)
+}
+
+fn validate_draft_image_upload(
+    input: &CreateDraftImageAttachmentInput,
+) -> Result<(), AttachmentError> {
+    validate_upload_fields(&input.original_name, &input.mime_type, &input.bytes, true)
+}
+
+fn validate_upload_fields(
+    original_name: &str,
+    mime_type: &str,
+    bytes: &[u8],
+    images_only: bool,
+) -> Result<(), AttachmentError> {
+    if bytes.is_empty() || bytes.len() > MAX_ATTACHMENT_BYTES {
         return Err(AttachmentError::Invalid);
     }
-    if input.original_name.is_empty()
-        || input.original_name.len() > 255
-        || input.original_name.contains(['/', '\\'])
-        || input.original_name.chars().any(char::is_control)
-        || !allowed_mime(&input.mime_type)
-        || !signature_matches(&input.mime_type, &input.bytes)
+    if original_name.is_empty()
+        || original_name.len() > 255
+        || original_name.contains(['/', '\\'])
+        || original_name.chars().any(char::is_control)
+        || !allowed_mime(mime_type)
+        || images_only && image_format(mime_type).is_none()
+        || !signature_matches(mime_type, bytes)
     {
         return Err(AttachmentError::Invalid);
     }
@@ -550,11 +722,24 @@ fn extension_for(mime: &str) -> &'static str {
 }
 
 async fn remove_object(store: &crate::storage::AttachmentStore, key: &str) {
-    let _ = store.delete(key).await;
+    if let Err(error) = store.delete(key).await {
+        tracing::warn!(storage_key = key, error = %error, "Attachment compensation cleanup failed");
+    }
 }
 
 fn make_thumbnail(bytes: &[u8], format: ImageFormat) -> Result<Vec<u8>, AttachmentError> {
-    let reader = ImageReader::with_format(Cursor::new(bytes), format);
+    let (width, height) = ImageReader::with_format(Cursor::new(bytes), format)
+        .into_dimensions()
+        .map_err(AttachmentError::Image)?;
+    if !image_dimensions_allowed(width, height) {
+        return Err(AttachmentError::Invalid);
+    }
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_IMAGE_DIMENSION);
+    limits.max_image_height = Some(MAX_IMAGE_DIMENSION);
+    limits.max_alloc = Some(MAX_IMAGE_DECODE_BYTES);
+    reader.limits(limits);
     let image = reader.decode().map_err(AttachmentError::Image)?;
     let thumbnail = image.thumbnail(640, 640);
     let mut output = Cursor::new(Vec::new());
@@ -562,6 +747,14 @@ fn make_thumbnail(bytes: &[u8], format: ImageFormat) -> Result<Vec<u8>, Attachme
         .write_to(&mut output, ImageFormat::WebP)
         .map_err(AttachmentError::Image)?;
     Ok(output.into_inner())
+}
+
+fn image_dimensions_allowed(width: u32, height: u32) -> bool {
+    width > 0
+        && height > 0
+        && width <= MAX_IMAGE_DIMENSION
+        && height <= MAX_IMAGE_DIMENSION
+        && u64::from(width) * u64::from(height) <= MAX_IMAGE_PIXELS
 }
 
 fn sha256(bytes: &[u8]) -> Vec<u8> {
@@ -638,7 +831,7 @@ fn scan_bytes(bytes: &[u8]) -> Result<(), AttachmentError> {
     Ok(())
 }
 
-fn retention_days() -> i32 {
+pub(crate) fn retention_days() -> i32 {
     std::env::var("DAOYUN_ATTACHMENT_RETENTION_DAYS")
         .ok()
         .and_then(|value| value.parse::<i32>().ok())
@@ -737,8 +930,16 @@ mod transaction_tests {
     use sqlx::{PgPool, types::Uuid};
     use tokio::sync::Notify;
 
-    use super::Database;
+    use super::{Database, image_dimensions_allowed};
     use crate::storage::AttachmentStore;
+
+    #[test]
+    fn image_dimensions_reject_decompression_bombs() {
+        assert!(image_dimensions_allowed(6_000, 4_000));
+        assert!(!image_dimensions_allowed(12_001, 1));
+        assert!(!image_dimensions_allowed(10_000, 10_000));
+        assert!(!image_dimensions_allowed(0, 100));
+    }
 
     #[sqlx::test(migrator = "crate::MIGRATOR")]
     async fn attachment_download_releases_database_connection_before_storage_read(pool: PgPool) {

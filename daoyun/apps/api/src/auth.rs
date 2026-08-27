@@ -7,7 +7,9 @@ use api_contract::{
     PasskeyCredentialDescriptor, PasskeyCredentialParameter, PasskeyCredentialSummary,
     PasskeyDeleteData, PasskeyRegistrationOptions, PasskeyRegistrationOptionsData,
     PasskeyRegistrationVerifyRequest, PasskeyRp, PasskeyUser, RecentAuthData, RecentAuthRequest,
-    RegisterRequest, RequestId, RevokeDeviceSessionData, UnlinkExternalIdentityData, error_codes,
+    RegisterRequest, RegistrationEmailChallengeData, RegistrationEmailChallengeRequest,
+    RegistrationPolicy, RequestId, RevokeDeviceSessionData, UnlinkExternalIdentityData,
+    error_codes,
 };
 use argon2::{
     Argon2,
@@ -28,9 +30,9 @@ use email_address::EmailAddress;
 use infrastructure::{
     BindExternalIdentityError, ChangePasswordError, Database, DeletePasskeyError,
     DeviceSessionRecord, ExternalIdentityRecord, NewExternalIdentityRecord, NewMfaChallengeRecord,
-    NewPasskeyChallengeRecord, NewSessionRecord, NewUserRecord, PasskeyChallengeKind,
-    RegisterPasskeyError, RegisterUserError, SecurityAuditEvent, SessionRecord,
-    UnlinkExternalIdentityError,
+    NewPasskeyChallengeRecord, NewRegistrationEmailChallenge, NewSessionRecord, NewUserRecord,
+    PasskeyChallengeKind, RegisterPasskeyError, RegisterUserError, RegistrationEmailChallengeError,
+    SecurityAuditEvent, SessionRecord, UnlinkExternalIdentityError,
 };
 use passkey_auth::{
     AuthenticationResponse, CredentialId, PasskeyCredential, RegistrationResponse, Webauthn,
@@ -46,12 +48,15 @@ use std::{
     sync::{Arc, LazyLock, Mutex},
     time::{Duration, Instant},
 };
-use time::{OffsetDateTime, UtcOffset, format_description::well_known::Rfc3339};
+use time::{
+    Duration as TimeDuration, OffsetDateTime, UtcOffset, format_description::well_known::Rfc3339,
+};
 use tokio::sync::Semaphore;
 use url::Url;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+use crate::EmailRuntime;
 use crate::oidc::{
     OidcClaim, OidcIdentityBinding, OidcProtocolError, OidcProviderConfig, OidcRuntime,
 };
@@ -59,6 +64,8 @@ use crate::oidc::{
 const AUTH_BODY_LIMIT: usize = 4 * 1024;
 const SESSION_MAX_AGE_SECONDS: u64 = 30 * 24 * 60 * 60;
 const OIDC_TRANSACTION_MAX_AGE_SECONDS: u64 = 5 * 60;
+const REGISTRATION_CODE_EXPIRES_SECONDS: u32 = 10 * 60;
+const REGISTRATION_CODE_RESEND_SECONDS: u32 = 60;
 const MAX_TRACKED_AUTH_ATTEMPT_WINDOWS: usize = 16_384;
 const RECENT_AUTH_OPERATIONS: &[&str] = &["security.settings"];
 static PASSWORD_OPERATIONS: LazyLock<Semaphore> = LazyLock::new(|| Semaphore::new(4));
@@ -77,6 +84,8 @@ struct ValidatedRegistration {
     email: String,
     display_name: String,
     password: Zeroizing<String>,
+    email_challenge_id: Option<Uuid>,
+    email_verification_code: Option<Zeroizing<String>>,
 }
 
 pub(crate) struct SessionSecrets {
@@ -232,6 +241,11 @@ pub(crate) fn runtime(config: AuthConfig) -> AuthRuntime {
 
 pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
     Router::new()
+        .route("/api/v1/auth/registration-policy", get(registration_policy))
+        .route(
+            "/api/v1/auth/registration-email-challenges",
+            post(request_registration_email_challenge),
+        )
         .route("/api/v1/auth/register", post(register))
         .route("/api/v1/auth/login", post(login))
         .route("/api/v1/auth/mfa", get(crate::mfa::status))
@@ -317,6 +331,142 @@ async fn disable_auth_caching(mut response: Response) -> Response {
 }
 
 #[utoipa::path(
+    get,
+    path = "/api/v1/auth/registration-policy",
+    operation_id = "getRegistrationPolicy",
+    tag = "auth",
+    responses(
+        (status = 200, body = ApiResponse<RegistrationPolicy>, headers(("x-request-id" = String))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn registration_policy(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+) -> Result<Json<ApiResponse<RegistrationPolicy>>, ApiError> {
+    let required = database
+        .registration_email_verification_required()
+        .await
+        .map_err(|error| {
+            tracing::warn!(request_id = %request_id, error = %error, "Registration policy lookup failed");
+            service_unavailable(request_id)
+        })?;
+    Ok(Json(ApiResponse::new(
+        RegistrationPolicy {
+            email_verification_required: required,
+            code_expires_in_seconds: REGISTRATION_CODE_EXPIRES_SECONDS,
+            resend_after_seconds: REGISTRATION_CODE_RESEND_SECONDS,
+        },
+        request_id,
+    )))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/registration-email-challenges",
+    operation_id = "requestRegistrationEmailChallenge",
+    tag = "auth",
+    request_body = RegistrationEmailChallengeRequest,
+    responses(
+        (status = 202, body = ApiResponse<RegistrationEmailChallengeData>, headers(("x-request-id" = String))),
+        (status = 422, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 429, body = ErrorResponse, headers(("x-request-id" = String), ("retry-after" = String))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn request_registration_email_challenge(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    Extension(email_runtime): Extension<EmailRuntime>,
+    connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
+    request: Result<Json<RegistrationEmailChallengeRequest>, JsonRejection>,
+) -> Result<
+    (
+        StatusCode,
+        Json<ApiResponse<RegistrationEmailChallengeData>>,
+    ),
+    ApiError,
+> {
+    let Json(request) = request.map_err(|_| malformed_body(request_id))?;
+    let email = request.email.trim().to_ascii_lowercase();
+    if email.chars().count() > 254 || EmailAddress::from_str(&email).is_err() {
+        let mut fields = FieldErrors::new();
+        add_field_error(&mut fields, "email", "邮箱地址格式不正确");
+        return Err(validation_error(request_id, fields));
+    }
+    if let Some(retry_after) = check_rate_limit(
+        &runtime,
+        "registration-email",
+        &email,
+        connect_info.map(|Extension(ConnectInfo(address))| address.ip()),
+    ) {
+        return Err(rate_limited(request_id, retry_after));
+    }
+    let required = database
+        .registration_email_verification_required()
+        .await
+        .map_err(|error| {
+            tracing::warn!(request_id = %request_id, error = %error, "Registration email policy lookup failed");
+            email_unavailable(request_id)
+        })?;
+    if !required || !email_runtime.is_enabled() {
+        return Err(email_unavailable(request_id));
+    }
+
+    let email_registered = database.email_is_registered(&email).await.map_err(|error| {
+        tracing::warn!(request_id = %request_id, error = %error, "Registration email identity lookup failed");
+        email_unavailable(request_id)
+    })?;
+    let challenge_id = Uuid::now_v7();
+    let code = generate_registration_code();
+    let code_hash = hash_password(Zeroizing::new(code.clone()), request_id).await?;
+    let code_ciphertext = email_runtime
+        .encrypt_registration_code(challenge_id, &code)
+        .map_err(|error| {
+            tracing::warn!(request_id = %request_id, error = %error, "Registration code encryption failed");
+            email_unavailable(request_id)
+        })?;
+    let now = OffsetDateTime::now_utc();
+    let expires_at = now + TimeDuration::seconds(i64::from(REGISTRATION_CODE_EXPIRES_SECONDS));
+    let challenge = database
+        .create_registration_email_challenge(NewRegistrationEmailChallenge {
+            id: challenge_id,
+            email,
+            code_hash,
+            code_ciphertext,
+            expires_at,
+            resend_after: now
+                + TimeDuration::seconds(i64::from(REGISTRATION_CODE_RESEND_SECONDS)),
+            enqueue_delivery: !email_registered,
+        })
+        .await
+        .map_err(|error| match error {
+            RegistrationEmailChallengeError::RateLimited {
+                retry_after_seconds,
+            } => rate_limited(request_id, Duration::from_secs(retry_after_seconds)),
+            other => {
+                tracing::warn!(request_id = %request_id, error = %other, "Registration email challenge creation failed");
+                email_unavailable(request_id)
+            }
+        })?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(ApiResponse::new(
+            RegistrationEmailChallengeData {
+                challenge_id: challenge.id,
+                expires_at: challenge
+                    .expires_at
+                    .format(&Rfc3339)
+                    .expect("UTC timestamps format as RFC 3339"),
+                resend_after_seconds: REGISTRATION_CODE_RESEND_SECONDS,
+            },
+            request_id,
+        )),
+    ))
+}
+
+#[utoipa::path(
     post,
     path = "/api/v1/auth/register",
     operation_id = "registerUser",
@@ -370,7 +520,50 @@ pub(crate) async fn register(
         email,
         display_name,
         password,
+        email_challenge_id,
+        email_verification_code,
     } = input;
+    let verification_required = database
+        .registration_email_verification_required()
+        .await
+        .map_err(|error| {
+            tracing::warn!(request_id = %request_id, error = %error, "Registration email policy lookup failed");
+            service_unavailable(request_id)
+        })?;
+    let verified_challenge_id = if verification_required {
+        let (Some(challenge_id), Some(code)) = (email_challenge_id, email_verification_code) else {
+            return Err(email_verification_invalid(request_id));
+        };
+        let challenge = database
+            .get_registration_email_challenge(challenge_id)
+            .await
+            .map_err(|error| {
+                tracing::warn!(request_id = %request_id, error = %error, "Registration email challenge lookup failed");
+                service_unavailable(request_id)
+            })?
+            .ok_or_else(|| email_verification_invalid(request_id))?;
+        let challenge_valid = challenge.email == email
+            && challenge.delivered_at.is_some()
+            && challenge.consumed_at.is_none()
+            && challenge.attempts < 5
+            && challenge.expires_at > OffsetDateTime::now_utc();
+        let code_valid = if challenge_valid {
+            verify_password(code, challenge.code_hash, request_id).await?
+        } else {
+            false
+        };
+        if !code_valid {
+            if challenge_valid {
+                let _ = database
+                    .record_registration_email_challenge_failure(challenge_id, &email)
+                    .await;
+            }
+            return Err(email_verification_invalid(request_id));
+        }
+        Some(challenge_id)
+    } else {
+        None
+    };
     let password_hash = hash_password(password, request_id).await?;
     let user = AuthenticatedUser {
         id: Uuid::now_v7(),
@@ -387,22 +580,32 @@ pub(crate) async fn register(
         password_hash,
     };
     let secrets = new_session_secrets();
-    match database
-        .register_user_with_session(
-            record,
-            NewSessionRecord {
-                id: Uuid::now_v7(),
-                token_hash: token_hash(&secrets.session_token),
-                csrf_token_hash: token_hash(&secrets.csrf_token),
-                device_label: device_label(&headers),
-            },
-        )
-        .await
-    {
+    let session = NewSessionRecord {
+        id: Uuid::now_v7(),
+        token_hash: token_hash(&secrets.session_token),
+        csrf_token_hash: token_hash(&secrets.csrf_token),
+        device_label: device_label(&headers),
+    };
+    let registration = if let Some(challenge_id) = verified_challenge_id {
+        database
+            .register_user_with_session_and_email_challenge(
+                record,
+                session,
+                challenge_id,
+                user.email.clone(),
+            )
+            .await
+    } else {
+        database.register_user_with_session(record, session).await
+    };
+    match registration {
         Ok(()) => {}
         Err(RegisterUserError::NotInitialized) => return Err(not_ready(request_id)),
         Err(RegisterUserError::IdentityUnavailable) => {
             return Err(identity_unavailable(request_id));
+        }
+        Err(RegisterUserError::EmailVerificationInvalid) => {
+            return Err(email_verification_invalid(request_id));
         }
         Err(RegisterUserError::Database(error)) => {
             tracing::warn!(request_id = %request_id, error = %error, "Registration transaction failed");
@@ -1261,6 +1464,8 @@ pub(crate) async fn create_oidc_claim_account(
         email: request.email,
         display_name: request.display_name,
         password: request.password,
+        email_challenge_id: None,
+        email_verification_code: None,
     })
     .map_err(|fields| validation_error(request_id, fields))?;
     let token = cookie_value(&headers, runtime.oidc_claim_cookie_name())
@@ -1319,6 +1524,9 @@ pub(crate) async fn create_oidc_claim_account(
         Err(RegisterUserError::NotInitialized) => return Err(not_ready(request_id)),
         Err(RegisterUserError::IdentityUnavailable) => {
             return Err(identity_unavailable(request_id));
+        }
+        Err(RegisterUserError::EmailVerificationInvalid) => {
+            return Err(service_unavailable(request_id));
         }
         Err(RegisterUserError::Database(error)) => {
             tracing::warn!(request_id = %request_id, error = %error, "OIDC claim account transaction failed");
@@ -2502,9 +2710,11 @@ async fn verify_password(
 fn validate_registration(request: RegisterRequest) -> Result<ValidatedRegistration, FieldErrors> {
     let mut fields = FieldErrors::new();
     let username = request.username;
-    let email = request.email.trim().to_owned();
+    let email = request.email.trim().to_ascii_lowercase();
     let display_name = request.display_name.trim().to_owned();
     let password = Zeroizing::new(request.password);
+    let email_challenge_id = request.email_challenge_id;
+    let email_verification_code = request.email_verification_code.map(Zeroizing::new);
 
     if !valid_username(&username) {
         add_field_error(
@@ -2531,6 +2741,16 @@ fn validate_registration(request: RegisterRequest) -> Result<ValidatedRegistrati
             "密码长度必须在 6 到 128 个字符之间",
         );
     }
+    if email_verification_code
+        .as_deref()
+        .is_some_and(|code| code.len() != 6 || !code.as_bytes().iter().all(u8::is_ascii_digit))
+    {
+        add_field_error(
+            &mut fields,
+            "email_verification_code",
+            "邮箱验证码必须是 6 位数字",
+        );
+    }
 
     if fields.is_empty() {
         Ok(ValidatedRegistration {
@@ -2538,6 +2758,8 @@ fn validate_registration(request: RegisterRequest) -> Result<ValidatedRegistrati
             email,
             display_name,
             password,
+            email_challenge_id,
+            email_verification_code,
         })
     } else {
         Err(fields)
@@ -2827,6 +3049,17 @@ pub(crate) fn random_token() -> String {
     let mut bytes = [0_u8; 32];
     OsRng.fill_bytes(&mut bytes);
     encode_hex(&bytes)
+}
+
+fn generate_registration_code() -> String {
+    const RANGE: u32 = 1_000_000;
+    const ACCEPT_BELOW: u32 = u32::MAX - (u32::MAX % RANGE);
+    loop {
+        let value = OsRng.next_u32();
+        if value < ACCEPT_BELOW {
+            return format!("{:06}", value % RANGE);
+        }
+    }
 }
 
 fn encode_hex(bytes: &[u8]) -> String {
@@ -3151,6 +3384,28 @@ fn identity_unavailable(request_id: RequestId) -> ApiError {
         ErrorBody::new(
             ErrorCode::from_static(error_codes::AUTH_IDENTITY_UNAVAILABLE),
             "用户名或邮箱暂不可用",
+        ),
+        request_id,
+    )
+}
+
+fn email_verification_invalid(request_id: RequestId) -> ApiError {
+    error(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        ErrorBody::new(
+            ErrorCode::from_static(error_codes::AUTH_EMAIL_VERIFICATION_INVALID),
+            "邮箱验证码无效或已过期，请重新获取",
+        ),
+        request_id,
+    )
+}
+
+fn email_unavailable(request_id: RequestId) -> ApiError {
+    error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        ErrorBody::new(
+            ErrorCode::from_static(error_codes::AUTH_EMAIL_UNAVAILABLE),
+            "邮件服务暂时不可用，请稍后重试",
         ),
         request_id,
     )

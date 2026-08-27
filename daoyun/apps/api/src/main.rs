@@ -1,9 +1,9 @@
 use daoyun_api::{
-    AuthConfig, CacheConfig, MfaRuntime, ObservabilityConfig, OperationsAlertWorker,
+    AuthConfig, CacheConfig, EmailRuntime, MfaRuntime, ObservabilityConfig, OperationsAlertWorker,
     OperationsAlertWorkerConfig, OutboxHandler, OutboxWorker, OutboxWorkerConfig,
-    PluginBusinessWorker, PluginBusinessWorkerConfig, PluginRuntime,
+    PluginBusinessWorker, PluginBusinessWorkerConfig, PluginRuntime, RegistrationEmailHandler,
     SiteBrandingCacheInvalidationHandler, UserRestrictionWorker, UserRestrictionWorkerConfig,
-    app_with_all_runtimes,
+    app_with_all_runtimes_and_email,
 };
 use infrastructure::Database;
 use std::{net::SocketAddr, sync::Arc};
@@ -11,6 +11,8 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    daoyun_api::install_rustls_crypto_provider();
+
     // Source: https://docs.rs/tracing-subscriber/0.3.23/tracing_subscriber/filter/struct.EnvFilter.html#method.try_from_default_env
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt().with_env_filter(filter).init();
@@ -26,20 +28,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cache_enabled = cache_config.is_enabled();
     let cache = cache_config.build()?;
     let mfa = MfaRuntime::from_environment()?;
+    let email = EmailRuntime::from_environment()?;
     let observability = ObservabilityConfig::from_environment()?.build()?;
     let plugins = PluginRuntime::from_environment()?;
     tracing::info!(
         redis_cache_enabled = cache_enabled,
         mfa_enabled = mfa.is_enabled(),
+        smtp_encryption_enabled = email.is_enabled(),
         metrics_enabled = observability.metrics_enabled(),
         traces_enabled = observability.traces_enabled(),
         plugins_enabled = plugins.is_enabled(),
         "Application runtimes configured"
     );
 
-    let handlers: Vec<Arc<dyn OutboxHandler>> = vec![Arc::new(
-        SiteBrandingCacheInvalidationHandler::new(cache.clone()),
-    )];
+    let handlers: Vec<Arc<dyn OutboxHandler>> = vec![
+        Arc::new(SiteBrandingCacheInvalidationHandler::new(cache.clone())),
+        Arc::new(RegistrationEmailHandler::new(
+            database.clone(),
+            email.clone(),
+        )),
+    ];
     let worker = OutboxWorker::new(database.clone(), handlers, OutboxWorkerConfig::default())?;
     let operations_worker = OperationsAlertWorker::new(
         database.clone(),
@@ -79,13 +87,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Source: https://docs.rs/axum/0.8.9/axum/routing/struct.Router.html#method.into_make_service_with_connect_info
     let server = axum::serve(
         listener,
-        app_with_all_runtimes(
+        app_with_all_runtimes_and_email(
             database,
             auth_config,
             cache,
             mfa,
             observability.clone(),
             plugins,
+            email,
         )
         .into_make_service_with_connect_info::<SocketAddr>(),
     )

@@ -357,6 +357,196 @@ async fn attachment_upload_validates_signature_persists_metadata_and_lists_publi
     assert_eq!(response_json(cleanup).await["data"]["deleted_records"], 1);
 }
 
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn draft_image_upload_is_private_image_only_and_expires(pool: PgPool) {
+    let config = daoyun_api::AuthConfig::default().with_secure_cookies(false);
+    let app = daoyun_api::app_with_config(Database::from_pool(pool.clone()), config);
+    let (cookies, csrf) = register_member(&app).await;
+
+    let anonymous = app
+        .clone()
+        .oneshot(draft_upload_request(
+            ONE_BY_ONE_PNG,
+            "image/png",
+            "anonymous.png",
+            "",
+            "",
+        ))
+        .await
+        .expect("anonymous draft upload must respond");
+    assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
+
+    let non_image = app
+        .clone()
+        .oneshot(draft_upload_request(
+            b"plain text",
+            "text/plain",
+            "notes.txt",
+            &cookies,
+            &csrf,
+        ))
+        .await
+        .expect("non-image draft upload must respond");
+    assert_eq!(non_image.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let uploaded = app
+        .clone()
+        .oneshot(draft_upload_request(
+            ONE_BY_ONE_PNG,
+            "image/png",
+            "%E9%85%8D%E5%9B%BE.png",
+            &cookies,
+            &csrf,
+        ))
+        .await
+        .expect("draft image upload must respond");
+    assert_eq!(uploaded.status(), StatusCode::CREATED);
+    let payload = response_json(uploaded).await;
+    assert_eq!(payload["data"]["mime_type"], "image/png");
+    assert_eq!(payload["data"]["original_name"], "配图.png");
+    assert_eq!(payload["data"]["size_bytes"], ONE_BY_ONE_PNG.len());
+    assert!(payload["data"].get("topic_id").is_none());
+    assert!(payload["data"]["expires_at"].as_str().is_some());
+    let attachment_id = payload["data"]["id"]
+        .as_str()
+        .expect("draft attachment id must exist");
+
+    let stored = sqlx::query_as::<_, (Option<uuid::Uuid>, String, bool)>(
+        "SELECT topic_id, storage_key, expires_at <= CURRENT_TIMESTAMP + INTERVAL '25 hours'
+         FROM topic_attachments WHERE id = $1",
+    )
+    .bind(uuid::Uuid::parse_str(attachment_id).expect("draft attachment id must be valid"))
+    .fetch_one(&pool)
+    .await
+    .expect("draft attachment row must exist");
+    assert_eq!(stored.0, None);
+    assert!(stored.1.starts_with("drafts/"));
+    assert!(stored.2);
+
+    let hidden = app
+        .clone()
+        .oneshot(get_request(&format!(
+            "/api/v1/attachments/{attachment_id}/thumbnail"
+        )))
+        .await
+        .expect("draft thumbnail request must respond");
+    assert_eq!(hidden.status(), StatusCode::NOT_FOUND);
+
+    let topic = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/topics",
+            json!({
+                "title": "带图片的主题",
+                "content": "图片正文",
+                "rich_content": {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"type": "text", "text": "图片正文"}]
+                        },
+                        {
+                            "type": "image",
+                            "attrs": {"attachmentId": attachment_id, "alt": "内嵌图片"}
+                        }
+                    ]
+                }
+            }),
+            &cookies,
+            &csrf,
+        ))
+        .await
+        .expect("topic with draft image must respond");
+    let topic_status = topic.status();
+    let topic_payload = response_json(topic).await;
+    assert_eq!(topic_status, StatusCode::CREATED, "{topic_payload}");
+    let topic_id = topic_payload["data"]["id"]
+        .as_str()
+        .expect("created topic id must exist")
+        .to_owned();
+
+    let bound_topic_id = sqlx::query_scalar::<_, Option<uuid::Uuid>>(
+        "SELECT topic_id FROM topic_attachments WHERE id = $1",
+    )
+    .bind(uuid::Uuid::parse_str(attachment_id).expect("attachment id must remain valid"))
+    .fetch_one(&pool)
+    .await
+    .expect("bound attachment must remain stored");
+    assert_eq!(
+        bound_topic_id,
+        Some(uuid::Uuid::parse_str(&topic_id).expect("topic id must be valid"))
+    );
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn super_admin_uploads_keep_system_validation_but_bypass_attachment_business_quotas(
+    pool: PgPool,
+) {
+    let config = daoyun_api::AuthConfig::default().with_secure_cookies(false);
+    let app = daoyun_api::app_with_config(Database::from_pool(pool.clone()), config);
+    let (member_cookies, member_csrf) = register_member(&app).await;
+    let (owner_cookies, owner_csrf) = login_owner(&app).await;
+
+    sqlx::query(
+        "UPDATE community_group_quota_rules
+         SET quota_value = 0
+         WHERE group_id = (
+             SELECT id FROM community_groups WHERE internal_key = 'registered_member'
+         ) AND quota_key IN (
+             'attachment.upload.daily',
+             'attachment.file.bytes',
+             'attachment.storage.bytes'
+         )",
+    )
+    .execute(&pool)
+    .await
+    .expect("attachment quota fixture must update");
+
+    let member_upload = app
+        .clone()
+        .oneshot(draft_upload_request(
+            ONE_BY_ONE_PNG,
+            "image/png",
+            "member.png",
+            &member_cookies,
+            &member_csrf,
+        ))
+        .await
+        .expect("regular member upload must respond");
+
+    assert_eq!(member_upload.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    let uploaded = app
+        .clone()
+        .oneshot(draft_upload_request(
+            ONE_BY_ONE_PNG,
+            "image/png",
+            "owner.png",
+            &owner_cookies,
+            &owner_csrf,
+        ))
+        .await
+        .expect("super administrator upload must respond");
+
+    assert_eq!(uploaded.status(), StatusCode::CREATED);
+
+    let invalid = app
+        .clone()
+        .oneshot(draft_upload_request(
+            b"not an image",
+            "image/png",
+            "invalid.png",
+            &owner_cookies,
+            &owner_csrf,
+        ))
+        .await
+        .expect("invalid super administrator upload must respond");
+
+    assert_eq!(invalid.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
 async fn register_member(app: &axum::Router) -> (String, String) {
     let installation = app
         .clone()
@@ -431,6 +621,29 @@ fn upload_request(
         .header("x-file-name", name)
         .body(Body::from(body.to_vec()))
         .expect("upload request must be valid")
+}
+
+fn draft_upload_request(
+    body: &[u8],
+    mime: &str,
+    name: &str,
+    cookies: &str,
+    csrf: &str,
+) -> Request<Body> {
+    let mut builder = Request::builder()
+        .method(Method::POST)
+        .uri("/api/v1/attachments/drafts")
+        .header("content-type", mime)
+        .header("x-file-name", name);
+    if !cookies.is_empty() {
+        builder = builder.header("cookie", cookies);
+    }
+    if !csrf.is_empty() {
+        builder = builder.header("x-csrf-token", csrf);
+    }
+    builder
+        .body(Body::from(body.to_vec()))
+        .expect("draft upload request must be valid")
 }
 
 fn json_request(

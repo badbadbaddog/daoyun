@@ -1,11 +1,13 @@
-import { Fingerprint, LogIn, UserPlus, X } from "lucide-react"
+import { Fingerprint, LogIn, MailCheck, UserPlus, X } from "lucide-react"
 import { forwardRef, useEffect, useRef, useState } from "react"
 
 import {
   AuthApiError,
   MfaChallengeRequiredError,
+  getRegistrationPolicy,
   login,
   register,
+  requestRegistrationEmailChallenge,
   startPasskeyAssertion,
   verifyPasskeyAssertion,
   verifyMfaChallenge,
@@ -29,6 +31,12 @@ export function AuthPanel({ open, mode, onClose, onAuthenticated }: AuthPanelPro
   const [email, setEmail] = useState("")
   const [displayName, setDisplayName] = useState("")
   const [password, setPassword] = useState("")
+  const [emailVerificationRequired, setEmailVerificationRequired] = useState(false)
+  const [emailChallengeId, setEmailChallengeId] = useState("")
+  const [emailVerificationCode, setEmailVerificationCode] = useState("")
+  const [requestingCode, setRequestingCode] = useState(false)
+  const [resendSeconds, setResendSeconds] = useState(0)
+  const [codeMessage, setCodeMessage] = useState("")
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [formError, setFormError] = useState("")
   const [submitting, setSubmitting] = useState(false)
@@ -44,6 +52,30 @@ export function AuthPanel({ open, mode, onClose, onAuthenticated }: AuthPanelPro
     setMfaChallenge(null)
     setMfaCode("")
   }, [mode, open])
+
+  useEffect(() => {
+    if (!open || currentMode !== "register") {
+      return
+    }
+
+    const controller = new AbortController()
+    void getRegistrationPolicy(controller.signal)
+      .then((policy) => setEmailVerificationRequired(policy.emailVerificationRequired))
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setFormError("注册设置暂时无法加载，请稍后重试")
+        }
+      })
+    return () => controller.abort()
+  }, [currentMode, open])
+
+  useEffect(() => {
+    if (resendSeconds <= 0) {
+      return
+    }
+    const timer = window.setInterval(() => setResendSeconds((value) => Math.max(0, value - 1)), 1_000)
+    return () => window.clearInterval(timer)
+  }, [resendSeconds])
 
   useEffect(() => {
     if (!open) {
@@ -74,6 +106,10 @@ export function AuthPanel({ open, mode, onClose, onAuthenticated }: AuthPanelPro
     setCurrentMode(nextMode)
     setFieldErrors({})
     setFormError("")
+    setEmailChallengeId("")
+    setEmailVerificationCode("")
+    setResendSeconds(0)
+    setCodeMessage("")
   }
 
   function validate(): FieldErrors {
@@ -84,6 +120,11 @@ export function AuthPanel({ open, mode, onClose, onAuthenticated }: AuthPanelPro
       }
       if (!/^[^\s@]+@[^\s@]+$/.test(email) || countCharacters(email) > 254) {
         errors.email = ["请输入有效的邮箱地址"]
+      }
+      if (emailVerificationRequired && !emailChallengeId) {
+        errors.email_verification_code = ["请先发送邮箱验证码"]
+      } else if (emailVerificationRequired && !/^\d{6}$/.test(emailVerificationCode)) {
+        errors.email_verification_code = ["请输入 6 位邮箱验证码"]
       }
       if (countCharacters(displayName.trim()) < 1 || countCharacters(displayName.trim()) > 80) {
         errors.display_name = ["显示名称需为 1-80 个字符"]
@@ -116,7 +157,16 @@ export function AuthPanel({ open, mode, onClose, onAuthenticated }: AuthPanelPro
     setSubmitting(true)
     try {
       const session = isRegister
-        ? await register({ username, email, displayName, password })
+        ? await register({
+            username,
+            email,
+            displayName,
+            password,
+            ...(emailVerificationRequired ? {
+              emailChallengeId,
+              emailVerificationCode,
+            } : {}),
+          })
         : await login({ identifier, password })
       onAuthenticated(session)
     } catch (error) {
@@ -131,6 +181,39 @@ export function AuthPanel({ open, mode, onClose, onAuthenticated }: AuthPanelPro
       }
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  function changeEmail(value: string) {
+    setEmail(value)
+    setEmailChallengeId("")
+    setEmailVerificationCode("")
+    setResendSeconds(0)
+    setCodeMessage("")
+  }
+
+  async function requestEmailCode() {
+    if (requestingCode || resendSeconds > 0) {
+      return
+    }
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+$/.test(normalizedEmail) || countCharacters(normalizedEmail) > 254) {
+      setFieldErrors((current) => ({ ...current, email: ["请输入有效的邮箱地址"] }))
+      return
+    }
+
+    setRequestingCode(true)
+    setFieldErrors((current) => ({ ...current, email: [], email_verification_code: [] }))
+    setFormError("")
+    try {
+      const challenge = await requestRegistrationEmailChallenge(normalizedEmail)
+      setEmailChallengeId(challenge.challengeId)
+      setResendSeconds(challenge.resendAfterSeconds)
+      setCodeMessage("如果该邮箱可用于注册，验证码已发送，请检查收件箱。")
+    } catch (error) {
+      setFormError(error instanceof AuthApiError ? error.message : "验证码暂时无法发送，请稍后重试")
+    } finally {
+      setRequestingCode(false)
     }
   }
 
@@ -242,11 +325,44 @@ export function AuthPanel({ open, mode, onClose, onAuthenticated }: AuthPanelPro
                 label="邮箱"
                 type="email"
                 value={email}
-                onChange={setEmail}
+                onChange={changeEmail}
                 error={inputError("email")}
                 describedBy={describedBy("email")}
                 autoComplete="email"
               />
+              {emailVerificationRequired && (
+                <div className="auth-email-verification">
+                  <div className="auth-email-verification__heading">
+                    <span><MailCheck size={15} aria-hidden="true" />邮箱验证</span>
+                    <button
+                      className="secondary-button auth-email-verification__send"
+                      type="button"
+                      disabled={requestingCode || resendSeconds > 0}
+                      onClick={() => void requestEmailCode()}
+                    >
+                      {requestingCode
+                        ? "正在发送"
+                        : resendSeconds > 0
+                          ? `${resendSeconds} 秒后重发`
+                          : emailChallengeId
+                            ? "重新发送"
+                            : "发送验证码"}
+                    </button>
+                  </div>
+                  <AuthField
+                    id="auth-email-verification-code"
+                    label="邮箱验证码"
+                    value={emailVerificationCode}
+                    onChange={(value) => setEmailVerificationCode(value.replace(/\D/g, "").slice(0, 6))}
+                    error={inputError("email_verification_code")}
+                    describedBy={describedBy("email_verification_code")}
+                    autoComplete="one-time-code"
+                    inputMode="numeric"
+                    maxLength={6}
+                  />
+                  {codeMessage && <p className="auth-form__hint" role="status">{codeMessage}</p>}
+                </div>
+              )}
               <AuthField
                 id="auth-display-name"
                 label="显示名称"
@@ -308,6 +424,8 @@ interface AuthFieldProps {
   describedBy?: string
   autoComplete?: string
   autoFocus?: boolean
+  inputMode?: "numeric"
+  maxLength?: number
 }
 
 const AuthField = forwardRef<HTMLInputElement, AuthFieldProps>(function AuthField({
@@ -320,6 +438,8 @@ const AuthField = forwardRef<HTMLInputElement, AuthFieldProps>(function AuthFiel
   describedBy,
   autoComplete,
   autoFocus,
+  inputMode,
+  maxLength,
 }, ref) {
   return (
     <div className="auth-field">
@@ -331,6 +451,8 @@ const AuthField = forwardRef<HTMLInputElement, AuthFieldProps>(function AuthFiel
         value={value}
         autoComplete={autoComplete}
         autoFocus={autoFocus}
+        inputMode={inputMode}
+        maxLength={maxLength}
         aria-invalid={error ? "true" : undefined}
         aria-describedby={describedBy}
         onChange={(event) => onChange(event.target.value)}

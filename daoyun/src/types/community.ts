@@ -1,4 +1,4 @@
-export type FeedFilter = "latest" | "hot" | "featured" | "following"
+export type FeedFilter = "latest" | "active" | "hot" | "featured" | "following"
 export type BoardIcon = "code" | "layout" | "aperture" | "messages"
 export type BoardTone = "green" | "blue" | "amber" | "rose"
 

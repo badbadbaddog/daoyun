@@ -491,13 +491,14 @@ async fn insert_topic(pool: &PgPool, id: Uuid, board_id: Uuid, author_id: Uuid) 
 
 async fn insert_reply(pool: &PgPool, id: Uuid, topic_id: Uuid, author_id: Uuid, status: &str) {
     sqlx::query(
-        "INSERT INTO posts (id, topic_id, author_id, kind, content, status) \
-         VALUES ($1, $2, $3, 'reply', 'Reply', $4)",
+        "INSERT INTO posts (id, topic_id, author_id, kind, content, status, floor_number) \
+         VALUES ($1, $2, $3, 'reply', 'Reply', $4, $5)",
     )
     .bind(id)
     .bind(topic_id)
     .bind(author_id)
     .bind(status)
+    .bind(i64::try_from(id.as_u128() & 0x7fff_ffff).expect("fixture floor must fit i64"))
     .execute(pool)
     .await
     .expect("reply fixture must insert");

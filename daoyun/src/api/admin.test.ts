@@ -7,6 +7,7 @@ import {
   createAdminBoard,
   createAdminGrowthLevel,
   deleteBrandAsset,
+  deleteAdminGrowthLevel,
   deleteAuthorizationAssignment,
   deleteAuthorizationRole,
   getAdminAccess,
@@ -15,6 +16,7 @@ import {
   getMembershipLevelRules,
   getGovernancePolicy,
   getAdminSiteBranding,
+  getSmtpSettings,
   grantMembershipPoints,
   listMembershipMedalOperations,
   listAuthorizationAssignments,
@@ -30,6 +32,8 @@ import {
   updateAuthorizationRole,
   updateRiskAlert,
   updateSiteBranding,
+  updateSmtpSettings,
+  testSmtpSettings,
   uploadBrandAsset,
   revokeMembershipMedal,
 } from "./admin"
@@ -260,6 +264,7 @@ describe("admin API", () => {
       .mockResolvedValueOnce(jsonResponse({ data: [growthLevelDto(growthLevelId)], meta: { request_id: requestId } }))
       .mockResolvedValueOnce(jsonResponse({ data: growthLevelDto(growthLevelId), meta: { request_id: requestId } }, 201))
       .mockResolvedValueOnce(jsonResponse({ data: { ...growthLevelDto(growthLevelId), display_name: "行者", revision: 2, status: "published" }, meta: { request_id: requestId } }))
+      .mockResolvedValueOnce(jsonResponse({ data: true, meta: { request_id: requestId } }))
 
     await expect(getAdminGrowthLevels()).resolves.toEqual([
       expect.objectContaining({ id: growthLevelId, internalKey: "traveler", levelOrder: 2, requiredExperience: 100, status: "draft" }),
@@ -283,6 +288,7 @@ describe("admin API", () => {
       description: "完成首次成长阶段",
       status: "published",
     }, "csrf")
+    await expect(deleteAdminGrowthLevel(growthLevelId, "csrf")).resolves.toBe(true)
 
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/admin/membership/levels", expect.objectContaining({
       method: "POST",
@@ -293,6 +299,66 @@ describe("admin API", () => {
       method: "PATCH",
       headers: expect.objectContaining({ "x-csrf-token": "csrf" }),
       body: JSON.stringify({ expected_revision: 1, level_order: 2, display_name: "行者", required_experience: 100, icon_asset_id: null, color: "#1f8f5f", description: "完成首次成长阶段", status: "published" }),
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(4, `/api/v1/admin/membership/levels/${growthLevelId}`, expect.objectContaining({
+      method: "DELETE",
+      credentials: "include",
+      headers: expect.objectContaining({ "x-csrf-token": "csrf" }),
+    }))
+  })
+
+  it("maps, updates, and tests SMTP settings without reading a password", async () => {
+    const smtp = {
+      host: "smtp.example.com",
+      port: 587,
+      username: "mailer",
+      password_configured: true,
+      tls_mode: "starttls",
+      from_email: "noreply@example.com",
+      from_name: "DaoYun",
+      enabled: true,
+      registration_email_verification_enabled: true,
+    }
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ data: smtp, meta: { request_id: requestId } }))
+      .mockResolvedValueOnce(jsonResponse({ data: smtp, meta: { request_id: requestId } }))
+      .mockResolvedValueOnce(jsonResponse({ data: true, meta: { request_id: requestId } }))
+
+    await expect(getSmtpSettings()).resolves.toMatchObject({
+      host: "smtp.example.com",
+      passwordConfigured: true,
+      tlsMode: "starttls",
+    })
+    await updateSmtpSettings({
+      host: "smtp.example.com",
+      port: 587,
+      username: "mailer",
+      password: "super-secret",
+      clearPassword: false,
+      tlsMode: "starttls",
+      fromEmail: "noreply@example.com",
+      fromName: "DaoYun",
+      enabled: true,
+      registrationEmailVerificationEnabled: true,
+    }, "csrf")
+    await expect(testSmtpSettings("owner@example.com", "csrf")).resolves.toBe(true)
+
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({
+      host: "smtp.example.com",
+      port: 587,
+      username: "mailer",
+      password: "super-secret",
+      clear_password: false,
+      tls_mode: "starttls",
+      from_email: "noreply@example.com",
+      from_name: "DaoYun",
+      enabled: true,
+      registration_email_verification_enabled: true,
+    })
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/v1/admin/smtp-settings/test", expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ "x-csrf-token": "csrf" }),
+      body: JSON.stringify({ recipient_email: "owner@example.com" }),
     }))
   })
 

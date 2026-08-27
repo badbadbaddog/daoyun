@@ -10,6 +10,8 @@ pub mod error_codes {
     pub const AUTH_CURRENT_SESSION: &str = "auth.current_session";
     pub const AUTH_IDENTITY_UNAVAILABLE: &str = "auth.identity_unavailable";
     pub const AUTH_IDENTITY_NOT_FOUND: &str = "auth.identity_not_found";
+    pub const AUTH_EMAIL_UNAVAILABLE: &str = "auth.email_unavailable";
+    pub const AUTH_EMAIL_VERIFICATION_INVALID: &str = "auth.email_verification_invalid";
     pub const AUTH_INVALID_CREDENTIALS: &str = "auth.invalid_credentials";
     pub const AUTH_MFA_ALREADY_ENABLED: &str = "auth.mfa_already_enabled";
     pub const AUTH_MFA_CHALLENGE_REQUIRED: &str = "auth.mfa_challenge_required";

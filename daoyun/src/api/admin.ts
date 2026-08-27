@@ -34,6 +34,33 @@ export interface SiteBranding {
 
 export interface SiteBrandingInput extends SiteBranding {}
 
+export type SmtpTlsMode = "tls" | "starttls" | "none"
+
+export interface SmtpSettings {
+  host: string
+  port: number
+  username: string | null
+  passwordConfigured: boolean
+  tlsMode: SmtpTlsMode
+  fromEmail: string
+  fromName: string
+  enabled: boolean
+  registrationEmailVerificationEnabled: boolean
+}
+
+export interface SmtpSettingsInput {
+  host: string
+  port: number
+  username: string | null
+  password: string
+  clearPassword: boolean
+  tlsMode: SmtpTlsMode
+  fromEmail: string
+  fromName: string
+  enabled: boolean
+  registrationEmailVerificationEnabled: boolean
+}
+
 export interface AdminBoard {
   id: string
   parentId: string | null
@@ -89,6 +116,62 @@ export interface MembershipLevelRule {
   requiredLifetimePoints: number
   enabled: boolean
   updatedAt: string
+}
+
+export type CommunityGroupStatus = components["schemas"]["CommunityGroupStatus"]
+
+export interface AdminCommunityGroup {
+  id: string
+  internalKey: string
+  displayName: string
+  description: string
+  displayOrder: number
+  isBase: boolean
+  isDefault: boolean
+  status: CommunityGroupStatus
+  permissionKeys: string[]
+  quotas: Record<string, number>
+  revision: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface UpdateAdminCommunityGroupInput {
+  expectedRevision: number
+  displayName: string
+  description: string
+  displayOrder: number
+  status: CommunityGroupStatus
+  permissionKeys: string[]
+  quotas: Record<string, number>
+}
+
+export interface AdminCommunityGroupMembership {
+  id: string
+  userId: string
+  group: { id: string; internalKey: string; displayName: string }
+  membershipKind: "base" | "additional"
+  source: string
+  sourceReferenceId: string | null
+  reason: string
+  startsAt: string
+  endsAt: string | null
+  revokedAt: string | null
+  revocationReason: string | null
+  revision: number
+}
+
+export interface GrantAdminCommunityGroupMembershipInput {
+  userId: string
+  groupId: string
+  reason: string
+  startsAt: string
+  idempotencyKey: string
+}
+
+export interface CommunityGroupMembershipMutation {
+  membership: AdminCommunityGroupMembership
+  replayed: boolean
 }
 
 export type GrowthLevelStatus = components["schemas"]["GrowthLevelStatus"]
@@ -541,6 +624,141 @@ export async function getAdminGrowthLevels(signal?: AbortSignal): Promise<AdminG
   return parseResponse<AdminGrowthLevel[]>(response, (value): value is AdminGrowthLevelDto[] => Array.isArray(value) && value.every(isAdminGrowthLevelDto))
 }
 
+export async function getSmtpSettings(signal?: AbortSignal): Promise<SmtpSettings> {
+  const response = await fetch("/api/v1/admin/smtp-settings", {
+    headers: { Accept: "application/json" }, credentials: "include", signal,
+  })
+  return parseResponse(response, isSmtpSettingsDto)
+}
+
+export async function updateSmtpSettings(input: SmtpSettingsInput, csrfToken: string, signal?: AbortSignal): Promise<SmtpSettings> {
+  const response = await fetch("/api/v1/admin/smtp-settings", {
+    method: "PATCH",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken },
+    credentials: "include",
+    body: JSON.stringify({
+      host: input.host,
+      port: input.port,
+      username: input.username,
+      ...(input.password ? { password: input.password } : {}),
+      clear_password: input.clearPassword,
+      tls_mode: input.tlsMode,
+      from_email: input.fromEmail,
+      from_name: input.fromName,
+      enabled: input.enabled,
+      registration_email_verification_enabled: input.registrationEmailVerificationEnabled,
+    }),
+    signal,
+  })
+  return parseResponse(response, isSmtpSettingsDto)
+}
+
+export async function testSmtpSettings(recipientEmail: string, csrfToken: string, signal?: AbortSignal): Promise<boolean> {
+  const response = await fetch("/api/v1/admin/smtp-settings/test", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken },
+    credentials: "include",
+    body: JSON.stringify({ recipient_email: recipientEmail }),
+    signal,
+  })
+  return parseResponse(response, (value): value is boolean => value === true)
+}
+
+export async function listAdminCommunityGroups(signal?: AbortSignal): Promise<AdminCommunityGroup[]> {
+  const response = await fetch("/api/v1/admin/community/groups", {
+    headers: { Accept: "application/json" },
+    credentials: "include",
+    signal,
+  })
+  return parseResponse<AdminCommunityGroup[]>(response, (value): value is AdminCommunityGroupDto[] => Array.isArray(value) && value.every(isAdminCommunityGroupDto))
+}
+
+export async function updateAdminCommunityGroup(groupId: string, input: UpdateAdminCommunityGroupInput, csrfToken: string, signal?: AbortSignal): Promise<AdminCommunityGroup> {
+  if (!uuidPattern.test(groupId)) throw new AdminApiError(422, "validation.failed", "用户组标识格式无效")
+  const body: UpdateCommunityGroupRequestDto = {
+    expected_revision: input.expectedRevision,
+    display_name: input.displayName,
+    description: input.description,
+    display_order: input.displayOrder,
+    status: input.status,
+    permission_keys: input.permissionKeys,
+    quotas: input.quotas,
+  }
+  const response = await fetch(`/api/v1/admin/community/groups/${encodeURIComponent(groupId)}`, {
+    method: "PATCH",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken },
+    credentials: "include",
+    body: JSON.stringify(body),
+    signal,
+  })
+  return parseResponse(response, isAdminCommunityGroupDto)
+}
+
+export async function setAdminDefaultCommunityGroup(groupId: string, expectedDefaultGroupId: string, expectedDefaultRevision: number, csrfToken: string, signal?: AbortSignal): Promise<AdminCommunityGroup> {
+  if (!uuidPattern.test(groupId) || !uuidPattern.test(expectedDefaultGroupId) || !Number.isSafeInteger(expectedDefaultRevision) || expectedDefaultRevision < 1) {
+    throw new AdminApiError(422, "validation.failed", "默认用户组参数格式无效")
+  }
+  const body: SetDefaultCommunityGroupRequestDto = {
+    group_id: groupId,
+    expected_default_group_id: expectedDefaultGroupId,
+    expected_default_revision: expectedDefaultRevision,
+  }
+  const response = await fetch("/api/v1/admin/community/default-group", {
+    method: "PUT",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken },
+    credentials: "include",
+    body: JSON.stringify(body),
+    signal,
+  })
+  return parseResponse(response, isAdminCommunityGroupDto)
+}
+
+export async function listAdminCommunityGroupMemberships(userId: string, signal?: AbortSignal): Promise<AdminCommunityGroupMembership[]> {
+  if (!uuidPattern.test(userId)) throw new AdminApiError(422, "validation.failed", "用户标识格式无效")
+  const params = new URLSearchParams({ user_id: userId })
+  const response = await fetch(`/api/v1/admin/community/memberships?${params}`, {
+    headers: { Accept: "application/json" },
+    credentials: "include",
+    signal,
+  })
+  return parseResponse<AdminCommunityGroupMembership[]>(response, (value): value is AdminCommunityGroupMembershipDto[] => Array.isArray(value) && value.every(isAdminCommunityGroupMembershipDto))
+}
+
+export async function grantAdminCommunityGroupMembership(input: GrantAdminCommunityGroupMembershipInput, csrfToken: string, signal?: AbortSignal): Promise<CommunityGroupMembershipMutation> {
+  const body: GrantCommunityGroupMembershipRequestDto = {
+    user_id: input.userId,
+    group_id: input.groupId,
+    membership_kind: "additional",
+    source: "operator",
+    source_reference_id: null,
+    reason: input.reason,
+    starts_at: input.startsAt,
+    ends_at: null,
+    idempotency_key: input.idempotencyKey,
+  }
+  const response = await fetch("/api/v1/admin/community/memberships", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken },
+    credentials: "include",
+    body: JSON.stringify(body),
+    signal,
+  })
+  return parseResponse(response, isCommunityGroupMembershipMutationDto)
+}
+
+export async function revokeAdminCommunityGroupMembership(membershipId: string, expectedRevision: number, reason: string, idempotencyKey: string, csrfToken: string, signal?: AbortSignal): Promise<CommunityGroupMembershipMutation> {
+  if (!uuidPattern.test(membershipId)) throw new AdminApiError(422, "validation.failed", "成员关系标识格式无效")
+  const body: RevokeCommunityGroupMembershipRequestDto = { expected_revision: expectedRevision, reason, idempotency_key: idempotencyKey }
+  const response = await fetch(`/api/v1/admin/community/memberships/${encodeURIComponent(membershipId)}/revoke`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken },
+    credentials: "include",
+    body: JSON.stringify(body),
+    signal,
+  })
+  return parseResponse(response, isCommunityGroupMembershipMutationDto)
+}
+
 export async function createAdminGrowthLevel(input: CreateAdminGrowthLevelInput, csrfToken: string, signal?: AbortSignal): Promise<AdminGrowthLevel> {
   const response = await fetch("/api/v1/admin/membership/levels", {
     method: "POST",
@@ -562,6 +780,17 @@ export async function updateAdminGrowthLevel(levelId: string, input: UpdateAdmin
     signal,
   })
   return parseResponse(response, isAdminGrowthLevelDto)
+}
+
+export async function deleteAdminGrowthLevel(levelId: string, csrfToken: string, signal?: AbortSignal): Promise<boolean> {
+  if (!uuidPattern.test(levelId)) throw new AdminApiError(422, "validation.failed", "动态等级标识格式无效")
+  const response = await fetch(`/api/v1/admin/membership/levels/${encodeURIComponent(levelId)}`, {
+    method: "DELETE",
+    headers: { Accept: "application/json", "x-csrf-token": csrfToken },
+    credentials: "include",
+    signal,
+  })
+  return parseResponse(response, (value): value is boolean => value === true)
 }
 
 export async function getMembershipLevelRules(signal?: AbortSignal): Promise<MembershipLevelRule[]> {
@@ -754,6 +983,17 @@ export async function acknowledgeOperationsAlert(alertId: string, csrfToken: str
 }
 
 type BrandingDto = Required<components["schemas"]["SiteBranding"]>
+type SmtpSettingsDto = {
+  host: string
+  port: number
+  username: string | null
+  password_configured: boolean
+  tls_mode: SmtpTlsMode
+  from_email: string
+  from_name: string
+  enabled: boolean
+  registration_email_verification_enabled: boolean
+}
 type AdminCapabilityAccessDto = components["schemas"]["AdminCapabilityAccess"]
 type AdminBoardDto = components["schemas"]["AdminBoard"]
 type AdminBoardDeletionImpactDto = components["schemas"]["AdminBoardDeletionImpact"]
@@ -781,6 +1021,13 @@ type UpdateAdminBoardRequestDto = components["schemas"]["UpdateAdminBoardRequest
 type UpdateGovernancePolicyRequestDto = components["schemas"]["UpdateGovernancePolicyRequest"]
 type UpdateRiskAlertRequestDto = components["schemas"]["UpdateRiskAlertRequest"]
 type AdminGrowthLevelDto = components["schemas"]["AdminGrowthLevel"]
+type AdminCommunityGroupDto = components["schemas"]["AdminCommunityGroup"]
+type AdminCommunityGroupMembershipDto = components["schemas"]["AdminCommunityGroupMembership"]
+type GrantCommunityGroupMembershipRequestDto = components["schemas"]["GrantCommunityGroupMembershipRequest"]
+type RevokeCommunityGroupMembershipRequestDto = components["schemas"]["RevokeCommunityGroupMembershipRequest"]
+type CommunityGroupMembershipMutationDto = components["schemas"]["CommunityGroupMembershipMutation"]
+type UpdateCommunityGroupRequestDto = components["schemas"]["UpdateCommunityGroupRequest"]
+type SetDefaultCommunityGroupRequestDto = components["schemas"]["SetDefaultCommunityGroupRequest"]
 type CreateGrowthLevelRequestDto = components["schemas"]["CreateGrowthLevelRequest"]
 type UpdateGrowthLevelRequestDto = components["schemas"]["UpdateGrowthLevelRequest"]
 type MembershipLevelRuleDto = components["schemas"]["MembershipLevelRule"]
@@ -837,10 +1084,14 @@ function mapValue(value: unknown): unknown {
   if (isOperationsAlertDto(value)) return { id: value.id, rule: { id: value.rule.id, key: value.rule.key, name: value.rule.name, kind: value.rule.kind }, status: value.status, observedValue: value.observed_value, threshold: value.threshold, firstTriggeredAt: value.first_triggered_at, lastTriggeredAt: value.last_triggered_at, acknowledgedBy: value.acknowledged_by ? mapAuthorizationUser(value.acknowledged_by) : null, acknowledgedAt: value.acknowledged_at, resolvedAt: value.resolved_at }
   if (isOperationsAlertRuleDto(value)) return { id: value.id, key: value.key, name: value.name, kind: value.kind, threshold: value.threshold, windowSeconds: value.window_seconds, enabled: value.enabled, revision: value.revision, createdAt: value.created_at, updatedAt: value.updated_at }
   if (isBrandingDto(value)) return { siteName: value.site_name, logoUrl: value.logo_url, faviconUrl: value.favicon_url, defaultCoverUrl: value.default_cover_url, navigationLinks: value.navigation_links, footerText: value.footer_text, footerLinks: value.footer_links, primaryColor: value.primary_color, accentColor: value.accent_color, themePreset: value.theme_preset, listDensity: value.list_density, homeMode: value.home_mode }
+  if (isSmtpSettingsDto(value)) return { host: value.host, port: value.port, username: value.username, passwordConfigured: value.password_configured, tlsMode: value.tls_mode, fromEmail: value.from_email, fromName: value.from_name, enabled: value.enabled, registrationEmailVerificationEnabled: value.registration_email_verification_enabled }
   if (isBoardDto(value)) return { id: value.id, parentId: value.parent_id ?? null, slug: value.slug, name: value.name, description: value.description, icon: value.icon, tone: value.tone, position: value.position, visibility: value.visibility, topicCount: value.topic_count, revision: value.revision }
   if (isBoardDeletionImpactDto(value)) return { boardId: value.board_id, childCount: value.child_count, topicCount: value.topic_count, replyCount: value.reply_count, canDelete: value.can_delete }
   if (isGovernancePolicyDto(value)) return { enabled: value.enabled, alertScoreThreshold: value.alert_score_threshold, reporterWindowMinutes: value.reporter_window_minutes, reporterAlertLimit: value.reporter_alert_limit }
   if (isAdminGrowthLevelDto(value)) return { id: value.id, internalKey: value.internal_key, levelOrder: value.level_order, displayName: value.display_name, requiredExperience: value.required_experience, iconAssetId: value.icon_asset_id ?? null, color: value.color ?? null, description: value.description, status: value.status, revision: value.revision, publishedAt: value.published_at ?? null, createdAt: value.created_at, updatedAt: value.updated_at }
+  if (isAdminCommunityGroupDto(value)) return { id: value.id, internalKey: value.internal_key, displayName: value.display_name, description: value.description, displayOrder: value.display_order, isBase: value.is_base, isDefault: value.is_default, status: value.status, permissionKeys: value.permission_keys, quotas: value.quotas, revision: value.revision, createdAt: value.created_at, updatedAt: value.updated_at }
+  if (isAdminCommunityGroupMembershipDto(value)) return mapAdminCommunityGroupMembership(value)
+  if (isCommunityGroupMembershipMutationDto(value)) return { membership: mapAdminCommunityGroupMembership(value.membership), replayed: value.replayed }
   if (isMembershipLevelRuleDto(value)) return { levelKey: value.level_key, levelNumber: value.level_number, levelDisplayName: value.level_display_name, requiredLifetimePoints: value.required_lifetime_points, enabled: value.enabled, updatedAt: value.updated_at }
   if (isMembershipPointsGrantDto(value)) return { account: mapValue(value.account) as MembershipAccount, created: value.created }
   if (isMembershipAccountDto(value)) return { userId: value.user_id, pointsBalance: value.points_balance, lifetimePoints: value.lifetime_points, levelKey: value.level_key, levelNumber: value.level_number, levelDisplayName: value.level_display_name, revision: value.revision, updatedAt: value.updated_at }
@@ -869,6 +1120,7 @@ function isEnvelope(value: unknown): value is Envelope<unknown> { return isRecor
 function isAdminCapabilityAccessDto(value: unknown): value is AdminCapabilityAccessDto { return isRecord(value) && Array.isArray(value.capability_keys) && value.capability_keys.every((key: unknown) => typeof key === "string" && capabilityKeyPattern.test(key)) && new Set(value.capability_keys).size === value.capability_keys.length }
 function isBranding(value: unknown): value is SiteBranding { return isBrandingDto(value) }
 function isBrandingDto(value: unknown): value is BrandingDto { return isRecord(value) && typeof value.site_name === "string" && isOptionalBrandAssetUrl(value.logo_url, "logo") && isOptionalBrandAssetUrl(value.favicon_url, "favicon") && isOptionalHttpsUrl(value.default_cover_url) && isBrandLinks(value.navigation_links) && (value.footer_text === null || typeof value.footer_text === "string") && isBrandLinks(value.footer_links) && typeof value.primary_color === "string" && typeof value.accent_color === "string" && typeof value.theme_preset === "string" && presets.has(value.theme_preset as BrandThemePreset) && typeof value.list_density === "string" && densities.has(value.list_density as BrandListDensity) && typeof value.home_mode === "string" && homeModes.has(value.home_mode as BrandHomeMode) }
+function isSmtpSettingsDto(value: unknown): value is SmtpSettingsDto { return isRecord(value) && typeof value.host === "string" && Number.isSafeInteger(value.port) && value.port >= 1 && value.port <= 65535 && (value.username === null || typeof value.username === "string") && typeof value.password_configured === "boolean" && (value.tls_mode === "tls" || value.tls_mode === "starttls" || value.tls_mode === "none") && typeof value.from_email === "string" && typeof value.from_name === "string" && typeof value.enabled === "boolean" && typeof value.registration_email_verification_enabled === "boolean" }
 function isOptionalBrandAssetUrl(value: unknown, kind: BrandAssetKind): value is string | null { return value === null || value === `/api/v1/site-branding/assets/${kind}` || isHttpsUrl(value) }
 function isOptionalHttpsUrl(value: unknown): value is string | null { return value === null || isHttpsUrl(value) }
 function isHttpsUrl(value: unknown): value is string { if (typeof value !== "string") return false; try { return new URL(value).protocol === "https:" } catch { return false } }
@@ -880,6 +1132,12 @@ function isBoardDeletionImpactDto(value: unknown): value is AdminBoardDeletionIm
 function isGovernancePolicy(value: unknown): value is GovernancePolicy { return isGovernancePolicyDto(value) }
 function isGovernancePolicyDto(value: unknown): value is GovernancePolicyDto { return isRecord(value) && typeof value.enabled === "boolean" && Number.isSafeInteger(value.alert_score_threshold) && value.alert_score_threshold >= 1 && value.alert_score_threshold <= 100 && Number.isSafeInteger(value.reporter_window_minutes) && value.reporter_window_minutes >= 1 && value.reporter_window_minutes <= 1440 && Number.isSafeInteger(value.reporter_alert_limit) && value.reporter_alert_limit >= 1 && value.reporter_alert_limit <= 100 }
 function isAdminGrowthLevelDto(value: unknown): value is AdminGrowthLevelDto { return isRecord(value) && isUuid(value.id) && typeof value.internal_key === "string" && /^[a-z][a-z0-9_]{2,63}$/.test(value.internal_key) && Number.isSafeInteger(value.level_order) && value.level_order >= 1 && isValidGrowthText(value.display_name, 1, 80, true) && Number.isSafeInteger(value.required_experience) && value.required_experience >= 0 && (value.icon_asset_id === null || value.icon_asset_id === undefined || isUuid(value.icon_asset_id)) && (value.color === null || value.color === undefined || (typeof value.color === "string" && /^#[0-9a-f]{6}$/i.test(value.color))) && isValidGrowthText(value.description, 0, 500, false) && isGrowthLevelStatus(value.status) && Number.isSafeInteger(value.revision) && value.revision >= 1 && (value.published_at === null || value.published_at === undefined || isTimestamp(value.published_at)) && isTimestamp(value.created_at) && isTimestamp(value.updated_at) }
+function isAdminCommunityGroupDto(value: unknown): value is AdminCommunityGroupDto { return isRecord(value) && isUuid(value.id) && /^[a-z][a-z0-9_]{2,63}$/.test(value.internal_key) && isValidGrowthText(value.display_name, 1, 80, true) && isValidGrowthText(value.description, 0, 500, false) && Number.isSafeInteger(value.display_order) && value.display_order >= 0 && typeof value.is_base === "boolean" && typeof value.is_default === "boolean" && (!value.is_default || (value.is_base && value.status === "active")) && isCommunityGroupStatus(value.status) && Array.isArray(value.permission_keys) && value.permission_keys.every((key: unknown) => typeof key === "string" && capabilityKeyPattern.test(key)) && isQuotaMap(value.quotas) && Number.isSafeInteger(value.revision) && value.revision >= 1 && isTimestamp(value.created_at) && isTimestamp(value.updated_at) }
+function isAdminCommunityGroupMembershipDto(value: unknown): value is AdminCommunityGroupMembershipDto { return isRecord(value) && isUuid(value.id) && isUuid(value.user_id) && isRecord(value.group) && isUuid(value.group.id) && typeof value.group.internal_key === "string" && typeof value.group.display_name === "string" && (value.membership_kind === "base" || value.membership_kind === "additional") && typeof value.source === "string" && (value.source_reference_id === undefined || value.source_reference_id === null || isUuid(value.source_reference_id)) && typeof value.reason === "string" && isTimestamp(value.starts_at) && (value.ends_at === undefined || value.ends_at === null || isTimestamp(value.ends_at)) && (value.revoked_at === undefined || value.revoked_at === null || isTimestamp(value.revoked_at)) && (value.revocation_reason === undefined || value.revocation_reason === null || typeof value.revocation_reason === "string") && Number.isSafeInteger(value.revision) && value.revision >= 1 }
+function isCommunityGroupMembershipMutationDto(value: unknown): value is CommunityGroupMembershipMutationDto { return isRecord(value) && isAdminCommunityGroupMembershipDto(value.membership) && typeof value.replayed === "boolean" }
+function mapAdminCommunityGroupMembership(value: AdminCommunityGroupMembershipDto): AdminCommunityGroupMembership { return { id: value.id, userId: value.user_id, group: { id: value.group.id, internalKey: value.group.internal_key, displayName: value.group.display_name }, membershipKind: value.membership_kind as "base" | "additional", source: value.source, sourceReferenceId: value.source_reference_id ?? null, reason: value.reason, startsAt: value.starts_at, endsAt: value.ends_at ?? null, revokedAt: value.revoked_at ?? null, revocationReason: value.revocation_reason ?? null, revision: value.revision } }
+function isCommunityGroupStatus(value: unknown): value is CommunityGroupStatus { return value === "active" || value === "disabled" || value === "archived" }
+function isQuotaMap(value: unknown): value is Record<string, number> { return isRecord(value) && Object.entries(value).every(([key, quota]) => capabilityKeyPattern.test(key) && Number.isSafeInteger(quota) && quota >= 0) }
 function isGrowthLevelStatus(value: unknown): value is GrowthLevelStatus { return value === "draft" || value === "published" || value === "disabled" || value === "archived" }
 function isValidGrowthText(value: unknown, minimumLength: number, maximumLength: number, mustBeTrimmed: boolean): value is string { return typeof value === "string" && (!mustBeTrimmed || value === value.trim()) && Array.from(value).length >= minimumLength && Array.from(value).length <= maximumLength && !Array.from(value).some((character) => /\p{Cc}/u.test(character)) }
 function isMembershipLevelRuleDto(value: unknown): value is MembershipLevelRuleDto { return isRecord(value) && typeof value.level_key === "string" && membershipLevelPattern.test(value.level_key) && Number.isSafeInteger(value.level_number) && value.level_number >= 1 && value.level_number <= 20 && value.level_key === `lv_${value.level_number}` && typeof value.level_display_name === "string" && value.level_display_name.trim().length > 0 && Number.isSafeInteger(value.required_lifetime_points) && value.required_lifetime_points >= 0 && typeof value.enabled === "boolean" && typeof value.updated_at === "string" }

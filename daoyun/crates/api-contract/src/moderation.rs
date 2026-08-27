@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::{BoardTone, TopicAuthorSummary, TopicBoardSummary};
+use crate::{BoardTone, TopicAuthorSummary, TopicBoardSummary, UserSummary};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ModerationBoard {
@@ -82,4 +82,37 @@ pub struct ModerationTopic {
     pub is_featured: bool,
     pub is_pinned: bool,
     pub is_locked: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TopicModerationHistorySource {
+    Moderation,
+    Governance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TopicModerationHistoryAction {
+    Approved,
+    Hidden,
+    Rejected,
+    Pin,
+    Unpin,
+    Feature,
+    Unfeature,
+    Lock,
+    Unlock,
+    Move,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct TopicModerationHistoryEntry {
+    pub id: Uuid,
+    pub source: TopicModerationHistorySource,
+    pub action: TopicModerationHistoryAction,
+    pub actor: UserSummary,
+    pub reason: Option<String>,
+    #[schema(value_type = String, format = DateTime)]
+    pub created_at: String,
 }

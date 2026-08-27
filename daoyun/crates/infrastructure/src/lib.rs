@@ -9,6 +9,7 @@ mod boards;
 mod community_groups;
 mod community_permissions;
 mod content_access_policies;
+mod email;
 mod experience;
 mod governance;
 mod idempotency;
@@ -45,7 +46,8 @@ pub use admin::{
 };
 pub use attachments::{
     AttachmentCleanupError, AttachmentCleanupResultRecord, AttachmentError, AttachmentRecord,
-    CreateAttachmentInput, ListAttachmentsError, MAX_ATTACHMENT_BYTES,
+    CreateAttachmentInput, CreateDraftImageAttachmentInput, DraftImageAttachmentRecord,
+    ListAttachmentsError, MAX_ATTACHMENT_BYTES,
 };
 pub use auth::{
     BindExternalIdentityError, ChangePasswordError, DeviceSessionRecord, ExternalIdentityError,
@@ -77,6 +79,11 @@ pub use community_permissions::{
 pub use content_access_policies::{
     ContentAccessPolicyMutationError, ContentAccessPolicyRecord, ContentAccessPolicySubjectRecord,
     PutContentAccessPolicyRecord,
+};
+pub use email::{
+    NewRegistrationEmailChallenge, RegistrationEmailChallengeError,
+    RegistrationEmailChallengeRecord, SmtpConfigurationError, SmtpConfigurationRecord,
+    UpdateSmtpConfigurationRecord,
 };
 pub use experience::{
     AdminGrowthLevelRecord, AppendExperienceError, CreateGrowthLevelRecord,
@@ -150,11 +157,12 @@ pub use standard_entitlements::{
 pub use topics::{
     CreateReplyError, CreateReplyResult, CreateTopicError, CreateTopicResult, IdempotencyInput,
     ListModerationTopicsError, ListPublicRepliesError, ListPublicTopicsError,
-    ListTopicRevisionsError, ModerationBoardRecord, ModerationTopicFilters, ModerationTopicRecord,
-    NewReplyRecord, NewTagRecord, NewTopicRecord, PublicReplyRecord, PublicTagRecord,
-    PublicTagUsageRecord, PublicTopicDetailRecord, PublicTopicFilters, PublicTopicRecord,
-    ReplyMutationError, ReplyRevisionRecord, TopicDeleteError, TopicGovernanceAction,
-    TopicGovernanceError, TopicGovernanceInput, TopicGovernanceResultRecord, TopicModerationError,
+    ListTopicModerationHistoryError, ListTopicRevisionsError, ModerationBoardRecord,
+    ModerationTopicFilters, ModerationTopicRecord, NewReplyRecord, NewTagRecord, NewTopicRecord,
+    PublicReplyRecord, PublicTagRecord, PublicTagUsageRecord, PublicTopicDetailRecord,
+    PublicTopicFilters, PublicTopicRecord, ReplyMutationError, ReplyRevisionRecord,
+    TopicDeleteError, TopicGovernanceAction, TopicGovernanceError, TopicGovernanceInput,
+    TopicGovernanceResultRecord, TopicModerationError, TopicModerationHistoryRecord,
     TopicModerationResultRecord, TopicRevisionRecord, TopicSort, UpdateReplyRecord,
     UpdateReplyResult, UpdateTopicError, UpdateTopicRecord, UpdateTopicResult,
 };

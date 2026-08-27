@@ -20,11 +20,12 @@ use api_contract::{
     PutContentAccessPolicyRequest, PutStandardEntitlementTypeRequest, RequestId,
     RevokeCommunityGroupMembershipRequest, RevokeMembershipMedalRequest,
     RevokeStandardEntitlementRequest, RiskAlert, RiskAlertKind, RiskAlertSeverity, RiskAlertStatus,
-    SiteBranding, StandardEntitlementMutation, StandardEntitlementType, UpdateAdminBoardRequest,
-    UpdateAdminUserStatusRequest, UpdateAuthorizationRoleRequest, UpdateCommunityGroupRequest,
-    UpdateGovernancePolicyRequest, UpdateGrowthLevelRequest, UpdateMembershipLevelRuleRequest,
-    UpdateMembershipMedalRuleRequest, UpdateRiskAlertRequest, UpdateSiteBrandingRequest,
-    UserSummary, error_codes,
+    SetDefaultCommunityGroupRequest, SiteBranding, SmtpSettings, SmtpTlsMode,
+    StandardEntitlementMutation, StandardEntitlementType, TestSmtpSettingsRequest,
+    UpdateAdminBoardRequest, UpdateAdminUserStatusRequest, UpdateAuthorizationRoleRequest,
+    UpdateCommunityGroupRequest, UpdateGovernancePolicyRequest, UpdateGrowthLevelRequest,
+    UpdateMembershipLevelRuleRequest, UpdateMembershipMedalRuleRequest, UpdateRiskAlertRequest,
+    UpdateSiteBrandingRequest, UpdateSmtpSettingsRequest, UserSummary, error_codes,
 };
 use axum::{
     Extension, Json, Router,
@@ -36,6 +37,7 @@ use axum::{
     response::Response,
     routing::{get, patch, post, put},
 };
+use email_address::EmailAddress;
 use infrastructure::{
     AdminAuditRecord, AdminBoardDeletionImpactRecord, AdminBoardRecord, AdminConfigError,
     AdminGrowthLevelRecord, AdminUserContentRecord, AdminUserDetailRecord, AdminUserReadError,
@@ -58,15 +60,15 @@ use infrastructure::{
     UpdateAdminUserStatusRecord, UpdateAuthorizationRoleRecord, UpdateCommunityGroupRecord,
     UpdateGrowthLevelRecord, UpdateMembershipLevelRuleError, UpdateMembershipLevelRuleRecord,
     UpdateMembershipMedalRuleError, UpdateMembershipMedalRuleRecord, UpdateRiskAlertError,
-    UpdateSiteBrandingRecord, permission_keys,
+    UpdateSiteBrandingRecord, UpdateSmtpConfigurationRecord, permission_keys,
 };
 use serde::Deserialize;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use utoipa::IntoParams;
 use uuid::Uuid;
 
-use crate::CacheRuntime;
 use crate::auth::{ApiError, AuthRuntime, authenticate_session, authenticate_state_change};
+use crate::{CacheRuntime, EmailRuntime};
 
 const ADMIN_BODY_LIMIT: usize = 32 * 1024;
 const MAX_BRAND_ASSET_BYTES: usize = 2 * 1024 * 1024;
@@ -98,6 +100,12 @@ pub(crate) struct ListAdminUsersQuery {
 pub(crate) struct ListAdminUserItemsQuery {
     cursor: Option<Uuid>,
     limit: Option<u16>,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct ListCommunityGroupMembershipsQuery {
+    user_id: Uuid,
 }
 
 struct ValidatedAdminUserStatusRequest {
@@ -187,6 +195,11 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
             get(get_admin_branding).patch(update_branding),
         )
         .route(
+            "/api/v1/admin/smtp-settings",
+            get(get_smtp_settings).patch(update_smtp_settings),
+        )
+        .route("/api/v1/admin/smtp-settings/test", post(test_smtp_settings))
+        .route(
             "/api/v1/admin/boards",
             get(list_admin_boards).post(create_board),
         )
@@ -234,7 +247,7 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
         )
         .route(
             "/api/v1/admin/membership/levels/{level_id}",
-            patch(update_growth_level),
+            patch(update_growth_level).delete(delete_growth_level),
         )
         .route(
             "/api/v1/admin/community/groups",
@@ -245,8 +258,12 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
             patch(update_community_group),
         )
         .route(
+            "/api/v1/admin/community/default-group",
+            put(set_default_community_group),
+        )
+        .route(
             "/api/v1/admin/community/memberships",
-            post(grant_community_membership),
+            get(list_community_memberships).post(grant_community_membership),
         )
         .route(
             "/api/v1/admin/community/memberships/{membership_id}/revoke",
@@ -1151,6 +1168,100 @@ pub(crate) async fn update_community_group(
 }
 
 #[utoipa::path(
+    put,
+    path = "/api/v1/admin/community/default-group",
+    operation_id = "setDefaultCommunityGroup",
+    tag = "admin",
+    params(("x-csrf-token" = String, Header)),
+    request_body = SetDefaultCommunityGroupRequest,
+    responses(
+        (status = 200, body = ApiResponse<AdminCommunityGroup>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse), (status = 403, body = ErrorResponse),
+        (status = 404, body = ErrorResponse), (status = 409, body = ErrorResponse),
+        (status = 422, body = ErrorResponse), (status = 503, body = ErrorResponse)
+    )
+)]
+pub(crate) async fn set_default_community_group(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    request: Result<Json<SetDefaultCommunityGroupRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<AdminCommunityGroup>>, ApiError> {
+    let session = authorize_capability_write(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::COMMUNITY_GROUPS_WRITE,
+    )
+    .await?;
+    let Json(request) =
+        request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
+    let record = database
+        .set_default_community_group(
+            session.user.id,
+            request.group_id,
+            request.expected_default_group_id,
+            request.expected_default_revision,
+        )
+        .await
+        .map_err(|error| community_group_error(request_id, error))?;
+    Ok(Json(ApiResponse::new(
+        map_admin_community_group(record).map_err(|()| invalid_record(request_id))?,
+        request_id,
+    )))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/community/memberships",
+    operation_id = "listCommunityGroupMemberships",
+    tag = "admin",
+    params(ListCommunityGroupMembershipsQuery),
+    responses(
+        (status = 200, body = ApiResponse<Vec<AdminCommunityGroupMembership>>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse), (status = 403, body = ErrorResponse),
+        (status = 404, body = ErrorResponse), (status = 422, body = ErrorResponse),
+        (status = 503, body = ErrorResponse)
+    )
+)]
+pub(crate) async fn list_community_memberships(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    query: Result<Query<ListCommunityGroupMembershipsQuery>, QueryRejection>,
+) -> Result<Json<ApiResponse<Vec<AdminCommunityGroupMembership>>>, ApiError> {
+    authorize_capability_read(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::COMMUNITY_MEMBERSHIPS_READ,
+    )
+    .await?;
+    let Query(query) =
+        query.map_err(|_| validation_error(request_id, "user_id", "用户标识格式不正确"))?;
+    ensure_admin_user_exists(&database, query.user_id, request_id).await?;
+    let memberships = database
+        .list_active_community_memberships(query.user_id, OffsetDateTime::now_utc())
+        .await
+        .map_err(|error| {
+            database_error(
+                request_id,
+                infrastructure::DatabaseError::Sqlx(error),
+                "社区成员关系查询失败",
+            )
+        })?
+        .into_iter()
+        .map(map_admin_community_membership)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|()| invalid_record(request_id))?;
+    Ok(Json(ApiResponse::new(memberships, request_id)))
+}
+
+#[utoipa::path(
     post,
     path = "/api/v1/admin/community/memberships",
     operation_id = "grantCommunityGroupMembership",
@@ -1707,6 +1818,44 @@ pub(crate) async fn update_growth_level(
         map_admin_growth_level(record).map_err(|()| invalid_record(request_id))?,
         request_id,
     )))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/admin/membership/levels/{level_id}",
+    operation_id = "deleteMembershipGrowthLevel",
+    tag = "admin",
+    params(("level_id" = Uuid, Path), ("x-csrf-token" = String, Header)),
+    responses(
+        (status = 200, body = ApiResponse<bool>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 404, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 409, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 422, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn delete_growth_level(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    Path(level_id): Path<Uuid>,
+) -> Result<Json<ApiResponse<bool>>, ApiError> {
+    let session = authorize_capability_write(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::MEMBERSHIP_RULES_WRITE,
+    )
+    .await?;
+    database
+        .delete_growth_level(session.user.id, level_id)
+        .await
+        .map_err(|error| growth_level_error(request_id, error))?;
+    Ok(Json(ApiResponse::new(true, request_id)))
 }
 
 #[utoipa::path(
@@ -2869,6 +3018,139 @@ async fn update_branding(
 
 #[utoipa::path(
     get,
+    path = "/api/v1/admin/smtp-settings",
+    operation_id = "getAdminSmtpSettings",
+    tag = "admin",
+    responses(
+        (status = 200, description = "Current non-sensitive SMTP settings", body = ApiResponse<SmtpSettings>),
+        (status = 401, description = "Authentication is required", body = ErrorResponse),
+        (status = 403, description = "Configuration read access is required", body = ErrorResponse),
+        (status = 503, description = "SMTP settings are unavailable", body = ErrorResponse)
+    )
+)]
+async fn get_smtp_settings(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+) -> Result<Json<ApiResponse<SmtpSettings>>, ApiError> {
+    authorize_admin_read(&database, &runtime, &headers, request_id).await?;
+    let record = database
+        .get_smtp_configuration()
+        .await
+        .map_err(|error| database_error(request_id, error, "SMTP 配置读取失败"))?;
+    Ok(Json(ApiResponse::new(
+        map_smtp_settings(record).map_err(|()| invalid_record(request_id))?,
+        request_id,
+    )))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/admin/smtp-settings",
+    operation_id = "updateAdminSmtpSettings",
+    tag = "admin",
+    request_body = UpdateSmtpSettingsRequest,
+    responses(
+        (status = 200, description = "SMTP settings updated", body = ApiResponse<SmtpSettings>),
+        (status = 401, description = "Authentication is required", body = ErrorResponse),
+        (status = 403, description = "Configuration write access and CSRF are required", body = ErrorResponse),
+        (status = 422, description = "SMTP settings are invalid", body = ErrorResponse),
+        (status = 503, description = "SMTP settings are unavailable", body = ErrorResponse)
+    )
+)]
+async fn update_smtp_settings(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(auth_runtime): Extension<AuthRuntime>,
+    Extension(email_runtime): Extension<EmailRuntime>,
+    headers: HeaderMap,
+    request: Result<Json<UpdateSmtpSettingsRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<SmtpSettings>>, ApiError> {
+    let session = authorize_admin_write(&database, &auth_runtime, &headers, request_id).await?;
+    let Json(request) =
+        request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
+    let input = validate_smtp_settings(request, &email_runtime)
+        .map_err(|fields| validation_fields(request_id, fields))?;
+    let record = database
+        .update_smtp_configuration(session.user.id, input)
+        .await
+        .map_err(|error| {
+            tracing::warn!(request_id = %request_id, error = %error, "SMTP settings update failed");
+            admin_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                error_codes::DATABASE_UNAVAILABLE,
+                "SMTP 配置暂时无法保存",
+                request_id,
+            )
+        })?;
+    Ok(Json(ApiResponse::new(
+        map_smtp_settings(record).map_err(|()| invalid_record(request_id))?,
+        request_id,
+    )))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/smtp-settings/test",
+    operation_id = "testAdminSmtpSettings",
+    tag = "admin",
+    request_body = TestSmtpSettingsRequest,
+    responses(
+        (status = 200, description = "SMTP test email accepted by the relay", body = ApiResponse<bool>),
+        (status = 401, description = "Authentication is required", body = ErrorResponse),
+        (status = 403, description = "Configuration write access and CSRF are required", body = ErrorResponse),
+        (status = 422, description = "Recipient email is invalid", body = ErrorResponse),
+        (status = 503, description = "SMTP delivery failed", body = ErrorResponse)
+    )
+)]
+async fn test_smtp_settings(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(auth_runtime): Extension<AuthRuntime>,
+    Extension(email_runtime): Extension<EmailRuntime>,
+    headers: HeaderMap,
+    request: Result<Json<TestSmtpSettingsRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<bool>>, ApiError> {
+    let session = authorize_admin_write(&database, &auth_runtime, &headers, request_id).await?;
+    let Json(request) =
+        request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
+    let recipient_email = request.recipient_email.trim().to_ascii_lowercase();
+    if !EmailAddress::is_valid(&recipient_email) {
+        return Err(validation_error(
+            request_id,
+            "recipient_email",
+            "收件邮箱格式不正确",
+        ));
+    }
+    email_runtime
+        .send(
+            &database,
+            crate::OutboundEmail {
+                recipient_email,
+                subject: "DaoYun SMTP 测试邮件".to_owned(),
+                body: "这是一封来自 DaoYun 管理后台的 SMTP 测试邮件。".to_owned(),
+            },
+        )
+        .await
+        .map_err(|error| {
+            tracing::warn!(request_id = %request_id, error = %error, "SMTP test delivery failed");
+            admin_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                error_codes::DATABASE_UNAVAILABLE,
+                "SMTP 测试邮件发送失败，请检查服务器、端口、TLS 和凭据",
+                request_id,
+            )
+        })?;
+    database
+        .record_smtp_test_audit(session.user.id)
+        .await
+        .map_err(|error| database_error(request_id, error, "SMTP 测试审计写入失败"))?;
+    Ok(Json(ApiResponse::new(true, request_id)))
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/admin/boards",
     operation_id = "listAdminBoards",
     tag = "admin",
@@ -3147,6 +3429,105 @@ fn validate_branding(request: UpdateSiteBrandingRequest) -> Result<ValidatedBran
             theme_preset: theme_preset(request.theme_preset),
             list_density: list_density(request.list_density),
             home_mode: home_mode(request.home_mode),
+        })
+    } else {
+        Err(fields)
+    }
+}
+
+fn validate_smtp_settings(
+    request: UpdateSmtpSettingsRequest,
+    email_runtime: &EmailRuntime,
+) -> Result<UpdateSmtpConfigurationRecord, FieldErrors> {
+    let mut fields = FieldErrors::new();
+    let host = request.host.trim().to_owned();
+    let username = request.username.map(|value| value.trim().to_owned());
+    let from_email = request.from_email.trim().to_ascii_lowercase();
+    let from_name = request.from_name.trim().to_owned();
+
+    if host.is_empty()
+        || host.len() > 253
+        || host
+            .chars()
+            .any(|character| character.is_control() || character.is_whitespace())
+    {
+        add_field(&mut fields, "host", "SMTP 主机必须是 1 到 253 个非空白字符");
+    }
+    if request.port == 0 {
+        add_field(&mut fields, "port", "SMTP 端口必须在 1 到 65535 之间");
+    }
+    if username.as_deref().is_some_and(|value| {
+        value.is_empty() || value.chars().count() > 320 || value.chars().any(char::is_control)
+    }) {
+        add_field(&mut fields, "username", "SMTP 用户名不能超过 320 个字符");
+    }
+    if request.password.is_some() && request.clear_password {
+        add_field(
+            &mut fields,
+            "password",
+            "不能同时设置新密码和清除已保存密码",
+        );
+    }
+    if request.password.as_deref().is_some_and(|value| {
+        value.is_empty() || value.chars().count() > 512 || value.chars().any(char::is_control)
+    }) {
+        add_field(
+            &mut fields,
+            "password",
+            "SMTP 密码必须为 1 到 512 个非控制字符",
+        );
+    }
+    if !EmailAddress::is_valid(&from_email) {
+        add_field(&mut fields, "from_email", "发件邮箱格式不正确");
+    }
+    if !(1..=120).contains(&from_name.chars().count()) || from_name.chars().any(char::is_control) {
+        add_field(&mut fields, "from_name", "发件名称必须为 1 到 120 个字符");
+    }
+    if request.registration_email_verification_enabled && !request.enabled {
+        add_field(
+            &mut fields,
+            "registration_email_verification_enabled",
+            "请先启用 SMTP，再开启注册邮箱验证",
+        );
+    }
+    if request.registration_email_verification_enabled && !email_runtime.is_enabled() {
+        add_field(
+            &mut fields,
+            "registration_email_verification_enabled",
+            "服务端尚未配置 DAOYUN_SMTP_ENCRYPTION_KEY",
+        );
+    }
+
+    let password_ciphertext = if let Some(password) = request.password {
+        match email_runtime.encrypt_smtp_password(&password) {
+            Ok(value) => Some(Some(value)),
+            Err(_) => {
+                add_field(
+                    &mut fields,
+                    "password",
+                    "服务端尚未配置 DAOYUN_SMTP_ENCRYPTION_KEY",
+                );
+                None
+            }
+        }
+    } else if request.clear_password {
+        Some(None)
+    } else {
+        None
+    };
+
+    if fields.is_empty() {
+        Ok(UpdateSmtpConfigurationRecord {
+            host,
+            port: i32::from(request.port),
+            username,
+            password_ciphertext,
+            tls_mode: smtp_tls_mode(request.tls_mode).to_owned(),
+            from_email,
+            from_name,
+            enabled: request.enabled,
+            registration_email_verification_enabled: request
+                .registration_email_verification_enabled,
         })
     } else {
         Err(fields)
@@ -3454,6 +3835,7 @@ fn map_admin_community_group(
         display_name: record.display_name,
         description: record.description,
         is_base: record.is_base,
+        is_default: record.is_default,
         status: match record.status.as_str() {
             "active" => CommunityGroupStatus::Active,
             "disabled" => CommunityGroupStatus::Disabled,
@@ -3804,6 +4186,33 @@ fn map_branding(record: SiteBrandingRecord) -> Result<SiteBranding, ()> {
         list_density: parse_list_density(&record.list_density).ok_or(())?,
         home_mode: parse_home_mode(&record.home_mode).ok_or(())?,
     })
+}
+
+fn map_smtp_settings(record: infrastructure::SmtpConfigurationRecord) -> Result<SmtpSettings, ()> {
+    Ok(SmtpSettings {
+        host: record.host,
+        port: u16::try_from(record.port).map_err(|_| ())?,
+        username: record.username,
+        password_configured: record.password_ciphertext.is_some(),
+        tls_mode: match record.tls_mode.as_str() {
+            "tls" => SmtpTlsMode::Tls,
+            "starttls" => SmtpTlsMode::Starttls,
+            "none" => SmtpTlsMode::None,
+            _ => return Err(()),
+        },
+        from_email: record.from_email,
+        from_name: record.from_name,
+        enabled: record.enabled,
+        registration_email_verification_enabled: record.registration_email_verification_enabled,
+    })
+}
+
+fn smtp_tls_mode(mode: SmtpTlsMode) -> &'static str {
+    match mode {
+        SmtpTlsMode::Tls => "tls",
+        SmtpTlsMode::Starttls => "starttls",
+        SmtpTlsMode::None => "none",
+    }
 }
 
 fn map_brand_link(record: BrandLinkRecord) -> BrandLink {
@@ -5125,6 +5534,24 @@ fn growth_level_error(request_id: RequestId, error: MutateGrowthLevelError) -> A
             "required_experience",
             "已发布等级必须从 0 开始且经验阈值随等级顺序严格递增",
         ),
+        MutateGrowthLevelError::DeleteWouldBreakCatalog => admin_error(
+            StatusCode::CONFLICT,
+            error_codes::MEMBERSHIP_LEVEL_CONFLICT,
+            "删除后必须保留从 0 EXP 开始且阈值严格递增的成长等级",
+            request_id,
+        ),
+        MutateGrowthLevelError::InUse => admin_error(
+            StatusCode::CONFLICT,
+            error_codes::MEMBERSHIP_LEVEL_CONFLICT,
+            "该等级正在被会员使用，无法删除",
+            request_id,
+        ),
+        MutateGrowthLevelError::LastPublished => admin_error(
+            StatusCode::CONFLICT,
+            error_codes::MEMBERSHIP_LEVEL_CONFLICT,
+            "至少需要保留一个可用的成长等级",
+            request_id,
+        ),
         MutateGrowthLevelError::Database(error) => {
             database_error(request_id, error, "动态等级保存失败")
         }
@@ -5145,14 +5572,18 @@ fn community_group_error(request_id: RequestId, error: CommunityGroupMutationErr
             "社区用户组不存在",
             request_id,
         ),
-        CommunityGroupMutationError::Conflict | CommunityGroupMutationError::Duplicate => {
-            admin_error(
-                StatusCode::CONFLICT,
-                error_codes::COMMUNITY_GROUP_CONFLICT,
-                "社区用户组键或排序已存在",
-                request_id,
-            )
-        }
+        CommunityGroupMutationError::Conflict => admin_error(
+            StatusCode::CONFLICT,
+            error_codes::COMMUNITY_GROUP_CONFLICT,
+            "社区用户组已被其他请求更新，请刷新后重试",
+            request_id,
+        ),
+        CommunityGroupMutationError::Duplicate => admin_error(
+            StatusCode::CONFLICT,
+            error_codes::COMMUNITY_GROUP_CONFLICT,
+            "社区用户组键或排序已存在",
+            request_id,
+        ),
         CommunityGroupMutationError::InvalidInput => {
             validation_error(request_id, "body", "社区用户组参数不正确")
         }

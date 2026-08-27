@@ -103,3 +103,73 @@ async fn new_users_receive_a_base_community_membership_without_rbac_assignment(p
             .expect("RBAC assignment count must be queryable");
     assert_eq!(rbac_assignments, 0);
 }
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn new_users_receive_the_configured_default_group_without_migrating_existing_users(
+    pool: PgPool,
+) {
+    let existing_user_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO users (id, username, email, display_name, status)
+         VALUES ($1, 'existing_default_member', 'existing-default@example.com', '现有成员', 'active')",
+    )
+    .bind(existing_user_id)
+    .execute(&pool)
+    .await
+    .expect("existing user fixture must insert");
+
+    let replacement_group_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO community_groups (
+             id, internal_key, display_name, description, is_base, is_default, status, display_order
+         ) VALUES ($1, 'new_member', '新会员', '之后注册用户的基础组。', true, false, 'active', 6)",
+    )
+    .bind(replacement_group_id)
+    .execute(&pool)
+    .await
+    .expect("replacement base group must insert");
+
+    sqlx::query("UPDATE community_groups SET is_default = false WHERE is_default")
+        .execute(&pool)
+        .await
+        .expect("existing default group must clear");
+    sqlx::query("UPDATE community_groups SET is_default = true WHERE id = $1")
+        .bind(replacement_group_id)
+        .execute(&pool)
+        .await
+        .expect("replacement group must become default");
+
+    let new_user_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO users (id, username, email, display_name, status)
+         VALUES ($1, 'new_default_member', 'new-default@example.com', '新成员', 'active')",
+    )
+    .bind(new_user_id)
+    .execute(&pool)
+    .await
+    .expect("new user fixture must insert");
+
+    let existing_group_key = sqlx::query_scalar::<_, String>(
+        "SELECT groups.internal_key
+         FROM community_group_memberships AS memberships
+         JOIN community_groups AS groups ON groups.id = memberships.group_id
+         WHERE memberships.user_id = $1 AND memberships.revoked_at IS NULL",
+    )
+    .bind(existing_user_id)
+    .fetch_one(&pool)
+    .await
+    .expect("existing membership must remain queryable");
+    assert_eq!(existing_group_key, "registered_member");
+
+    let new_group_key = sqlx::query_scalar::<_, String>(
+        "SELECT groups.internal_key
+         FROM community_group_memberships AS memberships
+         JOIN community_groups AS groups ON groups.id = memberships.group_id
+         WHERE memberships.user_id = $1 AND memberships.revoked_at IS NULL",
+    )
+    .bind(new_user_id)
+    .fetch_one(&pool)
+    .await
+    .expect("new membership must be queryable");
+    assert_eq!(new_group_key, "new_member");
+}

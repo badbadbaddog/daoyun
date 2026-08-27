@@ -128,6 +128,7 @@ pub struct CommunityGroupConfigurationRecord {
     pub display_name: String,
     pub description: String,
     pub is_base: bool,
+    pub is_default: bool,
     pub status: String,
     pub display_order: i32,
     pub permission_keys: BTreeSet<String>,
@@ -212,7 +213,7 @@ impl Database {
         &self,
     ) -> Result<Vec<CommunityGroupConfigurationRecord>, sqlx::Error> {
         let rows = sqlx::query_as::<_, CommunityGroupRow>(
-            "SELECT id, internal_key, display_name, description, is_base, status,
+            "SELECT id, internal_key, display_name, description, is_base, is_default, status,
                     display_order, revision, created_at, updated_at
              FROM community_groups
              ORDER BY display_order, id",
@@ -317,7 +318,7 @@ impl Database {
             return Err(CommunityGroupMutationError::Forbidden);
         }
         let current = sqlx::query_as::<_, CommunityGroupRow>(
-            "SELECT id, internal_key, display_name, description, is_base, status,
+            "SELECT id, internal_key, display_name, description, is_base, is_default, status,
                     display_order, revision, created_at, updated_at
              FROM community_groups
              WHERE id = $1
@@ -330,7 +331,7 @@ impl Database {
         if current.revision != input.expected_revision {
             return Err(CommunityGroupMutationError::Conflict);
         }
-        if current.internal_key == "registered_member" && input.status != "active" {
+        if current.is_default && input.status != "active" {
             return Err(CommunityGroupMutationError::SystemManaged);
         }
         if !valid_group_transition(&current.status, &input.status) {
@@ -373,6 +374,102 @@ impl Database {
         )
         .await?;
         let record = fetch_group_configuration(&mut transaction, input.id).await?;
+        transaction.commit().await?;
+        Ok(record)
+    }
+
+    pub async fn set_default_community_group(
+        &self,
+        actor_id: Uuid,
+        group_id: Uuid,
+        expected_default_group_id: Uuid,
+        expected_default_revision: i64,
+    ) -> Result<CommunityGroupConfigurationRecord, CommunityGroupMutationError> {
+        if expected_default_revision < 1 {
+            return Err(CommunityGroupMutationError::InvalidInput);
+        }
+        let mut transaction = self.pool.begin().await?;
+        if !has_permission_with_executor(
+            &mut transaction,
+            actor_id,
+            permission_keys::COMMUNITY_GROUPS_WRITE,
+            None,
+        )
+        .await?
+        {
+            return Err(CommunityGroupMutationError::Forbidden);
+        }
+
+        sqlx::query("LOCK TABLE community_groups IN SHARE ROW EXCLUSIVE MODE")
+            .execute(&mut *transaction)
+            .await?;
+        let current = sqlx::query_as::<_, CommunityGroupRow>(
+            "SELECT id, internal_key, display_name, description, is_base, is_default, status,
+                    display_order, revision, created_at, updated_at
+             FROM community_groups
+             WHERE is_default",
+        )
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or(CommunityGroupMutationError::InvalidInput)?;
+        if current.id != expected_default_group_id || current.revision != expected_default_revision
+        {
+            return Err(CommunityGroupMutationError::Conflict);
+        }
+        if current.id == group_id {
+            let record = fetch_group_configuration(&mut transaction, current.id).await?;
+            transaction.commit().await?;
+            return Ok(record);
+        }
+
+        let target = sqlx::query_as::<_, CommunityGroupRow>(
+            "SELECT id, internal_key, display_name, description, is_base, is_default, status,
+                    display_order, revision, created_at, updated_at
+             FROM community_groups
+             WHERE id = $1",
+        )
+        .bind(group_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or(CommunityGroupMutationError::NotFound)?;
+        if !target.is_base || target.status != "active" {
+            return Err(CommunityGroupMutationError::InvalidInput);
+        }
+
+        sqlx::query(
+            "UPDATE community_groups
+             SET is_default = false, revision = revision + 1,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1",
+        )
+        .bind(current.id)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "UPDATE community_groups
+             SET is_default = true, revision = revision + 1,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1",
+        )
+        .bind(target.id)
+        .execute(&mut *transaction)
+        .await?;
+        insert_audit(
+            &mut transaction,
+            actor_id,
+            "community.group.default.update",
+            "community_group",
+            Some(target.id),
+            serde_json::json!({
+                "default_group_id_before": current.id,
+                "default_group_key_before": current.internal_key,
+                "default_group_id_after": target.id,
+                "default_group_key_after": target.internal_key,
+                "expected_default_revision": expected_default_revision
+            }),
+        )
+        .await?;
+        let record = fetch_group_configuration(&mut transaction, target.id).await?;
         transaction.commit().await?;
         Ok(record)
     }
@@ -621,6 +718,7 @@ struct CommunityGroupRow {
     display_name: String,
     description: String,
     is_base: bool,
+    is_default: bool,
     status: String,
     display_order: i32,
     revision: i64,
@@ -665,7 +763,7 @@ async fn fetch_group_configuration(
     group_id: Uuid,
 ) -> Result<CommunityGroupConfigurationRecord, sqlx::Error> {
     let row = sqlx::query_as::<_, CommunityGroupRow>(
-        "SELECT id, internal_key, display_name, description, is_base, status,
+        "SELECT id, internal_key, display_name, description, is_base, is_default, status,
                 display_order, revision, created_at, updated_at
          FROM community_groups WHERE id = $1",
     )
@@ -704,6 +802,7 @@ fn build_group_configuration(
         display_name: row.display_name,
         description: row.description,
         is_base: row.is_base,
+        is_default: row.is_default,
         status: row.status,
         display_order: row.display_order,
         permission_keys,

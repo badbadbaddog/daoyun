@@ -87,6 +87,9 @@ pub enum MutateGrowthLevelError {
     InvalidInput,
     InvalidTransition,
     InvalidThresholdOrder,
+    DeleteWouldBreakCatalog,
+    InUse,
+    LastPublished,
     Database(DatabaseError),
 }
 
@@ -156,8 +159,8 @@ impl Database {
         let record = sqlx::query_as::<_, AdminGrowthLevelRecord>(
             "INSERT INTO membership_levels (
                  id, internal_key, level_order, display_name, required_experience,
-                 icon_asset_id, color, description, status
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft')
+                 icon_asset_id, color, description, status, published_at
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'published', CURRENT_TIMESTAMP)
              RETURNING id, internal_key, level_order, display_name, required_experience,
                        icon_asset_id, color, description, status, revision, published_at,
                        created_at, updated_at",
@@ -191,6 +194,71 @@ impl Database {
             .await
             .map_err(map_growth_level_write_error)?;
         Ok(record)
+    }
+
+    pub async fn delete_growth_level(
+        &self,
+        actor_id: Uuid,
+        level_id: Uuid,
+    ) -> Result<(), MutateGrowthLevelError> {
+        let mut transaction = self.pool.begin().await?;
+        if !has_permission_with_executor(
+            &mut transaction,
+            actor_id,
+            permission_keys::MEMBERSHIP_RULES_WRITE,
+            None,
+        )
+        .await?
+        {
+            return Err(MutateGrowthLevelError::Forbidden);
+        }
+        sqlx::query("LOCK TABLE membership_levels IN SHARE ROW EXCLUSIVE MODE")
+            .execute(&mut *transaction)
+            .await?;
+        let current = sqlx::query_as::<_, AdminGrowthLevelRecord>(
+            "SELECT id, internal_key, level_order, display_name, required_experience,
+                    icon_asset_id, color, description, status, revision, published_at,
+                    created_at, updated_at
+             FROM membership_levels
+             WHERE id = $1
+             FOR UPDATE",
+        )
+        .bind(level_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or(MutateGrowthLevelError::NotFound)?;
+        if current.status == "published" {
+            let published_count = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM membership_levels WHERE status = 'published'",
+            )
+            .fetch_one(&mut *transaction)
+            .await?;
+            if published_count <= 1 {
+                return Err(MutateGrowthLevelError::LastPublished);
+            }
+        }
+        sqlx::query("DELETE FROM membership_levels WHERE id = $1")
+            .bind(level_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(map_growth_level_write_error)?;
+        insert_audit(
+            &mut transaction,
+            actor_id,
+            "membership.level.delete",
+            "membership_level",
+            Some(current.id),
+            serde_json::json!({
+                "internal_key": current.internal_key,
+                "level_order": current.level_order
+            }),
+        )
+        .await?;
+        transaction
+            .commit()
+            .await
+            .map_err(map_growth_level_delete_error)?;
+        Ok(())
     }
 
     pub async fn update_growth_level(
@@ -587,6 +655,18 @@ fn map_growth_level_write_error(error: sqlx::Error) -> MutateGrowthLevelError {
         match database_error.code().as_deref() {
             Some("23505") => return MutateGrowthLevelError::Duplicate,
             Some("23514") => return MutateGrowthLevelError::InvalidThresholdOrder,
+            Some("23503") => return MutateGrowthLevelError::InUse,
+            _ => {}
+        }
+    }
+    MutateGrowthLevelError::Database(DatabaseError::from(error))
+}
+
+fn map_growth_level_delete_error(error: sqlx::Error) -> MutateGrowthLevelError {
+    if let sqlx::Error::Database(database_error) = &error {
+        match database_error.code().as_deref() {
+            Some("23503") => return MutateGrowthLevelError::InUse,
+            Some("23514") => return MutateGrowthLevelError::DeleteWouldBreakCatalog,
             _ => {}
         }
     }
@@ -648,6 +728,13 @@ impl fmt::Display for MutateGrowthLevelError {
             Self::InvalidTransition => formatter.write_str("growth level transition is invalid"),
             Self::InvalidThresholdOrder => {
                 formatter.write_str("growth level thresholds are invalid")
+            }
+            Self::DeleteWouldBreakCatalog => {
+                formatter.write_str("growth level deletion would break the published catalog")
+            }
+            Self::InUse => formatter.write_str("growth level is assigned to a member"),
+            Self::LastPublished => {
+                formatter.write_str("last published growth level cannot be deleted")
             }
             Self::Database(_) => formatter.write_str("growth level operation failed"),
         }

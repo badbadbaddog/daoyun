@@ -5,11 +5,136 @@ use axum::{
 use infrastructure::Database;
 use serde_json::{Value, json};
 use sqlx::{PgPool, Row};
-use std::path::Path;
+use std::{
+    path::Path,
+    sync::{Arc, Mutex},
+};
 use tower::ServiceExt;
 use uuid::Uuid;
 
 const ONE_BY_ONE_PNG: &[u8] = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x04\x00\x00\x00\xb5\x1c\x0c\x02\x00\x00\x00\x0bIDATx\xda\x63d\xf8\x0f\x00\x01\x05\x01\x01'\x18\xe3f\x00\x00\x00\x00IEND\xaeB`\x82";
+
+#[derive(Default)]
+struct RecordingEmailSender {
+    recipients: Mutex<Vec<String>>,
+}
+
+impl daoyun_api::EmailSender for RecordingEmailSender {
+    fn send<'a>(
+        &'a self,
+        _settings: daoyun_api::SmtpConnectionSettings,
+        email: daoyun_api::OutboundEmail,
+    ) -> daoyun_api::EmailSenderFuture<'a> {
+        self.recipients
+            .lock()
+            .expect("recording email sender lock must be available")
+            .push(email.recipient_email);
+        Box::pin(async { Ok(()) })
+    }
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn smtp_settings_require_admin_csrf_and_never_return_the_password(pool: PgPool) {
+    let sender = Arc::new(RecordingEmailSender::default());
+    let email = daoyun_api::EmailRuntime::from_key_and_sender([17_u8; 32], sender.clone());
+    let app = daoyun_api::app_with_email_runtime(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+        email,
+    );
+    initialize(&app).await;
+    let (cookies, csrf) = login_owner(&app).await;
+
+    let without_csrf = app
+        .clone()
+        .oneshot(json_request(
+            Method::PATCH,
+            "/api/v1/admin/smtp-settings",
+            json!({}),
+            &cookies,
+            None,
+        ))
+        .await
+        .expect("SMTP update without CSRF must respond");
+    assert_eq!(without_csrf.status(), StatusCode::FORBIDDEN);
+
+    let updated = app
+        .clone()
+        .oneshot(json_request(
+            Method::PATCH,
+            "/api/v1/admin/smtp-settings",
+            json!({
+                "host": "smtp.example.com",
+                "port": 587,
+                "username": "mailer",
+                "password": "super-secret",
+                "clear_password": false,
+                "tls_mode": "starttls",
+                "from_email": "noreply@example.com",
+                "from_name": "DaoYun",
+                "enabled": true,
+                "registration_email_verification_enabled": true
+            }),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .expect("SMTP update must respond");
+    assert_eq!(updated.status(), StatusCode::OK);
+    let updated_body = response_json(updated).await;
+    assert_eq!(updated_body["data"]["password_configured"], true);
+    assert!(!updated_body.to_string().contains("super-secret"));
+    assert!(!updated_body.to_string().contains("ciphertext"));
+
+    let read = app
+        .clone()
+        .oneshot(get_request("/api/v1/admin/smtp-settings", &cookies))
+        .await
+        .expect("SMTP settings read must respond");
+    assert_eq!(read.status(), StatusCode::OK);
+    let read_body = response_json(read).await;
+    assert_eq!(read_body["data"]["tls_mode"], "starttls");
+    assert_eq!(read_body["data"]["password_configured"], true);
+    assert!(!read_body.to_string().contains("super-secret"));
+
+    let tested = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/smtp-settings/test",
+            json!({"recipient_email": "owner@example.com"}),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .expect("SMTP test send must respond");
+    assert_eq!(tested.status(), StatusCode::OK);
+    assert_eq!(
+        sender
+            .recipients
+            .lock()
+            .expect("recorded recipients must be readable")
+            .as_slice(),
+        ["owner@example.com"]
+    );
+
+    let ciphertext = sqlx::query_scalar::<_, Vec<u8>>(
+        "SELECT password_ciphertext FROM smtp_configuration WHERE singleton",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("encrypted SMTP password must exist");
+    assert!(!String::from_utf8_lossy(&ciphertext).contains("super-secret"));
+
+    let openapi = app
+        .oneshot(get_request("/api/v1/openapi.json", ""))
+        .await
+        .expect("OpenAPI document must respond");
+    let document = response_json(openapi).await;
+    assert!(document["paths"]["/api/v1/admin/smtp-settings"]["get"].is_object());
+    assert!(document["paths"]["/api/v1/admin/smtp-settings"]["patch"].is_object());
+    assert!(document["paths"]["/api/v1/admin/smtp-settings/test"]["post"].is_object());
+}
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
 async fn branding_asset_upload_rejects_active_content_and_serves_safe_same_origin_bytes(
@@ -938,15 +1063,16 @@ async fn board_deletion_impact_counts_topics_and_replies_before_rejecting_deleti
     .execute(&pool)
     .await
     .expect("topic fixture must insert");
-    for kind in ["topic", "reply", "reply"] {
+    for (index, kind) in ["topic", "reply", "reply"].into_iter().enumerate() {
         sqlx::query(
-            "INSERT INTO posts (id, topic_id, author_id, kind, status, content)
-             VALUES ($1, $2, $3, $4, 'published', '内容')",
+            "INSERT INTO posts (id, topic_id, author_id, kind, status, content, floor_number)
+             VALUES ($1, $2, $3, $4, 'published', '内容', $5)",
         )
         .bind(Uuid::now_v7())
         .bind(topic_id)
         .bind(owner_id)
         .bind(kind)
+        .bind((kind == "reply").then(|| i64::try_from(index).expect("fixture floor must fit i64")))
         .execute(&pool)
         .await
         .expect("post fixture must insert");

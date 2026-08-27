@@ -5,6 +5,7 @@ mod attachments;
 mod auth;
 mod boards;
 mod cache;
+mod email;
 mod governance;
 mod health;
 mod installation;
@@ -22,6 +23,7 @@ mod plugins;
 mod rejection;
 mod relations;
 mod restriction_worker;
+mod rich_content;
 mod topics;
 mod users;
 mod worker;
@@ -42,6 +44,10 @@ use uuid::Uuid;
 pub use auth::AuthConfig;
 pub use cache::{
     CacheConfig, CacheConfigError, CacheError, CacheRuntime, SiteBrandingCacheInvalidationHandler,
+};
+pub use email::{
+    EmailConfigError, EmailRuntime, EmailSendError, EmailSender, EmailSenderFuture, OutboundEmail,
+    RegistrationEmailHandler, SmtpConnectionSettings,
 };
 pub use mfa::{
     MfaConfigError, MfaRuntime, build_totp, generate_recovery_codes, generate_totp_setup,
@@ -80,6 +86,11 @@ const PERMISSIONS_POLICY_HEADER: HeaderName = HeaderName::from_static("permissio
 const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
     HeaderName::from_static("strict-transport-security");
 
+pub fn install_rustls_crypto_provider() {
+    // Source: https://docs.rs/rustls/0.23.43/rustls/crypto/struct.CryptoProvider.html#method.install_default
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
 // Source: https://docs.rs/utoipa/5.5.0/utoipa/derive.OpenApi.html
 #[derive(OpenApi)]
 #[openapi(
@@ -95,6 +106,9 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         admin::list_admin_user_content,
         admin::list_admin_user_reports,
         admin::get_admin_branding,
+        admin::get_smtp_settings,
+        admin::update_smtp_settings,
+        admin::test_smtp_settings,
         admin::list_audit,
         admin::list_audit_alerts,
         admin::list_authorization_permissions,
@@ -108,6 +122,8 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         admin::list_community_groups,
         admin::create_community_group,
         admin::update_community_group,
+        admin::set_default_community_group,
+        admin::list_community_memberships,
         admin::grant_community_membership,
         admin::revoke_community_membership,
         admin::put_standard_entitlement_type,
@@ -120,6 +136,7 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         admin::list_growth_levels,
         admin::create_growth_level,
         admin::update_growth_level,
+        admin::delete_growth_level,
         admin::grant_membership_points,
         admin::list_membership_medal_rules,
         admin::update_membership_medal_rule,
@@ -153,6 +170,7 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         admin::get_board_deletion_impact,
         attachments::list,
         attachments::upload,
+        attachments::upload_draft,
         attachments::download,
         governance::create_report,
         governance::list_reports,
@@ -161,6 +179,8 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         governance::update_report,
         governance::batch_update_reports,
         boards::list,
+        auth::registration_policy,
+        auth::request_registration_email_challenge,
         auth::register,
         auth::login,
         mfa::status,
@@ -197,6 +217,7 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         topics::list_tags,
         topics::list_moderation_boards,
         topics::list_moderation_topics,
+        topics::list_topic_moderation_history,
         topics::detail,
         topics::create,
         topics::update,
@@ -266,6 +287,7 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         api_contract::AdminCapabilityAccess,
         api_contract::ModerationBoard,
         api_contract::ModerationTopic,
+        api_contract::TopicModerationHistoryEntry,
         api_contract::AdminUserStatus,
         api_contract::AdminUserSummary,
         api_contract::AdminUserDetail,
@@ -324,15 +346,22 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         api_contract::BrandListDensity,
         api_contract::BrandThemePreset,
         api_contract::SiteBranding,
+        api_contract::SmtpSettings,
+        api_contract::SmtpTlsMode,
+        api_contract::TestSmtpSettingsRequest,
         api_contract::CreateAdminBoardRequest,
         api_contract::UpdateAdminBoardRequest,
         api_contract::UpdateSiteBrandingRequest,
+        api_contract::UpdateSmtpSettingsRequest,
         api_contract::HealthData,
         api_contract::HealthStatus,
         api_contract::InstallationStatus,
         api_contract::AuthenticatedSession,
         api_contract::AuthenticatedUser,
         api_contract::LoginRequest,
+        api_contract::RegistrationPolicy,
+        api_contract::RegistrationEmailChallengeRequest,
+        api_contract::RegistrationEmailChallengeData,
         api_contract::MfaStatus,
         api_contract::MfaSetupData,
         api_contract::MfaCodeRequest,
@@ -375,6 +404,7 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         api_contract::PageResponse<api_contract::BoardSummary>,
         api_contract::PageResponse<api_contract::TopicSummary>,
         api_contract::PageResponse<api_contract::ModerationTopic>,
+        api_contract::PageResponse<api_contract::TopicModerationHistoryEntry>,
         api_contract::PageResponse<api_contract::TopicReply>,
         api_contract::PageResponse<api_contract::UserSummary>,
         api_contract::PageResponse<api_contract::ConversationSummary>,
@@ -403,6 +433,7 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         api_contract::ApiResponse<api_contract::ReportModerationResult>,
         api_contract::ApiResponse<api_contract::BatchReportResult>,
         api_contract::TopicAttachment,
+        api_contract::DraftImageAttachment,
         api_contract::AttachmentScanStatus,
         api_contract::AttachmentCleanupResult,
         api_contract::AttachmentStatus,
@@ -490,6 +521,7 @@ const STRICT_TRANSPORT_SECURITY_HEADER: HeaderName =
         api_contract::AdminCommunityGroup,
         api_contract::CreateCommunityGroupRequest,
         api_contract::UpdateCommunityGroupRequest,
+        api_contract::SetDefaultCommunityGroupRequest,
         api_contract::AdminCommunityGroupMembership,
         api_contract::GrantCommunityGroupMembershipRequest,
         api_contract::RevokeCommunityGroupMembershipRequest,
@@ -559,6 +591,22 @@ pub fn app_with_config(database: Database, auth_config: AuthConfig) -> Router {
     app_with_runtime(database, auth_config, CacheRuntime::disabled())
 }
 
+pub fn app_with_email_runtime(
+    database: Database,
+    auth_config: AuthConfig,
+    email_runtime: EmailRuntime,
+) -> Router {
+    app_with_all_runtimes_and_email(
+        database,
+        auth_config,
+        CacheRuntime::disabled(),
+        MfaRuntime::disabled(),
+        ObservabilityRuntime::default(),
+        PluginRuntime::disabled(),
+        email_runtime,
+    )
+}
+
 pub fn app_with_runtime(
     database: Database,
     auth_config: AuthConfig,
@@ -622,6 +670,27 @@ pub fn app_with_all_runtimes(
     observability_runtime: ObservabilityRuntime,
     plugin_runtime: PluginRuntime,
 ) -> Router {
+    app_with_all_runtimes_and_email(
+        database,
+        auth_config,
+        cache_runtime,
+        mfa_runtime,
+        observability_runtime,
+        plugin_runtime,
+        EmailRuntime::disabled(),
+    )
+}
+
+pub fn app_with_all_runtimes_and_email(
+    database: Database,
+    auth_config: AuthConfig,
+    cache_runtime: CacheRuntime,
+    mfa_runtime: MfaRuntime,
+    observability_runtime: ObservabilityRuntime,
+    plugin_runtime: PluginRuntime,
+    email_runtime: EmailRuntime,
+) -> Router {
+    install_rustls_crypto_provider();
     let auth_runtime = auth::runtime(auth_config);
     Router::new()
         .merge(auth::router(auth_runtime.clone()))
@@ -652,6 +721,7 @@ pub fn app_with_all_runtimes(
         .layer(axum::Extension(mfa_runtime))
         .layer(axum::Extension(observability_runtime.clone()))
         .layer(axum::Extension(plugin_runtime))
+        .layer(axum::Extension(email_runtime))
         .layer(middleware::from_fn_with_state(
             observability_runtime,
             observability::observe_request,

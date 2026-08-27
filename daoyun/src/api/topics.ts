@@ -1,4 +1,5 @@
 import type { Topic, TopicTag } from "../types/community"
+import { isRichTextDocument, type RichTextDocument } from "../editor/richContent"
 import type { components } from "./generated"
 
 const TOPICS_ENDPOINT = "/api/v1/topics"
@@ -29,14 +30,26 @@ export interface TopicPage {
 
 export interface TopicDetail extends Topic {
   content: string
+  richContent?: RichTextDocument | null
   authorId: string
   authorUsername: string
   contentRevision: number
+  hasLockedContent: boolean
+}
+
+export interface ReplyReference {
+  id: string
+  floorNumber: number
+  author: TopicReply["author"]
+  excerpt: string | null
+  isDeleted: boolean
 }
 
 export interface TopicReply {
   id: string
   topicId: string
+  floorNumber: number
+  replyTo: ReplyReference | null
   author: {
     id: string
     username: string
@@ -44,6 +57,8 @@ export interface TopicReply {
     avatarUrl: string | null
   }
   content: string
+  richContent?: RichTextDocument | null
+  hasLockedContent: boolean
   createdAt: string
   updatedAt: string
   revisionCount: number
@@ -66,11 +81,13 @@ export interface CreateReplyOptions {
   csrfToken: string
   idempotencyKey: string
   signal?: AbortSignal
+  replyToId?: string
 }
 
 export interface UpdateReplyInput {
   baseRevision: number
   content: string
+  richContent?: RichTextDocument
 }
 
 export interface ReplyMutationOptions {
@@ -89,6 +106,7 @@ export interface ReplyRevision {
     avatarUrl: string | null
   }
   content: string
+  richContent?: RichTextDocument | null
   createdAt: string
 }
 
@@ -96,6 +114,7 @@ export interface UpdateTopicInput {
   baseRevision: number
   title?: string
   content?: string
+  richContent?: RichTextDocument
   tags?: TopicTag[]
 }
 
@@ -115,12 +134,14 @@ export interface TopicRevision {
     avatarUrl: string | null
   }
   content: string
+  richContent?: RichTextDocument | null
   createdAt: string
 }
 
 export interface CreateTopicInput {
   title: string
   content: string
+  richContent?: RichTextDocument
   boardId?: string
   tags?: TopicTag[]
 }
@@ -141,9 +162,9 @@ type TopicSummaryDto = components["schemas"]["TopicSummary"] & {
   viewer_bookmarked: boolean | null
   viewer_liked: boolean | null
 }
-type TopicDetailDto = TopicSummaryDto & { content: string; content_revision: number }
-type TopicRevisionDto = Omit<components["schemas"]["TopicRevision"], "editor"> & { editor: TopicAuthorDto }
-type ReplyRevisionDto = Omit<components["schemas"]["ReplyRevision"], "editor"> & { editor: TopicAuthorDto }
+type TopicDetailDto = TopicSummaryDto & { content: string; rich_content?: unknown; content_revision: number; has_locked_content: boolean }
+type TopicRevisionDto = Omit<components["schemas"]["TopicRevision"], "editor"> & { editor: TopicAuthorDto; rich_content?: unknown }
+type ReplyRevisionDto = Omit<components["schemas"]["ReplyRevision"], "editor"> & { editor: TopicAuthorDto; rich_content?: unknown }
 type TopicPageDto = Omit<components["schemas"]["PageResponse_TopicSummary"], "data" | "meta"> & {
   data: TopicSummaryDto[]
   meta: Required<components["schemas"]["PageMeta"]>
@@ -151,7 +172,18 @@ type TopicPageDto = Omit<components["schemas"]["PageResponse_TopicSummary"], "da
 type TopicResponseDto = Omit<components["schemas"]["ApiResponse_TopicDetail"], "data"> & { data: TopicDetailDto }
 type TopicReplyDto = Omit<components["schemas"]["TopicReply"], "author"> & {
   author: TopicAuthorDto
+  floor_number: number
+  reply_to: ReplyReferenceDto | null
+  has_locked_content: boolean
   viewer_liked: boolean | null
+  rich_content?: unknown
+}
+type ReplyReferenceDto = {
+  id: string
+  floor_number: number
+  author: TopicAuthorDto
+  excerpt: string | null
+  is_deleted: boolean
 }
 type ReplyPageDto = Omit<components["schemas"]["PageResponse_TopicReply"], "data" | "meta"> & {
   data: TopicReplyDto[]
@@ -163,10 +195,19 @@ type RevisionsResponseDto = Omit<components["schemas"]["ApiResponse_Vec_TopicRev
 type ReplyRevisionsResponseDto = Omit<components["schemas"]["ApiResponse_Vec_ReplyRevision"], "data"> & { data: ReplyRevisionDto[] }
 type BooleanResponseDto = components["schemas"]["ApiResponse_bool"]
 type ErrorResponseDto = components["schemas"]["ErrorResponse"]
-type CreateTopicRequestDto = components["schemas"]["CreateTopicRequest"]
-type UpdateTopicRequestDto = components["schemas"]["UpdateTopicRequest"]
-type CreateReplyRequestDto = components["schemas"]["CreateReplyRequest"]
-type UpdateReplyRequestDto = components["schemas"]["UpdateReplyRequest"]
+type CreateTopicRequestDto = Omit<components["schemas"]["CreateTopicRequest"], "rich_content"> & {
+  rich_content?: RichTextDocument
+}
+type UpdateTopicRequestDto = Omit<components["schemas"]["UpdateTopicRequest"], "rich_content"> & {
+  rich_content?: RichTextDocument
+}
+type CreateReplyRequestDto = Omit<components["schemas"]["CreateReplyRequest"], "rich_content"> & {
+  rich_content?: RichTextDocument
+  reply_to_id?: string
+}
+type UpdateReplyRequestDto = Omit<components["schemas"]["UpdateReplyRequest"], "rich_content"> & {
+  rich_content?: RichTextDocument
+}
 
 export class TopicApiError extends Error {
   readonly status: number
@@ -226,6 +267,7 @@ export async function createTopic(
   if (input.boardId) {
     requestBody.board_id = input.boardId
   }
+  if (input.richContent) requestBody.rich_content = input.richContent
   if (input.tags && input.tags.length > 0) {
     requestBody.tags = input.tags
   }
@@ -268,9 +310,11 @@ export async function getTopic(topicId: string, signal?: AbortSignal): Promise<T
   return {
     ...mapTopic(payload.data),
     content: payload.data.content,
+    richContent: readRichContent(payload.data.rich_content),
     authorId: payload.data.author.id,
     authorUsername: payload.data.author.username,
     contentRevision: payload.data.content_revision,
+    hasLockedContent: payload.data.has_locked_content,
   }
 }
 
@@ -299,6 +343,7 @@ export async function updateTopic(
   }
   if (input.title !== undefined) requestBody.title = input.title
   if (input.content !== undefined) requestBody.content = input.content
+  if (input.richContent !== undefined) requestBody.rich_content = input.richContent
   if (input.tags !== undefined) requestBody.tags = input.tags
   const response = await fetch(`${TOPICS_ENDPOINT}/${encodeURIComponent(topicId)}`, {
     method: "PATCH",
@@ -321,9 +366,11 @@ export async function updateTopic(
   return {
     ...mapTopic(payload.data),
     content: payload.data.content,
+    richContent: readRichContent(payload.data.rich_content),
     authorId: payload.data.author.id,
     authorUsername: payload.data.author.username,
     contentRevision: payload.data.content_revision,
+    hasLockedContent: payload.data.has_locked_content,
   }
 }
 
@@ -396,8 +443,11 @@ export async function createReply(
   topicId: string,
   content: string,
   options: CreateReplyOptions,
+  richContent?: RichTextDocument,
 ): Promise<TopicReply> {
   const requestBody: CreateReplyRequestDto = { content }
+  if (richContent) requestBody.rich_content = richContent
+  if (options.replyToId) requestBody.reply_to_id = options.replyToId
   const response = await fetch(`${TOPICS_ENDPOINT}/${encodeURIComponent(topicId)}/replies`, {
     method: "POST",
     headers: {
@@ -430,6 +480,7 @@ export async function updateReply(
     base_revision: input.baseRevision,
     content: input.content,
   }
+  if (input.richContent) requestBody.rich_content = input.richContent
   const response = await fetch(replyItemEndpoint(topicId, replyId), {
     method: "PATCH",
     headers: {
@@ -540,6 +591,7 @@ function mapRevision(revision: TopicRevisionDto): TopicRevision {
       avatarUrl: revision.editor.avatar_url,
     },
     content: revision.content,
+    richContent: readRichContent(revision.rich_content),
     createdAt: formatRelativeTime(revision.created_at),
   }
 }
@@ -556,6 +608,7 @@ function mapReplyRevision(revision: ReplyRevisionDto): ReplyRevision {
       avatarUrl: revision.editor.avatar_url,
     },
     content: revision.content,
+    richContent: readRichContent(revision.rich_content),
     createdAt: formatRelativeTime(revision.created_at),
   }
 }
@@ -564,6 +617,19 @@ function mapReply(reply: TopicReplyDto): TopicReply {
   return {
     id: reply.id,
     topicId: reply.topic_id,
+    floorNumber: reply.floor_number,
+    replyTo: reply.reply_to ? {
+      id: reply.reply_to.id,
+      floorNumber: reply.reply_to.floor_number,
+      author: {
+        id: reply.reply_to.author.id,
+        username: reply.reply_to.author.username,
+        displayName: reply.reply_to.author.display_name,
+        avatarUrl: reply.reply_to.author.avatar_url,
+      },
+      excerpt: reply.reply_to.excerpt,
+      isDeleted: reply.reply_to.is_deleted,
+    } : null,
     author: {
       id: reply.author.id,
       username: reply.author.username,
@@ -571,6 +637,8 @@ function mapReply(reply: TopicReplyDto): TopicReply {
       avatarUrl: reply.author.avatar_url,
     },
     content: reply.content,
+    richContent: readRichContent(reply.rich_content),
+    hasLockedContent: reply.has_locked_content,
     createdAt: formatRelativeTime(reply.created_at),
     updatedAt: formatRelativeTime(reply.updated_at),
     revisionCount: reply.revision_count,
@@ -690,11 +758,15 @@ function isTopicReply(value: unknown): value is TopicReplyDto {
   }
   return isUuid(value.id)
     && isUuid(value.topic_id)
+    && isSafePositiveInteger(value.floor_number)
+    && isReplyReference(value.reply_to)
     && isUuid(value.author.id)
     && isNonEmptyString(value.author.username)
     && isNonEmptyString(value.author.display_name)
     && isNullableHttpsUrl(value.author.avatar_url)
     && isNonEmptyString(value.content)
+    && isOptionalRichContent(value.rich_content)
+    && typeof value.has_locked_content === "boolean"
     && isNonEmptyString(value.created_at)
     && isNonEmptyString(value.updated_at)
     && isSafePositiveInteger(value.revision_count)
@@ -720,6 +792,7 @@ function isTopicRevision(value: unknown): value is TopicRevisionDto {
     && isNonEmptyString(value.editor.display_name)
     && isNullableHttpsUrl(value.editor.avatar_url)
     && isNonEmptyString(value.content)
+    && isOptionalRichContent(value.rich_content)
     && isNonEmptyString(value.created_at)
 }
 
@@ -733,13 +806,38 @@ function isReplyRevision(value: unknown): value is ReplyRevisionDto {
     && isNonEmptyString(value.editor.display_name)
     && isNullableHttpsUrl(value.editor.avatar_url)
     && isNonEmptyString(value.content)
+    && isOptionalRichContent(value.rich_content)
     && isNonEmptyString(value.created_at)
 }
 
 function isTopicDetail(value: unknown): value is TopicDetailDto {
   return isTopicSummary(value)
     && typeof (value as unknown as Record<string, unknown>).content === "string"
+    && isOptionalRichContent((value as unknown as Record<string, unknown>).rich_content)
+    && typeof (value as unknown as Record<string, unknown>).has_locked_content === "boolean"
     && isSafeNonNegativeInteger((value as unknown as Record<string, unknown>).content_revision)
+}
+
+function isReplyReference(value: unknown): value is ReplyReferenceDto | null {
+  if (value === null) return true
+  return isRecord(value)
+    && isUuid(value.id)
+    && isSafePositiveInteger(value.floor_number)
+    && isRecord(value.author)
+    && isUuid(value.author.id)
+    && isNonEmptyString(value.author.username)
+    && isNonEmptyString(value.author.display_name)
+    && isNullableHttpsUrl(value.author.avatar_url)
+    && (value.excerpt === null || typeof value.excerpt === "string")
+    && typeof value.is_deleted === "boolean"
+}
+
+function isOptionalRichContent(value: unknown): boolean {
+  return value === undefined || value === null || isRichTextDocument(value)
+}
+
+function readRichContent(value: unknown): RichTextDocument | null {
+  return isRichTextDocument(value) ? value : null
 }
 
 function isTopicSummary(value: unknown): value is TopicSummaryDto {

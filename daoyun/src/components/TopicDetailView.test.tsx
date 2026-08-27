@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react"
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -63,6 +63,7 @@ const topic = {
   authorId: "019fc700-0000-7000-8000-000000000004",
   authorUsername: "member",
   contentRevision: 1,
+  hasLockedContent: false,
 }
 
 const session = {
@@ -78,6 +79,8 @@ const session = {
 const reply = {
   id: "019fc800-0000-7000-8000-000000000201",
   topicId: topic.id,
+  floorNumber: 1,
+  replyTo: null,
   author: {
     id: session.user.id,
     username: session.user.username,
@@ -85,6 +88,7 @@ const reply = {
     avatarUrl: "https://example.com/avatar.png",
   },
   content: "回复正文",
+  hasLockedContent: false,
   createdAt: "刚刚",
   updatedAt: "刚刚",
   revisionCount: 1,
@@ -150,11 +154,47 @@ describe("TopicDetailView", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("回复服务暂时不可用")
     await user.click(screen.getByRole("button", { name: "发布回复" }))
 
-    expect(await screen.findByText("回复正文")).toBeInTheDocument()
+    await waitFor(() => expect(screen.getAllByText("回复正文")).toHaveLength(1))
     const firstOptions = vi.mocked(createReply).mock.calls[0][2]
     const secondOptions = vi.mocked(createReply).mock.calls[1][2]
     expect(secondOptions.idempotencyKey).toBe(firstOptions.idempotencyKey)
     expect(onReplyPublished).toHaveBeenCalledWith(topic.id)
+  })
+
+  it("uses server floor numbers and replies to a quoted floor", async () => {
+    const user = userEvent.setup()
+    const quotedReply = {
+      ...reply,
+      floorNumber: 8,
+      replyTo: {
+        id: "019fc800-0000-7000-8000-000000000200",
+        floorNumber: 3,
+        author: {
+          id: "019fc700-0000-7000-8000-000000000005",
+          username: "quoted_user",
+          displayName: "被引用用户",
+          avatarUrl: null,
+        },
+        excerpt: "被引用的回复摘要",
+        isDeleted: false,
+      },
+    }
+    vi.mocked(getTopic).mockResolvedValue({ ...topic, replies: 1 })
+    vi.mocked(listReplies).mockResolvedValue({ replies: [quotedReply], nextCursor: null })
+    vi.mocked(createReply).mockResolvedValue({ ...reply, floorNumber: 9, replyTo: null })
+
+    render(<TopicDetailView topicId={topic.id} session={session} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+
+    expect(await screen.findByText("#8")).toBeInTheDocument()
+    expect(screen.getByText("引用 #3")).toBeInTheDocument()
+    expect(screen.getByText("被引用的回复摘要")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "回复 8 楼" }))
+    expect(screen.getByText("回复 #8 @member")).toBeInTheDocument()
+    await user.type(screen.getByRole("textbox", { name: "参与讨论" }), "继续讨论")
+    await user.click(screen.getByRole("button", { name: "发布回复" }))
+
+    await waitFor(() => expect(createReply).toHaveBeenCalled())
+    expect(vi.mocked(createReply).mock.calls[0][2].replyToId).toBe(reply.id)
   })
 
   it("bookmarks and likes the topic and likes a reply with immediate counts", async () => {
@@ -299,10 +339,11 @@ describe("TopicDetailView", () => {
     await user.type(screen.getByRole("textbox", { name: "编辑回复内容" }), "更新后的回复")
     await user.click(screen.getByRole("button", { name: "保存回复" }))
     expect(await screen.findByText("更新后的回复")).toBeInTheDocument()
-    expect(updateReply).toHaveBeenCalledWith(topic.id, reply.id, {
+    expect(updateReply).toHaveBeenCalledWith(topic.id, reply.id, expect.objectContaining({
       baseRevision: 1,
       content: "更新后的回复",
-    }, { csrfToken: session.csrfToken })
+      richContent: expect.objectContaining({ type: "doc" }),
+    }), { csrfToken: session.csrfToken })
 
     await user.click(screen.getByRole("button", { name: "查看回复修订历史" }))
     expect(await screen.findByText("第 2 版")).toBeInTheDocument()

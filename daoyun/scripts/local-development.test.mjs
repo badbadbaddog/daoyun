@@ -3,10 +3,17 @@ import { describe, expect, it } from "vitest"
 import {
   DEFAULT_LOCAL_API_URL,
   DEFAULT_LOCAL_DATABASE_URL,
+  LOCAL_MODERATION_FIXTURE,
   LOCAL_TEST_ACCOUNTS,
   assertLoopbackUrl,
 } from "./local-development.mjs"
-import { isPostgresTrue, parseSeedArguments, sqlLiteral } from "./seed-local-test-accounts.mjs"
+import {
+  buildLocalModerationFixtureSql,
+  buildPsqlArguments,
+  isPostgresTrue,
+  parseSeedArguments,
+  sqlLiteral,
+} from "./seed-local-test-accounts.mjs"
 import {
   buildLocalApiEnvironment,
   buildCargoInvocation,
@@ -27,6 +34,27 @@ describe("local development configuration", () => {
       expect.objectContaining({ username: "demo_member", role: "member" }),
     ])
     expect(new Set(LOCAL_TEST_ACCOUNTS.map((account) => account.username)).size).toBe(2)
+  })
+
+  it("defines a repeatable moderation fixture with a move target and paginated data", () => {
+    expect(LOCAL_MODERATION_FIXTURE).toEqual(expect.objectContaining({
+      sourceBoardSlug: "general",
+      targetBoardSlug: "feedback",
+      targetTopicCount: 24,
+      historyEntryCount: 23,
+    }))
+
+    const sql = buildLocalModerationFixtureSql(LOCAL_MODERATION_FIXTURE)
+    expect(sql).toContain("generate_series(1, 24)")
+    expect(sql).toContain("generate_series(1, 23)")
+    expect(sql).toContain("topic_moderation_actions")
+    expect(sql).toContain("ON CONFLICT (id) DO UPDATE")
+  })
+
+  it("sends UTF-8 seed SQL through psql standard input instead of a Windows command argument", () => {
+    const arguments_ = buildPsqlArguments(DEFAULT_LOCAL_DATABASE_URL)
+    expect(arguments_).toContain("--file=-")
+    expect(arguments_).not.toContain("--command")
   })
 
   it("rejects non-local overrides before it can issue insecure local credentials", () => {

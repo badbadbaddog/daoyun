@@ -238,6 +238,66 @@ test.describe("local real business flow", () => {
     }
   })
 
+  test("keeps membership economy lists accessible without horizontal overflow", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "chromium-desktop", "This test covers every required viewport in one browser session.")
+    const consoleIssues: string[] = []
+    page.on("console", (message) => {
+      if (message.type() !== "error" && message.type() !== "warning") return
+      const location = message.location().url
+      const isAnonymousSessionProbe = message.type() === "error"
+        && message.text().includes("401 (Unauthorized)")
+        && location.length > 0
+        && new URL(location).pathname === "/api/v1/auth/session"
+      if (!isAnonymousSessionProbe) consoleIssues.push(`${message.type()}: ${message.text()}`)
+    })
+    page.on("pageerror", (error) => consoleIssues.push(`pageerror: ${error.message}`))
+
+    await loginThroughUi(page, "demo_admin")
+    await page.goto("/#admin/membership", { waitUntil: "networkidle" })
+    await expect(page.getByRole("heading", { name: "会员经济", level: 1 })).toBeVisible()
+    const growthWorkspace = page.locator("#membership-growth-workspace")
+    await expect(growthWorkspace.getByText(/草稿|已发布|已停用|已归档/)).toHaveCount(0)
+    await growthWorkspace.getByRole("button", { name: "新增等级" }).click()
+    const createDialog = page.getByRole("dialog", { name: "新增成长等级" })
+    await expect(createDialog).toBeVisible()
+    await createDialog.getByRole("button", { name: "取消" }).click()
+    await growthWorkspace.getByRole("button", { name: /^编辑 / }).first().click()
+    const editDialog = page.getByRole("dialog", { name: "编辑成长等级" })
+    await expect(editDialog.getByLabel(/ 状态$/)).toHaveCount(0)
+    await editDialog.getByRole("button", { name: "取消" }).click()
+    await growthWorkspace.getByRole("button", { name: /^删除 / }).first().click()
+    const deleteDialog = page.getByRole("dialog", { name: "删除成长等级" })
+    await expect(deleteDialog).toBeVisible()
+    await deleteDialog.getByRole("button", { name: "取消" }).click()
+
+    for (const width of [320, 768, 1024, 1440]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.getByRole("tab", { name: "成长运营" }).click()
+      await expect(page.getByRole("list", { name: "成长等级列表" })).toBeVisible()
+      await assertNoHorizontalOverflow(page)
+      await page.getByRole("button", { name: "新增等级" }).click()
+      const responsiveDialog = page.getByRole("dialog", { name: "新增成长等级" })
+      await expect(responsiveDialog).toBeVisible()
+      await expect(responsiveDialog.getByRole("region", { name: "等级预览" })).toBeVisible()
+      await expect(responsiveDialog.getByRole("group", { name: "基本信息" })).toBeVisible()
+      await expect(responsiveDialog.getByRole("group", { name: "成长规则" })).toBeVisible()
+      await expect(responsiveDialog.getByRole("group", { name: "视觉与说明" })).toBeVisible()
+      await assertNoHorizontalOverflow(page)
+      if (width === 320 || width === 1440) {
+        await testInfo.attach(`membership-growth-dialog-${width}`, { body: await page.screenshot(), contentType: "image/png" })
+      }
+      await responsiveDialog.getByRole("button", { name: "取消" }).click()
+
+      await page.getByRole("tab", { name: "勋章运营" }).click()
+      await expect(page.getByRole("list", { name: "勋章规则列表" })).toBeVisible()
+      await assertNoHorizontalOverflow(page)
+    }
+
+    const accessibility = await new AxeBuilder({ page }).include(".membership-admin-panel").analyze()
+    expect(accessibility.violations, JSON.stringify(accessibility.violations, null, 2)).toEqual([])
+    expect(consoleIssues).toEqual([])
+  })
+
   test("installs, invokes, sandboxes, disables, and uninstalls a real Rust plugin", async ({ page }, testInfo) => {
     test.setTimeout(60_000)
     const suffix = crypto.randomUUID().replaceAll("-", "").slice(0, 12)
@@ -373,6 +433,139 @@ test.describe("local real business flow", () => {
       if (pluginId) await removePluginIfPresent(page, pluginId, csrfToken)
     }
   })
+
+  test("keeps topic moderation responsive, accessible, and connected to the real API", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "chromium-desktop", "This test covers every required viewport in one browser session.")
+    test.setTimeout(60_000)
+    const consoleIssues: string[] = []
+    page.on("console", (message) => {
+      if (message.type() !== "error" && message.type() !== "warning") return
+      const location = message.location().url
+      const isAnonymousSessionProbe = message.type() === "error"
+        && message.text().includes("401 (Unauthorized)")
+        && location.length > 0
+        && new URL(location).pathname === "/api/v1/auth/session"
+      if (!isAnonymousSessionProbe) consoleIssues.push(`${message.type()}: ${message.text()}`)
+    })
+    page.on("pageerror", (error) => consoleIssues.push(`pageerror: ${error.message}`))
+
+    await loginThroughUi(page, "demo_admin")
+    await page.goto("/#admin/moderation", { waitUntil: "networkidle" })
+    await expect(page.getByRole("heading", { name: "主题治理工作台" })).toBeVisible()
+
+    const boardSelect = page.getByRole("combobox", { name: "治理板块" })
+    expect(await boardSelect.locator("option").allTextContents()).toEqual(expect.arrayContaining(["社区广场", "产品反馈"]))
+    const fixtureTitle = "治理验收：跨板块移动与处理记录"
+
+    for (const width of [320, 768, 1024, 1440]) {
+      await page.setViewportSize({ width, height: 900 })
+      await boardSelect.selectOption({ label: "社区广场" })
+      const topicRow = page.locator(".moderation-topic-row").filter({ hasText: fixtureTitle })
+      await expect(topicRow).toBeVisible()
+      await assertNoHorizontalOverflow(page)
+
+      await topicRow.getByRole("button", { name: `操作：${fixtureTitle}` }).click()
+      await topicRow.getByRole("button", { name: "处理记录", exact: true }).click()
+      const history = topicRow.getByRole("region", { name: "主题处理记录" })
+      await expect(history.getByRole("table", { name: "处理记录" })).toBeVisible()
+      await expect(history.getByRole("button", { name: "加载更多记录" })).toBeVisible()
+      await assertNoHorizontalOverflow(page)
+      await topicRow.getByRole("button", { name: `操作：${fixtureTitle}` }).click()
+      await topicRow.getByRole("button", { name: "处理记录", exact: true }).click()
+
+      await topicRow.getByRole("button", { name: `操作：${fixtureTitle}` }).click()
+      await topicRow.getByRole("button", { name: "移动", exact: true }).click()
+      const moveDialog = page.getByRole("dialog", { name: "移动主题" })
+      await expect(moveDialog.getByRole("combobox", { name: "目标板块" }).locator("option", { hasText: "产品反馈" })).toHaveCount(1)
+      await expect(moveDialog.getByRole("textbox", { name: "处理备注" })).toBeFocused()
+      await expect(moveDialog).toContainText("移动后，主题将从当前板块队列中移除。")
+      await page.keyboard.press("Escape")
+      await expect(moveDialog).toHaveCount(0)
+
+      if (width === 320 || width === 1440) {
+        const accessibility = await new AxeBuilder({ page }).include(".moderation-admin-panel").analyze()
+        expect(accessibility.violations, JSON.stringify(accessibility.violations, null, 2)).toEqual([])
+        await testInfo.attach(`topic-moderation-${width}`, { body: await page.screenshot(), contentType: "image/png" })
+      }
+    }
+
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const themeButton = page.getByRole("button", { name: "切换为深色主题" })
+    await themeButton.click()
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
+    await expect(page.getByRole("button", { name: "切换为浅色主题" })).toBeVisible()
+    await page.getByRole("button", { name: "切换为浅色主题" }).click()
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
+
+    await boardSelect.selectOption({ label: "产品反馈" })
+    const table = page.getByRole("table", { name: "主题治理队列" })
+    await expect(table.getByRole("row")).toHaveCount(21)
+    const loadMoreResponse = page.waitForResponse((response) => (
+      response.request().method() === "GET"
+      && new URL(response.url()).pathname === "/api/v1/admin/moderation/topics"
+      && new URL(response.url()).searchParams.has("cursor")
+    ))
+    await page.getByRole("button", { name: "加载更多" }).click()
+    expect((await loadMoreResponse).status()).toBe(200)
+    await expect(table.getByRole("row")).toHaveCount(25)
+
+    await boardSelect.selectOption({ label: "社区广场" })
+    let fixtureRow = page.locator(".moderation-topic-row").filter({ hasText: fixtureTitle })
+    const moveResponse = page.waitForResponse((response) => (
+      response.request().method() === "PATCH"
+      && new URL(response.url()).pathname.endsWith("/governance")
+    ))
+    await fixtureRow.getByRole("button", { name: `操作：${fixtureTitle}` }).click()
+    await fixtureRow.getByRole("button", { name: "移动", exact: true }).click()
+    await page.getByRole("combobox", { name: "目标板块" }).selectOption({ label: "产品反馈" })
+    await page.getByRole("textbox", { name: "处理备注" }).fill("E2E 移动到产品反馈")
+    await page.getByRole("button", { name: "确认移动主题" }).click()
+    expect((await moveResponse).status()).toBe(200)
+    await expect(page.getByText("主题已移动到目标板块。")).toBeVisible()
+
+    await boardSelect.selectOption({ label: "产品反馈" })
+    fixtureRow = page.locator(".moderation-topic-row").filter({ hasText: fixtureTitle })
+    await expect(fixtureRow).toBeVisible()
+    const restoreMoveResponse = page.waitForResponse((response) => (
+      response.request().method() === "PATCH"
+      && new URL(response.url()).pathname.endsWith("/governance")
+    ))
+    await fixtureRow.getByRole("button", { name: `操作：${fixtureTitle}` }).click()
+    await fixtureRow.getByRole("button", { name: "移动", exact: true }).click()
+    await expect(page.getByRole("combobox", { name: "目标板块" })).toHaveValue(
+      await boardSelect.locator("option", { hasText: "社区广场" }).getAttribute("value") ?? "",
+    )
+    await page.getByRole("textbox", { name: "处理备注" }).fill("E2E 恢复到社区广场")
+    await page.getByRole("button", { name: "确认移动主题" }).click()
+    expect((await restoreMoveResponse).status()).toBe(200)
+
+    await boardSelect.selectOption({ label: "社区广场" })
+    fixtureRow = page.locator(".moderation-topic-row").filter({ hasText: fixtureTitle })
+    await expect(fixtureRow).toBeVisible()
+    const pinResponse = page.waitForResponse((response) => (
+      response.request().method() === "PATCH"
+      && new URL(response.url()).pathname.endsWith("/governance")
+    ))
+    await fixtureRow.getByRole("button", { name: `操作：${fixtureTitle}` }).click()
+    await fixtureRow.getByRole("button", { name: "置顶", exact: true }).click()
+    await page.getByRole("button", { name: "确认置顶主题" }).click()
+    expect((await pinResponse).status()).toBe(200)
+    await expect(fixtureRow.getByText("已置顶", { exact: true })).toBeVisible()
+
+    const unpinResponse = page.waitForResponse((response) => (
+      response.request().method() === "PATCH"
+      && new URL(response.url()).pathname.endsWith("/governance")
+    ))
+    await fixtureRow.getByRole("button", { name: `操作：${fixtureTitle}` }).click()
+    await fixtureRow.getByRole("button", { name: "取消置顶", exact: true }).click()
+    await page.getByRole("button", { name: "确认取消置顶主题" }).click()
+    expect((await unpinResponse).status()).toBe(200)
+    await fixtureRow.getByRole("button", { name: `操作：${fixtureTitle}` }).click()
+    await expect(fixtureRow.getByRole("button", { name: "置顶", exact: true })).toBeVisible()
+
+    await assertNoHorizontalOverflow(page)
+    expect(consoleIssues).toEqual([])
+  })
 })
 
 async function exerciseOperationsReader(
@@ -495,7 +688,7 @@ async function exerciseWritableOperations(
 }
 
 async function loginThroughUi(page: import("@playwright/test").Page, username: string): Promise<string> {
-  await page.goto("/", { waitUntil: "networkidle" })
+  await page.goto("/", { waitUntil: "domcontentloaded" })
   await page.getByRole("button", { name: "登录" }).first().click()
   await page.locator("#auth-identifier").fill(username)
   await page.locator("#auth-password").fill("DaoYunLocalOnly!2026")

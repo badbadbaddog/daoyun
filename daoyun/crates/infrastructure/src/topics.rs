@@ -4,7 +4,7 @@ use std::{
     fmt,
 };
 
-use serde_json::json;
+use serde_json::{Value, json};
 use sqlx::{FromRow, types::Uuid};
 use time::OffsetDateTime;
 
@@ -72,7 +72,9 @@ pub struct PublicTopicRecord {
 pub struct PublicTopicDetailRecord {
     pub summary: PublicTopicRecord,
     pub content: String,
+    pub rich_content: Option<Value>,
     pub content_revision: i32,
+    pub reply_gate_unlocked: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
@@ -109,6 +111,19 @@ pub struct ModerationTopicRecord {
     pub is_locked: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
+pub struct TopicModerationHistoryRecord {
+    pub id: Uuid,
+    pub source: String,
+    pub action: String,
+    pub actor_id: Uuid,
+    pub actor_username: String,
+    pub actor_display_name: String,
+    pub actor_avatar_url: Option<String>,
+    pub reason: Option<String>,
+    pub created_at: OffsetDateTime,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModerationTopicFilters {
     pub board_id: Option<Uuid>,
@@ -138,6 +153,7 @@ pub struct TopicRevisionRecord {
     pub editor_display_name: String,
     pub editor_avatar_url: Option<String>,
     pub content: String,
+    pub rich_content: Option<Value>,
     pub created_at: OffsetDateTime,
 }
 
@@ -151,6 +167,7 @@ pub struct ReplyRevisionRecord {
     pub editor_display_name: String,
     pub editor_avatar_url: Option<String>,
     pub content: String,
+    pub rich_content: Option<Value>,
     pub created_at: OffsetDateTime,
 }
 
@@ -168,6 +185,7 @@ pub struct NewTopicRecord {
     pub title: String,
     pub excerpt: String,
     pub content: String,
+    pub rich_content: Option<Value>,
     pub tags: Vec<NewTagRecord>,
 }
 
@@ -179,6 +197,7 @@ pub struct UpdateTopicRecord {
     pub title: Option<String>,
     pub excerpt: Option<String>,
     pub content: Option<String>,
+    pub rich_content: Option<Value>,
     pub tags: Option<Vec<NewTagRecord>>,
 }
 
@@ -189,6 +208,8 @@ pub struct NewReplyRecord {
     pub topic_id: Uuid,
     pub author_id: Uuid,
     pub content: String,
+    pub rich_content: Option<Value>,
+    pub reply_to_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -198,21 +219,35 @@ pub struct UpdateReplyRecord {
     pub author_id: Uuid,
     pub base_revision: i32,
     pub content: String,
+    pub rich_content: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
 pub struct PublicReplyRecord {
     pub id: Uuid,
     pub topic_id: Uuid,
+    pub floor_number: i64,
+    pub reply_to_id: Option<Uuid>,
+    pub reply_to_floor_number: Option<i64>,
+    pub reply_to_author_id: Option<Uuid>,
+    pub reply_to_author_username: Option<String>,
+    pub reply_to_author_display_name: Option<String>,
+    pub reply_to_author_avatar_url: Option<String>,
+    pub reply_to_excerpt: Option<String>,
+    pub reply_to_rich_content: Option<Value>,
+    pub reply_to_is_deleted: Option<bool>,
     pub author_id: Uuid,
     pub author_username: String,
     pub author_display_name: String,
     pub author_avatar_url: Option<String>,
     pub content: String,
+    pub rich_content: Option<Value>,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
     pub revision_count: i32,
     pub like_count: i64,
+    #[sqlx(default)]
+    pub reply_gate_unlocked: bool,
     #[sqlx(default)]
     pub viewer_liked: Option<bool>,
 }
@@ -315,6 +350,7 @@ pub enum CreateTopicError {
     PermissionDenied,
     QuotaExceeded,
     IdempotencyConflict,
+    AttachmentUnavailable,
     Database(DatabaseError),
 }
 
@@ -326,6 +362,13 @@ pub enum ListPublicTopicsError {
 
 #[derive(Debug)]
 pub enum ListModerationTopicsError {
+    InvalidCursor,
+    Database(DatabaseError),
+}
+
+#[derive(Debug)]
+pub enum ListTopicModerationHistoryError {
+    TopicUnavailable,
     InvalidCursor,
     Database(DatabaseError),
 }
@@ -345,6 +388,8 @@ pub enum CreateReplyError {
     PermissionDenied,
     QuotaExceeded,
     IdempotencyConflict,
+    InvalidReplyTarget,
+    AttachmentUnavailable,
     Database(DatabaseError),
 }
 
@@ -353,6 +398,7 @@ pub enum UpdateTopicError {
     TopicUnavailable,
     Forbidden,
     RevisionConflict,
+    AttachmentUnavailable,
     Database(DatabaseError),
 }
 
@@ -366,6 +412,7 @@ pub enum ListTopicRevisionsError {
 pub enum ReplyMutationError {
     ReplyUnavailable,
     RevisionConflict,
+    AttachmentUnavailable,
     Database(DatabaseError),
 }
 
@@ -554,6 +601,93 @@ impl Database {
         .bind(user_id)
         .bind(filters.board_id)
         .bind(filters.search.as_deref())
+        .bind(cursor)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn list_topic_moderation_history(
+        &self,
+        topic_id: Uuid,
+        cursor: Option<Uuid>,
+        limit: i64,
+    ) -> Result<Vec<TopicModerationHistoryRecord>, ListTopicModerationHistoryError> {
+        let topic_exists =
+            sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM topics WHERE id = $1)")
+                .bind(topic_id)
+                .fetch_one(&self.pool)
+                .await?;
+        if !topic_exists {
+            return Err(ListTopicModerationHistoryError::TopicUnavailable);
+        }
+
+        if let Some(cursor) = cursor {
+            let cursor_is_valid = sqlx::query_scalar::<_, bool>(
+                r#"WITH history AS (
+                     SELECT moderation.id
+                     FROM topic_moderation_actions AS moderation
+                     WHERE moderation.topic_id = $1
+                     UNION ALL
+                     SELECT audit.id
+                     FROM admin_audit_log AS audit
+                     WHERE audit.action = 'topic.governance'
+                       AND audit.resource_type = 'topic'
+                       AND audit.resource_id = $1
+                 )
+                 SELECT EXISTS (SELECT 1 FROM history WHERE id = $2)"#,
+            )
+            .bind(topic_id)
+            .bind(cursor)
+            .fetch_one(&self.pool)
+            .await?;
+            if !cursor_is_valid {
+                return Err(ListTopicModerationHistoryError::InvalidCursor);
+            }
+        }
+
+        Ok(sqlx::query_as::<_, TopicModerationHistoryRecord>(
+            r#"WITH history AS (
+                 SELECT moderation.id,
+                        'moderation'::text AS source,
+                        moderation.action,
+                        actor.id AS actor_id,
+                        actor.username AS actor_username,
+                        actor.display_name AS actor_display_name,
+                        actor.avatar_url AS actor_avatar_url,
+                        moderation.reason,
+                        moderation.created_at
+                 FROM topic_moderation_actions AS moderation
+                 INNER JOIN users AS actor ON actor.id = moderation.moderator_id
+                 WHERE moderation.topic_id = $1
+
+                 UNION ALL
+
+                 SELECT audit.id,
+                        'governance'::text AS source,
+                        audit.summary ->> 'action' AS action,
+                        actor.id AS actor_id,
+                        actor.username AS actor_username,
+                        actor.display_name AS actor_display_name,
+                        actor.avatar_url AS actor_avatar_url,
+                        NULLIF(audit.summary ->> 'reason', '') AS reason,
+                        audit.created_at
+                 FROM admin_audit_log AS audit
+                 INNER JOIN users AS actor ON actor.id = audit.actor_id
+                 WHERE audit.action = 'topic.governance'
+                   AND audit.resource_type = 'topic'
+                   AND audit.resource_id = $1
+             )
+             SELECT id, source, action, actor_id, actor_username, actor_display_name,
+                    actor_avatar_url, reason, created_at
+             FROM history
+             WHERE $2::uuid IS NULL OR (created_at, id) < (
+                 SELECT created_at, id FROM history WHERE id = $2
+             )
+             ORDER BY created_at DESC, id DESC
+             LIMIT $3"#,
+        )
+        .bind(topic_id)
         .bind(cursor)
         .bind(limit)
         .fetch_all(&self.pool)
@@ -849,6 +983,8 @@ impl Database {
                 moderation_status = $2,
                 published_at = CASE WHEN $2 = 'approved' THEN COALESCE(published_at, CURRENT_TIMESTAMP) ELSE published_at END,
                 deleted_at = CASE WHEN $2 = 'approved' THEN NULL ELSE deleted_at END,
+                featured_at = CASE WHEN $2 = 'approved' THEN featured_at ELSE NULL END,
+                pinned_at = CASE WHEN $2 = 'approved' THEN pinned_at ELSE NULL END,
                 updated_at = CURRENT_TIMESTAMP WHERE id = $1",
         )
         .bind(topic_id)
@@ -1011,25 +1147,38 @@ impl Database {
         .await?;
         debug_assert_eq!(inserted.rows_affected(), 1);
 
+        if !bind_rich_content_attachments(
+            &mut transaction,
+            input.id,
+            input.author_id,
+            input.rich_content.as_ref(),
+        )
+        .await?
+        {
+            return Err(CreateTopicError::AttachmentUnavailable);
+        }
+
         let inserted_post = sqlx::query(
-            "INSERT INTO posts (id, topic_id, author_id, kind, content, status) \
-             VALUES ($1, $1, $2, 'topic', $3, 'published')",
+            "INSERT INTO posts (id, topic_id, author_id, kind, content, rich_content, status) \
+             VALUES ($1, $1, $2, 'topic', $3, $4, 'published')",
         )
         .bind(input.id)
         .bind(input.author_id)
         .bind(&input.content)
+        .bind(&input.rich_content)
         .execute(&mut *transaction)
         .await?;
         debug_assert_eq!(inserted_post.rows_affected(), 1);
 
         let inserted_revision = sqlx::query(
-            "INSERT INTO post_revisions (id, post_id, editor_id, revision_number, content) \
-             VALUES ($1, $2, $3, 1, $4)",
+            "INSERT INTO post_revisions (id, post_id, editor_id, revision_number, content, rich_content) \
+             VALUES ($1, $2, $3, 1, $4, $5)",
         )
         .bind(Uuid::now_v7())
         .bind(input.id)
         .bind(input.author_id)
         .bind(&input.content)
+        .bind(&input.rich_content)
         .execute(&mut *transaction)
         .await?;
         debug_assert_eq!(inserted_revision.rows_affected(), 1);
@@ -1100,7 +1249,7 @@ impl Database {
     ) -> Result<UpdateTopicResult, UpdateTopicError> {
         let mut transaction = self.pool.begin().await?;
         let current = sqlx::query_as::<_, EditableTopicRow>(
-            "SELECT t.author_id, t.status, t.deleted_at, p.revision_count, p.content \
+            "SELECT t.author_id, t.status, t.deleted_at, p.revision_count, p.content, p.rich_content \
              FROM topics AS t \
              INNER JOIN posts AS p ON p.topic_id = t.id AND p.kind = 'topic' AND p.deleted_at IS NULL \
              WHERE t.id = $1 FOR UPDATE OF t, p",
@@ -1138,25 +1287,43 @@ impl Database {
             return Err(UpdateTopicError::TopicUnavailable);
         }
 
+        let content_changed = input.content.is_some();
         let next_content = input.content.as_deref().unwrap_or(current.content.as_str());
+        let next_rich_content = if content_changed {
+            input.rich_content.as_ref()
+        } else {
+            current.rich_content.as_ref()
+        };
+        if !bind_rich_content_attachments(
+            &mut transaction,
+            input.topic_id,
+            input.author_id,
+            next_rich_content,
+        )
+        .await?
+        {
+            return Err(UpdateTopicError::AttachmentUnavailable);
+        }
         sqlx::query(
-            "UPDATE posts SET content = $2, revision_count = $3, updated_at = CURRENT_TIMESTAMP \
+            "UPDATE posts SET content = $2, rich_content = $3, revision_count = $4, updated_at = CURRENT_TIMESTAMP \
              WHERE topic_id = $1 AND kind = 'topic' AND deleted_at IS NULL",
         )
         .bind(input.topic_id)
         .bind(next_content)
+        .bind(next_rich_content)
         .bind(next_revision)
         .execute(&mut *transaction)
         .await?;
         sqlx::query(
-            "INSERT INTO post_revisions (id, post_id, editor_id, revision_number, content) \
-             SELECT $1, p.id, $2, $3, $4 FROM posts AS p \
-             WHERE p.topic_id = $5 AND p.kind = 'topic' AND p.deleted_at IS NULL",
+            "INSERT INTO post_revisions (id, post_id, editor_id, revision_number, content, rich_content) \
+             SELECT $1, p.id, $2, $3, $4, $5 FROM posts AS p \
+             WHERE p.topic_id = $6 AND p.kind = 'topic' AND p.deleted_at IS NULL",
         )
         .bind(Uuid::now_v7())
         .bind(input.author_id)
         .bind(next_revision)
         .bind(next_content)
+        .bind(next_rich_content)
         .bind(input.topic_id)
         .execute(&mut *transaction)
         .await?;
@@ -1245,7 +1412,7 @@ impl Database {
             "SELECT r.id, p.topic_id, r.revision_number, e.id AS editor_id, \
                     e.username AS editor_username, e.display_name AS editor_display_name, \
                     e.avatar_url AS editor_avatar_url, \
-                    r.content, r.created_at \
+                    r.content, r.rich_content, r.created_at \
              FROM post_revisions AS r \
              INNER JOIN posts AS p ON p.id = r.post_id \
              INNER JOIN users AS e ON e.id = r.editor_id \
@@ -1297,13 +1464,25 @@ impl Database {
             return Err(ReplyMutationError::RevisionConflict);
         }
 
+        if !bind_rich_content_attachments(
+            &mut transaction,
+            input.topic_id,
+            input.author_id,
+            input.rich_content.as_ref(),
+        )
+        .await?
+        {
+            return Err(ReplyMutationError::AttachmentUnavailable);
+        }
+
         let next_revision = current.revision_count + 1;
         let updated = sqlx::query(
-            "UPDATE posts SET content = $2, revision_count = $3, updated_at = CURRENT_TIMESTAMP \
+            "UPDATE posts SET content = $2, rich_content = $3, revision_count = $4, updated_at = CURRENT_TIMESTAMP \
              WHERE id = $1 AND deleted_at IS NULL",
         )
         .bind(input.reply_id)
         .bind(&input.content)
+        .bind(&input.rich_content)
         .bind(next_revision)
         .execute(&mut *transaction)
         .await?;
@@ -1311,14 +1490,15 @@ impl Database {
             return Err(ReplyMutationError::ReplyUnavailable);
         }
         sqlx::query(
-            "INSERT INTO post_revisions (id, post_id, editor_id, revision_number, content) \
-             VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO post_revisions (id, post_id, editor_id, revision_number, content, rich_content) \
+             VALUES ($1, $2, $3, $4, $5, $6)",
         )
         .bind(Uuid::now_v7())
         .bind(input.reply_id)
         .bind(input.author_id)
         .bind(next_revision)
         .bind(&input.content)
+        .bind(&input.rich_content)
         .execute(&mut *transaction)
         .await?;
 
@@ -1348,7 +1528,7 @@ impl Database {
             "SELECT r.id, p.id AS reply_id, r.revision_number, e.id AS editor_id, \
                     e.username AS editor_username, e.display_name AS editor_display_name, \
                     e.avatar_url AS editor_avatar_url, \
-                    r.content, r.created_at \
+                    r.content, r.rich_content, r.created_at \
              FROM post_revisions AS r \
              INNER JOIN posts AS p ON p.id = r.post_id \
              INNER JOIN users AS e ON e.id = r.editor_id \
@@ -1581,25 +1761,66 @@ impl Database {
                 .fetch_one(&mut *transaction)
                 .await?;
 
+        if let Some(reply_to_id) = input.reply_to_id {
+            let reply_target_is_valid = sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(\
+                     SELECT 1 FROM posts \
+                     WHERE id = $1 AND topic_id = $2 AND kind = 'reply' \
+                       AND status = 'published' AND deleted_at IS NULL\
+                 )",
+            )
+            .bind(reply_to_id)
+            .bind(input.topic_id)
+            .fetch_one(&mut *transaction)
+            .await?;
+            if !reply_target_is_valid {
+                return Err(CreateReplyError::InvalidReplyTarget);
+            }
+        }
+
+        let floor_number = sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(MAX(floor_number), 0) + 1 \
+             FROM posts WHERE topic_id = $1 AND kind = 'reply'",
+        )
+        .bind(input.topic_id)
+        .fetch_one(&mut *transaction)
+        .await?;
+
+        if !bind_rich_content_attachments(
+            &mut transaction,
+            input.topic_id,
+            input.author_id,
+            input.rich_content.as_ref(),
+        )
+        .await?
+        {
+            return Err(CreateReplyError::AttachmentUnavailable);
+        }
+
         sqlx::query(
-            "INSERT INTO posts (id, topic_id, author_id, kind, content, status) \
-             VALUES ($1, $2, $3, 'reply', $4, 'published')",
+            "INSERT INTO posts (\
+                 id, topic_id, author_id, kind, content, rich_content, status, floor_number, reply_to_id\
+             ) VALUES ($1, $2, $3, 'reply', $4, $5, 'published', $6, $7)",
         )
         .bind(input.id)
         .bind(input.topic_id)
         .bind(input.author_id)
         .bind(&input.content)
+        .bind(&input.rich_content)
+        .bind(floor_number)
+        .bind(input.reply_to_id)
         .execute(&mut *transaction)
         .await?;
 
         sqlx::query(
-            "INSERT INTO post_revisions (id, post_id, editor_id, revision_number, content) \
-             VALUES ($1, $2, $3, 1, $4)",
+            "INSERT INTO post_revisions (id, post_id, editor_id, revision_number, content, rich_content) \
+             VALUES ($1, $2, $3, 1, $4, $5)",
         )
         .bind(input.revision_id)
         .bind(input.id)
         .bind(input.author_id)
         .bind(&input.content)
+        .bind(&input.rich_content)
         .execute(&mut *transaction)
         .await?;
 
@@ -1718,12 +1939,32 @@ impl Database {
         }
 
         let mut replies = sqlx::query_as::<_, PublicReplyRecord>(
-            "SELECT p.id, p.topic_id, p.author_id, \
+            "SELECT p.id, p.topic_id, p.floor_number, p.reply_to_id, \
+                    target.floor_number AS reply_to_floor_number, \
+                    target.author_id AS reply_to_author_id, \
+                    target_author.username AS reply_to_author_username, \
+                    target_author.display_name AS reply_to_author_display_name, \
+                    target_author.avatar_url AS reply_to_author_avatar_url, \
+                    CASE WHEN target.deleted_at IS NULL AND target.status = 'published' \
+                              AND target_author.status = 'active' \
+                              AND daoyun_can_access_content('post', target.id, $4, CURRENT_TIMESTAMP) \
+                         THEN LEFT(target.content, 160) ELSE NULL END AS reply_to_excerpt, \
+                    CASE WHEN target.deleted_at IS NULL AND target.status = 'published' \
+                              AND target_author.status = 'active' \
+                              AND daoyun_can_access_content('post', target.id, $4, CURRENT_TIMESTAMP) \
+                         THEN target.rich_content ELSE NULL END AS reply_to_rich_content, \
+                    CASE WHEN target.id IS NULL THEN NULL \
+                         ELSE target.deleted_at IS NOT NULL OR target.status <> 'published' \
+                              OR target_author.status <> 'active' \
+                    END AS reply_to_is_deleted, \
+                    p.author_id, \
                     u.username AS author_username, u.display_name AS author_display_name, \
                     u.avatar_url AS author_avatar_url, \
-                    p.content, p.created_at, p.updated_at, p.revision_count, p.like_count \
+                    p.content, p.rich_content, p.created_at, p.updated_at, p.revision_count, p.like_count \
              FROM posts AS p \
              INNER JOIN users AS u ON u.id = p.author_id \
+             LEFT JOIN posts AS target ON target.id = p.reply_to_id AND target.kind = 'reply' \
+             LEFT JOIN users AS target_author ON target_author.id = target.author_id \
              WHERE p.topic_id = $1 \
                AND p.kind = 'reply' AND p.status = 'published' \
                AND p.deleted_at IS NULL AND u.status = 'active' \
@@ -1743,6 +1984,10 @@ impl Database {
         .bind(viewer_user_id)
         .fetch_all(&self.pool)
         .await?;
+        let gate_unlocked = reply_gate_is_unlocked(&self.pool, topic_id, viewer_user_id).await?;
+        for reply in &mut replies {
+            reply.reply_gate_unlocked = gate_unlocked;
+        }
         if let Some(viewer_user_id) = viewer_user_id {
             hydrate_reply_viewer_states(&self.pool, &mut replies, viewer_user_id).await?;
         }
@@ -1753,13 +1998,41 @@ impl Database {
         &self,
         reply_id: Uuid,
     ) -> Result<Option<PublicReplyRecord>, DatabaseError> {
-        let reply = sqlx::query_as::<_, PublicReplyRecord>(
-            "SELECT p.id, p.topic_id, p.author_id, \
+        self.public_reply_for_viewer(reply_id, None).await
+    }
+
+    pub async fn public_reply_for_viewer(
+        &self,
+        reply_id: Uuid,
+        viewer_user_id: Option<Uuid>,
+    ) -> Result<Option<PublicReplyRecord>, DatabaseError> {
+        let mut reply = sqlx::query_as::<_, PublicReplyRecord>(
+            "SELECT p.id, p.topic_id, p.floor_number, p.reply_to_id, \
+                    target.floor_number AS reply_to_floor_number, \
+                    target.author_id AS reply_to_author_id, \
+                    target_author.username AS reply_to_author_username, \
+                    target_author.display_name AS reply_to_author_display_name, \
+                    target_author.avatar_url AS reply_to_author_avatar_url, \
+                    CASE WHEN target.deleted_at IS NULL AND target.status = 'published' \
+                              AND target_author.status = 'active' \
+                              AND daoyun_can_access_content('post', target.id, $2, CURRENT_TIMESTAMP) \
+                         THEN LEFT(target.content, 160) ELSE NULL END AS reply_to_excerpt, \
+                    CASE WHEN target.deleted_at IS NULL AND target.status = 'published' \
+                              AND target_author.status = 'active' \
+                              AND daoyun_can_access_content('post', target.id, $2, CURRENT_TIMESTAMP) \
+                         THEN target.rich_content ELSE NULL END AS reply_to_rich_content, \
+                    CASE WHEN target.id IS NULL THEN NULL \
+                         ELSE target.deleted_at IS NOT NULL OR target.status <> 'published' \
+                              OR target_author.status <> 'active' \
+                    END AS reply_to_is_deleted, \
+                    p.author_id, \
                     u.username AS author_username, u.display_name AS author_display_name, \
                     u.avatar_url AS author_avatar_url, \
-                    p.content, p.created_at, p.updated_at, p.revision_count, p.like_count \
+                    p.content, p.rich_content, p.created_at, p.updated_at, p.revision_count, p.like_count \
              FROM posts AS p \
              INNER JOIN users AS u ON u.id = p.author_id \
+             LEFT JOIN posts AS target ON target.id = p.reply_to_id AND target.kind = 'reply' \
+             LEFT JOIN users AS target_author ON target_author.id = target.author_id \
              INNER JOIN topics AS t ON t.id = p.topic_id \
              INNER JOIN boards AS b ON b.id = t.board_id \
              INNER JOIN users AS topic_author ON topic_author.id = t.author_id \
@@ -1771,8 +2044,13 @@ impl Database {
                AND topic_author.status = 'active'",
         )
         .bind(reply_id)
+        .bind(viewer_user_id)
         .fetch_optional(&self.pool)
         .await?;
+        if let Some(reply) = reply.as_mut() {
+            reply.reply_gate_unlocked =
+                reply_gate_is_unlocked(&self.pool, reply.topic_id, viewer_user_id).await?;
+        }
         Ok(reply)
     }
 
@@ -2038,7 +2316,7 @@ impl Database {
         viewer_user_id: Option<Uuid>,
     ) -> Result<Option<PublicTopicDetailRecord>, DatabaseError> {
         let row = sqlx::query_as::<_, PublicTopicDetailRow>(
-            r#"SELECT t.id, t.title, t.excerpt, t.content, p.revision_count AS content_revision,
+            r#"SELECT t.id, t.title, t.excerpt, t.content, p.rich_content, p.revision_count AS content_revision,
                     u.id AS author_id, u.username AS author_username,
                     u.display_name AS author_display_name,
                     u.avatar_url AS author_avatar_url,
@@ -2076,6 +2354,8 @@ impl Database {
         .fetch_all(&self.pool)
         .await?;
         let mut detail = PublicTopicDetailRecord::from(row);
+        detail.reply_gate_unlocked =
+            reply_gate_is_unlocked(&self.pool, topic_id, viewer_user_id).await?;
         detail.summary.tags = tags;
         if let Some(viewer_user_id) = viewer_user_id {
             hydrate_topic_viewer_states(
@@ -2087,6 +2367,34 @@ impl Database {
         }
         Ok(Some(detail))
     }
+}
+
+async fn reply_gate_is_unlocked(
+    pool: &sqlx::PgPool,
+    topic_id: Uuid,
+    viewer_user_id: Option<Uuid>,
+) -> Result<bool, sqlx::Error> {
+    let Some(viewer_user_id) = viewer_user_id else {
+        return Ok(false);
+    };
+    sqlx::query_scalar(
+        "SELECT EXISTS(\
+             SELECT 1 FROM topics WHERE id = $1 AND author_id = $2\
+         ) OR EXISTS(\
+             SELECT 1 FROM posts \
+             WHERE topic_id = $1 AND author_id = $2 AND kind = 'reply' \
+               AND status = 'published' AND deleted_at IS NULL\
+         ) OR EXISTS(\
+             SELECT 1 FROM role_assignments AS assignment \
+             INNER JOIN roles AS role ON role.id = assignment.role_id \
+             WHERE assignment.user_id = $2 AND assignment.scope_id IS NULL \
+               AND role.key = 'super_admin'\
+         )",
+    )
+    .bind(topic_id)
+    .bind(viewer_user_id)
+    .fetch_one(pool)
+    .await
 }
 
 async fn hydrate_topic_viewer_states(
@@ -2163,6 +2471,7 @@ struct EditableTopicRow {
     deleted_at: Option<OffsetDateTime>,
     revision_count: i32,
     content: String,
+    rich_content: Option<Value>,
 }
 
 #[derive(Debug, FromRow)]
@@ -2228,6 +2537,7 @@ struct PublicTopicDetailRow {
     title: String,
     excerpt: String,
     content: String,
+    rich_content: Option<Value>,
     content_revision: i32,
     author_id: Uuid,
     author_username: String,
@@ -2287,7 +2597,9 @@ impl From<PublicTopicDetailRow> for PublicTopicDetailRecord {
                 tags: Vec::new(),
             },
             content: row.content,
+            rich_content: row.rich_content,
             content_revision: row.content_revision,
+            reply_gate_unlocked: false,
         }
     }
 }
@@ -2327,6 +2639,31 @@ impl From<sqlx::Error> for ListModerationTopicsError {
     }
 }
 
+impl fmt::Display for ListTopicModerationHistoryError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TopicUnavailable => formatter.write_str("topic history is unavailable"),
+            Self::InvalidCursor => formatter.write_str("topic history cursor is not available"),
+            Self::Database(_) => formatter.write_str("topic history database operation failed"),
+        }
+    }
+}
+
+impl Error for ListTopicModerationHistoryError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::TopicUnavailable | Self::InvalidCursor => None,
+            Self::Database(error) => Some(error),
+        }
+    }
+}
+
+impl From<sqlx::Error> for ListTopicModerationHistoryError {
+    fn from(error: sqlx::Error) -> Self {
+        Self::Database(DatabaseError::from(error))
+    }
+}
+
 impl Error for ListPublicTopicsError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
@@ -2340,6 +2677,82 @@ impl From<sqlx::Error> for ListPublicTopicsError {
     fn from(error: sqlx::Error) -> Self {
         Self::Database(DatabaseError::from(error))
     }
+}
+
+async fn bind_rich_content_attachments(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    topic_id: Uuid,
+    uploader_id: Uuid,
+    rich_content: Option<&Value>,
+) -> Result<bool, sqlx::Error> {
+    let Some(rich_content) = rich_content else {
+        return Ok(true);
+    };
+    let mut attachment_ids = HashSet::new();
+    if !collect_rich_content_attachment_ids(rich_content, &mut attachment_ids)
+        || attachment_ids.len() > 20
+    {
+        return Ok(false);
+    }
+    if attachment_ids.is_empty() {
+        return Ok(true);
+    }
+    let attachment_ids = attachment_ids.into_iter().collect::<Vec<_>>();
+    let available = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM topic_attachments
+         WHERE id = ANY($1) AND uploader_id = $2
+           AND (topic_id IS NULL OR topic_id = $3)
+           AND status = 'ready' AND scan_status = 'clean'
+           AND deleted_at IS NULL
+           AND (topic_id IS NOT NULL OR expires_at > CURRENT_TIMESTAMP)
+         FOR UPDATE",
+    )
+    .bind(&attachment_ids)
+    .bind(uploader_id)
+    .bind(topic_id)
+    .fetch_all(&mut **transaction)
+    .await?;
+    if available.len() != attachment_ids.len() {
+        return Ok(false);
+    }
+    sqlx::query(
+        "UPDATE topic_attachments
+         SET topic_id = $2,
+             expires_at = CURRENT_TIMESTAMP + ($3::int * INTERVAL '1 day')
+         WHERE id = ANY($1) AND topic_id IS NULL",
+    )
+    .bind(&attachment_ids)
+    .bind(topic_id)
+    .bind(crate::attachments::retention_days())
+    .execute(&mut **transaction)
+    .await?;
+    Ok(true)
+}
+
+fn collect_rich_content_attachment_ids(value: &Value, output: &mut HashSet<Uuid>) -> bool {
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+    if object.get("type").and_then(Value::as_str) == Some("image") {
+        let Some(attachment_id) = object
+            .get("attrs")
+            .and_then(Value::as_object)
+            .and_then(|attrs| attrs.get("attachmentId"))
+            .and_then(Value::as_str)
+            .and_then(|value| Uuid::parse_str(value).ok())
+        else {
+            return false;
+        };
+        output.insert(attachment_id);
+    }
+    object
+        .get("content")
+        .and_then(Value::as_array)
+        .is_none_or(|content| {
+            content
+                .iter()
+                .all(|child| collect_rich_content_attachment_ids(child, output))
+        })
 }
 
 fn map_topic_community_action_error(error: CommunityActionError) -> CreateTopicError {
@@ -2371,6 +2784,9 @@ impl fmt::Display for CreateTopicError {
             Self::PermissionDenied => formatter.write_str("topic creation is not allowed"),
             Self::QuotaExceeded => formatter.write_str("topic creation quota was exceeded"),
             Self::IdempotencyConflict => formatter.write_str("topic idempotency key conflicts"),
+            Self::AttachmentUnavailable => {
+                formatter.write_str("topic rich content attachment is unavailable")
+            }
             Self::Database(_) => formatter.write_str("topic creation database operation failed"),
         }
     }
@@ -2384,7 +2800,8 @@ impl Error for CreateTopicError {
             | Self::AuthorRestricted
             | Self::PermissionDenied
             | Self::QuotaExceeded
-            | Self::IdempotencyConflict => None,
+            | Self::IdempotencyConflict
+            | Self::AttachmentUnavailable => None,
             Self::Database(error) => Some(error),
         }
     }
@@ -2430,6 +2847,10 @@ impl fmt::Display for CreateReplyError {
             Self::PermissionDenied => formatter.write_str("reply creation is not allowed"),
             Self::QuotaExceeded => formatter.write_str("reply creation quota was exceeded"),
             Self::IdempotencyConflict => formatter.write_str("reply idempotency key conflicts"),
+            Self::InvalidReplyTarget => formatter.write_str("reply target is unavailable"),
+            Self::AttachmentUnavailable => {
+                formatter.write_str("reply rich content attachment is unavailable")
+            }
             Self::Database(_) => formatter.write_str("reply creation database operation failed"),
         }
     }
@@ -2444,7 +2865,9 @@ impl Error for CreateReplyError {
             | Self::AuthorRestricted
             | Self::PermissionDenied
             | Self::QuotaExceeded
-            | Self::IdempotencyConflict => None,
+            | Self::IdempotencyConflict
+            | Self::InvalidReplyTarget
+            | Self::AttachmentUnavailable => None,
             Self::Database(error) => Some(error),
         }
     }
@@ -2462,6 +2885,9 @@ impl fmt::Display for UpdateTopicError {
             Self::TopicUnavailable => formatter.write_str("topic is unavailable"),
             Self::Forbidden => formatter.write_str("topic edit is forbidden"),
             Self::RevisionConflict => formatter.write_str("topic revision conflicts"),
+            Self::AttachmentUnavailable => {
+                formatter.write_str("topic rich content attachment is unavailable")
+            }
             Self::Database(_) => formatter.write_str("topic update database operation failed"),
         }
     }
@@ -2471,7 +2897,10 @@ impl Error for UpdateTopicError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Database(error) => Some(error),
-            Self::TopicUnavailable | Self::Forbidden | Self::RevisionConflict => None,
+            Self::TopicUnavailable
+            | Self::Forbidden
+            | Self::RevisionConflict
+            | Self::AttachmentUnavailable => None,
         }
     }
 }
@@ -2511,6 +2940,9 @@ impl fmt::Display for ReplyMutationError {
         match self {
             Self::ReplyUnavailable => formatter.write_str("reply is unavailable"),
             Self::RevisionConflict => formatter.write_str("reply revision conflicts"),
+            Self::AttachmentUnavailable => {
+                formatter.write_str("reply rich content attachment is unavailable")
+            }
             Self::Database(_) => formatter.write_str("reply mutation database operation failed"),
         }
     }
@@ -2520,7 +2952,7 @@ impl Error for ReplyMutationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Database(error) => Some(error),
-            Self::ReplyUnavailable | Self::RevisionConflict => None,
+            Self::ReplyUnavailable | Self::RevisionConflict | Self::AttachmentUnavailable => None,
         }
     }
 }

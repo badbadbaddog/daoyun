@@ -18,6 +18,16 @@ pub struct TopicAttachment {
     pub thumbnail_url: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DraftImageAttachment {
+    pub id: Uuid,
+    pub original_name: String,
+    pub mime_type: String,
+    pub size_bytes: u64,
+    #[schema(value_type = String, format = DateTime)]
+    pub expires_at: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AttachmentStatus {

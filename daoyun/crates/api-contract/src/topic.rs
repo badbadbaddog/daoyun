@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -11,18 +12,26 @@ pub struct CreateTopicRequest {
     pub title: String,
     pub content: String,
     #[serde(default)]
+    pub rich_content: Option<Value>,
+    #[serde(default)]
     pub tags: Vec<TopicTagInput>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateReplyRequest {
     pub content: String,
+    #[serde(default)]
+    pub rich_content: Option<Value>,
+    #[serde(default)]
+    pub reply_to_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateReplyRequest {
     pub base_revision: u32,
     pub content: String,
+    #[serde(default)]
+    pub rich_content: Option<Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
@@ -45,6 +54,8 @@ pub struct UpdateTopicRequest {
     #[serde(default)]
     pub content: Option<String>,
     #[serde(default)]
+    pub rich_content: Option<Value>,
+    #[serde(default)]
     pub tags: Option<Vec<TopicTagInput>>,
 }
 
@@ -55,6 +66,7 @@ pub struct TopicRevision {
     pub revision_number: u32,
     pub editor: TopicAuthorSummary,
     pub content: String,
+    pub rich_content: Option<Value>,
     #[schema(value_type = String, format = DateTime)]
     pub created_at: String,
 }
@@ -66,6 +78,7 @@ pub struct ReplyRevision {
     pub revision_number: u32,
     pub editor: TopicAuthorSummary,
     pub content: String,
+    pub rich_content: Option<Value>,
     #[schema(value_type = String, format = DateTime)]
     pub created_at: String,
 }
@@ -128,6 +141,8 @@ pub struct TopicDetail {
     #[schema(inline)]
     pub summary: TopicSummary,
     pub content: String,
+    pub rich_content: Option<Value>,
+    pub has_locked_content: bool,
     pub content_revision: u32,
 }
 
@@ -135,8 +150,12 @@ pub struct TopicDetail {
 pub struct TopicReply {
     pub id: Uuid,
     pub topic_id: Uuid,
+    pub floor_number: u64,
+    pub reply_to: Option<ReplyReference>,
     pub author: TopicAuthorSummary,
     pub content: String,
+    pub rich_content: Option<Value>,
+    pub has_locked_content: bool,
     #[schema(value_type = String, format = DateTime)]
     pub created_at: String,
     #[schema(value_type = String, format = DateTime)]
@@ -144,4 +163,13 @@ pub struct TopicReply {
     pub revision_count: u32,
     pub like_count: u64,
     pub viewer_liked: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ReplyReference {
+    pub id: Uuid,
+    pub floor_number: u64,
+    pub author: TopicAuthorSummary,
+    pub excerpt: Option<String>,
+    pub is_deleted: bool,
 }
