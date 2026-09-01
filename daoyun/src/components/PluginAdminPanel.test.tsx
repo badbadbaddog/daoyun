@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -58,6 +58,7 @@ const legacyPlugin: Plugin = {
 
 beforeEach(() => {
   vi.mocked(listPlugins).mockResolvedValue([plugin])
+  vi.mocked(installPlugin).mockResolvedValue(plugin)
   vi.mocked(updatePluginStatus).mockResolvedValue({ ...plugin, status: "enabled", revision: 2 })
   vi.mocked(deletePlugin).mockResolvedValue(true)
   vi.mocked(executePluginUiAction).mockResolvedValue({ executedCommands: 1 })
@@ -98,10 +99,13 @@ describe("PluginAdminPanel", () => {
     const user = userEvent.setup()
     render(<PluginAdminPanel csrfToken="csrf" canInstall canLifecycle canInvoke />)
     await screen.findByText("identity_plugin · 1.0.0")
+    await user.type(screen.getByLabelText("插件键"), "large_plugin")
+    await user.type(screen.getByLabelText("名称"), "Large plugin")
+    await user.click(screen.getByRole("button", { name: "下一步：能力审批" }))
+    await user.click(screen.getByRole("button", { name: "下一步：组件文件" }))
     const file = new File([new Uint8Array(8 * 1024 * 1024 + 1)], "too-large.wasm", { type: "application/wasm" })
 
     await user.upload(screen.getByLabelText("WebAssembly Component 文件"), file)
-    await user.click(screen.getByRole("button", { name: "安装插件" }))
 
     expect(await screen.findByRole("alert")).toHaveTextContent("组件文件不能超过 8 MiB")
     expect(installPlugin).not.toHaveBeenCalled()
@@ -122,6 +126,7 @@ describe("PluginAdminPanel", () => {
     })
     render(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle canInvoke />)
 
+    await user.click(await screen.findByText("开发者工具"))
     await user.click(await screen.findByRole("button", { name: "渲染面板：Identity plugin" }))
     const frame = await screen.findByTitle("插件面板：Safe panel")
     expect(frame).toHaveAttribute("sandbox", "")
@@ -203,5 +208,129 @@ describe("PluginAdminPanel", () => {
       "csrf",
     )
     expect(await screen.findByText("插件动作已执行（1 条命令）")).toBeInTheDocument()
+  })
+
+  it("shows productized runtime and risk information while separating developer tools", async () => {
+    const user = userEvent.setup()
+    vi.mocked(listPlugins).mockResolvedValueOnce([{ ...plugin, status: "enabled" }])
+    render(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle={false} canInvoke />)
+
+    await screen.findByText("identity_plugin · 1.0.0")
+    expect(screen.getByText("高风险")).toBeInTheDocument()
+    expect(screen.getByText("运行状态").nextElementSibling).toHaveTextContent("正在运行")
+    expect(screen.getByText("WIT / ABI").nextElementSibling).toHaveTextContent("0.1.0")
+    expect(screen.getByText("组件").nextElementSibling).toHaveTextContent("1.0 KiB")
+    expect(screen.getByText("组件").nextElementSibling).toHaveTextContent("aaaaaaaaaaaa")
+    expect(screen.getByText("Revision").nextElementSibling).toHaveTextContent("1")
+    const developerTools = screen.getByText("开发者工具").closest("details")
+    expect(developerTools).not.toBeNull()
+    await user.click(within(developerTools as HTMLElement).getByText("开发者工具"))
+    expect(within(developerTools as HTMLElement).getByLabelText("调用输入：Identity plugin")).toBeInTheDocument()
+  })
+
+  it("classifies read-only, event, user-write and notification capabilities as low through critical risk", async () => {
+    const riskPlugins: Plugin[] = [
+      { ...plugin, id: "low", key: "low", name: "Low plugin", capabilities: ["ui.panel", "core.query"], dataScopes: ["site.read"] },
+      { ...plugin, id: "medium", key: "medium", name: "Medium plugin", capabilities: ["events.subscribe"], dataScopes: [], eventSubscriptions: ["topic.published"] },
+      { ...plugin, id: "high", key: "high", name: "High plugin", capabilities: ["points.write"], dataScopes: ["users.targeted"] },
+      { ...plugin, id: "critical", key: "critical", name: "Critical plugin", capabilities: ["notifications.write"], dataScopes: ["users.targeted"] },
+    ]
+    vi.mocked(listPlugins).mockResolvedValueOnce(riskPlugins)
+    render(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle={false} canInvoke={false} />)
+
+    for (const [name, risk] of [["Low plugin", "低风险"], ["Medium plugin", "中风险"], ["High plugin", "高风险"], ["Critical plugin", "严重风险"]] as const) {
+      const row = (await screen.findByText(name)).closest("article")
+      expect(row).not.toBeNull()
+      expect(within(row as HTMLElement).getByText(risk)).toBeInTheDocument()
+    }
+  })
+
+  it("uses a four-step install wizard and previews the manifest risk before installation", async () => {
+    const user = userEvent.setup()
+    render(<PluginAdminPanel csrfToken="csrf" canInstall canLifecycle={false} canInvoke={false} />)
+    await screen.findByText("identity_plugin · 1.0.0")
+
+    expect(screen.getByText("步骤 1 / 4 · 基本信息")).toBeInTheDocument()
+    await user.type(screen.getByLabelText("插件键"), "demo_plugin")
+    await user.type(screen.getByLabelText("名称"), "Demo plugin")
+    await user.click(screen.getByRole("button", { name: "下一步：能力审批" }))
+    expect(screen.getByText("步骤 2 / 4 · 能力审批")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "下一步：组件文件" }))
+    expect(screen.getByText("步骤 3 / 4 · 组件文件")).toBeInTheDocument()
+    const file = new File([new Uint8Array([0, 97, 115, 109, 13, 0, 1, 0])], "demo.wasm", { type: "application/wasm" })
+    await user.upload(screen.getByLabelText("WebAssembly Component 文件"), file)
+    expect(screen.getByText("文件预检通过")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "下一步：确认安装" }))
+    expect(screen.getByText("步骤 4 / 4 · 确认安装")).toBeInTheDocument()
+    expect(screen.getByText("demo_plugin · 1.0.0")).toBeInTheDocument()
+    expect(screen.getByText("低风险")).toBeInTheDocument()
+    expect(screen.getByRole("region", { name: "Manifest 摘要" })).toHaveTextContent("内容转换")
+    expect(screen.getByRole("region", { name: "组件文件摘要" })).toHaveTextContent("demo.wasm")
+  })
+
+  it.each([
+    [new File([new Uint8Array([0, 97, 115, 109])], "plugin.txt", { type: "text/plain" }), "请选择 .wasm WebAssembly Component 文件"],
+    [new File([new Uint8Array([0, 97, 115, 109])], "plugin.wasm", { type: "text/plain" }), "请选择 .wasm WebAssembly Component 文件"],
+    [new File([], "empty.wasm", { type: "application/wasm" }), "组件文件不能为空"],
+  ])("preflights component extension, MIME and empty files locally", async (file, message) => {
+    const user = userEvent.setup({ applyAccept: false })
+    render(<PluginAdminPanel csrfToken="csrf" canInstall canLifecycle={false} canInvoke={false} />)
+    await screen.findByText("identity_plugin · 1.0.0")
+    await user.type(screen.getByLabelText("插件键"), "demo_plugin")
+    await user.type(screen.getByLabelText("名称"), "Demo plugin")
+    await user.click(screen.getByRole("button", { name: "下一步：能力审批" }))
+    await user.click(screen.getByRole("button", { name: "下一步：组件文件" }))
+    await user.upload(screen.getByLabelText("WebAssembly Component 文件"), file)
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(message)
+    expect(installPlugin).not.toHaveBeenCalled()
+  })
+
+  it("rejects an invalid wasm binary before upload", async () => {
+    const user = userEvent.setup()
+    render(<PluginAdminPanel csrfToken="csrf" canInstall canLifecycle={false} canInvoke={false} />)
+    await screen.findByText("identity_plugin · 1.0.0")
+    await user.type(screen.getByLabelText("插件键"), "demo_plugin")
+    await user.type(screen.getByLabelText("名称"), "Demo plugin")
+    await user.click(screen.getByRole("button", { name: "下一步：能力审批" }))
+    await user.click(screen.getByRole("button", { name: "下一步：组件文件" }))
+    await user.upload(screen.getByLabelText("WebAssembly Component 文件"), new File([new Uint8Array([1, 2, 3, 4])], "demo.wasm", { type: "application/wasm" }))
+    await user.click(screen.getByRole("button", { name: "下一步：确认安装" }))
+    await user.click(screen.getByRole("button", { name: "确认安装" }))
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("组件文件不是有效的 WebAssembly 二进制")
+    expect(installPlugin).not.toHaveBeenCalled()
+  })
+
+  it("shows the server WIT validation error explicitly", async () => {
+    const user = userEvent.setup()
+    vi.mocked(installPlugin).mockRejectedValueOnce(new PluginApiError(
+      400,
+      "plugin.component_invalid",
+      "WIT 校验失败：组件未导出 daoyun:plugin/run@0.1.0",
+    ))
+    render(<PluginAdminPanel csrfToken="csrf" canInstall canLifecycle={false} canInvoke={false} />)
+    await screen.findByText("identity_plugin · 1.0.0")
+    await user.type(screen.getByLabelText("插件键"), "demo_plugin")
+    await user.type(screen.getByLabelText("名称"), "Demo plugin")
+    await user.click(screen.getByRole("button", { name: "下一步：能力审批" }))
+    await user.click(screen.getByRole("button", { name: "下一步：组件文件" }))
+    await user.upload(
+      screen.getByLabelText("WebAssembly Component 文件"),
+      new File([new Uint8Array([0, 97, 115, 109, 1])], "demo.wasm", { type: "application/wasm" }),
+    )
+    await user.click(screen.getByRole("button", { name: "下一步：确认安装" }))
+    await user.click(screen.getByRole("button", { name: "确认安装" }))
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("WIT 校验失败：组件未导出 daoyun:plugin/run@0.1.0")
+  })
+
+  it("labels contribution loading failures as runtime status", async () => {
+    vi.mocked(listPlugins).mockResolvedValueOnce([{ ...plugin, status: "enabled" }])
+    vi.mocked(listPluginUiContributions).mockRejectedValueOnce(new PluginApiError(503, "plugin.runtime_unavailable", "组件实例化失败"))
+    render(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle={false} canInvoke={false} />)
+
+    expect(await screen.findByText("贡献加载故障")).toBeInTheDocument()
+    expect(screen.getByText("组件实例化失败")).toBeInTheDocument()
   })
 })

@@ -72,27 +72,27 @@ describe("CommunityGroupAdminPanel", () => {
 
     render(<CommunityGroupAdminPanel csrfToken="csrf-token" canWrite />)
 
-    expect(await screen.findByText("注册会员")).toBeInTheDocument()
-    expect(screen.getByText("每日 5 张")).toBeInTheDocument()
-    expect(screen.getByText("单张 5 MB")).toBeInTheDocument()
+    expect((await screen.findAllByText("注册会员")).length).toBeGreaterThan(0)
+    expect(screen.getByText("2 项社区权限")).toBeInTheDocument()
+    expect(screen.getByText("5 项额度")).toBeInTheDocument()
 
-    await user.click(screen.getByRole("button", { name: "配置注册会员的附件额度" }))
-    expect(screen.getByRole("dialog", { name: "配置附件额度" })).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "编辑注册会员" }))
+    expect(screen.getByRole("dialog", { name: "编辑用户组" })).toBeInTheDocument()
 
     await user.clear(screen.getByRole("spinbutton", { name: "每日上传数量" }))
     await user.type(screen.getByRole("spinbutton", { name: "每日上传数量" }), "12")
-    await user.clear(screen.getByRole("spinbutton", { name: "单文件大小" }))
-    await user.type(screen.getByRole("spinbutton", { name: "单文件大小" }), "8")
-    await user.clear(screen.getByRole("spinbutton", { name: "总存储空间" }))
-    await user.type(screen.getByRole("spinbutton", { name: "总存储空间" }), "250")
-    await user.clear(screen.getByRole("spinbutton", { name: "每日下载流量" }))
-    await user.type(screen.getByRole("spinbutton", { name: "每日下载流量" }), "300")
-    await user.click(screen.getByRole("button", { name: "保存额度" }))
+    await user.clear(screen.getByRole("spinbutton", { name: "单文件字节数" }))
+    await user.type(screen.getByRole("spinbutton", { name: "单文件字节数" }), String(8 * 1024 * 1024))
+    await user.clear(screen.getByRole("spinbutton", { name: "总存储字节数" }))
+    await user.type(screen.getByRole("spinbutton", { name: "总存储字节数" }), String(250 * 1024 * 1024))
+    await user.clear(screen.getByRole("spinbutton", { name: "每日下载字节数" }))
+    await user.type(screen.getByRole("spinbutton", { name: "每日下载字节数" }), String(300 * 1024 * 1024))
+    await user.click(screen.getByRole("button", { name: "保存用户组" }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
     const [, updateOptions] = fetchMock.mock.calls[1] as [string, RequestInit]
     expect(fetchMock.mock.calls[1][0]).toBe(`/api/v1/admin/community/groups/${groupId}`)
-    expect(JSON.parse(String(updateOptions.body))).toEqual({
+    expect(JSON.parse(String(updateOptions.body))).toMatchObject({
       expected_revision: 3,
       display_name: "注册会员",
       description: "默认基础用户组",
@@ -107,7 +107,7 @@ describe("CommunityGroupAdminPanel", () => {
         "topic.create.daily": 10,
       },
     })
-    expect(await screen.findByText("附件额度已保存")).toBeInTheDocument()
+    expect(await screen.findByText("注册会员已保存")).toBeInTheDocument()
   })
 
   it("shows groups without edit controls for a read-only administrator", async () => {
@@ -115,11 +115,11 @@ describe("CommunityGroupAdminPanel", () => {
 
     render(<CommunityGroupAdminPanel csrfToken="csrf-token" canWrite={false} />)
 
-    expect(await screen.findByText("注册会员")).toBeInTheDocument()
+    expect((await screen.findAllByText("注册会员")).length).toBeGreaterThan(0)
     expect(screen.getByRole("region", { name: "新用户默认用户组" })).toBeInTheDocument()
-    expect(screen.getByText("仅可查看用户组与附件额度")).toBeInTheDocument()
+    expect(screen.getByText("仅可查看用户组、权限与额度")).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "保存默认组" })).toBeNull()
-    expect(screen.queryByRole("button", { name: /配置注册会员/ })).toBeNull()
+    expect(screen.queryByRole("button", { name: /编辑注册会员/ })).toBeNull()
   })
 
   it("searches a user and manages additional group memberships", async () => {
@@ -185,6 +185,62 @@ describe("CommunityGroupAdminPanel", () => {
     expect(await within(manager).findByText("当前账号仅可查看成员关系")).toBeInTheDocument()
     expect(within(manager).queryByRole("button", { name: "移出活动成员" })).toBeNull()
     expect(within(manager).queryByRole("button", { name: "确认加入用户组" })).toBeNull()
+  })
+})
+
+describe("DY-ADMIN-MEMBER-002 group safeguards", () => {
+  it("shows archive impact metadata and protects the active default base group", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(jsonResponse([groupDto({
+      member_count: 128,
+      expiring_member_count: 7,
+      access_policy_reference_count: 3,
+    })])))
+
+    render(<CommunityGroupAdminPanel csrfToken="csrf-token" canWrite />)
+
+    const row = await screen.findByRole("listitem")
+    expect(within(row).getByText("128 位成员")).toBeInTheDocument()
+    expect(within(row).getByText("7 位即将到期")).toBeInTheDocument()
+    expect(within(row).getByText("3 个访问策略引用")).toBeInTheDocument()
+    expect(within(row).getByRole("button", { name: "归档注册会员" })).toBeDisabled()
+    expect(within(row).getByText("默认基础组不可归档")).toBeInTheDocument()
+  })
+
+  it("creates a sorted additional group with complete permissions and quotas", async () => {
+    const user = userEvent.setup()
+    const created = groupDto({ id: "0198d874-e991-7b62-8b38-3986f55c8d70", internal_key: "contributors", display_name: "贡献者", description: "社区贡献者", is_base: false, is_default: false, display_order: 20, permission_keys: ["topic.create"], revision: 1 })
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse([groupDto()])).mockResolvedValueOnce(jsonResponse(created))
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<CommunityGroupAdminPanel csrfToken="csrf-token" canWrite />)
+    await user.click(await screen.findByRole("button", { name: "创建用户组" }))
+    await user.type(screen.getByRole("textbox", { name: "内部键" }), "contributors")
+    await user.type(screen.getByRole("textbox", { name: "显示名称" }), "贡献者")
+    await user.type(screen.getByRole("textbox", { name: "用户组说明" }), "社区贡献者")
+    await user.click(screen.getByRole("checkbox", { name: "topic.create" }))
+    await user.click(screen.getByRole("button", { name: "创建用户组" }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/v1/admin/community/groups")
+    expect(JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body))).toMatchObject({ internal_key: "contributors", is_base: false, display_order: 20, permission_keys: ["topic.create"], quotas: { "topic.create.daily": 0, "attachment.storage.bytes": 0 } })
+    expect(await screen.findByText("贡献者已创建")).toBeInTheDocument()
+  })
+
+  it("confirms archive impact and writes the current revision", async () => {
+    const user = userEvent.setup()
+    const additional = groupDto({ id: "0198d874-e991-7b62-8b38-3986f55c8d71", internal_key: "event_member", display_name: "活动成员", is_base: false, is_default: false, member_count: 12, expiring_member_count: 3, access_policy_reference_count: 2 })
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse([groupDto(), additional])).mockResolvedValueOnce(jsonResponse({ ...additional, status: "archived", revision: 4 }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<CommunityGroupAdminPanel csrfToken="csrf-token" canWrite />)
+    await user.click(await screen.findByRole("button", { name: "归档活动成员" }))
+    expect(screen.getByRole("dialog", { name: "归档活动成员" })).toHaveTextContent("12 位有效成员")
+    expect(screen.getByRole("dialog", { name: "归档活动成员" })).toHaveTextContent("2 个访问策略引用")
+    await user.click(screen.getByRole("button", { name: "确认归档" }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    expect(JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body))).toMatchObject({ expected_revision: 3, status: "archived" })
+    expect(await screen.findByText(/活动成员已归档/)).toBeInTheDocument()
   })
 })
 

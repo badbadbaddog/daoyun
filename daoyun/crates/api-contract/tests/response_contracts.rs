@@ -1,8 +1,9 @@
 use api_contract::{
-    AdminBoard, AdminBoardVisibility, AdminUserContentItem, AdminUserContentKind, AdminUserDetail,
-    AdminUserStatus, AdminUserStatusUpdate, AdminUserSummary, ApiResponse, AuthenticatedSession,
-    AuthenticatedUser, BlockState, BoardSummary, BoardTone, BookmarkState, BrandLink,
-    ChangePasswordData, ChangePasswordRequest, ContentReport, ConversationLastMessage,
+    AdminBoard, AdminBoardMergeBlockedReason, AdminBoardMergeImpact, AdminBoardMergeMutation,
+    AdminBoardStatus, AdminBoardVisibility, AdminUserContentItem, AdminUserContentKind,
+    AdminUserDetail, AdminUserStatus, AdminUserStatusUpdate, AdminUserSummary, ApiResponse,
+    AuthenticatedSession, AuthenticatedUser, BlockState, BoardSummary, BoardTone, BookmarkState,
+    BrandLink, ChangePasswordData, ChangePasswordRequest, ContentReport, ConversationLastMessage,
     ConversationReadState, ConversationSummary, CreateAdminBoardRequest, CreateConversationRequest,
     CreateReplyRequest, CreateTopicRequest, DirectMessage, ErrorBody, ErrorCode, ErrorResponse,
     ExternalIdentity, FollowState, InitialAdministrator, InitializeInstallationRequest,
@@ -161,11 +162,15 @@ fn admin_board_contract_exposes_hierarchy_and_optimistic_revision_fields() {
         tone: BoardTone::Amber,
         position: 1,
         visibility: AdminBoardVisibility::Public,
+        status: AdminBoardStatus::ReadOnly,
+        merged_into_board_id: None,
         topic_count: 3,
         revision: 4,
     })
     .expect("admin board must serialize");
     assert_eq!(board["parent_id"], parent_id.to_string());
+    assert_eq!(board["status"], "read_only");
+    assert_eq!(board["merged_into_board_id"], serde_json::Value::Null);
     assert_eq!(board["revision"], 4);
 
     let create: CreateAdminBoardRequest = serde_json::from_value(json!({
@@ -195,6 +200,43 @@ fn admin_board_contract_exposes_hierarchy_and_optimistic_revision_fields() {
     .expect("board update request with revision must deserialize");
     assert_eq!(update.parent_id, None);
     assert_eq!(update.expected_revision, 4);
+}
+
+#[test]
+fn admin_board_merge_contracts_expose_preview_and_audited_mutation_fields() {
+    let source_board_id = fixed_uuid(303);
+    let target_board_id = fixed_uuid(304);
+    let audit_id = fixed_uuid(305);
+    let impact = serde_json::to_value(AdminBoardMergeImpact {
+        source_board_id,
+        target_board_id,
+        source_revision: 8,
+        target_revision: 13,
+        topic_count: 21,
+        reply_count: 55,
+        child_count: 0,
+        topic_limit: 5_000,
+        can_merge: false,
+        blocked_reason: Some(AdminBoardMergeBlockedReason::TargetDescendant),
+    })
+    .expect("merge impact must serialize");
+    assert_eq!(impact["blocked_reason"], "target_descendant");
+    assert_eq!(impact["topic_limit"], 5_000);
+
+    let mutation = serde_json::to_value(AdminBoardMergeMutation {
+        audit_id,
+        source_board_id,
+        target_board_id,
+        moved_topic_count: 21,
+        source_revision: 9,
+        target_revision: 14,
+        rollback_deadline: "2026-08-29T12:00:00Z".to_owned(),
+        rolled_back: false,
+        replayed: false,
+    })
+    .expect("merge mutation must serialize");
+    assert_eq!(mutation["audit_id"], audit_id.to_string());
+    assert_eq!(mutation["rollback_deadline"], "2026-08-29T12:00:00Z");
 }
 
 #[test]
@@ -588,11 +630,15 @@ fn board_summary_serializes_the_public_contract() {
         Uuid::parse_str("019fc5d1-2b9e-7ca2-a539-4ee7b3ed1257").expect("fixture must be a UUID");
     let board = BoardSummary {
         id: board_id,
+        parent_id: None,
         slug: "engineering".to_owned(),
         name: "工程实践".to_owned(),
         description: "Rust、架构与部署".to_owned(),
         icon: "code".to_owned(),
         tone: BoardTone::Green,
+        position: 10,
+        depth: 0,
+        child_count: 0,
         topic_count: 284,
     };
 
@@ -600,11 +646,15 @@ fn board_summary_serializes_the_public_contract() {
         serde_json::to_value(board).expect("board summary must serialize"),
         json!({
             "id": board_id,
+            "parent_id": null,
             "slug": "engineering",
             "name": "工程实践",
             "description": "Rust、架构与部署",
             "icon": "code",
             "tone": "green",
+            "position": 10,
+            "depth": 0,
+            "child_count": 0,
             "topic_count": 284
         })
     );
@@ -1018,6 +1068,7 @@ fn topic_summary_and_detail_serialize_only_the_public_contract() {
         view_count: 21,
         is_featured: true,
         is_pinned: false,
+        image_url: Some(format!("/api/v1/attachments/{}/thumbnail", fixed_uuid(903))),
         tags: Vec::new(),
     };
     let payload = serde_json::to_value(TopicDetail {
@@ -1056,6 +1107,7 @@ fn topic_summary_and_detail_serialize_only_the_public_contract() {
             "view_count": 21,
             "is_featured": true,
             "is_pinned": false,
+            "image_url": format!("/api/v1/attachments/{}/thumbnail", fixed_uuid(903)),
             "tags": [],
             "content": "正文",
             "rich_content": null,
@@ -1124,15 +1176,23 @@ fn topic_moderation_history_exposes_only_traceable_fields() {
 }
 
 #[test]
-fn create_topic_request_deserializes_with_an_optional_board() {
-    let request: CreateTopicRequest = serde_json::from_value(json!({
+fn create_topic_request_deserializes_with_optional_title_and_board() {
+    let titled: CreateTopicRequest = serde_json::from_value(json!({
         "title": "发布主题",
         "content": "正文"
     }))
-    .expect("topic creation request must deserialize");
-    assert_eq!(request.title, "发布主题");
-    assert_eq!(request.content, "正文");
-    assert!(request.board_id.is_none());
+    .expect("titled topic creation request must deserialize");
+    assert_eq!(titled.title.as_deref(), Some("发布主题"));
+    assert_eq!(titled.content, "正文");
+    assert!(titled.board_id.is_none());
+
+    let body_only: CreateTopicRequest = serde_json::from_value(json!({
+        "content": "只有正文也可以发布"
+    }))
+    .expect("body-only topic creation request must deserialize");
+    assert!(body_only.title.is_none());
+    assert_eq!(body_only.content, "只有正文也可以发布");
+    assert!(body_only.board_id.is_none());
 }
 
 #[test]

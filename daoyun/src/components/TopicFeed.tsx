@@ -1,4 +1,4 @@
-import { CircleUserRound, FileSearch, LoaderCircle, PenLine, RefreshCw, Users2 } from "lucide-react"
+import { CircleUserRound, FileSearch, Image, Link2, LoaderCircle, PenLine, RefreshCw, Users2 } from "lucide-react"
 
 import type { Topic } from "../types/community"
 import type { FeedFilter, TopicTag } from "../types/community"
@@ -18,8 +18,15 @@ interface TopicFeedProps {
   onLogin: () => void
   onToggleBookmark: (topicId: string) => void
   bookmarkPendingId: string | null
+  onToggleLike: (topicId: string) => void
+  likePendingId: string | null
   interactionError: string
-  defaultCoverUrl: string | null
+  nextCursor?: string | null
+  loadingMore?: boolean
+  errorMore?: string | null
+  onLoadMore?: () => void
+  newTopicCount?: number
+  onRevealNewTopics?: () => void
 }
 export function TopicFeed({
   topics,
@@ -35,15 +42,28 @@ export function TopicFeed({
   onLogin,
   onToggleBookmark,
   bookmarkPendingId,
+  onToggleLike,
+  likePendingId,
   interactionError,
-  defaultCoverUrl,
+  nextCursor = null,
+  loadingMore = false,
+  errorMore = null,
+  onLoadMore,
+  newTopicCount = 0,
+  onRevealNewTopics,
 }: TopicFeedProps) {
   const requiresLogin = activeFeed === "following" && !authenticated
 
   return (
-    <section className="feed-section" id="feed" aria-labelledby="feed-heading">
+    <section
+      className="feed-section"
+      id="feed-panel"
+      role="tabpanel"
+      tabIndex={0}
+      aria-labelledby="feed-tabs feed-heading"
+    >
       <div className="feed-heading-row">
-        <div>
+        <div className="feed-heading-copy">
           <p>正在发生</p>
           <h1 id="feed-heading">社区动态</h1>
         </div>
@@ -60,14 +80,24 @@ export function TopicFeed({
         </label>
       </div>
 
-      <button className="composer-prompt" type="button" onClick={onCompose} aria-label="发布主题">
+      <div className="composer-prompt">
         <span className="composer-prompt__icon" aria-hidden="true"><CircleUserRound size={18} /></span>
-        <span>分享一个值得讨论的话题</span>
-        <PenLine size={17} />
-      </button>
+        <button className="composer-prompt__text" type="button" onClick={onCompose}>分享此刻的想法</button>
+        <button className="composer-prompt__action" type="button" onClick={onCompose} aria-label="添加图片" title="添加图片">
+          <Image size={17} aria-hidden="true" />
+        </button>
+        <button className="composer-prompt__action" type="button" onClick={onCompose} aria-label="添加链接" title="添加链接">
+          <Link2 size={17} aria-hidden="true" />
+        </button>
+      </div>
 
       <div className="topic-list" aria-live="polite" aria-busy={loadStatus === "loading"}>
         {interactionError && <p className="interaction-alert" role="alert">{interactionError}</p>}
+        {newTopicCount > 0 && onRevealNewTopics && (
+          <button className="new-content-button" type="button" onClick={onRevealNewTopics}>
+            有 {newTopicCount} 条新内容
+          </button>
+        )}
         {requiresLogin ? (
           <div className="empty-state" role="status">
             <Users2 size={28} aria-hidden="true" />
@@ -92,16 +122,25 @@ export function TopicFeed({
               重试加载主题
             </button>
           </div>
-        ) : topics.length > 0 ? topics.map((topic) => (
-          <TopicRow
-            topic={topic}
-            key={topic.id}
-            onOpen={onOpenTopic}
-            onToggleBookmark={onToggleBookmark}
-            bookmarkPending={bookmarkPendingId === topic.id}
-            defaultCoverUrl={defaultCoverUrl}
-          />
-        )) : (
+        ) : topics.length > 0 ? <>
+          {topics.map((topic) => (
+            <TopicRow
+              topic={topic}
+              key={topic.id}
+              onOpen={onOpenTopic}
+              onToggleBookmark={onToggleBookmark}
+              bookmarkPending={bookmarkPendingId === topic.id}
+              onToggleLike={onToggleLike}
+              likePending={likePendingId === topic.id}
+            />
+          ))}
+          {errorMore && <p className="interaction-alert" role="alert">{errorMore}</p>}
+          {nextCursor && onLoadMore && (
+            <button className="secondary-button feed-load-more" type="button" disabled={loadingMore} onClick={onLoadMore}>
+              {loadingMore ? <><LoaderCircle className="topic-loading__spinner" size={16} />正在加载</> : "加载更多"}
+            </button>
+          )}
+        </> : (
           <div className="empty-state" role="status">
             <FileSearch size={28} />
             <h2>{activeFeed === "following" ? "关注的人还没有发布主题" : "没有找到相关主题"}</h2>

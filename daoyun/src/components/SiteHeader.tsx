@@ -1,4 +1,4 @@
-import { Bell, LoaderCircle, LogIn, LogOut, MessageCircle, Moon, Plus, Search, ShieldCheck, Sun, UserRound, X } from "lucide-react"
+import { Award, Bell, LoaderCircle, LogIn, LogOut, MessageCircle, Moon, Plus, Search, ShieldCheck, Sun, UserRound, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
 import type { AuthSession } from "../api/auth"
@@ -12,7 +12,9 @@ interface SiteHeaderProps {
   query: string
   onQueryChange: (value: string) => void
   onClearQuery: () => void
+  onSearch?: (query: string) => void
   onCompose: () => void
+  showCompose?: boolean
   onToggleTheme: () => void
   session: AuthSession | null
   onOpenAuth: () => void
@@ -31,7 +33,9 @@ export function SiteHeader({
   query,
   onQueryChange,
   onClearQuery,
+  onSearch,
   onCompose,
+  showCompose = true,
   onToggleTheme,
   session,
   onOpenAuth,
@@ -82,9 +86,15 @@ export function SiteHeader({
             type="search"
             aria-label="搜索社区内容"
             aria-keyshortcuts="Control+K Meta+K"
-            placeholder="搜索主题、板块或成员"
+            placeholder="搜索内容、社区或用户"
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && onSearch) {
+                event.preventDefault()
+                onSearch(query)
+              }
+            }}
           />
           {query && (
             <button className="header-search__clear" type="button" onClick={onClearQuery} aria-label="清空搜索">
@@ -104,10 +114,12 @@ export function SiteHeader({
             <Bell size={18} />
             {notificationsUnread > 0 && <span className="notification-badge">{notificationsUnread > 99 ? "99+" : notificationsUnread}</span>}
           </button>
-          <button className="primary-button header-compose" type="button" onClick={onCompose} aria-label="从顶部发布新主题">
-            <Plus size={17} />
-            <span>发布主题</span>
-          </button>
+          {showCompose && (
+            <button className="primary-button header-compose" type="button" onClick={onCompose} aria-label="从顶部发布新主题">
+              <Plus size={17} />
+              <span>发布</span>
+            </button>
+          )}
           {authPending ? (
             <button className="secondary-button header-login" type="button" disabled aria-label="正在读取登录状态">
               <LoaderCircle className="auth-loading-icon" size={15} aria-hidden="true" />
@@ -139,6 +151,10 @@ export function SiteHeader({
                   <a className="account-menu__action" href={`#user/${session.user.username}`} role="menuitem" onClick={() => setAccountMenuOpen(false)}>
                     <UserRound size={15} aria-hidden="true" />
                     个人主页
+                  </a>
+                  <a className="account-menu__action" href="#member" role="menuitem" onClick={() => setAccountMenuOpen(false)}>
+                    <Award size={15} aria-hidden="true" />
+                    会员中心
                   </a>
                   <a className="account-menu__action" href="#messages" role="menuitem" onClick={() => setAccountMenuOpen(false)}>
                     <MessageCircle size={15} aria-hidden="true" />

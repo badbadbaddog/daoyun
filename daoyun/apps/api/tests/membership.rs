@@ -122,10 +122,17 @@ async fn openapi_documents_membership_catalog() {
     assert!(document["components"]["schemas"]["MembershipAccount"].is_object());
     assert!(document["paths"]["/api/v1/membership/levels"]["get"].is_object());
     assert!(document["paths"]["/api/v1/users/me/experience"]["get"].is_object());
+    assert!(document["paths"]["/api/v1/users/me/points/ledger"]["get"].is_object());
+    assert!(document["paths"]["/api/v1/users/me/entitlements"]["get"].is_object());
+    assert!(document["paths"]["/api/v1/users/{username}/membership-summary"]["get"].is_object());
+    assert!(document["components"]["schemas"]["PointsLedgerEntry"].is_object());
+    assert!(document["components"]["schemas"]["StandardEntitlement"].is_object());
+    assert!(document["components"]["schemas"]["UserMembershipSummary"].is_object());
     assert!(document["components"]["schemas"]["GrowthLevel"].is_object());
     assert!(document["components"]["schemas"]["ExperienceAccount"].is_object());
     assert!(document["paths"]["/api/v1/admin/membership/levels"]["get"].is_object());
     assert!(document["paths"]["/api/v1/admin/membership/levels"]["post"].is_object());
+    assert!(document["paths"]["/api/v1/admin/membership/users/{user_id}"]["get"].is_object());
     assert!(document["paths"]["/api/v1/admin/membership/levels/{level_id}"]["patch"].is_object());
     assert!(document["paths"]["/api/v1/admin/membership/levels/{level_id}"]["delete"].is_object());
     for status in ["200", "401", "403", "404", "409", "422", "503"] {
@@ -146,6 +153,13 @@ async fn openapi_documents_membership_catalog() {
     assert!(document["paths"]["/api/v1/admin/community/default-group"]["put"].is_object());
     assert!(document["paths"]["/api/v1/admin/community/memberships"]["post"].is_object());
     assert!(document["paths"]["/api/v1/admin/community/memberships"]["get"].is_object());
+    assert!(document["paths"]["/api/v1/admin/entitlements/types"]["get"].is_object());
+    assert!(
+        document["paths"]["/api/v1/admin/entitlements/types/{internal_key}/versions"]["get"]
+            .is_object()
+    );
+    assert!(document["paths"]["/api/v1/admin/entitlements"]["get"].is_object());
+    assert!(document["components"]["schemas"]["StandardEntitlementVersion"].is_object());
     assert!(
         document["paths"]["/api/v1/admin/community/memberships/{membership_id}/revoke"]["post"]
             .is_object()
@@ -525,6 +539,7 @@ async fn admin_membership_rules_and_points_require_capabilities_and_csrf(pool: P
                 "user_id": member_id,
                 "amount": 25,
                 "reason": "admin.grant",
+                "details": "季度社区贡献",
                 "idempotency_key": "points-api-1"
             }),
             &owner_cookies,
@@ -537,6 +552,7 @@ async fn admin_membership_rules_and_points_require_capabilities_and_csrf(pool: P
     assert_eq!(grant_payload["data"]["created"], true);
     assert_eq!(grant_payload["data"]["account"]["level_key"], "lv_2");
     assert_eq!(grant_payload["data"]["account"]["level_number"], 2);
+    assert!(grant_payload["data"]["audit_id"].is_string());
     assert_eq!(
         grant_payload["data"]["account"]["level_display_name"],
         "新会员"
@@ -551,6 +567,7 @@ async fn admin_membership_rules_and_points_require_capabilities_and_csrf(pool: P
                 "user_id": member_id,
                 "amount": 25,
                 "reason": "admin.grant",
+                "details": "季度社区贡献",
                 "idempotency_key": "points-api-1"
             }),
             &owner_cookies,
@@ -559,7 +576,12 @@ async fn admin_membership_rules_and_points_require_capabilities_and_csrf(pool: P
         .await
         .expect("membership points replay must respond");
     assert_eq!(replay.status(), StatusCode::OK);
-    assert_eq!(response_json(replay).await["data"]["created"], false);
+    let replay_payload = response_json(replay).await;
+    assert_eq!(replay_payload["data"]["created"], false);
+    assert_eq!(
+        replay_payload["data"]["audit_id"],
+        grant_payload["data"]["audit_id"]
+    );
 
     let member_forbidden = app
         .clone()

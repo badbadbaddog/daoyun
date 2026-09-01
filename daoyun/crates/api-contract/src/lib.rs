@@ -26,18 +26,20 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 pub use admin::{
-    AdminAuditEntry, AdminBoard, AdminBoardDeletionImpact, AdminBoardVisibility,
+    AdminAuditEntry, AdminBoard, AdminBoardDeletionImpact, AdminBoardMergeBlockedReason,
+    AdminBoardMergeImpact, AdminBoardMergeMutation, AdminBoardStatus, AdminBoardVisibility,
     AdminCapabilityAccess, AuthorizationAssignedRole, AuthorizationPermission, AuthorizationRole,
     AuthorizationRoleAssignment, AuthorizationRoleScope, AuthorizationScopeMode, BrandHomeMode,
     BrandLink, BrandListDensity, BrandThemePreset, CreateAdminBoardRequest,
     CreateAuthorizationAssignmentRequest, CreateAuthorizationRoleRequest, GovernancePolicy,
-    OperationsAlert, OperationsAlertCounts, OperationsAlertRule, OperationsAlertRuleKind,
-    OperationsAlertRuleReference, OperationsAlertStatus, OperationsDatabaseSummary,
-    OperationsHttpSummary, OperationsOutboxSummary, OperationsSummary, RiskAlert, RiskAlertKind,
-    RiskAlertSeverity, RiskAlertStatus, SiteBranding, SmtpSettings, SmtpTlsMode,
-    TestSmtpSettingsRequest, UpdateAdminBoardRequest, UpdateAuthorizationRoleRequest,
-    UpdateGovernancePolicyRequest, UpdateOperationsAlertRequest, UpdateOperationsAlertRuleRequest,
-    UpdateRiskAlertRequest, UpdateSiteBrandingRequest, UpdateSmtpSettingsRequest,
+    MergeAdminBoardRequest, OperationsAlert, OperationsAlertCounts, OperationsAlertRule,
+    OperationsAlertRuleKind, OperationsAlertRuleReference, OperationsAlertStatus,
+    OperationsDatabaseSummary, OperationsHttpSummary, OperationsOutboxSummary, OperationsSummary,
+    RiskAlert, RiskAlertKind, RiskAlertSeverity, RiskAlertStatus, RollbackAdminBoardMergeRequest,
+    SiteBranding, SmtpSettings, SmtpTlsMode, TestSmtpSettingsRequest, UpdateAdminBoardRequest,
+    UpdateAuthorizationRoleRequest, UpdateGovernancePolicyRequest, UpdateOperationsAlertRequest,
+    UpdateOperationsAlertRuleRequest, UpdateRiskAlertRequest, UpdateSiteBrandingRequest,
+    UpdateSmtpSettingsRequest,
 };
 pub use attachments::{
     AttachmentCleanupResult, AttachmentScanStatus, AttachmentStatus, DraftImageAttachment,
@@ -56,7 +58,9 @@ pub use auth::{
     RegisterRequest, RegistrationEmailChallengeData, RegistrationEmailChallengeRequest,
     RegistrationPolicy, RevokeDeviceSessionData, UnlinkExternalIdentityData,
 };
-pub use board::{BoardSummary, BoardTone};
+pub use board::{
+    BoardBreadcrumbItem, BoardDetail, BoardSummary, BoardTone, BoardViewerCapabilities,
+};
 pub use board_restrictions::{
     BoardPostingRestrictionAction, BoardUserRestriction, PutBoardUserRestrictionRequest,
 };
@@ -82,9 +86,10 @@ pub use membership::{
     GrantMembershipPointsRequest, GrowthLevel, GrowthLevelStatus, Medal, MembershipAccount,
     MembershipCatalog, MembershipGroup, MembershipLevel, MembershipLevelRule, MembershipMedal,
     MembershipMedalGrant, MembershipMedalOperation, MembershipMedalOperationKind,
-    MembershipMedalRevocation, MembershipMedalRule, MembershipPointsGrant,
-    RevokeMembershipMedalRequest, UpdateGrowthLevelRequest, UpdateMembershipLevelRuleRequest,
-    UpdateMembershipMedalRuleRequest,
+    MembershipMedalRevocation, MembershipMedalRule, MembershipPointsGrant, PointsLedgerEntry,
+    PublicMembershipGroup, RevokeMembershipMedalRequest, StandardEntitlement,
+    UpdateGrowthLevelRequest, UpdateMembershipLevelRuleRequest, UpdateMembershipMedalRuleRequest,
+    UserMembershipSummary,
 };
 pub use messages::{
     ConversationLastMessage, ConversationReadState, ConversationSummary, CreateConversationRequest,
@@ -121,11 +126,12 @@ pub use request_id::RequestId;
 pub use standard_entitlements::{
     AdminStandardEntitlement, GrantStandardEntitlementRequest, PutStandardEntitlementTypeRequest,
     RevokeStandardEntitlementRequest, StandardEntitlementMutation, StandardEntitlementType,
+    StandardEntitlementVersion,
 };
 pub use topic::{
-    CreateReplyRequest, CreateTopicRequest, ReplyReference, ReplyRevision, TopicAuthorSummary,
-    TopicBoardSummary, TopicDetail, TopicReply, TopicRevision, TopicScope, TopicSort, TopicSummary,
-    TopicTag, TopicTagInput, UpdateReplyRequest, UpdateTopicRequest,
+    CreateReplyRequest, CreateTopicRequest, FeedMode, ReplyReference, ReplyRevision,
+    TopicAuthorSummary, TopicBoardSummary, TopicDetail, TopicReply, TopicRevision, TopicScope,
+    TopicSort, TopicSummary, TopicTag, TopicTagInput, UpdateReplyRequest, UpdateTopicRequest,
 };
 pub use user::{
     AdminUserContentItem, AdminUserContentKind, AdminUserDetail, AdminUserStatus,

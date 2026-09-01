@@ -38,11 +38,12 @@ use sqlx::{
 };
 
 pub use admin::{
-    AdminAuditRecord, AdminBoardDeletionImpactRecord, AdminBoardRecord, AdminConfigError,
+    AdminAuditRecord, AdminBoardDeletionImpactRecord, AdminBoardMergeBlockedReasonRecord,
+    AdminBoardMergeImpactRecord, AdminBoardMergeMutationRecord, AdminBoardRecord, AdminConfigError,
     BrandAssetError, BrandAssetRecord, BrandLinkRecord, CreateAdminBoardRecord,
     GovernancePolicyRecord, ListAdminAuditError, ListAdminAuditFilter, ListRiskAlertsError,
-    RiskAlertRecord, SiteBrandingRecord, UpdateAdminBoardRecord, UpdateRiskAlertError,
-    UpdateSiteBrandingRecord,
+    MergeAdminBoardRecord, RiskAlertRecord, RollbackAdminBoardMergeRecord, SiteBrandingRecord,
+    UpdateAdminBoardRecord, UpdateRiskAlertError, UpdateSiteBrandingRecord,
 };
 pub use attachments::{
     AttachmentCleanupError, AttachmentCleanupResultRecord, AttachmentError, AttachmentRecord,
@@ -65,7 +66,7 @@ pub use board_user_restrictions::{
     BoardUserRestrictionAction, BoardUserRestrictionMutationError, BoardUserRestrictionRecord,
     PutBoardUserRestrictionRecord,
 };
-pub use boards::BoardRecord;
+pub use boards::{BoardBreadcrumbRecord, BoardDetailLookupRecord, BoardRecord};
 pub use community_groups::{
     COMMUNITY_PERMISSION_KEYS, COMMUNITY_QUOTA_KEYS, CommunityGroupConfigurationRecord,
     CommunityGroupMembershipRecord, CommunityGroupMutationError, CommunityMembershipMutationError,
@@ -104,8 +105,8 @@ pub use membership::{
     AppendPointsLedgerError, GrantMembershipMedalError, GrantMembershipMedalResult,
     ListMembershipMedalOperationsError, MembershipAccountRecord, MembershipLedgerResult,
     MembershipLevelRuleRecord, MembershipMedalOperationRecord, MembershipMedalRecord,
-    MembershipMedalRuleRecord, RevokeMembershipMedalError, RevokeMembershipMedalResult,
-    UpdateMembershipLevelRuleError, UpdateMembershipLevelRuleRecord,
+    MembershipMedalRuleRecord, PointsLedgerEntryRecord, RevokeMembershipMedalError,
+    RevokeMembershipMedalResult, UpdateMembershipLevelRuleError, UpdateMembershipLevelRuleRecord,
     UpdateMembershipMedalRuleError, UpdateMembershipMedalRuleRecord,
 };
 pub use messages::{
@@ -153,6 +154,7 @@ pub use standard_entitlements::{
     GrantStandardEntitlementRecord, PutStandardEntitlementTypeRecord,
     RevokeStandardEntitlementRecord, StandardEntitlementGrantResult,
     StandardEntitlementMutationError, StandardEntitlementRecord, StandardEntitlementTypeRecord,
+    StandardEntitlementVersionRecord,
 };
 pub use topics::{
     CreateReplyError, CreateReplyResult, CreateTopicError, CreateTopicResult, IdempotencyInput,

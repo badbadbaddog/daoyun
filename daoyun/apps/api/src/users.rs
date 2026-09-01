@@ -6,7 +6,8 @@ use api_contract::{
     ApiResponse, BlockState, CommunityAccess, CommunityGroupMembership, CommunityGroupSummary,
     CommunityPermissionSource, CurrentCommunityGroups, ErrorBody, ErrorCode, ErrorResponse,
     ExperienceAccount, FieldErrors, FollowState, GrowthLevel, MembershipAccount, MembershipMedal,
-    PageResponse, RequestId, StandardEntitlementPermissionSource, UpdateUserProfileRequest,
+    PageResponse, PointsLedgerEntry, RequestId, StandardEntitlement,
+    StandardEntitlementPermissionSource, UpdateUserProfileRequest, UserMembershipSummary,
     UserProfile, UserProfileViewer, UserSummary, error_codes,
 };
 use axum::{
@@ -20,8 +21,9 @@ use axum::{
 };
 use infrastructure::{
     BlockMutationError, BlockStateRecord, Database, ExperienceAccountRecord, FollowMutationError,
-    FollowStateRecord, ListUserRelationsError, MembershipAccountRecord, PublicUserProfileRecord,
-    PublicUserSummaryRecord, UpdateUserProfileError, UpdateUserProfileRecord, UserRelationKind,
+    FollowStateRecord, ListUserRelationsError, MembershipAccountRecord, PointsLedgerEntryRecord,
+    PublicUserProfileRecord, PublicUserSummaryRecord, StandardEntitlementRecord,
+    UpdateUserProfileError, UpdateUserProfileRecord, UserRelationKind,
 };
 use serde::Deserialize;
 use time::{OffsetDateTime, UtcOffset, format_description::well_known::Rfc3339};
@@ -31,10 +33,27 @@ use uuid::Uuid;
 const PROFILE_BODY_LIMIT: usize = 16 * 1024;
 const DEFAULT_RELATION_LIMIT: u16 = 20;
 const MAX_RELATION_LIMIT: u16 = 50;
+const DEFAULT_SEARCH_LIMIT: u16 = 20;
+const MAX_SEARCH_LIMIT: u16 = 50;
+
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct ListUsersQuery {
+    q: Option<String>,
+    cursor: Option<Uuid>,
+    limit: Option<u16>,
+}
 
 #[derive(Debug, Default, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub(crate) struct ListUserRelationsQuery {
+    cursor: Option<Uuid>,
+    limit: Option<u16>,
+}
+
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct ListPointsLedgerQuery {
     cursor: Option<Uuid>,
     limit: Option<u16>,
 }
@@ -50,10 +69,15 @@ struct ValidatedProfileUpdate {
 
 pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
     Router::new()
+        .route("/api/v1/users", get(list_users))
         .route("/api/v1/users/{username}", get(profile))
         .route("/api/v1/users/{username}/followers", get(followers))
         .route("/api/v1/users/{username}/following", get(following))
         .route("/api/v1/users/{username}/medals", get(user_medals))
+        .route(
+            "/api/v1/users/{username}/membership-summary",
+            get(user_membership_summary),
+        )
         .route(
             "/api/v1/users/me",
             patch(update_profile).layer(DefaultBodyLimit::max(PROFILE_BODY_LIMIT)),
@@ -61,6 +85,8 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
         .route("/api/v1/users/me/membership", get(membership))
         .route("/api/v1/users/me/experience", get(experience))
         .route("/api/v1/users/me/groups", get(community_groups))
+        .route("/api/v1/users/me/points/ledger", get(points_ledger))
+        .route("/api/v1/users/me/entitlements", get(my_entitlements))
         // Source: https://docs.rs/axum/0.8.9/axum/routing/method_routing/struct.MethodRouter.html#method.delete
         .route(
             "/api/v1/users/{user_id}/follow",
@@ -71,6 +97,79 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
             put(block_user).delete(unblock_user),
         )
         .layer(Extension(runtime))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/users",
+    operation_id = "listUsers",
+    tag = "users",
+    params(ListUsersQuery),
+    responses(
+        (status = 200, description = "Active public users matching the query", body = PageResponse<UserSummary>, headers(("x-request-id" = String), ("set-cookie" = String))),
+        (status = 422, description = "The search query is invalid", body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, description = "The user database is unavailable", body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn list_users(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    query: Result<Query<ListUsersQuery>, QueryRejection>,
+) -> Result<(HeaderMap, Json<PageResponse<UserSummary>>), ApiError> {
+    let Query(query) = query
+        .map_err(|_| relation_validation_error(request_id, "query", "用户搜索参数格式不正确"))?;
+    let normalized = query.q.unwrap_or_default().trim().to_owned();
+    if normalized.is_empty()
+        || normalized.chars().count() > 80
+        || normalized.chars().any(char::is_control)
+    {
+        return Err(relation_validation_error(
+            request_id,
+            "q",
+            "搜索词必须为 1 到 80 个字符",
+        ));
+    }
+    let limit = query.limit.unwrap_or(DEFAULT_SEARCH_LIMIT);
+    if !(1..=MAX_SEARCH_LIMIT).contains(&limit) {
+        return Err(relation_validation_error(
+            request_id,
+            "limit",
+            "limit 必须在 1 到 50 之间",
+        ));
+    }
+    let (session, response_headers) =
+        authenticate_optional_session(&database, &runtime, &headers, request_id).await?;
+    let mut records = database
+        .list_public_users(
+            session.map(|session| session.user.id),
+            &normalized,
+            query.cursor,
+            i64::from(limit) + 1,
+        )
+        .await
+        .map_err(|error| {
+            tracing::warn!(request_id = %request_id, error = ?error, "Public user search failed");
+            service_unavailable(request_id)
+        })?;
+    let has_next_page = records.len() > usize::from(limit);
+    records.truncate(usize::from(limit));
+    let next_cursor = has_next_page.then(|| {
+        records
+            .last()
+            .expect("a full user page is non-empty")
+            .id
+            .to_string()
+    });
+    Ok((
+        response_headers,
+        Json(PageResponse::new(
+            records.into_iter().map(user_summary).collect(),
+            request_id,
+            next_cursor,
+        )),
+    ))
 }
 
 #[utoipa::path(
@@ -206,6 +305,104 @@ pub(crate) async fn experience(
 
 #[utoipa::path(
     get,
+    path = "/api/v1/users/me/points/ledger",
+    operation_id = "listMyPointsLedger",
+    tag = "users",
+    params(ListPointsLedgerQuery),
+    responses(
+        (status = 200, description = "The current user's private points ledger", body = PageResponse<PointsLedgerEntry>, headers(("x-request-id" = String))),
+        (status = 401, description = "The request has no active session", body = ErrorResponse, headers(("x-request-id" = String), ("set-cookie" = String))),
+        (status = 422, description = "The pagination query is invalid", body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, description = "The points database is unavailable", body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn points_ledger(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    query: Result<Query<ListPointsLedgerQuery>, QueryRejection>,
+) -> Result<(HeaderMap, Json<PageResponse<PointsLedgerEntry>>), ApiError> {
+    let Query(query) = query
+        .map_err(|_| relation_validation_error(request_id, "query", "积分流水参数格式不正确"))?;
+    let limit = query.limit.unwrap_or(DEFAULT_RELATION_LIMIT);
+    if !(1..=MAX_RELATION_LIMIT).contains(&limit) {
+        return Err(relation_validation_error(
+            request_id,
+            "limit",
+            "limit 必须在 1 到 50 之间",
+        ));
+    }
+    let (session, _) = authenticate_session(&database, &runtime, &headers, request_id).await?;
+    let mut records = database
+        .list_points_ledger(session.user.id, query.cursor, i64::from(limit) + 1)
+        .await
+        .map_err(|error| {
+            tracing::warn!(request_id = %request_id, error = %error, "Points ledger query failed");
+            membership_service_unavailable(request_id)
+        })?;
+    let has_next_page = records.len() > usize::from(limit);
+    records.truncate(usize::from(limit));
+    let next_cursor = has_next_page.then(|| {
+        records
+            .last()
+            .expect("a full points ledger page is non-empty")
+            .id
+            .to_string()
+    });
+    let entries = records
+        .into_iter()
+        .map(points_ledger_entry)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|()| membership_service_unavailable(request_id))?;
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok((
+        response_headers,
+        Json(PageResponse::new(entries, request_id, next_cursor)),
+    ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/users/me/entitlements",
+    operation_id = "listMyEntitlements",
+    tag = "users",
+    responses(
+        (status = 200, description = "The current user's private active standard entitlements", body = ApiResponse<Vec<StandardEntitlement>>, headers(("x-request-id" = String))),
+        (status = 401, description = "The request has no active session", body = ErrorResponse, headers(("x-request-id" = String), ("set-cookie" = String))),
+        (status = 503, description = "The entitlement database is unavailable", body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn my_entitlements(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+) -> Result<(HeaderMap, Json<ApiResponse<Vec<StandardEntitlement>>>), ApiError> {
+    let (session, _) = authenticate_session(&database, &runtime, &headers, request_id).await?;
+    let records = database
+        .list_active_standard_entitlements(session.user.id, OffsetDateTime::now_utc())
+        .await
+        .map_err(|error| {
+            tracing::warn!(request_id = %request_id, error = %error, "Entitlement query failed");
+            membership_service_unavailable(request_id)
+        })?;
+    let entitlements = records
+        .into_iter()
+        .map(standard_entitlement)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|()| membership_service_unavailable(request_id))?;
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok((
+        response_headers,
+        Json(ApiResponse::new(entitlements, request_id)),
+    ))
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/users/me/groups",
     operation_id = "getCurrentCommunityGroups",
     tag = "users",
@@ -325,6 +522,65 @@ pub(crate) async fn user_medals(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|()| membership_service_unavailable(request_id))?;
     Ok(Json(ApiResponse::new(medals, request_id)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/users/{username}/membership-summary",
+    operation_id = "getUserMembershipSummary",
+    tag = "users",
+    params(("username" = String, Path, description = "Stable username")),
+    responses(
+        (status = 200, description = "Public growth level, medals and explicitly public groups", body = ApiResponse<UserMembershipSummary>, headers(("x-request-id" = String))),
+        (status = 400, description = "The username path is invalid", body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 404, description = "The profile is unavailable", body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, description = "The membership database is unavailable", body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn user_membership_summary(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    path: Result<Path<String>, PathRejection>,
+) -> Result<Json<ApiResponse<UserMembershipSummary>>, ApiError> {
+    let Path(username) = path.map_err(|_| username_path_invalid(request_id))?;
+    if !valid_username(&username) {
+        return Err(username_path_invalid(request_id));
+    }
+    let user_id = database
+        .user_id_by_username(&username)
+        .await
+        .map_err(|error| {
+            tracing::warn!(request_id = %request_id, error = %error, "Membership summary user lookup failed");
+            membership_service_unavailable(request_id)
+        })?
+        .ok_or_else(|| user_not_found(request_id))?;
+    let account = database
+        .get_experience_account(user_id)
+        .await
+        .map_err(|error| {
+            tracing::warn!(request_id = %request_id, error = %error, "Public experience query failed");
+            membership_service_unavailable(request_id)
+        })?;
+    let medals = database
+        .list_membership_medals(user_id)
+        .await
+        .map_err(|error| {
+            tracing::warn!(request_id = %request_id, error = %error, "Public medals query failed");
+            membership_service_unavailable(request_id)
+        })?
+        .into_iter()
+        .map(map_membership_medal)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|()| membership_service_unavailable(request_id))?;
+    let summary = UserMembershipSummary {
+        current_level: experience_account(account)
+            .map_err(|()| membership_service_unavailable(request_id))?
+            .current_level,
+        medals,
+        // Community groups remain private until an explicit public-visibility field exists.
+        public_groups: Vec::new(),
+    };
+    Ok(Json(ApiResponse::new(summary, request_id)))
 }
 
 #[utoipa::path(
@@ -840,6 +1096,27 @@ fn experience_account(record: ExperienceAccountRecord) -> Result<ExperienceAccou
         },
         revision: record.revision,
         updated_at: format_timestamp(record.updated_at)?,
+    })
+}
+
+fn points_ledger_entry(record: PointsLedgerEntryRecord) -> Result<PointsLedgerEntry, ()> {
+    Ok(PointsLedgerEntry {
+        id: record.id,
+        amount: record.amount,
+        reason: record.reason,
+        balance_after: record.balance_after,
+        created_at: format_timestamp(record.created_at)?,
+    })
+}
+
+fn standard_entitlement(record: StandardEntitlementRecord) -> Result<StandardEntitlement, ()> {
+    Ok(StandardEntitlement {
+        id: record.id,
+        internal_key: record.entitlement_key,
+        type_version: record.type_version,
+        quotas: record.quota_snapshot,
+        starts_at: format_timestamp(record.starts_at)?,
+        ends_at: record.ends_at.map(format_timestamp).transpose()?,
     })
 }
 

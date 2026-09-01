@@ -1,7 +1,8 @@
 use std::collections::BTreeSet;
 
 use api_contract::{
-    AdminAuditEntry, AdminBoard, AdminBoardDeletionImpact, AdminBoardVisibility,
+    AdminAuditEntry, AdminBoard, AdminBoardDeletionImpact, AdminBoardMergeBlockedReason,
+    AdminBoardMergeImpact, AdminBoardMergeMutation, AdminBoardStatus, AdminBoardVisibility,
     AdminCapabilityAccess, AdminCommunityGroup, AdminCommunityGroupMembership, AdminGrowthLevel,
     AdminStandardEntitlement, AdminUserContentItem, AdminUserContentKind, AdminUserDetail,
     AdminUserStatus, AdminUserStatusUpdate, AdminUserSummary, ApiResponse, AttachmentCleanupResult,
@@ -16,16 +17,17 @@ use api_contract::{
     GrantMembershipMedalRequest, GrantMembershipPointsRequest, GrantStandardEntitlementRequest,
     GrowthLevelStatus, MembershipAccount, MembershipLevelRule, MembershipMedal,
     MembershipMedalGrant, MembershipMedalOperation, MembershipMedalOperationKind,
-    MembershipMedalRevocation, MembershipMedalRule, MembershipPointsGrant, PageResponse,
-    PutContentAccessPolicyRequest, PutStandardEntitlementTypeRequest, RequestId,
+    MembershipMedalRevocation, MembershipMedalRule, MembershipPointsGrant, MergeAdminBoardRequest,
+    PageResponse, PutContentAccessPolicyRequest, PutStandardEntitlementTypeRequest, RequestId,
     RevokeCommunityGroupMembershipRequest, RevokeMembershipMedalRequest,
     RevokeStandardEntitlementRequest, RiskAlert, RiskAlertKind, RiskAlertSeverity, RiskAlertStatus,
-    SetDefaultCommunityGroupRequest, SiteBranding, SmtpSettings, SmtpTlsMode,
-    StandardEntitlementMutation, StandardEntitlementType, TestSmtpSettingsRequest,
-    UpdateAdminBoardRequest, UpdateAdminUserStatusRequest, UpdateAuthorizationRoleRequest,
-    UpdateCommunityGroupRequest, UpdateGovernancePolicyRequest, UpdateGrowthLevelRequest,
-    UpdateMembershipLevelRuleRequest, UpdateMembershipMedalRuleRequest, UpdateRiskAlertRequest,
-    UpdateSiteBrandingRequest, UpdateSmtpSettingsRequest, UserSummary, error_codes,
+    RollbackAdminBoardMergeRequest, SetDefaultCommunityGroupRequest, SiteBranding, SmtpSettings,
+    SmtpTlsMode, StandardEntitlementMutation, StandardEntitlementType, StandardEntitlementVersion,
+    TestSmtpSettingsRequest, UpdateAdminBoardRequest, UpdateAdminUserStatusRequest,
+    UpdateAuthorizationRoleRequest, UpdateCommunityGroupRequest, UpdateGovernancePolicyRequest,
+    UpdateGrowthLevelRequest, UpdateMembershipLevelRuleRequest, UpdateMembershipMedalRuleRequest,
+    UpdateRiskAlertRequest, UpdateSiteBrandingRequest, UpdateSmtpSettingsRequest, UserSummary,
+    error_codes,
 };
 use axum::{
     Extension, Json, Router,
@@ -39,7 +41,8 @@ use axum::{
 };
 use email_address::EmailAddress;
 use infrastructure::{
-    AdminAuditRecord, AdminBoardDeletionImpactRecord, AdminBoardRecord, AdminConfigError,
+    AdminAuditRecord, AdminBoardDeletionImpactRecord, AdminBoardMergeBlockedReasonRecord,
+    AdminBoardMergeImpactRecord, AdminBoardMergeMutationRecord, AdminBoardRecord, AdminConfigError,
     AdminGrowthLevelRecord, AdminUserContentRecord, AdminUserDetailRecord, AdminUserReadError,
     AdminUserStatusUpdateRecord, AdminUserSummaryRecord, AppendPointsLedgerError,
     AttachmentCleanupError, AuthorizationPermissionRecord, AuthorizationRoleAssignmentRecord,
@@ -52,11 +55,12 @@ use infrastructure::{
     ListAdminAuditError, ListAdminAuditFilter, ListAuthorizationAssignmentsError,
     ListMembershipMedalOperationsError, ListRiskAlertsError, MembershipAccountRecord,
     MembershipLevelRuleRecord, MembershipMedalOperationRecord, MembershipMedalRecord,
-    MembershipMedalRuleRecord, MutateAuthorizationAssignmentError, MutateAuthorizationRoleError,
-    MutateGrowthLevelError, PutContentAccessPolicyRecord, PutStandardEntitlementTypeRecord,
-    RevokeMembershipMedalError, RevokeStandardEntitlementRecord, RiskAlertRecord,
-    SiteBrandingRecord, StandardEntitlementMutationError, StandardEntitlementRecord,
-    StandardEntitlementTypeRecord, UpdateAdminBoardRecord, UpdateAdminUserStatusError,
+    MembershipMedalRuleRecord, MergeAdminBoardRecord, MutateAuthorizationAssignmentError,
+    MutateAuthorizationRoleError, MutateGrowthLevelError, PutContentAccessPolicyRecord,
+    PutStandardEntitlementTypeRecord, RevokeMembershipMedalError, RevokeStandardEntitlementRecord,
+    RiskAlertRecord, RollbackAdminBoardMergeRecord, SiteBrandingRecord,
+    StandardEntitlementMutationError, StandardEntitlementRecord, StandardEntitlementTypeRecord,
+    StandardEntitlementVersionRecord, UpdateAdminBoardRecord, UpdateAdminUserStatusError,
     UpdateAdminUserStatusRecord, UpdateAuthorizationRoleRecord, UpdateCommunityGroupRecord,
     UpdateGrowthLevelRecord, UpdateMembershipLevelRuleError, UpdateMembershipLevelRuleRecord,
     UpdateMembershipMedalRuleError, UpdateMembershipMedalRuleRecord, UpdateRiskAlertError,
@@ -105,6 +109,12 @@ pub(crate) struct ListAdminUserItemsQuery {
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub(crate) struct ListCommunityGroupMembershipsQuery {
+    user_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct ListStandardEntitlementsQuery {
     user_id: Uuid,
 }
 
@@ -211,6 +221,15 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
             "/api/v1/admin/boards/{board_id}/deletion-impact",
             get(get_board_deletion_impact),
         )
+        .route(
+            "/api/v1/admin/boards/{board_id}/merge-impact",
+            get(get_board_merge_impact),
+        )
+        .route("/api/v1/admin/boards/{board_id}/merge", post(merge_board))
+        .route(
+            "/api/v1/admin/boards/{board_id}/merge/rollback",
+            post(rollback_board_merge),
+        )
         .route("/api/v1/admin/audit", get(list_audit))
         .route("/api/v1/admin/audit/alerts", get(list_audit_alerts))
         .route(
@@ -270,12 +289,20 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
             post(revoke_community_membership),
         )
         .route(
+            "/api/v1/admin/entitlements/types",
+            get(list_standard_entitlement_types),
+        )
+        .route(
             "/api/v1/admin/entitlements/types/{internal_key}",
             put(put_standard_entitlement_type),
         )
         .route(
+            "/api/v1/admin/entitlements/types/{internal_key}/versions",
+            get(list_standard_entitlement_versions),
+        )
+        .route(
             "/api/v1/admin/entitlements",
-            post(grant_standard_entitlement),
+            get(list_standard_entitlements).post(grant_standard_entitlement),
         )
         .route(
             "/api/v1/admin/entitlements/{entitlement_id}/revoke",
@@ -288,6 +315,10 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
         .route(
             "/api/v1/admin/membership/points",
             post(grant_membership_points),
+        )
+        .route(
+            "/api/v1/admin/membership/users/{user_id}",
+            get(get_admin_membership_account),
         )
         .route(
             "/api/v1/admin/membership/medal-rules",
@@ -1168,6 +1199,123 @@ pub(crate) async fn update_community_group(
 }
 
 #[utoipa::path(
+    get,
+    path = "/api/v1/admin/entitlements/types",
+    operation_id = "listStandardEntitlementTypes",
+    tag = "admin",
+    responses(
+        (status = 200, body = ApiResponse<Vec<StandardEntitlementType>>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse), (status = 403, body = ErrorResponse),
+        (status = 503, body = ErrorResponse)
+    )
+)]
+pub(crate) async fn list_standard_entitlement_types(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+) -> Result<Json<ApiResponse<Vec<StandardEntitlementType>>>, ApiError> {
+    authorize_capability_read(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::ENTITLEMENT_TYPES_READ,
+    )
+    .await?;
+    let records = database
+        .list_standard_entitlement_types()
+        .await
+        .map_err(|error| database_error(request_id, error, "标准权益类型查询失败"))?;
+    Ok(Json(ApiResponse::new(
+        records
+            .into_iter()
+            .map(map_standard_entitlement_type)
+            .collect(),
+        request_id,
+    )))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/entitlements/types/{internal_key}/versions",
+    operation_id = "listStandardEntitlementVersions",
+    tag = "admin",
+    params(("internal_key" = String, Path)),
+    responses(
+        (status = 200, body = ApiResponse<Vec<StandardEntitlementVersion>>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse), (status = 403, body = ErrorResponse),
+        (status = 503, body = ErrorResponse)
+    )
+)]
+pub(crate) async fn list_standard_entitlement_versions(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    Path(internal_key): Path<String>,
+) -> Result<Json<ApiResponse<Vec<StandardEntitlementVersion>>>, ApiError> {
+    authorize_capability_read(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::ENTITLEMENT_TYPES_READ,
+    )
+    .await?;
+    let records = database
+        .list_standard_entitlement_versions(&internal_key)
+        .await
+        .map_err(|error| database_error(request_id, error, "标准权益版本查询失败"))?;
+    Ok(Json(ApiResponse::new(
+        records
+            .into_iter()
+            .map(map_standard_entitlement_version)
+            .collect(),
+        request_id,
+    )))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/entitlements",
+    operation_id = "listStandardEntitlements",
+    tag = "admin",
+    params(ListStandardEntitlementsQuery),
+    responses(
+        (status = 200, body = ApiResponse<Vec<AdminStandardEntitlement>>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse), (status = 403, body = ErrorResponse),
+        (status = 503, body = ErrorResponse)
+    )
+)]
+pub(crate) async fn list_standard_entitlements(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    query: Result<Query<ListStandardEntitlementsQuery>, QueryRejection>,
+) -> Result<Json<ApiResponse<Vec<AdminStandardEntitlement>>>, ApiError> {
+    authorize_capability_read(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::ENTITLEMENT_GRANTS_READ,
+    )
+    .await?;
+    let Query(query) =
+        query.map_err(|_| validation_error(request_id, "query", "查询参数格式不正确"))?;
+    let records = database
+        .list_standard_entitlements_for_admin(query.user_id)
+        .await
+        .map_err(|error| database_error(request_id, error, "用户标准权益查询失败"))?;
+    Ok(Json(ApiResponse::new(
+        records.into_iter().map(map_standard_entitlement).collect(),
+        request_id,
+    )))
+}
+
+#[utoipa::path(
     put,
     path = "/api/v1/admin/community/default-group",
     operation_id = "setDefaultCommunityGroup",
@@ -2024,6 +2172,7 @@ pub(crate) async fn grant_membership_points(
             request.user_id,
             request.amount,
             &request.reason,
+            request.details.as_deref(),
             request.idempotency_key.as_deref(),
         )
         .await
@@ -2034,7 +2183,48 @@ pub(crate) async fn grant_membership_points(
         MembershipPointsGrant {
             account,
             created: result.created,
+            audit_id: result.audit_id,
         },
+        request_id,
+    )))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/membership/users/{user_id}",
+    operation_id = "getAdminMembershipAccount",
+    tag = "admin",
+    params(("user_id" = Uuid, Path)),
+    responses(
+        (status = 200, body = ApiResponse<MembershipAccount>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse),
+        (status = 403, body = ErrorResponse),
+        (status = 404, body = ErrorResponse),
+        (status = 503, body = ErrorResponse)
+    )
+)]
+pub(crate) async fn get_admin_membership_account(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<ApiResponse<MembershipAccount>>, ApiError> {
+    authorize_capability_read(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::MEMBERSHIP_POINTS_GRANT,
+    )
+    .await?;
+    let record = database
+        .get_membership_account(user_id)
+        .await
+        .map_err(|error| database_error(request_id, error, "会员积分账户读取失败"))?
+        .ok_or_else(|| admin_user_not_found(request_id))?;
+    Ok(Json(ApiResponse::new(
+        map_membership_account(record).map_err(|()| invalid_record(request_id))?,
         request_id,
     )))
 }
@@ -3219,6 +3409,7 @@ async fn create_board(
                 tone: input.tone,
                 position: input.position,
                 visibility: input.visibility,
+                status: input.status,
             },
         )
         .await
@@ -3274,6 +3465,7 @@ async fn update_board(
                 tone: input.tone,
                 position: input.position,
                 visibility: input.visibility,
+                status: input.status,
                 expected_revision: input
                     .expected_revision
                     .expect("validated board update must carry a revision"),
@@ -3314,6 +3506,163 @@ async fn get_board_deletion_impact(
         .map_err(|error| admin_mutation_error(request_id, error, "版块删除影响读取失败"))?;
     Ok(Json(ApiResponse::new(
         map_board_deletion_impact(impact).map_err(|()| invalid_record(request_id))?,
+        request_id,
+    )))
+}
+
+#[derive(Debug, Deserialize)]
+struct BoardMergeImpactQuery {
+    target_board_id: Uuid,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/boards/{board_id}/merge-impact",
+    operation_id = "getAdminBoardMergeImpact",
+    tag = "admin",
+    params(
+        ("board_id" = Uuid, Path, description = "Source board identifier"),
+        ("target_board_id" = Uuid, Query, description = "Target board identifier")
+    ),
+    responses(
+        (status = 200, description = "Board merge impact", body = ApiResponse<AdminBoardMergeImpact>),
+        (status = 401, description = "Authentication is required", body = ErrorResponse),
+        (status = 403, description = "Administrator access is required", body = ErrorResponse),
+        (status = 409, description = "Merge is blocked by board state", body = ErrorResponse),
+        (status = 503, description = "Boards are unavailable", body = ErrorResponse)
+    )
+)]
+async fn get_board_merge_impact(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    Path(board_id): Path<Uuid>,
+    query: Result<Query<BoardMergeImpactQuery>, QueryRejection>,
+) -> Result<Json<ApiResponse<AdminBoardMergeImpact>>, ApiError> {
+    authorize_admin_read(&database, &runtime, &headers, request_id).await?;
+    let Query(query) = query
+        .map_err(|_| validation_error(request_id, "target_board_id", "目标版块参数格式不正确"))?;
+    let impact = database
+        .get_admin_board_merge_impact(board_id, query.target_board_id)
+        .await
+        .map_err(|error| admin_mutation_error(request_id, error, "版块合并影响读取失败"))?;
+    Ok(Json(ApiResponse::new(
+        map_board_merge_impact(impact).map_err(|()| invalid_record(request_id))?,
+        request_id,
+    )))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/boards/{board_id}/merge",
+    operation_id = "mergeAdminBoard",
+    tag = "admin",
+    request_body = MergeAdminBoardRequest,
+    responses(
+        (status = 200, description = "Board merged atomically", body = ApiResponse<AdminBoardMergeMutation>),
+        (status = 401, description = "Authentication is required", body = ErrorResponse),
+        (status = 403, description = "Administrator access is required", body = ErrorResponse),
+        (status = 409, description = "Revision conflict or merge is blocked", body = ErrorResponse),
+        (status = 422, description = "Merge request is invalid", body = ErrorResponse),
+        (status = 503, description = "Boards are unavailable", body = ErrorResponse)
+    )
+)]
+async fn merge_board(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    Path(board_id): Path<Uuid>,
+    request: Result<Json<MergeAdminBoardRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<AdminBoardMergeMutation>>, ApiError> {
+    let session = authorize_admin_write(&database, &runtime, &headers, request_id).await?;
+    let Json(request) =
+        request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
+    let idempotency_key = request.idempotency_key.trim().to_owned();
+    if request.expected_source_revision <= 0
+        || request.expected_target_revision <= 0
+        || !(12..=128).contains(&idempotency_key.len())
+    {
+        return Err(validation_error(
+            request_id,
+            "body",
+            "合并需要有效的源/目标 revision 和 12-128 位幂等键",
+        ));
+    }
+    let mutation = database
+        .merge_admin_board(
+            session.user.id,
+            board_id,
+            MergeAdminBoardRecord {
+                target_board_id: request.target_board_id,
+                expected_source_revision: request.expected_source_revision,
+                expected_target_revision: request.expected_target_revision,
+                idempotency_key,
+            },
+        )
+        .await
+        .map_err(|error| admin_mutation_error(request_id, error, "版块合并失败"))?;
+    Ok(Json(ApiResponse::new(
+        map_board_merge_mutation(mutation).map_err(|()| invalid_record(request_id))?,
+        request_id,
+    )))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/boards/{board_id}/merge/rollback",
+    operation_id = "rollbackAdminBoardMerge",
+    tag = "admin",
+    request_body = RollbackAdminBoardMergeRequest,
+    responses(
+        (status = 200, description = "Board merge rolled back", body = ApiResponse<AdminBoardMergeMutation>),
+        (status = 401, description = "Authentication is required", body = ErrorResponse),
+        (status = 403, description = "Administrator access is required", body = ErrorResponse),
+        (status = 404, description = "Merge operation was not found", body = ErrorResponse),
+        (status = 409, description = "Revision conflict or merge already rolled back", body = ErrorResponse),
+        (status = 410, description = "Rollback window has expired", body = ErrorResponse),
+        (status = 422, description = "Rollback request is invalid", body = ErrorResponse),
+        (status = 503, description = "Boards are unavailable", body = ErrorResponse)
+    )
+)]
+async fn rollback_board_merge(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    Path(board_id): Path<Uuid>,
+    request: Result<Json<RollbackAdminBoardMergeRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<AdminBoardMergeMutation>>, ApiError> {
+    let session = authorize_admin_write(&database, &runtime, &headers, request_id).await?;
+    let Json(request) =
+        request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
+    let idempotency_key = request.idempotency_key.trim().to_owned();
+    if request.expected_source_revision <= 0
+        || request.expected_target_revision <= 0
+        || !(12..=128).contains(&idempotency_key.len())
+    {
+        return Err(validation_error(
+            request_id,
+            "body",
+            "回滚需要有效的源/目标 revision 和 12-128 位幂等键",
+        ));
+    }
+    let mutation = database
+        .rollback_admin_board_merge(
+            session.user.id,
+            board_id,
+            RollbackAdminBoardMergeRecord {
+                audit_id: request.audit_id,
+                expected_source_revision: request.expected_source_revision,
+                expected_target_revision: request.expected_target_revision,
+                idempotency_key,
+            },
+        )
+        .await
+        .map_err(|error| admin_mutation_error(request_id, error, "版块合并回滚失败"))?;
+    Ok(Json(ApiResponse::new(
+        map_board_merge_mutation(mutation).map_err(|()| invalid_record(request_id))?,
         request_id,
     )))
 }
@@ -3371,6 +3720,7 @@ struct ValidatedBoard {
     tone: String,
     position: i32,
     visibility: String,
+    status: String,
     expected_revision: Option<i64>,
 }
 
@@ -3701,6 +4051,18 @@ fn validate_board(request: CreateAdminBoardRequest) -> Result<ValidatedBoard, Fi
     if request.position < 0 {
         add_field(&mut fields, "position", "排序位置不能小于 0");
     }
+    let requested_status = request.status.unwrap_or(match request.visibility {
+        AdminBoardVisibility::Public => AdminBoardStatus::Open,
+        AdminBoardVisibility::Hidden => AdminBoardStatus::Hidden,
+    });
+    if requested_status == AdminBoardStatus::Merged {
+        add_field(&mut fields, "status", "merged 状态只能通过版块合并产生");
+    }
+    let status = board_status(requested_status);
+    let visibility = match requested_status {
+        AdminBoardStatus::Hidden | AdminBoardStatus::Archived => "hidden".to_owned(),
+        _ => visibility(request.visibility),
+    };
     if fields.is_empty() {
         Ok(ValidatedBoard {
             parent_id: request.parent_id,
@@ -3710,7 +4072,8 @@ fn validate_board(request: CreateAdminBoardRequest) -> Result<ValidatedBoard, Fi
             icon,
             tone: board_tone(request.tone),
             position: request.position,
-            visibility: visibility(request.visibility),
+            visibility,
+            status,
             expected_revision: None,
         })
     } else {
@@ -3738,6 +4101,7 @@ fn validate_board_update(request: UpdateAdminBoardRequest) -> Result<ValidatedBo
         tone: request.tone,
         position: request.position,
         visibility: request.visibility,
+        status: request.status,
     })?;
     board.expected_revision = Some(expected_revision);
     Ok(board)
@@ -3845,6 +4209,9 @@ fn map_admin_community_group(
         display_order: record.display_order,
         permission_keys: record.permission_keys.into_iter().collect(),
         quotas: record.quotas,
+        member_count: record.member_count,
+        expiring_member_count: record.expiring_member_count,
+        access_policy_reference_count: record.access_policy_reference_count,
         revision: record.revision,
         created_at: format_time(record.created_at),
         updated_at: format_time(record.updated_at),
@@ -3889,6 +4256,20 @@ fn map_standard_entitlement_type(record: StandardEntitlementTypeRecord) -> Stand
         revision: record.revision,
         created_at: format_time(record.created_at),
         updated_at: format_time(record.updated_at),
+    }
+}
+
+fn map_standard_entitlement_version(
+    record: StandardEntitlementVersionRecord,
+) -> StandardEntitlementVersion {
+    StandardEntitlementVersion {
+        id: record.id,
+        entitlement_type_id: record.entitlement_type_id,
+        version: record.version,
+        permission_keys: record.permission_keys,
+        quotas: record.quotas,
+        created_by: record.created_by,
+        created_at: format_time(record.created_at),
     }
 }
 
@@ -4228,6 +4609,7 @@ fn map_board(record: AdminBoardRecord) -> Result<AdminBoard, ()> {
         "hidden" => AdminBoardVisibility::Hidden,
         _ => return Err(()),
     };
+    let status = parse_admin_board_status(&record.status).ok_or(())?;
     let topic_count = u64::try_from(record.topic_count).map_err(|_| ())?;
     Ok(AdminBoard {
         id: record.id,
@@ -4239,9 +4621,67 @@ fn map_board(record: AdminBoardRecord) -> Result<AdminBoard, ()> {
         tone: parse_board_tone(&record.tone).ok_or(())?,
         position: record.position,
         visibility,
+        status,
+        merged_into_board_id: record.merged_into_board_id,
         topic_count,
         revision: record.revision,
     })
+}
+
+fn map_board_merge_impact(
+    record: AdminBoardMergeImpactRecord,
+) -> Result<AdminBoardMergeImpact, ()> {
+    Ok(AdminBoardMergeImpact {
+        source_board_id: record.source_board_id,
+        target_board_id: record.target_board_id,
+        source_revision: record.source_revision,
+        target_revision: record.target_revision,
+        topic_count: u64::try_from(record.topic_count).map_err(|_| ())?,
+        reply_count: u64::try_from(record.reply_count).map_err(|_| ())?,
+        child_count: u64::try_from(record.child_count).map_err(|_| ())?,
+        topic_limit: u64::try_from(record.topic_limit).map_err(|_| ())?,
+        can_merge: record.can_merge,
+        blocked_reason: record.blocked_reason.map(map_board_merge_blocked_reason),
+    })
+}
+
+fn map_board_merge_mutation(
+    record: AdminBoardMergeMutationRecord,
+) -> Result<AdminBoardMergeMutation, ()> {
+    Ok(AdminBoardMergeMutation {
+        audit_id: record.audit_id,
+        source_board_id: record.source_board_id,
+        target_board_id: record.target_board_id,
+        moved_topic_count: u64::try_from(record.moved_topic_count).map_err(|_| ())?,
+        source_revision: record.source_revision,
+        target_revision: record.target_revision,
+        rollback_deadline: record.rollback_deadline.format(&Rfc3339).map_err(|_| ())?,
+        rolled_back: record.rolled_back,
+        replayed: record.replayed,
+    })
+}
+
+fn map_board_merge_blocked_reason(
+    reason: AdminBoardMergeBlockedReasonRecord,
+) -> AdminBoardMergeBlockedReason {
+    match reason {
+        AdminBoardMergeBlockedReasonRecord::SameBoard => AdminBoardMergeBlockedReason::SameBoard,
+        AdminBoardMergeBlockedReasonRecord::TargetDescendant => {
+            AdminBoardMergeBlockedReason::TargetDescendant
+        }
+        AdminBoardMergeBlockedReasonRecord::SourceHasChildren => {
+            AdminBoardMergeBlockedReason::SourceHasChildren
+        }
+        AdminBoardMergeBlockedReasonRecord::TopicLimitExceeded => {
+            AdminBoardMergeBlockedReason::TopicLimitExceeded
+        }
+        AdminBoardMergeBlockedReasonRecord::SourceUnavailable => {
+            AdminBoardMergeBlockedReason::SourceUnavailable
+        }
+        AdminBoardMergeBlockedReasonRecord::TargetUnavailable => {
+            AdminBoardMergeBlockedReason::TargetUnavailable
+        }
+    }
 }
 
 fn map_board_deletion_impact(
@@ -4623,6 +5063,13 @@ fn validate_points_grant(
     {
         return Err(("idempotency_key", "幂等键必须是 1 到 128 位安全字符"));
     }
+    if request
+        .details
+        .as_ref()
+        .is_some_and(|details| details.chars().count() > 200)
+    {
+        return Err(("details", "补充说明不能超过 200 个字符"));
+    }
     Ok(())
 }
 
@@ -4811,6 +5258,28 @@ fn visibility(value: AdminBoardVisibility) -> String {
         AdminBoardVisibility::Hidden => "hidden",
     }
     .to_owned()
+}
+
+fn board_status(value: AdminBoardStatus) -> String {
+    match value {
+        AdminBoardStatus::Open => "open",
+        AdminBoardStatus::ReadOnly => "read_only",
+        AdminBoardStatus::Hidden => "hidden",
+        AdminBoardStatus::Archived => "archived",
+        AdminBoardStatus::Merged => "merged",
+    }
+    .to_owned()
+}
+
+fn parse_admin_board_status(value: &str) -> Option<AdminBoardStatus> {
+    Some(match value {
+        "open" => AdminBoardStatus::Open,
+        "read_only" => AdminBoardStatus::ReadOnly,
+        "hidden" => AdminBoardStatus::Hidden,
+        "archived" => AdminBoardStatus::Archived,
+        "merged" => AdminBoardStatus::Merged,
+        _ => return None,
+    })
 }
 
 fn board_tone(value: BoardTone) -> String {
@@ -5427,6 +5896,42 @@ fn admin_mutation_error(
             StatusCode::CONFLICT,
             error_codes::ADMIN_BOARD_HAS_CHILDREN,
             "该版块仍有子版块，请先移动或删除子版块",
+            request_id,
+        ),
+        AdminConfigError::MergeBlocked(reason) => {
+            let detail = match reason {
+                AdminBoardMergeBlockedReasonRecord::SameBoard => "源版块和目标版块不能相同",
+                AdminBoardMergeBlockedReasonRecord::TargetDescendant => {
+                    "目标版块不能是源版块的子孙版块"
+                }
+                AdminBoardMergeBlockedReasonRecord::SourceHasChildren => {
+                    "源版块仍有子版块，请先处理子版块"
+                }
+                AdminBoardMergeBlockedReasonRecord::TopicLimitExceeded => {
+                    "源版块主题数超过单次合并 5000 条上限"
+                }
+                AdminBoardMergeBlockedReasonRecord::SourceUnavailable => "源版块当前状态不可合并",
+                AdminBoardMergeBlockedReasonRecord::TargetUnavailable => {
+                    "目标版块当前状态不可接收合并"
+                }
+            };
+            admin_error(
+                StatusCode::CONFLICT,
+                error_codes::ADMIN_BOARD_MERGE_BLOCKED,
+                detail,
+                request_id,
+            )
+        }
+        AdminConfigError::MergeNotFound => admin_error(
+            StatusCode::NOT_FOUND,
+            error_codes::ADMIN_BOARD_MERGE_NOT_FOUND,
+            "版块合并记录不存在",
+            request_id,
+        ),
+        AdminConfigError::RollbackExpired => admin_error(
+            StatusCode::GONE,
+            error_codes::ADMIN_BOARD_MERGE_ROLLBACK_EXPIRED,
+            "版块合并已超过 24 小时回滚窗口",
             request_id,
         ),
         AdminConfigError::Outbox(error) => {

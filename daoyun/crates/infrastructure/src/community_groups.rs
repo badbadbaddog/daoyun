@@ -133,6 +133,9 @@ pub struct CommunityGroupConfigurationRecord {
     pub display_order: i32,
     pub permission_keys: BTreeSet<String>,
     pub quotas: BTreeMap<String, i64>,
+    pub member_count: i64,
+    pub expiring_member_count: i64,
+    pub access_policy_reference_count: i64,
     pub revision: i64,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
@@ -755,7 +758,13 @@ async fn fetch_group_configuration_from_pool(
     .await?
     .into_iter()
     .collect();
-    Ok(build_group_configuration(row, permission_keys, quotas))
+    let impact = fetch_group_impact_from_pool(pool, row.id).await?;
+    Ok(build_group_configuration(
+        row,
+        permission_keys,
+        quotas,
+        impact,
+    ))
 }
 
 async fn fetch_group_configuration(
@@ -788,13 +797,64 @@ async fn fetch_group_configuration(
     .await?
     .into_iter()
     .collect();
-    Ok(build_group_configuration(row, permission_keys, quotas))
+    let impact = fetch_group_impact(transaction, group_id).await?;
+    Ok(build_group_configuration(
+        row,
+        permission_keys,
+        quotas,
+        impact,
+    ))
+}
+
+async fn fetch_group_impact_from_pool(
+    pool: &sqlx::PgPool,
+    group_id: Uuid,
+) -> Result<(i64, i64, i64), sqlx::Error> {
+    sqlx::query_as(
+        "SELECT
+           (SELECT COUNT(*) FROM community_group_memberships
+            WHERE group_id = $1 AND revoked_at IS NULL
+              AND starts_at <= CURRENT_TIMESTAMP
+              AND (ends_at IS NULL OR ends_at > CURRENT_TIMESTAMP))::bigint,
+           (SELECT COUNT(*) FROM community_group_memberships
+            WHERE group_id = $1 AND revoked_at IS NULL
+              AND ends_at > CURRENT_TIMESTAMP
+              AND ends_at <= CURRENT_TIMESTAMP + INTERVAL '30 days')::bigint,
+           (SELECT COUNT(DISTINCT policy_id) FROM content_access_policy_subjects
+            WHERE community_group_id = $1)::bigint",
+    )
+    .bind(group_id)
+    .fetch_one(pool)
+    .await
+}
+
+async fn fetch_group_impact(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    group_id: Uuid,
+) -> Result<(i64, i64, i64), sqlx::Error> {
+    sqlx::query_as(
+        "SELECT
+           (SELECT COUNT(*) FROM community_group_memberships
+            WHERE group_id = $1 AND revoked_at IS NULL
+              AND starts_at <= CURRENT_TIMESTAMP
+              AND (ends_at IS NULL OR ends_at > CURRENT_TIMESTAMP))::bigint,
+           (SELECT COUNT(*) FROM community_group_memberships
+            WHERE group_id = $1 AND revoked_at IS NULL
+              AND ends_at > CURRENT_TIMESTAMP
+              AND ends_at <= CURRENT_TIMESTAMP + INTERVAL '30 days')::bigint,
+           (SELECT COUNT(DISTINCT policy_id) FROM content_access_policy_subjects
+            WHERE community_group_id = $1)::bigint",
+    )
+    .bind(group_id)
+    .fetch_one(&mut **transaction)
+    .await
 }
 
 fn build_group_configuration(
     row: CommunityGroupRow,
     permission_keys: BTreeSet<String>,
     quotas: BTreeMap<String, i64>,
+    impact: (i64, i64, i64),
 ) -> CommunityGroupConfigurationRecord {
     CommunityGroupConfigurationRecord {
         id: row.id,
@@ -807,6 +867,9 @@ fn build_group_configuration(
         display_order: row.display_order,
         permission_keys,
         quotas,
+        member_count: impact.0,
+        expiring_member_count: impact.1,
+        access_policy_reference_count: impact.2,
         revision: row.revision,
         created_at: row.created_at,
         updated_at: row.updated_at,

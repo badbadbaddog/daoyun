@@ -193,6 +193,42 @@ pub enum UpdateAdminUserStatusError {
 }
 
 impl Database {
+    pub async fn list_public_users(
+        &self,
+        viewer_user_id: Option<Uuid>,
+        query: &str,
+        cursor: Option<Uuid>,
+        limit: i64,
+    ) -> Result<Vec<PublicUserSummaryRecord>, DatabaseError> {
+        Ok(sqlx::query_as::<_, PublicUserSummaryRecord>(
+            "SELECT account.id, account.username, account.display_name, account.avatar_url \
+             FROM users AS account \
+             WHERE account.status = 'active' \
+               AND (POSITION(LOWER($1) IN LOWER(account.username)) > 0 \
+                    OR POSITION(LOWER($1) IN LOWER(account.display_name)) > 0) \
+               AND ($2::uuid IS NULL OR (account.username, account.id) > ( \
+                    SELECT cursor_account.username, cursor_account.id \
+                    FROM users AS cursor_account \
+                    WHERE cursor_account.id = $2 AND cursor_account.status = 'active' \
+                      AND (POSITION(LOWER($1) IN LOWER(cursor_account.username)) > 0 \
+                           OR POSITION(LOWER($1) IN LOWER(cursor_account.display_name)) > 0) \
+               )) \
+               AND ($3::uuid IS NULL OR account.id = $3 OR NOT EXISTS ( \
+                    SELECT 1 FROM user_blocks AS block \
+                    WHERE (block.blocker_id = $3 AND block.blocked_id = account.id) \
+                       OR (block.blocker_id = account.id AND block.blocked_id = $3) \
+               )) \
+             ORDER BY account.username, account.id \
+             LIMIT $4",
+        )
+        .bind(query)
+        .bind(cursor)
+        .bind(viewer_user_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     pub async fn active_user_exists(&self, user_id: Uuid) -> Result<bool, DatabaseError> {
         Ok(sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND status = 'active')",

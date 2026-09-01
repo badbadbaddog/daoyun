@@ -193,6 +193,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/boards/{board_id}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["mergeAdminBoard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/boards/{board_id}/merge-impact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getAdminBoardMergeImpact"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/boards/{board_id}/merge/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["rollbackAdminBoardMerge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/community/default-group": {
         parameters: {
             query?: never;
@@ -296,9 +344,25 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["listStandardEntitlements"];
         put?: never;
         post: operations["grantStandardEntitlement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/entitlements/types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listStandardEntitlementTypes"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -314,6 +378,22 @@ export interface paths {
         };
         get?: never;
         put: operations["putStandardEntitlementType"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/entitlements/types/{internal_key}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listStandardEntitlementVersions"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -507,6 +587,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["grantMembershipPoints"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/membership/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getAdminMembershipAccount"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1521,6 +1617,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/boards/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getBoard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/conversations": {
         parameters: {
             query?: never;
@@ -1583,6 +1695,22 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["markDirectConversationRead"];
+        trace?: never;
+    };
+    "/api/v1/feed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getFeed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/health/live": {
@@ -1771,6 +1899,54 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["executePluginUiSurfaceAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/posts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listPosts"];
+        put?: never;
+        post: operations["createPost"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/posts/{post_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getPost"];
+        put?: never;
+        post?: never;
+        delete: operations["deletePost"];
+        options?: never;
+        head?: never;
+        patch: operations["updatePost"];
+        trace?: never;
+    };
+    "/api/v1/posts/{post_id}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listPostComments"];
+        put?: never;
+        post: operations["createPostComment"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2017,6 +2193,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/me": {
         parameters: {
             query?: never;
@@ -2041,6 +2233,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["listCurrentUserBookmarks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/entitlements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listMyEntitlements"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2089,6 +2297,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["getCurrentMembership"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/points/ledger": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listMyPointsLedger"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2193,6 +2417,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/{username}/membership-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getUserMembershipSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2214,6 +2454,8 @@ export interface components {
             icon: string;
             /** Format: uuid */
             id: string;
+            /** Format: uuid */
+            merged_into_board_id?: string | null;
             name: string;
             /** Format: uuid */
             parent_id?: string | null;
@@ -2222,6 +2464,7 @@ export interface components {
             /** Format: int64 */
             revision: number;
             slug: string;
+            status: components["schemas"]["AdminBoardStatus"];
             tone: components["schemas"]["BoardTone"];
             /** Format: int64 */
             topic_count: number;
@@ -2239,22 +2482,70 @@ export interface components {
             topic_count: number;
         };
         /** @enum {string} */
+        AdminBoardMergeBlockedReason: "same_board" | "target_descendant" | "source_has_children" | "topic_limit_exceeded" | "source_unavailable" | "target_unavailable";
+        AdminBoardMergeImpact: {
+            blocked_reason?: null | components["schemas"]["AdminBoardMergeBlockedReason"];
+            can_merge: boolean;
+            /** Format: int64 */
+            child_count: number;
+            /** Format: int64 */
+            reply_count: number;
+            /** Format: uuid */
+            source_board_id: string;
+            /** Format: int64 */
+            source_revision: number;
+            /** Format: uuid */
+            target_board_id: string;
+            /** Format: int64 */
+            target_revision: number;
+            /** Format: int64 */
+            topic_count: number;
+            /** Format: int64 */
+            topic_limit: number;
+        };
+        AdminBoardMergeMutation: {
+            /** Format: uuid */
+            audit_id: string;
+            /** Format: int64 */
+            moved_topic_count: number;
+            replayed: boolean;
+            /** Format: date-time */
+            rollback_deadline: string;
+            rolled_back: boolean;
+            /** Format: uuid */
+            source_board_id: string;
+            /** Format: int64 */
+            source_revision: number;
+            /** Format: uuid */
+            target_board_id: string;
+            /** Format: int64 */
+            target_revision: number;
+        };
+        /** @enum {string} */
+        AdminBoardStatus: "open" | "read_only" | "hidden" | "archived" | "merged";
+        /** @enum {string} */
         AdminBoardVisibility: "public" | "hidden";
         AdminCapabilityAccess: {
             capability_keys: string[];
         };
         AdminCommunityGroup: {
+            /** Format: int64 */
+            access_policy_reference_count: number;
             /** Format: date-time */
             created_at: string;
             description: string;
             display_name: string;
             /** Format: int32 */
             display_order: number;
+            /** Format: int64 */
+            expiring_member_count: number;
             /** Format: uuid */
             id: string;
             internal_key: string;
             is_base: boolean;
             is_default: boolean;
+            /** Format: int64 */
+            member_count: number;
             permission_keys: string[];
             quotas: {
                 [key: string]: number;
@@ -2433,6 +2724,8 @@ export interface components {
                 icon: string;
                 /** Format: uuid */
                 id: string;
+                /** Format: uuid */
+                merged_into_board_id?: string | null;
                 name: string;
                 /** Format: uuid */
                 parent_id?: string | null;
@@ -2441,6 +2734,7 @@ export interface components {
                 /** Format: int64 */
                 revision: number;
                 slug: string;
+                status: components["schemas"]["AdminBoardStatus"];
                 tone: components["schemas"]["BoardTone"];
                 /** Format: int64 */
                 topic_count: number;
@@ -2462,6 +2756,50 @@ export interface components {
             };
             meta: components["schemas"]["ResponseMeta"];
         };
+        ApiResponse_AdminBoardMergeImpact: {
+            data: {
+                blocked_reason?: null | components["schemas"]["AdminBoardMergeBlockedReason"];
+                can_merge: boolean;
+                /** Format: int64 */
+                child_count: number;
+                /** Format: int64 */
+                reply_count: number;
+                /** Format: uuid */
+                source_board_id: string;
+                /** Format: int64 */
+                source_revision: number;
+                /** Format: uuid */
+                target_board_id: string;
+                /** Format: int64 */
+                target_revision: number;
+                /** Format: int64 */
+                topic_count: number;
+                /** Format: int64 */
+                topic_limit: number;
+            };
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        ApiResponse_AdminBoardMergeMutation: {
+            data: {
+                /** Format: uuid */
+                audit_id: string;
+                /** Format: int64 */
+                moved_topic_count: number;
+                replayed: boolean;
+                /** Format: date-time */
+                rollback_deadline: string;
+                rolled_back: boolean;
+                /** Format: uuid */
+                source_board_id: string;
+                /** Format: int64 */
+                source_revision: number;
+                /** Format: uuid */
+                target_board_id: string;
+                /** Format: int64 */
+                target_revision: number;
+            };
+            meta: components["schemas"]["ResponseMeta"];
+        };
         ApiResponse_AdminCapabilityAccess: {
             data: {
                 capability_keys: string[];
@@ -2470,17 +2808,23 @@ export interface components {
         };
         ApiResponse_AdminCommunityGroup: {
             data: {
+                /** Format: int64 */
+                access_policy_reference_count: number;
                 /** Format: date-time */
                 created_at: string;
                 description: string;
                 display_name: string;
                 /** Format: int32 */
                 display_order: number;
+                /** Format: int64 */
+                expiring_member_count: number;
                 /** Format: uuid */
                 id: string;
                 internal_key: string;
                 is_base: boolean;
                 is_default: boolean;
+                /** Format: int64 */
+                member_count: number;
                 permission_keys: string[];
                 quotas: {
                     [key: string]: number;
@@ -2640,6 +2984,25 @@ export interface components {
                 blocked: boolean;
                 /** Format: uuid */
                 user_id: string;
+            };
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        ApiResponse_BoardDetail: {
+            data: {
+                breadcrumb: components["schemas"]["BoardBreadcrumbItem"][];
+                children: components["schemas"]["BoardSummary"][];
+                description: string;
+                icon: string;
+                /** Format: uuid */
+                id: string;
+                name: string;
+                /** Format: uuid */
+                parent_id?: string | null;
+                slug: string;
+                tone: components["schemas"]["BoardTone"];
+                /** Format: int64 */
+                topic_count: number;
+                viewer: components["schemas"]["BoardViewerCapabilities"];
             };
             meta: components["schemas"]["ResponseMeta"];
         };
@@ -2945,6 +3308,8 @@ export interface components {
         ApiResponse_MembershipPointsGrant: {
             data: {
                 account: components["schemas"]["MembershipAccount"];
+                /** Format: uuid */
+                audit_id?: string | null;
                 created: boolean;
             };
             meta: components["schemas"]["ResponseMeta"];
@@ -3350,6 +3715,7 @@ export interface components {
                 excerpt: string;
                 /** Format: uuid */
                 id: string;
+                image_url?: string | null;
                 is_featured: boolean;
                 is_pinned: boolean;
                 /** Format: date-time */
@@ -3430,6 +3796,14 @@ export interface components {
             };
             meta: components["schemas"]["ResponseMeta"];
         };
+        ApiResponse_UserMembershipSummary: {
+            data: {
+                current_level: components["schemas"]["GrowthLevel"];
+                medals: components["schemas"]["MembershipMedal"][];
+                public_groups: components["schemas"]["PublicMembershipGroup"][];
+            };
+            meta: components["schemas"]["ResponseMeta"];
+        };
         ApiResponse_UserProfile: {
             data: {
                 avatar_url?: string | null;
@@ -3461,6 +3835,8 @@ export interface components {
                 icon: string;
                 /** Format: uuid */
                 id: string;
+                /** Format: uuid */
+                merged_into_board_id?: string | null;
                 name: string;
                 /** Format: uuid */
                 parent_id?: string | null;
@@ -3469,6 +3845,7 @@ export interface components {
                 /** Format: int64 */
                 revision: number;
                 slug: string;
+                status: components["schemas"]["AdminBoardStatus"];
                 tone: components["schemas"]["BoardTone"];
                 /** Format: int64 */
                 topic_count: number;
@@ -3478,17 +3855,23 @@ export interface components {
         };
         ApiResponse_Vec_AdminCommunityGroup: {
             data: {
+                /** Format: int64 */
+                access_policy_reference_count: number;
                 /** Format: date-time */
                 created_at: string;
                 description: string;
                 display_name: string;
                 /** Format: int32 */
                 display_order: number;
+                /** Format: int64 */
+                expiring_member_count: number;
                 /** Format: uuid */
                 id: string;
                 internal_key: string;
                 is_base: boolean;
                 is_default: boolean;
+                /** Format: int64 */
+                member_count: number;
                 permission_keys: string[];
                 quotas: {
                     [key: string]: number;
@@ -3548,6 +3931,44 @@ export interface components {
                 status: components["schemas"]["GrowthLevelStatus"];
                 /** Format: date-time */
                 updated_at: string;
+            }[];
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        ApiResponse_Vec_AdminStandardEntitlement: {
+            data: {
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                ends_at?: string | null;
+                entitlement_key: string;
+                /** Format: uuid */
+                entitlement_type_id: string;
+                /** Format: uuid */
+                granted_by: string;
+                /** Format: uuid */
+                id: string;
+                permission_snapshot: string[];
+                quota_snapshot: {
+                    [key: string]: number;
+                };
+                reason: string;
+                /** Format: int64 */
+                revision: number;
+                revocation_reason?: string | null;
+                /** Format: date-time */
+                revoked_at?: string | null;
+                /** Format: uuid */
+                revoked_by?: string | null;
+                source: string;
+                source_reference_id?: string | null;
+                /** Format: date-time */
+                starts_at: string;
+                /** Format: int32 */
+                type_version: number;
+                /** Format: date-time */
+                updated_at: string;
+                /** Format: uuid */
+                user_id: string;
             }[];
             meta: components["schemas"]["ResponseMeta"];
         };
@@ -3769,6 +4190,64 @@ export interface components {
             }[];
             meta: components["schemas"]["ResponseMeta"];
         };
+        ApiResponse_Vec_StandardEntitlement: {
+            data: {
+                /** Format: date-time */
+                ends_at?: string | null;
+                /** Format: uuid */
+                id: string;
+                internal_key: string;
+                quotas: {
+                    [key: string]: number;
+                };
+                /** Format: date-time */
+                starts_at: string;
+                /** Format: int32 */
+                type_version: number;
+            }[];
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        ApiResponse_Vec_StandardEntitlementType: {
+            data: {
+                /** Format: date-time */
+                created_at: string;
+                /** Format: int32 */
+                current_version: number;
+                display_name: string;
+                /** Format: uuid */
+                id: string;
+                internal_key: string;
+                permission_keys: string[];
+                quotas: {
+                    [key: string]: number;
+                };
+                /** Format: int64 */
+                revision: number;
+                status: string;
+                /** Format: date-time */
+                updated_at: string;
+            }[];
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        ApiResponse_Vec_StandardEntitlementVersion: {
+            data: {
+                /** Format: date-time */
+                created_at: string;
+                /** Format: uuid */
+                created_by: string;
+                /** Format: uuid */
+                entitlement_type_id: string;
+                /** Format: uuid */
+                id: string;
+                permission_keys: string[];
+                quotas: {
+                    [key: string]: number;
+                };
+                /** Format: int32 */
+                version: number;
+            }[];
+            meta: components["schemas"]["ResponseMeta"];
+        };
         ApiResponse_Vec_TopicAttachment: {
             data: {
                 /** Format: date-time */
@@ -3907,14 +4386,44 @@ export interface components {
             /** Format: uuid */
             user_id: string;
         };
-        /** @enum {string} */
-        BoardPostingRestrictionAction: "topic_create" | "reply_create" | "attachment_upload";
-        BoardSummary: {
+        BoardBreadcrumbItem: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            slug: string;
+        };
+        BoardDetail: {
+            breadcrumb: components["schemas"]["BoardBreadcrumbItem"][];
+            children: components["schemas"]["BoardSummary"][];
             description: string;
             icon: string;
             /** Format: uuid */
             id: string;
             name: string;
+            /** Format: uuid */
+            parent_id?: string | null;
+            slug: string;
+            tone: components["schemas"]["BoardTone"];
+            /** Format: int64 */
+            topic_count: number;
+            viewer: components["schemas"]["BoardViewerCapabilities"];
+        };
+        /** @enum {string} */
+        BoardPostingRestrictionAction: "topic_create" | "reply_create" | "attachment_upload";
+        BoardSummary: {
+            /** Format: int64 */
+            child_count: number;
+            /** Format: int32 */
+            depth: number;
+            description: string;
+            icon: string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: uuid */
+            parent_id?: string | null;
+            /** Format: int32 */
+            position: number;
             slug: string;
             tone: components["schemas"]["BoardTone"];
             /** Format: int64 */
@@ -3941,6 +4450,12 @@ export interface components {
             updated_by: string;
             /** Format: uuid */
             user_id: string;
+        };
+        BoardViewerCapabilities: {
+            can_create_topic: boolean;
+            can_read: boolean;
+            can_reply: boolean;
+            can_upload_attachment: boolean;
         };
         BookmarkState: {
             bookmarked: boolean;
@@ -4126,6 +4641,7 @@ export interface components {
             /** Format: int32 */
             position: number;
             slug: string;
+            status?: null | components["schemas"]["AdminBoardStatus"];
             tone: components["schemas"]["BoardTone"];
             visibility: components["schemas"]["AdminBoardVisibility"];
         };
@@ -4199,7 +4715,7 @@ export interface components {
             content: string;
             rich_content?: unknown;
             tags?: components["schemas"]["TopicTagInput"][];
-            title: string;
+            title?: string | null;
         };
         CurrentCommunityGroups: {
             access: components["schemas"]["CommunityAccess"];
@@ -4272,6 +4788,8 @@ export interface components {
             last_authenticated_at?: string | null;
             provider_key: string;
         };
+        /** @enum {string} */
+        FeedMode: "recommended" | "following" | "latest";
         FollowState: {
             /** Format: int64 */
             follower_count: number;
@@ -4323,6 +4841,7 @@ export interface components {
         GrantMembershipPointsRequest: {
             /** Format: int64 */
             amount: number;
+            details?: string | null;
             idempotency_key?: string | null;
             reason: string;
             /** Format: uuid */
@@ -4516,7 +5035,18 @@ export interface components {
         };
         MembershipPointsGrant: {
             account: components["schemas"]["MembershipAccount"];
+            /** Format: uuid */
+            audit_id?: string | null;
             created: boolean;
+        };
+        MergeAdminBoardRequest: {
+            /** Format: int64 */
+            expected_source_revision: number;
+            /** Format: int64 */
+            expected_target_revision: number;
+            idempotency_key: string;
+            /** Format: uuid */
+            target_board_id: string;
         };
         MfaChallengeData: {
             /** Format: uuid */
@@ -4809,11 +5339,19 @@ export interface components {
         };
         PageResponse_BoardSummary: {
             data: {
+                /** Format: int64 */
+                child_count: number;
+                /** Format: int32 */
+                depth: number;
                 description: string;
                 icon: string;
                 /** Format: uuid */
                 id: string;
                 name: string;
+                /** Format: uuid */
+                parent_id?: string | null;
+                /** Format: int32 */
+                position: number;
                 slug: string;
                 tone: components["schemas"]["BoardTone"];
                 /** Format: int64 */
@@ -4960,6 +5498,20 @@ export interface components {
             }[];
             meta: components["schemas"]["PageMeta"];
         };
+        PageResponse_PointsLedgerEntry: {
+            data: {
+                /** Format: int64 */
+                amount: number;
+                /** Format: int64 */
+                balance_after: number;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: uuid */
+                id: string;
+                reason: string;
+            }[];
+            meta: components["schemas"]["PageMeta"];
+        };
         PageResponse_RiskAlert: {
             data: {
                 /** Format: date-time */
@@ -5030,6 +5582,7 @@ export interface components {
                 excerpt: string;
                 /** Format: uuid */
                 id: string;
+                image_url?: string | null;
                 is_featured: boolean;
                 is_pinned: boolean;
                 /** Format: date-time */
@@ -5236,12 +5789,29 @@ export interface components {
         };
         /** @enum {string} */
         PluginUiTone: "neutral" | "success" | "warning" | "danger";
+        PointsLedgerEntry: {
+            /** Format: int64 */
+            amount: number;
+            /** Format: int64 */
+            balance_after: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            reason: string;
+        };
         PostLikeState: {
             /** Format: int64 */
             like_count: number;
             liked: boolean;
             /** Format: uuid */
             post_id: string;
+        };
+        PublicMembershipGroup: {
+            display_name: string;
+            /** Format: uuid */
+            id: string;
+            internal_key: string;
         };
         PutBoardUserRestrictionRequest: {
             actions: components["schemas"]["BoardPostingRestrictionAction"][];
@@ -5467,6 +6037,15 @@ export interface components {
         RiskAlertSeverity: "medium" | "high" | "critical";
         /** @enum {string} */
         RiskAlertStatus: "open" | "acknowledged" | "dismissed";
+        RollbackAdminBoardMergeRequest: {
+            /** Format: uuid */
+            audit_id: string;
+            /** Format: int64 */
+            expected_source_revision: number;
+            /** Format: int64 */
+            expected_target_revision: number;
+            idempotency_key: string;
+        };
         SendDirectMessageRequest: {
             content: string;
         };
@@ -5506,6 +6085,20 @@ export interface components {
         };
         /** @enum {string} */
         SmtpTlsMode: "tls" | "starttls" | "none";
+        StandardEntitlement: {
+            /** Format: date-time */
+            ends_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            internal_key: string;
+            quotas: {
+                [key: string]: number;
+            };
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: int32 */
+            type_version: number;
+        };
         StandardEntitlementMutation: {
             entitlement: components["schemas"]["AdminStandardEntitlement"];
             replayed: boolean;
@@ -5539,6 +6132,22 @@ export interface components {
             status: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        StandardEntitlementVersion: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by: string;
+            /** Format: uuid */
+            entitlement_type_id: string;
+            /** Format: uuid */
+            id: string;
+            permission_keys: string[];
+            quotas: {
+                [key: string]: number;
+            };
+            /** Format: int32 */
+            version: number;
         };
         TestSmtpSettingsRequest: {
             recipient_email: string;
@@ -5580,6 +6189,7 @@ export interface components {
             excerpt: string;
             /** Format: uuid */
             id: string;
+            image_url?: string | null;
             is_featured: boolean;
             is_pinned: boolean;
             /** Format: date-time */
@@ -5682,6 +6292,7 @@ export interface components {
             excerpt: string;
             /** Format: uuid */
             id: string;
+            image_url?: string | null;
             is_featured: boolean;
             is_pinned: boolean;
             /** Format: date-time */
@@ -5723,6 +6334,7 @@ export interface components {
             /** Format: int32 */
             position: number;
             slug: string;
+            status?: null | components["schemas"]["AdminBoardStatus"];
             tone: components["schemas"]["BoardTone"];
             visibility: components["schemas"]["AdminBoardVisibility"];
         };
@@ -5865,6 +6477,11 @@ export interface components {
             display_name: string;
             location?: string | null;
             website_url?: string | null;
+        };
+        UserMembershipSummary: {
+            current_level: components["schemas"]["GrowthLevel"];
+            medals: components["schemas"]["MembershipMedal"][];
+            public_groups: components["schemas"]["PublicMembershipGroup"][];
         };
         UserProfile: {
             avatar_url?: string | null;
@@ -6974,6 +7591,224 @@ export interface operations {
             };
         };
     };
+    mergeAdminBoard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MergeAdminBoardRequest"];
+            };
+        };
+        responses: {
+            /** @description Board merged atomically */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_AdminBoardMergeMutation"];
+                };
+            };
+            /** @description Authentication is required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Administrator access is required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Revision conflict or merge is blocked */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Merge request is invalid */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Boards are unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getAdminBoardMergeImpact: {
+        parameters: {
+            query: {
+                /** @description Target board identifier */
+                target_board_id: string;
+            };
+            header?: never;
+            path: {
+                /** @description Source board identifier */
+                board_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Board merge impact */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_AdminBoardMergeImpact"];
+                };
+            };
+            /** @description Authentication is required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Administrator access is required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Merge is blocked by board state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Boards are unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    rollbackAdminBoardMerge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RollbackAdminBoardMergeRequest"];
+            };
+        };
+        responses: {
+            /** @description Board merge rolled back */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_AdminBoardMergeMutation"];
+                };
+            };
+            /** @description Authentication is required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Administrator access is required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Merge operation was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Revision conflict or merge already rolled back */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rollback window has expired */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rollback request is invalid */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Boards are unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     setDefaultCommunityGroup: {
         parameters: {
             query?: never;
@@ -7586,6 +8421,52 @@ export interface operations {
             };
         };
     };
+    listStandardEntitlements: {
+        parameters: {
+            query: {
+                user_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Vec_AdminStandardEntitlement"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     grantStandardEntitlement: {
         parameters: {
             query?: never;
@@ -7643,6 +8524,50 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listStandardEntitlementTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Vec_StandardEntitlementType"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7719,6 +8644,52 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listStandardEntitlementVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                internal_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Vec_StandardEntitlementVersion"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8637,6 +9608,60 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getAdminMembershipAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_MembershipAccount"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12994,6 +14019,73 @@ export interface operations {
             };
         };
     };
+    getBoard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Board slug */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public board detail and viewer capabilities */
+            200: {
+                headers: {
+                    "set-cookie"?: string;
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_BoardDetail"];
+                };
+            };
+            /** @description The board exists but the viewer cannot read it */
+            403: {
+                headers: {
+                    "set-cookie"?: string;
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The board does not exist */
+            404: {
+                headers: {
+                    "set-cookie"?: string;
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The board slug is invalid */
+            422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The database is temporarily unavailable */
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     listDirectConversations: {
         parameters: {
             query?: {
@@ -13431,6 +14523,62 @@ export interface operations {
             /** @description The message database is unavailable */
             503: {
                 headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getFeed: {
+        parameters: {
+            query: {
+                mode: components["schemas"]["FeedMode"];
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Posts for the selected feed mode */
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_TopicSummary"];
+                };
+            };
+            /** @description The following feed requires an active session */
+            401: {
+                headers: {
+                    "set-cookie"?: string;
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The feed mode or pagination parameters are invalid */
+            422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The feed database is unavailable */
+            503: {
+                headers: {
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -14099,6 +15247,584 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listPosts: {
+        parameters: {
+            query?: {
+                board?: string;
+                query?: string;
+                tag?: string;
+                author?: string;
+                scope?: components["schemas"]["TopicScope"];
+                featured?: boolean;
+                sort?: components["schemas"]["TopicSort"];
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Published posts matching the compatibility filters */
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_TopicSummary"];
+                };
+            };
+            /** @description The following feed requires an active session */
+            401: {
+                headers: {
+                    "set-cookie"?: string;
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Invalid post filters or cursor */
+            422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The post database is unavailable */
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createPost: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Session-bound CSRF token */
+                "x-csrf-token": string;
+                /** @description Optional idempotency key for safe retries */
+                "Idempotency-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTopicRequest"];
+            };
+        };
+        responses: {
+            /** @description The idempotent replay of an existing post */
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_TopicDetail"];
+                };
+            };
+            /** @description The published post */
+            201: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_TopicDetail"];
+                };
+            };
+            /** @description The request has no active session */
+            401: {
+                headers: {
+                    "set-cookie"?: string;
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The CSRF token is missing or invalid */
+            403: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The requested community is unavailable */
+            404: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The idempotency key conflicts with a previous request */
+            409: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The post fields or request body are invalid */
+            422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The post database is unavailable */
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getPost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Post identifier */
+                post_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The published post detail */
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_TopicDetail"];
+                };
+            };
+            /** @description The post path is invalid */
+            400: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The post is unavailable */
+            404: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The post database is unavailable */
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    deletePost: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Session-bound CSRF token */
+                "x-csrf-token": string;
+            };
+            path: {
+                /** @description Post identifier */
+                post_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The post is deleted */
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_bool"];
+                };
+            };
+            /** @description The post path is invalid */
+            400: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The request has no active session */
+            401: {
+                headers: {
+                    "set-cookie"?: string;
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The current user cannot delete this post */
+            403: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The post is unavailable */
+            404: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The post database is unavailable */
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    updatePost: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Session-bound CSRF token */
+                "x-csrf-token": string;
+            };
+            path: {
+                /** @description Post identifier */
+                post_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTopicRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated post */
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_TopicDetail"];
+                };
+            };
+            /** @description The post path is invalid */
+            400: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The request has no active session */
+            401: {
+                headers: {
+                    "set-cookie"?: string;
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The current user cannot edit this post */
+            403: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The post is unavailable */
+            404: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The post revision is stale */
+            409: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The post update is invalid */
+            422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The post database is unavailable */
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listPostComments: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Post identifier */
+                post_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Published comments in chronological order */
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_TopicReply"];
+                };
+            };
+            /** @description The post path is invalid */
+            400: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The post is unavailable */
+            404: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Invalid comment pagination parameters */
+            422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The comment database is unavailable */
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createPostComment: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Session-bound CSRF token */
+                "x-csrf-token": string;
+                /** @description Optional idempotency key for safe retries */
+                "Idempotency-Key"?: string | null;
+            };
+            path: {
+                /** @description Post identifier */
+                post_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateReplyRequest"];
+            };
+        };
+        responses: {
+            /** @description The idempotent replay of an existing comment */
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_TopicReply"];
+                };
+            };
+            /** @description The published comment */
+            201: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_TopicReply"];
+                };
+            };
+            /** @description The post path is invalid */
+            400: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The request has no active session */
+            401: {
+                headers: {
+                    "set-cookie"?: string;
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The CSRF token is missing or invalid */
+            403: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The post is unavailable */
+            404: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The idempotency key conflicts with a previous request */
+            409: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The comment content or request body is invalid */
+            422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The comment database is unavailable */
             503: {
                 headers: {
                     "x-request-id"?: string;
@@ -15777,6 +17503,52 @@ export interface operations {
             };
         };
     };
+    listUsers: {
+        parameters: {
+            query?: {
+                q?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Active public users matching the query */
+            200: {
+                headers: {
+                    "set-cookie"?: string;
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_UserSummary"];
+                };
+            };
+            /** @description The search query is invalid */
+            422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The user database is unavailable */
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     updateCurrentUserProfile: {
         parameters: {
             query?: never;
@@ -15911,6 +17683,48 @@ export interface operations {
             };
         };
     };
+    listMyEntitlements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current user's private active standard entitlements */
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Vec_StandardEntitlement"];
+                };
+            };
+            /** @description The request has no active session */
+            401: {
+                headers: {
+                    "set-cookie"?: string;
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The entitlement database is unavailable */
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     getCurrentExperienceAccount: {
         parameters: {
             query?: never;
@@ -16026,6 +17840,61 @@ export interface operations {
                 };
             };
             /** @description The membership database is unavailable */
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listMyPointsLedger: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current user's private points ledger */
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_PointsLedgerEntry"];
+                };
+            };
+            /** @description The request has no active session */
+            401: {
+                headers: {
+                    "set-cookie"?: string;
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The pagination query is invalid */
+            422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The points database is unavailable */
             503: {
                 headers: {
                     "x-request-id"?: string;
@@ -16617,6 +18486,60 @@ export interface operations {
             };
             503: {
                 headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getUserMembershipSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Stable username */
+                username: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public growth level, medals and explicitly public groups */
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_UserMembershipSummary"];
+                };
+            };
+            /** @description The username path is invalid */
+            400: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The profile is unavailable */
+            404: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The membership database is unavailable */
+            503: {
+                headers: {
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {

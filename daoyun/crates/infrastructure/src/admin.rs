@@ -7,7 +7,7 @@ use sqlx::{
     FromRow,
     types::{Json, Uuid},
 };
-use time::OffsetDateTime;
+use time::{Duration, OffsetDateTime};
 
 use crate::authorization::{has_permission_with_executor, permission_keys};
 use crate::{Database, DatabaseError, NewOutboxEvent, OutboxError};
@@ -54,6 +54,8 @@ pub struct AdminBoardRecord {
     pub tone: String,
     pub position: i32,
     pub visibility: String,
+    pub status: String,
+    pub merged_into_board_id: Option<Uuid>,
     pub topic_count: i64,
     pub revision: i64,
 }
@@ -64,6 +66,86 @@ pub struct AdminBoardDeletionImpactRecord {
     pub child_count: i64,
     pub topic_count: i64,
     pub reply_count: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdminBoardMergeBlockedReasonRecord {
+    SameBoard,
+    TargetDescendant,
+    SourceHasChildren,
+    TopicLimitExceeded,
+    SourceUnavailable,
+    TargetUnavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminBoardMergeImpactRecord {
+    pub source_board_id: Uuid,
+    pub target_board_id: Uuid,
+    pub source_revision: i64,
+    pub target_revision: i64,
+    pub topic_count: i64,
+    pub reply_count: i64,
+    pub child_count: i64,
+    pub topic_limit: i64,
+    pub can_merge: bool,
+    pub blocked_reason: Option<AdminBoardMergeBlockedReasonRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MergeAdminBoardRecord {
+    pub target_board_id: Uuid,
+    pub expected_source_revision: i64,
+    pub expected_target_revision: i64,
+    pub idempotency_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RollbackAdminBoardMergeRecord {
+    pub audit_id: Uuid,
+    pub expected_source_revision: i64,
+    pub expected_target_revision: i64,
+    pub idempotency_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
+pub struct AdminBoardMergeMutationRecord {
+    pub audit_id: Uuid,
+    pub source_board_id: Uuid,
+    pub target_board_id: Uuid,
+    pub moved_topic_count: i64,
+    pub source_revision: i64,
+    pub target_revision: i64,
+    pub rollback_deadline: OffsetDateTime,
+    pub rolled_back: bool,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
+struct BoardMergeLockRecord {
+    id: Uuid,
+    parent_id: Option<Uuid>,
+    visibility: String,
+    status: String,
+    merged_into_board_id: Option<Uuid>,
+    revision: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
+struct BoardMergeOperationRecord {
+    id: Uuid,
+    audit_id: Uuid,
+    source_board_id: Uuid,
+    target_board_id: Uuid,
+    source_revision_after: i64,
+    target_revision_after: i64,
+    source_previous_status: String,
+    source_previous_visibility: String,
+    moved_topic_count: i64,
+    rollback_deadline: OffsetDateTime,
+    rolled_back_at: Option<OffsetDateTime>,
+    rollback_audit_id: Option<Uuid>,
+    rollback_idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
@@ -152,6 +234,7 @@ pub struct CreateAdminBoardRecord {
     pub tone: String,
     pub position: i32,
     pub visibility: String,
+    pub status: String,
 }
 
 #[derive(Debug)]
@@ -165,6 +248,7 @@ pub struct UpdateAdminBoardRecord {
     pub tone: String,
     pub position: i32,
     pub visibility: String,
+    pub status: String,
     pub expected_revision: i64,
 }
 
@@ -176,6 +260,9 @@ pub enum AdminConfigError {
     DepthExceeded,
     HasChildren,
     RevisionConflict,
+    MergeBlocked(AdminBoardMergeBlockedReasonRecord),
+    MergeNotFound,
+    RollbackExpired,
     Outbox(OutboxError),
     Database(DatabaseError),
 }
@@ -566,7 +653,7 @@ impl Database {
     pub async fn list_admin_boards(&self) -> Result<Vec<AdminBoardRecord>, DatabaseError> {
         Ok(sqlx::query_as::<_, AdminBoardRecord>(
             "SELECT id, parent_id, slug, name, description, icon, tone, position, visibility,
-                    topic_count, revision
+                    status, merged_into_board_id, topic_count, revision
              FROM boards
              WHERE deleted_at IS NULL
              ORDER BY parent_id NULLS FIRST, position, id",
@@ -585,8 +672,8 @@ impl Database {
         validate_board_hierarchy(&hierarchy, None, board.parent_id, 1)?;
         sqlx::query(
             "INSERT INTO boards
-                 (id, parent_id, slug, name, description, icon, tone, position, visibility)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+                 (id, parent_id, slug, name, description, icon, tone, position, visibility, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
         .bind(board.id)
         .bind(board.parent_id)
@@ -597,6 +684,7 @@ impl Database {
         .bind(&board.tone)
         .bind(board.position)
         .bind(&board.visibility)
+        .bind(&board.status)
         .execute(&mut *transaction)
         .await
         .map_err(map_write_error)?;
@@ -648,6 +736,485 @@ impl Database {
         .ok_or(AdminConfigError::NotFound)
     }
 
+    pub async fn get_admin_board_merge_impact(
+        &self,
+        source_board_id: Uuid,
+        target_board_id: Uuid,
+    ) -> Result<AdminBoardMergeImpactRecord, AdminConfigError> {
+        const TOPIC_LIMIT: i64 = 5_000;
+        let source = select_merge_board_preview(self, source_board_id).await?;
+        let target = select_merge_board_preview(self, target_board_id).await?;
+        let source_revision = source.as_ref().map_or(0, |board| board.revision);
+        let target_revision = target.as_ref().map_or(0, |board| board.revision);
+        let child_count = if source.is_some() {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM boards WHERE parent_id = $1 AND deleted_at IS NULL",
+            )
+            .bind(source_board_id)
+            .fetch_one(&self.pool)
+            .await?
+        } else {
+            0
+        };
+        let topic_count = if source.is_some() {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM topics WHERE board_id = $1 AND deleted_at IS NULL",
+            )
+            .bind(source_board_id)
+            .fetch_one(&self.pool)
+            .await?
+        } else {
+            0
+        };
+        let reply_count = if source.is_some() {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM posts post
+                 JOIN topics topic ON topic.id = post.topic_id
+                 WHERE topic.board_id = $1 AND topic.deleted_at IS NULL
+                   AND post.kind = 'reply' AND post.deleted_at IS NULL",
+            )
+            .bind(source_board_id)
+            .fetch_one(&self.pool)
+            .await?
+        } else {
+            0
+        };
+        let blocked_reason = if source_board_id == target_board_id {
+            Some(AdminBoardMergeBlockedReasonRecord::SameBoard)
+        } else if source.is_none()
+            || source
+                .as_ref()
+                .is_some_and(|board| matches!(board.status.as_str(), "archived" | "merged"))
+        {
+            Some(AdminBoardMergeBlockedReasonRecord::SourceUnavailable)
+        } else if target.is_none()
+            || target
+                .as_ref()
+                .is_some_and(|board| matches!(board.status.as_str(), "archived" | "merged"))
+        {
+            Some(AdminBoardMergeBlockedReasonRecord::TargetUnavailable)
+        } else if child_count > 0 {
+            Some(AdminBoardMergeBlockedReasonRecord::SourceHasChildren)
+        } else if topic_count > TOPIC_LIMIT {
+            Some(AdminBoardMergeBlockedReasonRecord::TopicLimitExceeded)
+        } else if board_is_descendant(&self.pool, source_board_id, target_board_id).await? {
+            Some(AdminBoardMergeBlockedReasonRecord::TargetDescendant)
+        } else {
+            None
+        };
+        Ok(AdminBoardMergeImpactRecord {
+            source_board_id,
+            target_board_id,
+            source_revision,
+            target_revision,
+            topic_count,
+            reply_count,
+            child_count,
+            topic_limit: TOPIC_LIMIT,
+            can_merge: blocked_reason.is_none(),
+            blocked_reason,
+        })
+    }
+
+    pub async fn merge_admin_board(
+        &self,
+        actor_id: Uuid,
+        source_board_id: Uuid,
+        input: MergeAdminBoardRecord,
+    ) -> Result<AdminBoardMergeMutationRecord, AdminConfigError> {
+        const TOPIC_LIMIT: usize = 5_000;
+        if let Some(existing) =
+            select_merge_operation_by_idempotency(self, &input.idempotency_key).await?
+        {
+            if existing.source_board_id != source_board_id
+                || existing.target_board_id != input.target_board_id
+            {
+                return Err(AdminConfigError::Conflict);
+            }
+            return Ok(merge_mutation_from_operation(existing, true));
+        }
+        if source_board_id == input.target_board_id {
+            return Err(AdminConfigError::MergeBlocked(
+                AdminBoardMergeBlockedReasonRecord::SameBoard,
+            ));
+        }
+
+        let mut transaction = self.pool.begin().await?;
+        let (source, target) =
+            lock_merge_boards(&mut transaction, source_board_id, input.target_board_id).await?;
+        if source.revision != input.expected_source_revision
+            || target.revision != input.expected_target_revision
+        {
+            return Err(AdminConfigError::RevisionConflict);
+        }
+        if matches!(source.status.as_str(), "archived" | "merged") {
+            return Err(AdminConfigError::MergeBlocked(
+                AdminBoardMergeBlockedReasonRecord::SourceUnavailable,
+            ));
+        }
+        if matches!(target.status.as_str(), "archived" | "merged") {
+            return Err(AdminConfigError::MergeBlocked(
+                AdminBoardMergeBlockedReasonRecord::TargetUnavailable,
+            ));
+        }
+        let child_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM boards WHERE parent_id = $1 AND deleted_at IS NULL",
+        )
+        .bind(source_board_id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        if child_count > 0 {
+            return Err(AdminConfigError::MergeBlocked(
+                AdminBoardMergeBlockedReasonRecord::SourceHasChildren,
+            ));
+        }
+        if board_is_descendant_in_transaction(
+            &mut transaction,
+            source_board_id,
+            input.target_board_id,
+        )
+        .await?
+        {
+            return Err(AdminConfigError::MergeBlocked(
+                AdminBoardMergeBlockedReasonRecord::TargetDescendant,
+            ));
+        }
+        let moved_topic_ids = sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM topics
+             WHERE board_id = $1 AND deleted_at IS NULL
+             ORDER BY id FOR UPDATE",
+        )
+        .bind(source_board_id)
+        .fetch_all(&mut *transaction)
+        .await?;
+        if moved_topic_ids.len() > TOPIC_LIMIT {
+            return Err(AdminConfigError::MergeBlocked(
+                AdminBoardMergeBlockedReasonRecord::TopicLimitExceeded,
+            ));
+        }
+        let moved_topic_count =
+            i64::try_from(moved_topic_ids.len()).map_err(|_| AdminConfigError::Conflict)?;
+        let audit_id = insert_audit(
+            &mut transaction,
+            actor_id,
+            "board.merge",
+            "board",
+            Some(source_board_id),
+            json!({
+                "source_board_id": source_board_id,
+                "target_board_id": input.target_board_id,
+                "moved_topic_count": moved_topic_count,
+                "source_revision": source.revision,
+                "target_revision": target.revision,
+            }),
+        )
+        .await?;
+        let operation_id = Uuid::now_v7();
+        let rollback_deadline = OffsetDateTime::now_utc() + Duration::hours(24);
+        sqlx::query(
+            "INSERT INTO board_merge_operations
+                 (id, audit_id, source_board_id, target_board_id, idempotency_key,
+                  source_revision_before, source_revision_after,
+                  target_revision_before, target_revision_after,
+                  source_previous_status, source_previous_visibility,
+                  moved_topic_count, rollback_deadline)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+        )
+        .bind(operation_id)
+        .bind(audit_id)
+        .bind(source_board_id)
+        .bind(input.target_board_id)
+        .bind(&input.idempotency_key)
+        .bind(source.revision)
+        .bind(source.revision + 1)
+        .bind(target.revision)
+        .bind(target.revision + 1)
+        .bind(&source.status)
+        .bind(&source.visibility)
+        .bind(moved_topic_count)
+        .bind(rollback_deadline)
+        .execute(&mut *transaction)
+        .await
+        .map_err(map_write_error)?;
+        if !moved_topic_ids.is_empty() {
+            sqlx::query(
+                "INSERT INTO board_merge_topics (operation_id, topic_id)
+                 SELECT $1, topic_id FROM UNNEST($2::uuid[]) AS topic_id",
+            )
+            .bind(operation_id)
+            .bind(&moved_topic_ids)
+            .execute(&mut *transaction)
+            .await?;
+            let moved = sqlx::query(
+                "UPDATE topics SET board_id = $2, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ANY($3) AND board_id = $1 AND deleted_at IS NULL",
+            )
+            .bind(source_board_id)
+            .bind(input.target_board_id)
+            .bind(&moved_topic_ids)
+            .execute(&mut *transaction)
+            .await?;
+            if moved.rows_affected() != u64::try_from(moved_topic_ids.len()).unwrap_or(u64::MAX) {
+                return Err(AdminConfigError::Conflict);
+            }
+        }
+        let source_updated = sqlx::query(
+            "UPDATE boards
+             SET status = 'merged', visibility = 'hidden', merged_into_board_id = $2,
+                 topic_count = 0, revision = revision + 1, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1 AND revision = $3 AND deleted_at IS NULL",
+        )
+        .bind(source_board_id)
+        .bind(input.target_board_id)
+        .bind(source.revision)
+        .execute(&mut *transaction)
+        .await?;
+        let target_updated = sqlx::query(
+            "UPDATE boards
+             SET topic_count = topic_count + $2, revision = revision + 1,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1 AND revision = $3 AND deleted_at IS NULL",
+        )
+        .bind(input.target_board_id)
+        .bind(moved_topic_count)
+        .bind(target.revision)
+        .execute(&mut *transaction)
+        .await?;
+        if source_updated.rows_affected() != 1 || target_updated.rows_affected() != 1 {
+            return Err(AdminConfigError::RevisionConflict);
+        }
+        let event_id = Uuid::now_v7();
+        self.enqueue_outbox_event_in_transaction(
+            &mut transaction,
+            NewOutboxEvent {
+                id: event_id,
+                event_type: "board.merged".to_owned(),
+                aggregate_type: "board".to_owned(),
+                aggregate_id: source_board_id,
+                dedupe_key: format!("board-merge:{operation_id}"),
+                payload: json!({
+                    "operation_id": operation_id,
+                    "audit_id": audit_id,
+                    "source_board_id": source_board_id,
+                    "target_board_id": input.target_board_id,
+                    "moved_topic_count": moved_topic_count,
+                }),
+                max_attempts: 8,
+            },
+        )
+        .await
+        .map_err(AdminConfigError::Outbox)?;
+        transaction.commit().await?;
+        Ok(AdminBoardMergeMutationRecord {
+            audit_id,
+            source_board_id,
+            target_board_id: input.target_board_id,
+            moved_topic_count,
+            source_revision: source.revision + 1,
+            target_revision: target.revision + 1,
+            rollback_deadline,
+            rolled_back: false,
+            replayed: false,
+        })
+    }
+
+    pub async fn rollback_admin_board_merge(
+        &self,
+        actor_id: Uuid,
+        source_board_id: Uuid,
+        input: RollbackAdminBoardMergeRecord,
+    ) -> Result<AdminBoardMergeMutationRecord, AdminConfigError> {
+        if let Some((
+            rollback_audit_id,
+            target_board_id,
+            moved_topic_count,
+            rollback_deadline,
+            source_revision,
+            target_revision,
+        )) = sqlx::query_as::<_, (Uuid, Uuid, i64, OffsetDateTime, i64, i64)>(
+            "SELECT operation.rollback_audit_id, operation.target_board_id,
+                        operation.moved_topic_count, operation.rollback_deadline,
+                        source.revision, target.revision
+                 FROM board_merge_operations operation
+                 JOIN boards source ON source.id = operation.source_board_id
+                 JOIN boards target ON target.id = operation.target_board_id
+                 WHERE operation.source_board_id = $1
+                   AND operation.rollback_idempotency_key = $2
+                   AND operation.rollback_audit_id IS NOT NULL",
+        )
+        .bind(source_board_id)
+        .bind(&input.idempotency_key)
+        .fetch_optional(&self.pool)
+        .await?
+        {
+            return Ok(AdminBoardMergeMutationRecord {
+                audit_id: rollback_audit_id,
+                source_board_id,
+                target_board_id,
+                moved_topic_count,
+                source_revision,
+                target_revision,
+                rollback_deadline,
+                rolled_back: true,
+                replayed: true,
+            });
+        }
+
+        let mut transaction = self.pool.begin().await?;
+        let operation = sqlx::query_as::<_, BoardMergeOperationRecord>(
+            "SELECT id, audit_id, source_board_id, target_board_id,
+                    source_revision_after, target_revision_after,
+                    source_previous_status, source_previous_visibility,
+                    moved_topic_count, rollback_deadline, rolled_back_at,
+                    rollback_audit_id, rollback_idempotency_key
+             FROM board_merge_operations
+             WHERE audit_id = $1 AND source_board_id = $2
+             FOR UPDATE",
+        )
+        .bind(input.audit_id)
+        .bind(source_board_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or(AdminConfigError::MergeNotFound)?;
+        if operation.rolled_back_at.is_some() {
+            return Err(AdminConfigError::Conflict);
+        }
+        if OffsetDateTime::now_utc() > operation.rollback_deadline {
+            return Err(AdminConfigError::RollbackExpired);
+        }
+        let (source, target) =
+            lock_merge_boards(&mut transaction, source_board_id, operation.target_board_id).await?;
+        if source.revision != input.expected_source_revision
+            || target.revision != input.expected_target_revision
+        {
+            return Err(AdminConfigError::RevisionConflict);
+        }
+        if source.status != "merged"
+            || source.merged_into_board_id != Some(operation.target_board_id)
+        {
+            return Err(AdminConfigError::Conflict);
+        }
+        let moved_topic_ids = sqlx::query_scalar::<_, Uuid>(
+            "SELECT topic.id
+             FROM topics topic
+             JOIN board_merge_topics moved ON moved.topic_id = topic.id
+             WHERE moved.operation_id = $1 AND topic.board_id = $2 AND topic.deleted_at IS NULL
+             ORDER BY topic.id FOR UPDATE OF topic",
+        )
+        .bind(operation.id)
+        .bind(operation.target_board_id)
+        .fetch_all(&mut *transaction)
+        .await?;
+        let restored_topic_count =
+            i64::try_from(moved_topic_ids.len()).map_err(|_| AdminConfigError::Conflict)?;
+        if !moved_topic_ids.is_empty() {
+            let restored = sqlx::query(
+                "UPDATE topics SET board_id = $2, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ANY($3) AND board_id = $1 AND deleted_at IS NULL",
+            )
+            .bind(operation.target_board_id)
+            .bind(source_board_id)
+            .bind(&moved_topic_ids)
+            .execute(&mut *transaction)
+            .await?;
+            if restored.rows_affected() != u64::try_from(moved_topic_ids.len()).unwrap_or(u64::MAX)
+            {
+                return Err(AdminConfigError::Conflict);
+            }
+        }
+        let source_updated = sqlx::query(
+            "UPDATE boards
+             SET status = $2, visibility = $3, merged_into_board_id = NULL,
+                 topic_count = topic_count + $4, revision = revision + 1,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1 AND revision = $5 AND status = 'merged'",
+        )
+        .bind(source_board_id)
+        .bind(&operation.source_previous_status)
+        .bind(&operation.source_previous_visibility)
+        .bind(restored_topic_count)
+        .bind(source.revision)
+        .execute(&mut *transaction)
+        .await?;
+        let target_updated = sqlx::query(
+            "UPDATE boards
+             SET topic_count = GREATEST(topic_count - $2, 0), revision = revision + 1,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1 AND revision = $3 AND deleted_at IS NULL",
+        )
+        .bind(operation.target_board_id)
+        .bind(restored_topic_count)
+        .bind(target.revision)
+        .execute(&mut *transaction)
+        .await?;
+        if source_updated.rows_affected() != 1 || target_updated.rows_affected() != 1 {
+            return Err(AdminConfigError::RevisionConflict);
+        }
+        let rollback_audit_id = insert_audit(
+            &mut transaction,
+            actor_id,
+            "board.merge.rollback",
+            "board",
+            Some(source_board_id),
+            json!({
+                "merge_audit_id": operation.audit_id,
+                "source_board_id": source_board_id,
+                "target_board_id": operation.target_board_id,
+                "restored_topic_count": restored_topic_count,
+            }),
+        )
+        .await?;
+        let updated_operation = sqlx::query(
+            "UPDATE board_merge_operations
+             SET rolled_back_at = CURRENT_TIMESTAMP, rollback_audit_id = $2,
+                 rollback_idempotency_key = $3
+             WHERE id = $1 AND rolled_back_at IS NULL",
+        )
+        .bind(operation.id)
+        .bind(rollback_audit_id)
+        .bind(&input.idempotency_key)
+        .execute(&mut *transaction)
+        .await
+        .map_err(map_write_error)?;
+        if updated_operation.rows_affected() != 1 {
+            return Err(AdminConfigError::Conflict);
+        }
+        let event_id = Uuid::now_v7();
+        self.enqueue_outbox_event_in_transaction(
+            &mut transaction,
+            NewOutboxEvent {
+                id: event_id,
+                event_type: "board.merge_rolled_back".to_owned(),
+                aggregate_type: "board".to_owned(),
+                aggregate_id: source_board_id,
+                dedupe_key: format!("board-merge-rollback:{}", operation.id),
+                payload: json!({
+                    "operation_id": operation.id,
+                    "merge_audit_id": operation.audit_id,
+                    "rollback_audit_id": rollback_audit_id,
+                    "source_board_id": source_board_id,
+                    "target_board_id": operation.target_board_id,
+                    "restored_topic_count": restored_topic_count,
+                }),
+                max_attempts: 8,
+            },
+        )
+        .await
+        .map_err(AdminConfigError::Outbox)?;
+        transaction.commit().await?;
+        Ok(AdminBoardMergeMutationRecord {
+            audit_id: rollback_audit_id,
+            source_board_id,
+            target_board_id: operation.target_board_id,
+            moved_topic_count: operation.moved_topic_count,
+            source_revision: source.revision + 1,
+            target_revision: target.revision + 1,
+            rollback_deadline: operation.rollback_deadline,
+            rolled_back: true,
+            replayed: false,
+        })
+    }
+
     pub async fn update_admin_board(
         &self,
         actor_id: Uuid,
@@ -668,11 +1235,11 @@ impl Database {
         let record = sqlx::query_as::<_, AdminBoardRecord>(
             "UPDATE boards
              SET parent_id = $2, slug = $3, name = $4, description = $5, icon = $6, tone = $7,
-                 position = $8, visibility = $9, revision = revision + 1,
+                 position = $8, visibility = $9, status = $10, revision = revision + 1,
                  updated_at = CURRENT_TIMESTAMP
-             WHERE id = $1 AND deleted_at IS NULL AND revision = $10
+             WHERE id = $1 AND deleted_at IS NULL AND revision = $11
              RETURNING id, parent_id, slug, name, description, icon, tone, position, visibility,
-                       topic_count, revision",
+                       status, merged_into_board_id, topic_count, revision",
         )
         .bind(board.id)
         .bind(board.parent_id)
@@ -683,6 +1250,7 @@ impl Database {
         .bind(&board.tone)
         .bind(board.position)
         .bind(&board.visibility)
+        .bind(&board.status)
         .bind(board.expected_revision)
         .fetch_optional(&mut *transaction)
         .await
@@ -1114,7 +1682,7 @@ async fn select_admin_board(
 ) -> Result<AdminBoardRecord, AdminConfigError> {
     sqlx::query_as::<_, AdminBoardRecord>(
         "SELECT id, parent_id, slug, name, description, icon, tone, position, visibility,
-                topic_count, revision
+                status, merged_into_board_id, topic_count, revision
          FROM boards
          WHERE id = $1 AND deleted_at IS NULL",
     )
@@ -1122,6 +1690,126 @@ async fn select_admin_board(
     .fetch_optional(&mut **transaction)
     .await?
     .ok_or(AdminConfigError::NotFound)
+}
+
+async fn select_merge_board_preview(
+    database: &Database,
+    board_id: Uuid,
+) -> Result<Option<BoardMergeLockRecord>, AdminConfigError> {
+    Ok(sqlx::query_as::<_, BoardMergeLockRecord>(
+        "SELECT id, parent_id, visibility, status, merged_into_board_id, revision
+         FROM boards WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(board_id)
+    .fetch_optional(&database.pool)
+    .await?)
+}
+
+async fn board_is_descendant(
+    pool: &sqlx::PgPool,
+    source_board_id: Uuid,
+    candidate_board_id: Uuid,
+) -> Result<bool, AdminConfigError> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "WITH RECURSIVE descendants AS (
+             SELECT id FROM boards WHERE parent_id = $1 AND deleted_at IS NULL
+             UNION ALL
+             SELECT child.id FROM boards child
+             JOIN descendants parent ON child.parent_id = parent.id
+             WHERE child.deleted_at IS NULL
+         )
+         SELECT EXISTS(SELECT 1 FROM descendants WHERE id = $2)",
+    )
+    .bind(source_board_id)
+    .bind(candidate_board_id)
+    .fetch_one(pool)
+    .await?)
+}
+
+async fn board_is_descendant_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    source_board_id: Uuid,
+    candidate_board_id: Uuid,
+) -> Result<bool, AdminConfigError> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "WITH RECURSIVE descendants AS (
+             SELECT id FROM boards WHERE parent_id = $1 AND deleted_at IS NULL
+             UNION ALL
+             SELECT child.id FROM boards child
+             JOIN descendants parent ON child.parent_id = parent.id
+             WHERE child.deleted_at IS NULL
+         )
+         SELECT EXISTS(SELECT 1 FROM descendants WHERE id = $2)",
+    )
+    .bind(source_board_id)
+    .bind(candidate_board_id)
+    .fetch_one(&mut **transaction)
+    .await?)
+}
+
+async fn lock_merge_boards(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    source_board_id: Uuid,
+    target_board_id: Uuid,
+) -> Result<(BoardMergeLockRecord, BoardMergeLockRecord), AdminConfigError> {
+    let boards = sqlx::query_as::<_, BoardMergeLockRecord>(
+        "SELECT id, parent_id, visibility, status, merged_into_board_id, revision
+         FROM boards
+         WHERE id = ANY($1) AND deleted_at IS NULL
+         ORDER BY id FOR UPDATE",
+    )
+    .bind(vec![source_board_id, target_board_id])
+    .fetch_all(&mut **transaction)
+    .await?;
+    let source = boards
+        .iter()
+        .find(|board| board.id == source_board_id)
+        .cloned()
+        .ok_or(AdminConfigError::MergeBlocked(
+            AdminBoardMergeBlockedReasonRecord::SourceUnavailable,
+        ))?;
+    let target = boards
+        .iter()
+        .find(|board| board.id == target_board_id)
+        .cloned()
+        .ok_or(AdminConfigError::MergeBlocked(
+            AdminBoardMergeBlockedReasonRecord::TargetUnavailable,
+        ))?;
+    Ok((source, target))
+}
+
+async fn select_merge_operation_by_idempotency(
+    database: &Database,
+    idempotency_key: &str,
+) -> Result<Option<BoardMergeOperationRecord>, AdminConfigError> {
+    Ok(sqlx::query_as::<_, BoardMergeOperationRecord>(
+        "SELECT id, audit_id, source_board_id, target_board_id,
+                source_revision_after, target_revision_after,
+                source_previous_status, source_previous_visibility,
+                moved_topic_count, rollback_deadline, rolled_back_at,
+                rollback_audit_id, rollback_idempotency_key
+         FROM board_merge_operations WHERE idempotency_key = $1",
+    )
+    .bind(idempotency_key)
+    .fetch_optional(&database.pool)
+    .await?)
+}
+
+fn merge_mutation_from_operation(
+    operation: BoardMergeOperationRecord,
+    replayed: bool,
+) -> AdminBoardMergeMutationRecord {
+    AdminBoardMergeMutationRecord {
+        audit_id: operation.audit_id,
+        source_board_id: operation.source_board_id,
+        target_board_id: operation.target_board_id,
+        moved_topic_count: operation.moved_topic_count,
+        source_revision: operation.source_revision_after,
+        target_revision: operation.target_revision_after,
+        rollback_deadline: operation.rollback_deadline,
+        rolled_back: operation.rolled_back_at.is_some(),
+        replayed,
+    }
 }
 
 fn hex(bytes: &[u8]) -> String {

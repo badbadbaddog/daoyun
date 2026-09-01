@@ -204,13 +204,15 @@ impl Database {
                 });
         }
 
-        Ok(rows
+        let mut records = rows
             .into_iter()
             .map(|row| {
                 let id = row.id;
                 row.into_record(tags_by_topic.remove(&id).unwrap_or_default())
             })
-            .collect())
+            .collect::<Vec<_>>();
+        crate::topics::hydrate_topic_cover_images(&self.pool, &mut records, Some(user_id)).await?;
+        Ok(records)
     }
 
     pub async fn set_post_liked(
@@ -393,6 +395,7 @@ impl BookmarkedTopicRow {
             view_count: self.view_count,
             is_featured: self.is_featured,
             is_pinned: self.is_pinned,
+            image_attachment_id: None,
             tags,
         }
     }

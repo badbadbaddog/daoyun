@@ -3,10 +3,16 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
+  AdminApiError,
   createAdminBoard,
   deleteAdminBoard,
+  getAdminBoardMergeImpact,
   getAdminBoardDeletionImpact,
+  getAdminContentAccessPolicy,
   listAdminBoards,
+  mergeAdminBoard,
+  putAdminContentAccessPolicy,
+  rollbackAdminBoardMerge,
   updateAdminBoard,
   type AdminBoard,
 } from "../api/admin"
@@ -18,8 +24,13 @@ vi.mock("../api/admin", async () => {
     ...actual,
     createAdminBoard: vi.fn(),
     deleteAdminBoard: vi.fn(),
+    getAdminBoardMergeImpact: vi.fn(),
     getAdminBoardDeletionImpact: vi.fn(),
+    getAdminContentAccessPolicy: vi.fn(),
     listAdminBoards: vi.fn(),
+    mergeAdminBoard: vi.fn(),
+    putAdminContentAccessPolicy: vi.fn(),
+    rollbackAdminBoardMerge: vi.fn(),
     updateAdminBoard: vi.fn(),
   }
 })
@@ -27,6 +38,8 @@ vi.mock("../api/admin", async () => {
 const rootId = "019fc900-0000-7000-8000-000000000101"
 const childId = "019fc900-0000-7000-8000-000000000102"
 const secondRootId = "019fc900-0000-7000-8000-000000000103"
+const policyId = "019fc900-0000-7000-8000-000000000201"
+const auditId = "019fc900-0000-7000-8000-000000000301"
 
 const boards: AdminBoard[] = [
   board({ id: rootId, name: "社区交流", slug: "community", position: 0, topicCount: 12 }),
@@ -54,6 +67,60 @@ beforeEach(() => {
     replyCount: 34,
     canDelete: false,
   })
+  vi.mocked(getAdminContentAccessPolicy).mockResolvedValue({
+    id: policyId,
+    targetType: "board",
+    targetId: rootId,
+    operator: "any_of",
+    subjects: [{ subjectType: "authenticated", communityGroupId: null, subjectKey: null }],
+    revision: 7,
+    createdAt: "2026-08-28T00:00:00Z",
+    updatedAt: "2026-08-28T00:00:00Z",
+  })
+  vi.mocked(putAdminContentAccessPolicy).mockImplementation(async (_targetType, targetId, input) => ({
+    id: policyId,
+    targetType: "board",
+    targetId,
+    operator: input.operator,
+    subjects: input.subjects,
+    revision: (input.expectedRevision ?? 0) + 1,
+    createdAt: "2026-08-28T00:00:00Z",
+    updatedAt: "2026-08-28T01:00:00Z",
+  }))
+  vi.mocked(getAdminBoardMergeImpact).mockResolvedValue({
+    sourceBoardId: rootId,
+    targetBoardId: secondRootId,
+    sourceRevision: 1,
+    targetRevision: 3,
+    topicCount: 12,
+    replyCount: 34,
+    childCount: 0,
+    topicLimit: 5000,
+    canMerge: true,
+    blockedReason: null,
+  })
+  vi.mocked(mergeAdminBoard).mockResolvedValue({
+    auditId,
+    sourceBoardId: rootId,
+    targetBoardId: secondRootId,
+    movedTopicCount: 12,
+    sourceRevision: 2,
+    targetRevision: 4,
+    rollbackDeadline: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    rolledBack: false,
+    replayed: false,
+  })
+  vi.mocked(rollbackAdminBoardMerge).mockImplementation(async (_sourceBoardId, input) => ({
+    auditId: input.auditId,
+    sourceBoardId: rootId,
+    targetBoardId: secondRootId,
+    movedTopicCount: 12,
+    sourceRevision: input.expectedSourceRevision + 1,
+    targetRevision: input.expectedTargetRevision + 1,
+    rollbackDeadline: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    rolledBack: true,
+    replayed: false,
+  }))
 })
 
 afterEach(() => {
@@ -62,6 +129,34 @@ afterEach(() => {
 })
 
 describe("BoardAdminPanel", () => {
+  it("keeps each tree row compact and exposes secondary actions from one keyboard menu", async () => {
+    const user = userEvent.setup()
+    renderPanel()
+
+    expect(screen.getByRole("button", { name: "新增子版块：社区交流" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "编辑版块：社区交流" })).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "更多操作：社区交流" }))
+    expect(screen.getByRole("menuitem", { name: "编辑设置" })).toBeInTheDocument()
+    expect(screen.getByRole("menuitem", { name: "访问策略" })).toBeInTheDocument()
+    expect(screen.getByRole("menuitem", { name: "合并版块" })).toBeInTheDocument()
+  })
+
+  it("keeps the settings drawer open and offers a refresh after stale revision", async () => {
+    const user = userEvent.setup()
+    vi.mocked(updateAdminBoard).mockRejectedValueOnce(new AdminApiError(409, "admin.board_conflict", "版块已被其他管理员修改，请刷新后重试"))
+    renderPanel()
+
+    await user.click(screen.getByRole("button", { name: "更多操作：社区交流" }))
+    await user.click(screen.getByRole("menuitem", { name: "编辑设置" }))
+    expect(screen.getByRole("dialog", { name: "编辑“社区交流”" })).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "保存版块" }))
+
+    expect(await screen.findByText("数据已被其他管理员更新")).toBeInTheDocument()
+    expect(screen.getByRole("dialog", { name: "编辑“社区交流”" })).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "刷新最新数据" }))
+    expect(listAdminBoards).toHaveBeenCalled()
+  })
+
   it("renders an accessible tree and keeps ancestors visible while searching", async () => {
     const user = userEvent.setup()
     renderPanel()
@@ -99,26 +194,31 @@ describe("BoardAdminPanel", () => {
     const user = userEvent.setup()
     renderPanel()
 
-    await user.click(screen.getByRole("button", { name: "下移版块：社区交流" }))
+    await user.click(screen.getByRole("button", { name: "更多操作：社区交流" }))
+    await user.click(screen.getByRole("menuitem", { name: "下移" }))
     expect(updateAdminBoard).toHaveBeenLastCalledWith(rootId, expect.objectContaining({
       parentId: null,
       position: 1,
       expectedRevision: 1,
     }), "csrf")
 
-    await user.click(screen.getByRole("button", { name: "移入版块：站务反馈" }))
+    await screen.findByText("社区交流下移已保存")
+    await user.click(screen.getByRole("button", { name: "更多操作：站务反馈" }))
+    await user.click(screen.getByRole("menuitem", { name: "移入上一个同级版块" }))
     expect(updateAdminBoard).toHaveBeenLastCalledWith(secondRootId, expect.objectContaining({
       parentId: rootId,
       position: 1,
       expectedRevision: 3,
     }), "csrf")
 
-    await user.click(screen.getByRole("button", { name: "设为隐藏：新人报到" }))
+    await screen.findByText("站务反馈移入社区交流已保存")
+    await user.click(screen.getByRole("button", { name: "更多操作：新人报到" }))
+    await user.click(screen.getByRole("menuitem", { name: "设为隐藏" }))
     expect(updateAdminBoard).toHaveBeenLastCalledWith(childId, expect.objectContaining({
       visibility: "hidden",
       expectedRevision: 1,
     }), "csrf")
-    expect(await screen.findByText("已保存")).toBeInTheDocument()
+    expect(await screen.findByText("新人报到设为隐藏已保存")).toBeInTheDocument()
     expect(listAdminBoards).toHaveBeenCalledTimes(3)
   })
 
@@ -128,22 +228,113 @@ describe("BoardAdminPanel", () => {
 
     await user.type(screen.getByRole("searchbox", { name: "搜索版块" }), "站务")
 
-    expect(screen.getByRole("button", { name: "上移版块：站务反馈" })).toBeDisabled()
-    expect(screen.getByRole("button", { name: "下移版块：站务反馈" })).toBeDisabled()
-    expect(screen.getByRole("button", { name: "移入版块：站务反馈" })).toBeDisabled()
+    await user.click(screen.getByRole("button", { name: "更多操作：站务反馈" }))
+    expect(screen.getByRole("menuitem", { name: "上移（搜索时不可调整）" })).toBeDisabled()
+    expect(screen.getByRole("menuitem", { name: "下移（搜索时不可调整）" })).toBeDisabled()
+    expect(screen.getByRole("menuitem", { name: "移入上一个同级版块（搜索时不可调整）" })).toBeDisabled()
   })
 
   it("shows deletion impact and blocks a parent board with children", async () => {
     const user = userEvent.setup()
     renderPanel()
 
-    await user.click(screen.getByRole("button", { name: "删除版块：社区交流" }))
+    await user.click(screen.getByRole("button", { name: "更多操作：社区交流" }))
+    await user.click(screen.getByRole("menuitem", { name: "删除版块" }))
     expect(await screen.findByRole("heading", { name: "删除“社区交流”" })).toBeInTheDocument()
     expect(getAdminBoardDeletionImpact).toHaveBeenCalledWith(rootId)
     expect(screen.getByText("1 个子版块")).toBeInTheDocument()
-    expect(screen.getByText("12 个主题")).toBeInTheDocument()
+    expect(screen.getAllByText("12 个主题").length).toBeGreaterThan(1)
     expect(screen.getByText("34 条回复")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "确认删除版块" })).toBeDisabled()
+  })
+
+  it("loads, edits, and saves the access policy with its expected revision", async () => {
+    const user = userEvent.setup()
+    renderPanel()
+
+    await user.click(screen.getByRole("button", { name: "更多操作：社区交流" }))
+    await user.click(screen.getByRole("menuitem", { name: "访问策略" }))
+
+    expect(await screen.findByLabelText("访问策略匹配方式")).toHaveValue("any_of")
+    expect(getAdminContentAccessPolicy).toHaveBeenCalledWith("board", rootId)
+    await user.selectOptions(screen.getByLabelText("访问策略匹配方式"), "all_of")
+    await user.click(screen.getByRole("button", { name: "保存访问策略" }))
+
+    expect(putAdminContentAccessPolicy).toHaveBeenCalledWith("board", rootId, {
+      operator: "all_of",
+      subjects: [{ subjectType: "authenticated", communityGroupId: null, subjectKey: null }],
+      expectedRevision: 7,
+    }, "csrf")
+    expect(await screen.findByText("访问策略已保存")).toBeInTheDocument()
+  })
+
+  it("keeps the access policy editor open and displays revision conflicts", async () => {
+    const user = userEvent.setup()
+    vi.mocked(putAdminContentAccessPolicy).mockRejectedValueOnce(new AdminApiError(409, "admin.content_access_policy_conflict", "访问策略已被其他管理员修改"))
+    renderPanel()
+
+    await user.click(screen.getByRole("button", { name: "更多操作：社区交流" }))
+    await user.click(screen.getByRole("menuitem", { name: "访问策略" }))
+    await screen.findByLabelText("访问策略匹配方式")
+    await user.click(screen.getByRole("button", { name: "保存访问策略" }))
+
+    expect(await screen.findByText("数据已被其他管理员更新")).toBeInTheDocument()
+    expect(screen.getByRole("dialog", { name: "编辑“社区交流”" })).toBeInTheDocument()
+  })
+
+  it("previews a merge target, executes the merge, and rolls it back within 24 hours", async () => {
+    const user = userEvent.setup()
+    renderPanel()
+
+    await user.click(screen.getByRole("button", { name: "更多操作：社区交流" }))
+    await user.click(screen.getByRole("menuitem", { name: "合并版块" }))
+    await user.selectOptions(screen.getByLabelText("目标版块"), secondRootId)
+
+    expect(await screen.findByText("34 条回复")).toBeInTheDocument()
+    expect(getAdminBoardMergeImpact).toHaveBeenCalledWith(rootId, secondRootId)
+    await user.click(screen.getByRole("button", { name: "确认合并版块" }))
+
+    expect(mergeAdminBoard).toHaveBeenCalledWith(rootId, {
+      targetBoardId: secondRootId,
+      expectedSourceRevision: 1,
+      expectedTargetRevision: 3,
+      idempotencyKey: expect.any(String),
+    }, "csrf")
+    expect(await screen.findByText(auditId)).toBeInTheDocument()
+    expect(screen.getByText(/回滚截止/)).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "24 小时内回滚合并" }))
+
+    expect(rollbackAdminBoardMerge).toHaveBeenCalledWith(rootId, {
+      auditId,
+      expectedSourceRevision: 2,
+      expectedTargetRevision: 4,
+      idempotencyKey: expect.any(String),
+    }, "csrf")
+    expect(await screen.findByText("合并已回滚")).toBeInTheDocument()
+  })
+
+  it("shows the merge blocked reason and prevents execution", async () => {
+    const user = userEvent.setup()
+    vi.mocked(getAdminBoardMergeImpact).mockResolvedValueOnce({
+      sourceBoardId: rootId,
+      targetBoardId: secondRootId,
+      sourceRevision: 1,
+      targetRevision: 3,
+      topicCount: 12,
+      replyCount: 34,
+      childCount: 1,
+      topicLimit: 5000,
+      canMerge: false,
+      blockedReason: "source_has_children",
+    })
+    renderPanel()
+
+    await user.click(screen.getByRole("button", { name: "更多操作：社区交流" }))
+    await user.click(screen.getByRole("menuitem", { name: "合并版块" }))
+    await user.selectOptions(screen.getByLabelText("目标版块"), secondRootId)
+
+    expect(await screen.findByText("源版块仍有子版块，请先迁移子版块。")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "确认合并版块" })).toBeDisabled()
   })
 
   it("does not render mutation controls for a read-only administrator", () => {
@@ -163,6 +354,8 @@ function board(overrides: Partial<AdminBoard> & Pick<AdminBoard, "id" | "name" |
   const { id, name, slug, ...rest } = overrides
   return {
     id,
+    status: "open",
+    mergedIntoBoardId: null,
     parentId: null,
     slug,
     name,

@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -24,11 +24,15 @@ const session: AuthSession = {
 
 const boards: Board[] = [{
   id: "019fc630-0000-7000-8000-000000000001",
+  parentId: null,
   slug: "general",
   name: "社区广场",
   description: "分享想法",
   icon: "messages",
   tone: "green",
+  position: 10,
+  depth: 0,
+  childCount: 0,
   topicCount: 0,
 }]
 
@@ -53,6 +57,7 @@ const topic: Topic = {
 
 beforeEach(() => {
   vi.mocked(createTopic).mockReset()
+  window.localStorage.clear()
 })
 
 afterEach(() => cleanup())
@@ -73,7 +78,8 @@ describe("TopicComposer", () => {
       />,
     )
 
-    await user.type(screen.getByRole("textbox", { name: "标题" }), "发布主题")
+    await user.click(screen.getByRole("button", { name: "添加标题" }))
+    await user.type(screen.getByRole("textbox", { name: "标题（可选）" }), "发布主题")
     await user.type(screen.getByRole("textbox", { name: "正文" }), "这是正文")
     await user.click(screen.getByRole("button", { name: "发布" }))
 
@@ -90,11 +96,63 @@ describe("TopicComposer", () => {
     expect(onClose).toHaveBeenCalled()
   })
 
+  it("publishes body-only content without sending a title", async () => {
+    const user = userEvent.setup()
+    vi.mocked(createTopic).mockResolvedValue(topic)
+    render(
+      <TopicComposer
+        open
+        boards={boards}
+        session={session}
+        onClose={vi.fn()}
+        onPublished={vi.fn()}
+      />,
+    )
+
+    await user.type(screen.getByRole("textbox", { name: "正文" }), "只有正文也能发布")
+    await user.click(screen.getByRole("button", { name: "发布" }))
+
+    const input = vi.mocked(createTopic).mock.calls[0][0]
+    expect(input).toMatchObject({
+      content: "只有正文也能发布",
+      boardId: boards[0].id,
+      richContent: expect.objectContaining({ type: "doc" }),
+    })
+    expect(input).not.toHaveProperty("title")
+  })
+
+  it("restores a locally saved draft when the composer is reopened", async () => {
+    const user = userEvent.setup()
+    const first = render(
+      <TopicComposer
+        open
+        boards={boards}
+        session={session}
+        onClose={vi.fn()}
+        onPublished={vi.fn()}
+      />,
+    )
+
+    await user.type(screen.getByRole("textbox", { name: "正文" }), "需要继续编辑的草稿")
+    await waitFor(() => expect(window.localStorage.length).toBe(1))
+    first.unmount()
+
+    render(
+      <TopicComposer
+        open
+        boards={boards}
+        session={session}
+        onClose={vi.fn()}
+        onPublished={vi.fn()}
+      />,
+    )
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "正文" })).toHaveTextContent("需要继续编辑的草稿"))
+  })
+
   it("keeps a signed-out composer open and explains the auth requirement", async () => {
     const user = userEvent.setup()
     render(<TopicComposer open boards={boards} session={null} onClose={vi.fn()} onPublished={vi.fn()} />)
 
-    await user.type(screen.getByRole("textbox", { name: "标题" }), "主题")
     await user.type(screen.getByRole("textbox", { name: "正文" }), "正文")
     await user.click(screen.getByRole("button", { name: "发布" }))
 
@@ -117,7 +175,8 @@ describe("TopicComposer", () => {
       />,
     )
 
-    await user.type(screen.getByRole("textbox", { name: "标题" }), "发布主题")
+    await user.click(screen.getByRole("button", { name: "添加标题" }))
+    await user.type(screen.getByRole("textbox", { name: "标题（可选）" }), "发布主题")
     await user.type(screen.getByRole("textbox", { name: "正文" }), "这是正文")
     await user.click(screen.getByRole("button", { name: "发布" }))
     expect(await screen.findByRole("alert")).toHaveTextContent("主题服务暂时不可用")
@@ -145,7 +204,7 @@ describe("TopicComposer", () => {
       />,
     )
 
-    expect(screen.getByRole("textbox", { name: "标题" })).toHaveFocus()
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "正文" })).toHaveFocus())
     expect(document.body.style.overflow).toBe("hidden")
 
     screen.getByRole("button", { name: "发布" }).focus()

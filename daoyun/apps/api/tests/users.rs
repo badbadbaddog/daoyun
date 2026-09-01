@@ -347,6 +347,7 @@ async fn openapi_documents_user_profile_and_relationship_routes() {
     assert_eq!(response.status(), StatusCode::OK);
     let document = response_json(response).await;
 
+    assert!(document["paths"]["/api/v1/users"]["get"].is_object());
     assert!(document["paths"]["/api/v1/users/{username}"]["get"].is_object());
     assert!(document["paths"]["/api/v1/users/me"]["patch"].is_object());
     assert!(document["paths"]["/api/v1/users/{username}/followers"]["get"].is_object());

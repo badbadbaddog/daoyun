@@ -12,12 +12,14 @@ export interface Topic {
   title: string
   excerpt: string
   board: string
+  boardSlug?: string
   boardTone: "green" | "blue" | "amber" | "rose"
   authorId: string
   authorUsername: string
   author: string
   avatarUrl: string | null
   publishedAt: string
+  publishedAtIso?: string
   replies: number
   likes: number
   bookmarked: boolean | null
@@ -32,10 +34,14 @@ export interface Topic {
 }
 export interface Board {
   id: string
+  parentId: string | null
   slug: string
   name: string
   description: string
   icon: BoardIcon
   tone: BoardTone
+  position: number
+  depth: number
+  childCount: number
   topicCount: number
 }

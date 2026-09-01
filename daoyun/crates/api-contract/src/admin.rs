@@ -217,6 +217,17 @@ pub enum AdminBoardVisibility {
     Hidden,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdminBoardStatus {
+    #[default]
+    Open,
+    ReadOnly,
+    Hidden,
+    Archived,
+    Merged,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct AdminBoard {
     pub id: Uuid,
@@ -228,6 +239,8 @@ pub struct AdminBoard {
     pub tone: BoardTone,
     pub position: i32,
     pub visibility: AdminBoardVisibility,
+    pub status: AdminBoardStatus,
+    pub merged_into_board_id: Option<Uuid>,
     pub topic_count: u64,
     pub revision: i64,
 }
@@ -242,6 +255,8 @@ pub struct CreateAdminBoardRequest {
     pub tone: BoardTone,
     pub position: i32,
     pub visibility: AdminBoardVisibility,
+    #[serde(default)]
+    pub status: Option<AdminBoardStatus>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
@@ -254,6 +269,8 @@ pub struct UpdateAdminBoardRequest {
     pub tone: BoardTone,
     pub position: i32,
     pub visibility: AdminBoardVisibility,
+    #[serde(default)]
+    pub status: Option<AdminBoardStatus>,
     pub expected_revision: i64,
 }
 
@@ -264,6 +281,61 @@ pub struct AdminBoardDeletionImpact {
     pub topic_count: u64,
     pub reply_count: u64,
     pub can_delete: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdminBoardMergeBlockedReason {
+    SameBoard,
+    TargetDescendant,
+    SourceHasChildren,
+    TopicLimitExceeded,
+    SourceUnavailable,
+    TargetUnavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct AdminBoardMergeImpact {
+    pub source_board_id: Uuid,
+    pub target_board_id: Uuid,
+    pub source_revision: i64,
+    pub target_revision: i64,
+    pub topic_count: u64,
+    pub reply_count: u64,
+    pub child_count: u64,
+    pub topic_limit: u64,
+    pub can_merge: bool,
+    pub blocked_reason: Option<AdminBoardMergeBlockedReason>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
+pub struct MergeAdminBoardRequest {
+    pub target_board_id: Uuid,
+    pub expected_source_revision: i64,
+    pub expected_target_revision: i64,
+    pub idempotency_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
+pub struct RollbackAdminBoardMergeRequest {
+    pub audit_id: Uuid,
+    pub expected_source_revision: i64,
+    pub expected_target_revision: i64,
+    pub idempotency_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct AdminBoardMergeMutation {
+    pub audit_id: Uuid,
+    pub source_board_id: Uuid,
+    pub target_board_id: Uuid,
+    pub moved_topic_count: u64,
+    pub source_revision: i64,
+    pub target_revision: i64,
+    #[schema(value_type = String, format = DateTime)]
+    pub rollback_deadline: String,
+    pub rolled_back: bool,
+    pub replayed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]

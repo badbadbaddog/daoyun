@@ -20,6 +20,18 @@ pub struct StandardEntitlementType {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct StandardEntitlementVersion {
+    pub id: Uuid,
+    pub entitlement_type_id: Uuid,
+    pub version: i32,
+    pub permission_keys: Vec<String>,
+    pub quotas: BTreeMap<String, i64>,
+    pub created_by: Uuid,
+    #[schema(value_type = String, format = DateTime)]
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
 pub struct PutStandardEntitlementTypeRequest {
     pub display_name: String,

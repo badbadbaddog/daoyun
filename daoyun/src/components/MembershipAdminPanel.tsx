@@ -1,4 +1,4 @@
-import { Award, Coins, History, LoaderCircle, Pencil, Plus, RotateCcw, Save, Sparkles, Trash2, Trophy, UsersRound } from "lucide-react"
+import { Award, Coins, History, LoaderCircle, Pencil, Plus, RotateCcw, Save, Sparkles, Trash2, UsersRound } from "lucide-react"
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
 
 import {
@@ -6,6 +6,7 @@ import {
   createAdminGrowthLevel,
   deleteAdminGrowthLevel,
   getAdminGrowthLevels,
+  getAdminMembershipAccount,
   getMembershipMedalRules,
   grantMembershipMedal,
   grantMembershipPoints,
@@ -20,8 +21,12 @@ import type {
   MembershipMedalGrant,
   MembershipMedalOperation,
   MembershipMedalRule,
-  MembershipPointsGrant,
 } from "../api/admin"
+import { listUsers } from "../api/users"
+import { AdminUserPicker } from "./admin/AdminUserPicker"
+import type { AdminUserCandidate } from "./admin/AdminUserPicker"
+import { PointsWorkspace } from "../features/admin-membership/PointsWorkspace"
+import { EntitlementsWorkspace } from "../features/admin-membership/EntitlementsWorkspace"
 import { GrowthLevelFormDialog, type GrowthLevelDraft } from "./GrowthLevelFormDialog"
 import { CommunityGroupAdminPanel } from "./CommunityGroupAdminPanel"
 
@@ -38,13 +43,10 @@ interface MembershipAdminPanelProps {
   canReadGroupMemberships: boolean
   canWriteGroupMemberships: boolean
   canReadUsers: boolean
-}
-
-interface GrantDraft {
-  userId: string
-  amount: string
-  reason: string
-  idempotencyKey: string
+  canReadEntitlementTypes: boolean
+  canWriteEntitlementTypes: boolean
+  canReadEntitlementGrants: boolean
+  canWriteEntitlementGrants: boolean
 }
 
 interface MedalDraft {
@@ -53,8 +55,8 @@ interface MedalDraft {
   reason: string
 }
 
-type MembershipWorkspace = "growth" | "points" | "medals" | "groups"
-type WorkspaceCapabilities = Pick<MembershipAdminPanelProps, "canReadLevelRules" | "canWriteLevelRules" | "canGrantPoints" | "canReadMedalRules" | "canGrantMedals" | "canReadGroups" | "canWriteGroups">
+type MembershipWorkspace = "growth" | "points" | "medals" | "groups" | "entitlements"
+type WorkspaceCapabilities = Pick<MembershipAdminPanelProps, "canReadLevelRules" | "canWriteLevelRules" | "canGrantPoints" | "canReadMedalRules" | "canGrantMedals" | "canReadGroups" | "canWriteGroups" | "canReadEntitlementTypes" | "canWriteEntitlementTypes" | "canReadEntitlementGrants" | "canWriteEntitlementGrants">
 
 const reasonPattern = /^[a-z][a-z0-9._-]{1,63}$/
 const growthLevelKeyPattern = /^[a-z][a-z0-9_]{2,63}$/
@@ -72,8 +74,13 @@ export function MembershipAdminPanel({
   canReadGroupMemberships,
   canWriteGroupMemberships,
   canReadUsers,
+  canReadEntitlementTypes,
+  canWriteEntitlementTypes,
+  canReadEntitlementGrants,
+  canWriteEntitlementGrants,
 }: MembershipAdminPanelProps) {
-  const [workspace, setWorkspace] = useState<MembershipWorkspace>(() => initialWorkspace({ canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals, canReadGroups, canWriteGroups }))
+  const entitlementCapabilities = { canReadEntitlementTypes, canWriteEntitlementTypes, canReadEntitlementGrants, canWriteEntitlementGrants }
+  const [workspace, setWorkspace] = useState<MembershipWorkspace>(() => initialWorkspace({ canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals, canReadGroups, canWriteGroups, ...entitlementCapabilities }))
   const [growthLevels, setGrowthLevels] = useState<AdminGrowthLevel[]>([])
   const [growthLoading, setGrowthLoading] = useState(canReadLevelRules)
   const [growthError, setGrowthError] = useState("")
@@ -89,10 +96,11 @@ export function MembershipAdminPanel({
   const growthDeleteDialogRef = useRef<HTMLDivElement | null>(null)
   const growthDeleteTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [growthDraft, setGrowthDraft] = useState<GrowthLevelDraft>(newGrowthLevelDraft)
-  const [grantDraft, setGrantDraft] = useState<GrantDraft>(newGrantDraft)
-  const [grantBusy, setGrantBusy] = useState(false)
-  const [grantError, setGrantError] = useState("")
-  const [grantResult, setGrantResult] = useState<MembershipPointsGrant | null>(null)
+  const [pointsUserQuery, setPointsUserQuery] = useState("")
+  const [pointsUsers, setPointsUsers] = useState<AdminUserCandidate[]>([])
+  const [pointsUsersLoading, setPointsUsersLoading] = useState(false)
+  const [selectedPointsUser, setSelectedPointsUser] = useState<AdminUserCandidate | null>(null)
+  const [selectedPointsBalance, setSelectedPointsBalance] = useState<number | null>(null)
   const [medalRules, setMedalRules] = useState<MembershipMedalRule[]>([])
   const [medalDraft, setMedalDraft] = useState<MedalDraft>({ userId: "", medalKey: "medal_01", reason: "operator.award" })
   const [medalBusy, setMedalBusy] = useState(false)
@@ -113,10 +121,38 @@ export function MembershipAdminPanel({
   const medalOperationsRequestId = useRef(0)
 
   useEffect(() => {
-    if (!workspaceAvailable(workspace, { canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals, canReadGroups, canWriteGroups })) {
-      setWorkspace(initialWorkspace({ canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals, canReadGroups, canWriteGroups }))
+    if (!workspaceAvailable(workspace, { canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals, canReadGroups, canWriteGroups, ...entitlementCapabilities })) {
+      setWorkspace(initialWorkspace({ canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals, canReadGroups, canWriteGroups, ...entitlementCapabilities }))
     }
-  }, [workspace, canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals, canReadGroups, canWriteGroups])
+  }, [workspace, canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals, canReadGroups, canWriteGroups, canReadEntitlementTypes, canWriteEntitlementTypes, canReadEntitlementGrants, canWriteEntitlementGrants])
+
+  useEffect(() => {
+    const query = pointsUserQuery.trim()
+    if (workspace !== "points" || !canGrantPoints || query.length < 2) {
+      setPointsUsers([])
+      setPointsUsersLoading(false)
+      return
+    }
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => {
+      setPointsUsersLoading(true)
+      listUsers(query, { limit: 10, signal: controller.signal }).then((page) => {
+        if (!controller.signal.aborted) {
+          setPointsUsers(page.users.map((user) => ({ ...user, status: "active" })))
+          setPointsUsersLoading(false)
+        }
+      }).catch(() => {
+        if (!controller.signal.aborted) {
+          setPointsUsers([])
+          setPointsUsersLoading(false)
+        }
+      })
+    }, 250)
+    return () => {
+      window.clearTimeout(timeout)
+      controller.abort()
+    }
+  }, [canGrantPoints, pointsUserQuery, workspace])
 
   useEffect(() => {
     if (!canReadLevelRules) {
@@ -336,35 +372,21 @@ export function MembershipAdminPanel({
     }
   }
 
-  async function grantPoints(event: FormEvent) {
-    event.preventDefault()
-    setGrantError("")
-    setGrantResult(null)
-    const amount = Number(grantDraft.amount)
-    const reason = grantDraft.reason.trim()
-    const userId = grantDraft.userId.trim()
-    if (!userId) {
-      setGrantError("请输入目标用户 UUID。")
-      return
-    }
-    if (!Number.isSafeInteger(amount) || amount < 1 || amount > 1_000_000) {
-      setGrantError("授予积分必须是 1 到 1000000 的整数。")
-      return
-    }
-    if (!reasonPattern.test(reason)) {
-      setGrantError("授予理由需使用 2–64 位小写字母、数字、点、下划线或连字符。")
-      return
-    }
-    setGrantBusy(true)
+  async function selectPointsUser(user: AdminUserCandidate) {
+    setSelectedPointsUser(user)
+    setSelectedPointsBalance(null)
     try {
-      const result = await grantMembershipPoints({ userId, amount, reason, idempotencyKey: grantDraft.idempotencyKey }, csrfToken)
-      setGrantResult(result)
-      if (result.created) setGrantDraft((current) => ({ ...current, amount: "", reason: "", idempotencyKey: newIdempotencyKey() }))
-    } catch (caught) {
-      setGrantError(caught instanceof AdminApiError ? caught.message : "积分授予失败，请稍后重试。")
-    } finally {
-      setGrantBusy(false)
+      const account = await getAdminMembershipAccount(user.id)
+      setSelectedPointsBalance(account.pointsBalance)
+    } catch {
+      setSelectedPointsBalance(null)
     }
+  }
+
+  async function grantPoints(input: { userId: string; amount: number; reason: string; details: string; idempotencyKey: string }) {
+    const result = await grantMembershipPoints({ userId: input.userId, amount: input.amount, reason: input.reason, details: input.details, idempotencyKey: input.idempotencyKey }, csrfToken)
+    setSelectedPointsBalance(result.account.pointsBalance)
+    return { balance: result.account.pointsBalance, auditId: result.auditId ?? undefined, replayed: !result.created }
   }
 
   async function saveMedalRule(rule: MembershipMedalRule) {
@@ -436,7 +458,7 @@ export function MembershipAdminPanel({
   }
 
   const activeMedalOperationIds = activeMembershipMedalOperationIds(medalOperations)
-  const availableWorkspaces = membershipWorkspaces({ canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals, canReadGroups, canWriteGroups })
+  const availableWorkspaces = membershipWorkspaces({ canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals, canReadGroups, canWriteGroups, ...entitlementCapabilities })
   const growthDialogOpen = growthCreateOpen || editingGrowth !== null || growthDeleteTarget !== null
 
   function handleWorkspaceKeyDown(event: KeyboardEvent<HTMLButtonElement>, currentWorkspace: MembershipWorkspace) {
@@ -466,6 +488,7 @@ export function MembershipAdminPanel({
         {canGrantPoints && <button id="membership-points-tab" type="button" role="tab" data-membership-workspace="points" tabIndex={workspace === "points" ? 0 : -1} aria-selected={workspace === "points"} aria-controls="membership-points-workspace" onKeyDown={(event) => handleWorkspaceKeyDown(event, "points")} onClick={() => setWorkspace("points")}><Coins size={15} aria-hidden="true" />积分运营</button>}
         {(canReadMedalRules || canGrantMedals) && <button id="membership-medals-tab" type="button" role="tab" data-membership-workspace="medals" tabIndex={workspace === "medals" ? 0 : -1} aria-selected={workspace === "medals"} aria-controls="membership-medals-workspace" onKeyDown={(event) => handleWorkspaceKeyDown(event, "medals")} onClick={() => setWorkspace("medals")}><Award size={15} aria-hidden="true" />勋章运营</button>}
         {canReadGroups && <button id="membership-groups-tab" type="button" role="tab" data-membership-workspace="groups" tabIndex={workspace === "groups" ? 0 : -1} aria-selected={workspace === "groups"} aria-controls="membership-groups-workspace" onKeyDown={(event) => handleWorkspaceKeyDown(event, "groups")} onClick={() => setWorkspace("groups")}><UsersRound size={15} aria-hidden="true" />用户组</button>}
+        {(canReadEntitlementTypes || canWriteEntitlementTypes || canReadEntitlementGrants || canWriteEntitlementGrants) && <button id="membership-entitlements-tab" type="button" role="tab" data-membership-workspace="entitlements" tabIndex={workspace === "entitlements" ? 0 : -1} aria-selected={workspace === "entitlements"} aria-controls="membership-entitlements-workspace" onKeyDown={(event) => handleWorkspaceKeyDown(event, "entitlements")} onClick={() => setWorkspace("entitlements")}>标准权益</button>}
       </div>
       <div className="membership-admin-grid membership-admin-grid--workspace">
         {workspace === "growth" && (canReadLevelRules || canWriteLevelRules) && <section id="membership-growth-workspace" role="tabpanel" className="membership-rule-section" aria-labelledby="membership-growth-tab">
@@ -477,18 +500,13 @@ export function MembershipAdminPanel({
         </section>}
 
         {workspace === "points" && canGrantPoints && <section id="membership-points-workspace" role="tabpanel" className="membership-grant-section" aria-labelledby="membership-points-tab">
-          <div className="admin-form__heading"><div><h3 id="membership-points-heading">积分账本</h3><p>积分用于消费和运营奖励，不会改变 EXP 或成长等级。</p></div><Coins size={18} aria-hidden="true" /></div>
-          <form className="admin-form" onSubmit={(event) => void grantPoints(event)}>
-            <label htmlFor="membership-user-id"><span>目标用户 UUID</span><input id="membership-user-id" value={grantDraft.userId} onChange={(event) => setGrantDraft({ ...grantDraft, userId: event.target.value })} required /></label>
-            <label htmlFor="membership-amount"><span>积分数量</span><input id="membership-amount" type="number" min={1} max={1_000_000} step={1} value={grantDraft.amount} onChange={(event) => setGrantDraft({ ...grantDraft, amount: event.target.value })} required /></label>
-            <label htmlFor="membership-reason"><span>授予理由</span><input id="membership-reason" value={grantDraft.reason} onChange={(event) => setGrantDraft({ ...grantDraft, reason: event.target.value })} placeholder="campaign.reward" pattern="[a-z][a-z0-9._-]{1,63}" required /></label>
-            {grantError && <p className="form-alert" role="alert">{grantError}</p>}
-            <button className="primary-button" type="submit" disabled={grantBusy}>{grantBusy ? <LoaderCircle className="topic-loading__spinner" size={15} aria-hidden="true" /> : <Coins size={15} aria-hidden="true" />}授予积分</button>
-          </form>
-          {grantResult && <GrantResult result={grantResult} />}
+          <AdminUserPicker query={pointsUserQuery} users={pointsUsers} selectedUser={selectedPointsUser} loading={pointsUsersLoading} onQueryChange={setPointsUserQuery} onSelect={(user) => void selectPointsUser(user)} />
+          <PointsWorkspace selectedUser={selectedPointsUser} balance={selectedPointsBalance} onGrant={grantPoints} />
         </section>}
 
         {workspace === "groups" && canReadGroups && <section id="membership-groups-workspace" role="tabpanel" className="membership-rule-section" aria-labelledby="membership-groups-tab"><CommunityGroupAdminPanel csrfToken={csrfToken} canWrite={canWriteGroups} canReadMemberships={canReadGroupMemberships} canWriteMemberships={canWriteGroupMemberships} canReadUsers={canReadUsers} /></section>}
+
+{workspace === "entitlements" && <section id="membership-entitlements-workspace" role="tabpanel" aria-labelledby="membership-entitlements-tab"><EntitlementsWorkspace csrfToken={csrfToken} canReadTypes={canReadEntitlementTypes} canWriteTypes={canWriteEntitlementTypes} canReadGrants={canReadEntitlementGrants} canWriteGrants={canWriteEntitlementGrants} canReadUsers={canReadUsers} /></section>}
 
         {workspace === "medals" && (canReadMedalRules || canGrantMedals) && <section id="membership-medals-workspace" role="tabpanel" className="membership-grant-section" aria-labelledby="membership-medals-tab">
           <div className="admin-form__heading membership-section-heading"><div><h3 id="membership-medal-heading">勋章</h3><p>勋章是独立的荣誉标识，可按累计积分阈值自动授予或手动发放。</p></div><Award size={18} aria-hidden="true" /></div>
@@ -580,15 +598,6 @@ function GrowthLevelRow({
   )
 }
 
-function GrantResult({ result }: { result: MembershipPointsGrant }) {
-  return (
-    <div className="membership-grant-result" role="status">
-      <Trophy size={18} aria-hidden="true" />
-      <div><strong>{result.created ? "积分已记入账本" : "幂等重放：未重复记账"}</strong><span>累计积分 {result.account.lifetimePoints.toLocaleString("zh-CN")} · 余额 {result.account.pointsBalance.toLocaleString("zh-CN")}</span></div>
-    </div>
-  )
-}
-
 function toGrowthLevelInput(draft: GrowthLevelDraft): CreateAdminGrowthLevelInput | null {
   const internalKey = draft.internalKey.trim()
   const displayName = draft.displayName.trim()
@@ -611,18 +620,20 @@ function initialWorkspace(capabilities: WorkspaceCapabilities): MembershipWorksp
   if (workspaceAvailable("growth", capabilities)) return "growth"
   if (workspaceAvailable("points", capabilities)) return "points"
   if (workspaceAvailable("medals", capabilities)) return "medals"
-  return "groups"
+  if (workspaceAvailable("groups", capabilities)) return "groups"
+  return "entitlements"
 }
 
 function workspaceAvailable(workspace: MembershipWorkspace, capabilities: WorkspaceCapabilities): boolean {
   if (workspace === "growth") return capabilities.canReadLevelRules || capabilities.canWriteLevelRules
   if (workspace === "points") return capabilities.canGrantPoints
   if (workspace === "medals") return capabilities.canReadMedalRules || capabilities.canGrantMedals
+  if (workspace === "entitlements") return capabilities.canReadEntitlementTypes || capabilities.canWriteEntitlementTypes || capabilities.canReadEntitlementGrants || capabilities.canWriteEntitlementGrants
   return capabilities.canReadGroups
 }
 
 function membershipWorkspaces(capabilities: WorkspaceCapabilities): MembershipWorkspace[] {
-  return (["growth", "points", "medals", "groups"] as const).filter((workspace) => workspaceAvailable(workspace, capabilities))
+  return (["growth", "points", "medals", "groups", "entitlements"] as const).filter((workspace) => workspaceAvailable(workspace, capabilities))
 }
 
 function activeMembershipMedalOperationIds(operations: MembershipMedalOperation[]): Set<string> {
@@ -647,12 +658,4 @@ function formatOperationTime(value: string): string {
 
 function newGrowthLevelDraft(): GrowthLevelDraft {
   return { internalKey: "", levelOrder: "", displayName: "", requiredExperience: "", color: "", description: "" }
-}
-
-function newGrantDraft(): GrantDraft {
-  return { userId: "", amount: "", reason: "", idempotencyKey: newIdempotencyKey() }
-}
-
-function newIdempotencyKey(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `membership-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }

@@ -68,7 +68,7 @@ test.describe("local real business flow", () => {
     await page.getByRole("button", { name: /发布新主题/ }).first().click()
     const composer = page.getByRole("dialog")
     await composer.locator('input[placeholder*="清晰地概括"]').fill(topicTitle)
-    await composer.locator("textarea").fill(`验证真实 API 的主题 ${suffix}`)
+    await composer.getByRole("textbox", { name: "正文", exact: true }).fill(`验证真实 API 的主题 ${suffix}`)
     await composer.locator('input[placeholder*="用逗号分隔"]').fill("回归,浏览器")
     const topicCreateResponse = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/v1/topics")
     await composer.locator('button[type="submit"]').click()
@@ -77,7 +77,7 @@ test.describe("local real business flow", () => {
 
     await page.getByRole("link", { name: topicTitle, exact: true }).first().click()
     await expect(page.getByText(topicTitle, { exact: true }).first()).toBeVisible()
-    await page.getByPlaceholder("写下你的回复").fill(replyText)
+    await page.getByRole("textbox", { name: "参与讨论", exact: true }).fill(replyText)
     const replyCreateResponse = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/replies"))
     await page.getByRole("button", { name: "发布回复", exact: true }).click()
     expect((await replyCreateResponse).status()).toBe(201)
@@ -130,13 +130,13 @@ test.describe("local real business flow", () => {
     await assertNoHorizontalOverflow(page)
     const dashboardAccessibility = await new AxeBuilder({ page }).include(".admin-view").analyze()
     expect(dashboardAccessibility.violations, JSON.stringify(dashboardAccessibility.violations, null, 2)).toEqual([])
-    await page.getByRole("button", { name: "角色与权限" }).click()
-    await expect(page.getByRole("heading", { name: "角色与权限" })).toBeVisible()
+    await selectAdminModule(page, "authorization", "角色与权限")
+    await expect(page.getByRole("heading", { level: 1, name: "角色与权限", exact: true })).toBeVisible()
 
     await page.getByLabel("角色键").fill(roleKey)
     await page.getByLabel("角色名称").fill(roleName)
     await page.getByLabel("作用域").selectOption("board")
-    await page.getByRole("checkbox", { name: "Moderate topics moderation.topic", exact: true }).check()
+    await page.getByRole("checkbox", { name: /moderation\.topic$/ }).check()
     const roleCreateResponse = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/v1/admin/authorization/roles")
     await page.getByRole("button", { name: "创建角色" }).click()
     const roleCreatePayload = await (await roleCreateResponse).json() as { data: { id: string } }
@@ -159,7 +159,7 @@ test.describe("local real business flow", () => {
       await memberPage.getByRole("button", { name: /发布新主题/ }).first().click()
       const composer = memberPage.getByRole("dialog")
       await composer.locator('input[placeholder*="清晰地概括"]').fill(topicTitle)
-      await composer.locator("textarea").fill("验证板块 moderation capability")
+      await composer.getByRole("textbox", { name: "正文", exact: true }).fill("验证板块 moderation capability")
       const boardSelect = composer.locator("select").first()
       if (await boardSelect.count()) {
         await boardSelect.selectOption({ label: "社区广场" })
@@ -320,21 +320,24 @@ test.describe("local real business flow", () => {
     let pluginId: string | null = null
     try {
       await page.goto("/#admin", { waitUntil: "networkidle" })
-      await page.getByRole("button", { name: "插件管理" }).click()
+      await selectAdminModule(page, "plugins", "插件管理")
       await expect(page.getByRole("heading", { name: "插件平台" })).toBeVisible()
 
       const installForm = page.locator(".plugin-install")
       await installForm.getByLabel("插件键").fill(pluginKey)
       await installForm.getByLabel("名称").fill(pluginName)
       await installForm.getByLabel("说明").fill("由仓库 Rust SDK 构建的本地真实回归组件")
+      await installForm.getByRole("button", { name: "下一步：能力审批" }).click()
       await installForm.getByRole("checkbox", { name: "静态管理面板" }).check()
+      await installForm.getByRole("button", { name: "下一步：组件文件" }).click()
       await installForm.getByLabel("WebAssembly Component 文件").setInputFiles(componentPath)
+      await installForm.getByRole("button", { name: "下一步：确认安装" }).click()
 
       const installResponse = page.waitForResponse((response) => (
         response.request().method() === "POST"
         && new URL(response.url()).pathname === "/api/v1/admin/plugins"
       ))
-      await installForm.getByRole("button", { name: "安装插件" }).click()
+      await installForm.getByRole("button", { name: "确认安装" }).click()
       const installedResponse = await installResponse
       const installed = await installedResponse.json() as { data: { id: string } }
       expect(installedResponse.status(), JSON.stringify(installed)).toBe(201)
@@ -351,6 +354,7 @@ test.describe("local real business flow", () => {
       await expect(pluginRow).toContainText("已启用")
 
       const transformInput = "DaoYun real plugin e2e"
+      await pluginRow.getByText("开发者工具", { exact: true }).click()
       await pluginRow.getByLabel(`调用输入：${pluginName}`).fill(transformInput)
       const transformResponse = page.waitForResponse((response) => (
         response.request().method() === "POST"
@@ -604,8 +608,14 @@ async function exerciseOperationsReader(
     memberPage.on("pageerror", (error) => consoleIssues.push(`pageerror: ${error.message}`))
     await memberPage.goto("/#admin/operations", { waitUntil: "networkidle" })
     await expect(memberPage.getByRole("heading", { name: "运营概览" })).toBeVisible()
-    await expect(memberPage.getByRole("button", { name: "运维监控" })).toBeVisible()
-    await expect(memberPage.getByRole("button", { name: "品牌配置" })).toHaveCount(0)
+    const operationsNavigation = memberPage.getByRole("button", { name: "运维监控", exact: true })
+    if (await operationsNavigation.isVisible()) {
+      await expect(memberPage.getByRole("button", { name: "品牌配置", exact: true })).toHaveCount(0)
+    } else {
+      const moduleSelect = memberPage.getByRole("combobox", { name: "管理模块" })
+      await expect(moduleSelect).toHaveValue("operations")
+      await expect(moduleSelect.locator('option[value="branding"]')).toHaveCount(0)
+    }
     await expect(memberPage.getByText("只读权限")).toBeVisible()
     await expect(memberPage.getByRole("button", { name: /^保存 .*规则$/ })).toHaveCount(0)
     await assertNoHorizontalOverflow(memberPage)
@@ -646,7 +656,7 @@ async function exerciseWritableOperations(
     response.request().method() === "GET"
     && new URL(response.url()).pathname === "/api/v1/admin/operations/summary"
   ))
-  await page.getByRole("button", { name: "运维监控" }).click()
+  await selectAdminModule(page, "operations", "运维监控")
   expect((await summaryResponse).status()).toBe(200)
   await expect(page.getByRole("heading", { name: "运营概览" })).toBeVisible()
   await expect(page.getByText("数据库正常")).toBeVisible()
@@ -685,6 +695,21 @@ async function exerciseWritableOperations(
   }
   const accessibility = await new AxeBuilder({ page }).include(".admin-view").analyze()
   expect(accessibility.violations, JSON.stringify(accessibility.violations, null, 2)).toEqual([])
+}
+
+async function selectAdminModule(
+  page: import("@playwright/test").Page,
+  value: string,
+  label: string,
+): Promise<void> {
+  const desktopNavigation = page
+    .getByRole("navigation", { name: "站点管理导航" })
+    .getByRole("button", { name: label, exact: true })
+  if (await desktopNavigation.isVisible()) {
+    await desktopNavigation.click()
+    return
+  }
+  await page.getByRole("combobox", { name: "管理模块" }).selectOption(value)
 }
 
 async function loginThroughUi(page: import("@playwright/test").Page, username: string): Promise<string> {

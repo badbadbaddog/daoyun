@@ -39,6 +39,11 @@ pub mod error_codes {
     pub const ADMIN_BOARD_PARENT_INVALID: &str = "admin.board_parent_invalid";
     pub const ADMIN_BOARD_DEPTH_EXCEEDED: &str = "admin.board_depth_exceeded";
     pub const ADMIN_BOARD_HAS_CHILDREN: &str = "admin.board_has_children";
+    pub const ADMIN_BOARD_STATUS_INVALID: &str = "admin.board_status_invalid";
+    pub const ADMIN_BOARD_MERGE_BLOCKED: &str = "admin.board_merge_blocked";
+    pub const ADMIN_BOARD_MERGE_NOT_FOUND: &str = "admin.board_merge_not_found";
+    pub const ADMIN_BOARD_MERGE_ROLLBACK_EXPIRED: &str = "admin.board_merge_rollback_expired";
+    pub const ADMIN_BOARD_MERGE_CONFLICT: &str = "admin.board_merge_conflict";
     pub const BRANDING_ASSET_INVALID: &str = "branding.asset_invalid";
     pub const BRANDING_ASSET_NOT_FOUND: &str = "branding.asset_not_found";
     pub const ADMIN_BOARD_CONFLICT: &str = "admin.board_conflict";

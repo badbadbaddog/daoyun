@@ -6,6 +6,7 @@ mod auth;
 mod boards;
 mod cache;
 mod email;
+mod feed;
 mod governance;
 mod health;
 mod installation;
@@ -20,6 +21,7 @@ mod operations;
 mod operations_worker;
 mod plugin_business;
 mod plugins;
+mod posts;
 mod rejection;
 mod relations;
 mod restriction_worker;
@@ -126,7 +128,10 @@ pub fn install_rustls_crypto_provider() {
         admin::list_community_memberships,
         admin::grant_community_membership,
         admin::revoke_community_membership,
+        admin::list_standard_entitlement_types,
+        admin::list_standard_entitlement_versions,
         admin::put_standard_entitlement_type,
+        admin::list_standard_entitlements,
         admin::grant_standard_entitlement,
         admin::revoke_standard_entitlement,
         admin::get_content_access_policy,
@@ -138,6 +143,7 @@ pub fn install_rustls_crypto_provider() {
         admin::update_growth_level,
         admin::delete_growth_level,
         admin::grant_membership_points,
+        admin::get_admin_membership_account,
         admin::list_membership_medal_rules,
         admin::update_membership_medal_rule,
         admin::grant_membership_medal,
@@ -168,6 +174,9 @@ pub fn install_rustls_crypto_provider() {
         admin::update_board,
         admin::delete_board,
         admin::get_board_deletion_impact,
+        admin::get_board_merge_impact,
+        admin::merge_board,
+        admin::rollback_board_merge,
         attachments::list,
         attachments::upload,
         attachments::upload_draft,
@@ -179,6 +188,7 @@ pub fn install_rustls_crypto_provider() {
         governance::update_report,
         governance::batch_update_reports,
         boards::list,
+        boards::detail,
         auth::registration_policy,
         auth::request_registration_email_challenge,
         auth::register,
@@ -213,6 +223,7 @@ pub fn install_rustls_crypto_provider() {
         auth::unlink_external_identity,
         health::live,
         health::ready,
+        feed::list,
         topics::list,
         topics::list_tags,
         topics::list_moderation_boards,
@@ -228,6 +239,13 @@ pub fn install_rustls_crypto_provider() {
         topics::revisions,
         topics::list_replies,
         topics::create_reply,
+        posts::list,
+        posts::create,
+        posts::detail,
+        posts::update,
+        posts::delete_post,
+        posts::list_comments,
+        posts::create_comment,
         topics::update_reply,
         topics::reply_revisions,
         topics::delete_reply,
@@ -249,10 +267,14 @@ pub fn install_rustls_crypto_provider() {
         notifications::read_one,
         notifications::read_all,
         users::profile,
+        users::list_users,
         users::membership,
         users::experience,
         users::community_groups,
+        users::points_ledger,
+        users::my_entitlements,
         users::user_medals,
+        users::user_membership_summary,
         users::followers,
         users::following,
         users::update_profile,
@@ -280,9 +302,18 @@ pub fn install_rustls_crypto_provider() {
         api_contract::ApiResponse<api_contract::InstallationStatus>,
         api_contract::ApiResponse<api_contract::InstallationInitialization>,
         api_contract::BoardSummary,
+        api_contract::BoardDetail,
+        api_contract::BoardBreadcrumbItem,
+        api_contract::BoardViewerCapabilities,
         api_contract::BoardTone,
         api_contract::AdminBoard,
         api_contract::AdminBoardDeletionImpact,
+        api_contract::AdminBoardStatus,
+        api_contract::AdminBoardMergeBlockedReason,
+        api_contract::AdminBoardMergeImpact,
+        api_contract::AdminBoardMergeMutation,
+        api_contract::MergeAdminBoardRequest,
+        api_contract::RollbackAdminBoardMergeRequest,
         api_contract::AdminAuditEntry,
         api_contract::AdminCapabilityAccess,
         api_contract::ModerationBoard,
@@ -417,6 +448,9 @@ pub fn install_rustls_crypto_provider() {
         api_contract::ApiResponse<Vec<api_contract::GrowthLevel>>,
         api_contract::ApiResponse<api_contract::ExperienceAccount>,
         api_contract::ApiResponse<api_contract::CurrentCommunityGroups>,
+        api_contract::PageResponse<api_contract::PointsLedgerEntry>,
+        api_contract::ApiResponse<Vec<api_contract::StandardEntitlement>>,
+        api_contract::ApiResponse<api_contract::UserMembershipSummary>,
         api_contract::ApiResponse<Vec<api_contract::AdminGrowthLevel>>,
         api_contract::ApiResponse<api_contract::AdminGrowthLevel>,
         api_contract::ApiResponse<Vec<api_contract::MembershipLevelRule>>,
@@ -460,6 +494,7 @@ pub fn install_rustls_crypto_provider() {
         api_contract::TopicRevision,
         api_contract::TopicTag,
         api_contract::TopicTagInput,
+        api_contract::FeedMode,
         api_contract::TopicScope,
         api_contract::TopicSort,
         api_contract::ContentReport,
@@ -517,6 +552,10 @@ pub fn install_rustls_crypto_provider() {
         api_contract::CommunityPermissionSource,
         api_contract::CommunityAccess,
         api_contract::CurrentCommunityGroups,
+        api_contract::PointsLedgerEntry,
+        api_contract::StandardEntitlement,
+        api_contract::PublicMembershipGroup,
+        api_contract::UserMembershipSummary,
         api_contract::CommunityGroupStatus,
         api_contract::AdminCommunityGroup,
         api_contract::CreateCommunityGroupRequest,
@@ -700,7 +739,9 @@ pub fn app_with_all_runtimes_and_email(
         .merge(boards::router())
         .merge(health::router())
         .merge(installation::router())
+        .merge(feed::router(auth_runtime.clone()))
         .merge(topics::router(auth_runtime.clone()))
+        .merge(posts::router(auth_runtime.clone()))
         .merge(relations::router(auth_runtime.clone()))
         .merge(messages::router(auth_runtime.clone()))
         .merge(membership::router())

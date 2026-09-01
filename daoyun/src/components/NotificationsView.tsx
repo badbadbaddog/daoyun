@@ -15,6 +15,7 @@ interface NotificationsViewProps {
 }
 
 type LoadStatus = "loading" | "ready" | "error"
+type NotificationFilter = "all" | "unread"
 
 export function NotificationsView({ session, onBack, onLogin, onOpenTarget, onUnreadChange }: NotificationsViewProps) {
   const [items, setItems] = useState<Notification[]>([])
@@ -24,6 +25,20 @@ export function NotificationsView({ session, onBack, onLogin, onOpenTarget, onUn
   const [busyId, setBusyId] = useState<string | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState("")
+  const [filter, setFilter] = useState<NotificationFilter>("all")
+  const visibleItems = filter === "unread" ? items.filter((item) => !item.readAt) : items
+  const notificationFilters: NotificationFilter[] = ["all", "unread"]
+  const selectFilter = (index: number) => {
+    const next = notificationFilters[(index + notificationFilters.length) % notificationFilters.length]
+    setFilter(next)
+    document.getElementById(`notifications-tab-${next}`)?.focus()
+  }
+  const handleFilterKey = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (event.key === "ArrowRight") { event.preventDefault(); selectFilter(index + 1) }
+    else if (event.key === "ArrowLeft") { event.preventDefault(); selectFilter(index - 1) }
+    else if (event.key === "Home") { event.preventDefault(); selectFilter(0) }
+    else if (event.key === "End") { event.preventDefault(); selectFilter(notificationFilters.length - 1) }
+  }
 
   useEffect(() => {
     if (!session) {
@@ -94,6 +109,12 @@ export function NotificationsView({ session, onBack, onLogin, onOpenTarget, onUn
         <div><p>账户动态</p><h1 id="notifications-heading">通知</h1></div>
         <button className="icon-button" type="button" onClick={() => void markAll()} disabled={!session || busyId !== null} aria-label="全部标记为已读" title="全部标记为已读"><CheckCheck size={19} /></button>
       </header>
+      {session && (
+        <div className="notifications-tabs" role="tablist" aria-label="通知筛选">
+          <button id="notifications-tab-all" type="button" role="tab" aria-controls="notifications-panel" aria-selected={filter === "all"} tabIndex={filter === "all" ? 0 : -1} onClick={() => setFilter("all")} onKeyDown={(event) => handleFilterKey(event, 0)}>全部</button>
+          <button id="notifications-tab-unread" type="button" role="tab" aria-controls="notifications-panel" aria-selected={filter === "unread"} tabIndex={filter === "unread" ? 0 : -1} onClick={() => setFilter("unread")} onKeyDown={(event) => handleFilterKey(event, 1)}>未读</button>
+        </div>
+      )}
       {!session ? (
         <div className="empty-state" role="status"><Bell size={28} aria-hidden="true" /><h2>登录后查看通知</h2><p>关注、回复、点赞和私信动态会显示在这里。</p><button className="primary-button empty-state__action" type="button" onClick={onLogin}>登录查看通知</button></div>
       ) : status === "loading" ? (
@@ -103,7 +124,9 @@ export function NotificationsView({ session, onBack, onLogin, onOpenTarget, onUn
       ) : (
         <>
           {error && <p className="interaction-alert" role="alert">{error}</p>}
-          {items.length === 0 ? <div className="empty-state" role="status"><Bell size={28} aria-hidden="true" /><h2>还没有通知</h2><p>新的社区动态会显示在这里。</p></div> : <div className="notification-list">{items.map((item) => <NotificationItem key={item.id} item={item} busy={busyId === item.id} onRead={() => void markOne(item)} onOpen={() => { void markOne(item); onOpenTarget(item) }} />)}</div>}
+          <div id="notifications-panel" role="tabpanel" aria-labelledby={`notifications-tab-${filter}`}>
+            {visibleItems.length === 0 ? <div className="empty-state" role="status"><Bell size={28} aria-hidden="true" /><h2>{filter === "unread" ? "没有未读通知" : "还没有通知"}</h2><p>{filter === "unread" ? "新通知会在这里出现。" : "新的社区动态会显示在这里。"}</p></div> : <div className="notification-list">{visibleItems.map((item) => <NotificationItem key={item.id} item={item} busy={busyId === item.id} onRead={() => void markOne(item)} onOpen={() => { void markOne(item); onOpenTarget(item) }} />)}</div>}
+          </div>
           {cursor && <button className="secondary-button notifications-view__more" type="button" onClick={() => void loadMore()} disabled={loadingMore}>{loadingMore ? "正在加载" : "加载更多通知"}</button>}
         </>
       )}

@@ -478,6 +478,34 @@ async fn draft_image_upload_is_private_image_only_and_expires(pool: PgPool) {
         bound_topic_id,
         Some(uuid::Uuid::parse_str(&topic_id).expect("topic id must be valid"))
     );
+
+    let list = app
+        .clone()
+        .oneshot(get_request("/api/v1/topics?limit=20"))
+        .await
+        .expect("topic list must respond");
+    assert_eq!(list.status(), StatusCode::OK);
+    let list_payload = response_json(list).await;
+    let listed_topic = list_payload["data"]
+        .as_array()
+        .expect("topic list data must be an array")
+        .iter()
+        .find(|topic| topic["id"] == topic_id)
+        .expect("topic with a rich-content image must be listed");
+    assert_eq!(
+        listed_topic["image_url"],
+        format!("/api/v1/attachments/{attachment_id}/thumbnail")
+    );
+
+    let detail = app
+        .oneshot(get_request(&format!("/api/v1/topics/{topic_id}")))
+        .await
+        .expect("topic detail must respond");
+    assert_eq!(detail.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(detail).await["data"]["image_url"],
+        format!("/api/v1/attachments/{attachment_id}/thumbnail")
+    );
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]

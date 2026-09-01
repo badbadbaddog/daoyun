@@ -5,6 +5,8 @@ import type { components } from "./generated"
 const TOPICS_ENDPOINT = "/api/v1/topics"
 const DEFAULT_LIMIT = 20
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const boardSlugPattern = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/
+const attachmentThumbnailPattern = /^\/api\/v1\/attachments\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/thumbnail$/i
 const topicTones = new Set(["green", "blue", "amber", "rose"])
 
 export type TopicSort = components["schemas"]["TopicSort"]
@@ -139,7 +141,7 @@ export interface TopicRevision {
 }
 
 export interface CreateTopicInput {
-  title: string
+  title?: string
   content: string
   richContent?: RichTextDocument
   boardId?: string
@@ -161,6 +163,7 @@ type TopicSummaryDto = components["schemas"]["TopicSummary"] & {
   tags: TopicTagDto[]
   viewer_bookmarked: boolean | null
   viewer_liked: boolean | null
+  image_url?: string | null
 }
 type TopicDetailDto = TopicSummaryDto & { content: string; rich_content?: unknown; content_revision: number; has_locked_content: boolean }
 type TopicRevisionDto = Omit<components["schemas"]["TopicRevision"], "editor"> & { editor: TopicAuthorDto; rich_content?: unknown }
@@ -195,7 +198,8 @@ type RevisionsResponseDto = Omit<components["schemas"]["ApiResponse_Vec_TopicRev
 type ReplyRevisionsResponseDto = Omit<components["schemas"]["ApiResponse_Vec_ReplyRevision"], "data"> & { data: ReplyRevisionDto[] }
 type BooleanResponseDto = components["schemas"]["ApiResponse_bool"]
 type ErrorResponseDto = components["schemas"]["ErrorResponse"]
-type CreateTopicRequestDto = Omit<components["schemas"]["CreateTopicRequest"], "rich_content"> & {
+type CreateTopicRequestDto = Omit<components["schemas"]["CreateTopicRequest"], "rich_content" | "title"> & {
+  title?: string
   rich_content?: RichTextDocument
 }
 type UpdateTopicRequestDto = Omit<components["schemas"]["UpdateTopicRequest"], "rich_content"> & {
@@ -261,9 +265,9 @@ export async function createTopic(
   options: CreateTopicOptions,
 ): Promise<Topic> {
   const requestBody: CreateTopicRequestDto = {
-    title: input.title,
     content: input.content,
   }
+  if (input.title?.trim()) requestBody.title = input.title.trim()
   if (input.boardId) {
     requestBody.board_id = input.boardId
   }
@@ -556,12 +560,15 @@ function mapTopic(topic: TopicSummaryDto): Topic {
     title: topic.title,
     excerpt: topic.excerpt,
     board: topic.board.name,
+    boardSlug: topic.board.slug,
     boardTone: topic.board.tone as Topic["boardTone"],
     authorId: topic.author.id,
     authorUsername: topic.author.username,
     author: topic.author.display_name,
     avatarUrl: topic.author.avatar_url,
+    imageUrl: topic.image_url ?? undefined,
     publishedAt: formatRelativeTime(topic.published_at),
+    publishedAtIso: topic.published_at,
     replies: topic.reply_count,
     likes: topic.like_count,
     bookmarked: topic.viewer_bookmarked,
@@ -845,14 +852,16 @@ function isTopicSummary(value: unknown): value is TopicSummaryDto {
     return false
   }
   return isUuid(value.id)
-    && isNonEmptyString(value.title)
+    && typeof value.title === "string"
     && typeof value.excerpt === "string"
+    && (value.image_url === undefined || isNullableTopicImageUrl(value.image_url))
     && isUuid(value.author.id)
     && isNonEmptyString(value.author.username)
     && isNonEmptyString(value.author.display_name)
     && isNullableHttpsUrl(value.author.avatar_url)
     && isUuid(value.board.id)
-    && isNonEmptyString(value.board.slug)
+    && typeof value.board.slug === "string"
+    && boardSlugPattern.test(value.board.slug)
     && isNonEmptyString(value.board.name)
     && typeof value.board.tone === "string"
     && topicTones.has(value.board.tone)
@@ -916,4 +925,10 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isNullableHttpsUrl(value: unknown): value is string | null {
   return value === null || (isNonEmptyString(value) && value.startsWith("https://"))
+}
+
+function isNullableTopicImageUrl(value: unknown): value is string | null {
+  return isNullableHttpsUrl(value)
+    || (isNonEmptyString(value)
+      && attachmentThumbnailPattern.test(value))
 }

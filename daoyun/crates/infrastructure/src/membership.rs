@@ -25,6 +25,16 @@ pub struct MembershipAccountRecord {
 pub struct MembershipLedgerResult {
     pub account: MembershipAccountRecord,
     pub created: bool,
+    pub audit_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
+pub struct PointsLedgerEntryRecord {
+    pub id: Uuid,
+    pub amount: i64,
+    pub reason: String,
+    pub balance_after: i64,
+    pub created_at: OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
@@ -150,6 +160,29 @@ pub enum UpdateMembershipMedalRuleError {
 }
 
 impl Database {
+    pub async fn list_points_ledger(
+        &self,
+        user_id: Uuid,
+        cursor: Option<Uuid>,
+        limit: i64,
+    ) -> Result<Vec<PointsLedgerEntryRecord>, DatabaseError> {
+        Ok(sqlx::query_as::<_, PointsLedgerEntryRecord>(
+            "SELECT entry.id, entry.amount, entry.reason, entry.balance_after, entry.created_at
+             FROM point_ledger_entries AS entry
+             LEFT JOIN point_ledger_entries AS cursor_entry
+               ON cursor_entry.id = $2 AND cursor_entry.user_id = $1
+             WHERE entry.user_id = $1
+               AND ($2::uuid IS NULL OR (entry.created_at, entry.id) < (cursor_entry.created_at, cursor_entry.id))
+             ORDER BY entry.created_at DESC, entry.id DESC
+             LIMIT $3",
+        )
+        .bind(user_id)
+        .bind(cursor)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     pub async fn get_membership_account(
         &self,
         user_id: Uuid,
@@ -174,8 +207,15 @@ impl Database {
         reason: &str,
         idempotency_key: Option<&str>,
     ) -> Result<MembershipLedgerResult, AppendPointsLedgerError> {
-        self.append_points_ledger_with_actor(None, user_id, amount, reason, idempotency_key, false)
-            .await
+        self.append_points_ledger_with_actor(
+            PointsLedgerActor::None,
+            user_id,
+            amount,
+            reason,
+            None,
+            idempotency_key,
+        )
+        .await
     }
 
     pub async fn grant_membership_points(
@@ -184,15 +224,16 @@ impl Database {
         user_id: Uuid,
         amount: i64,
         reason: &str,
+        details: Option<&str>,
         idempotency_key: Option<&str>,
     ) -> Result<MembershipLedgerResult, AppendPointsLedgerError> {
         self.append_points_ledger_with_actor(
-            Some(actor_id),
+            PointsLedgerActor::Admin(actor_id),
             user_id,
             amount,
             reason,
+            details,
             idempotency_key,
-            true,
         )
         .await
     }
@@ -206,12 +247,12 @@ impl Database {
         idempotency_key: Option<&str>,
     ) -> Result<MembershipLedgerResult, AppendPointsLedgerError> {
         self.append_points_ledger_with_actor(
-            Some(actor_id),
+            PointsLedgerActor::Trusted(actor_id),
             user_id,
             amount,
             reason,
+            None,
             idempotency_key,
-            false,
         )
         .await
     }
@@ -652,12 +693,12 @@ impl Database {
 
     async fn append_points_ledger_with_actor(
         &self,
-        actor_id: Option<Uuid>,
+        actor: PointsLedgerActor,
         user_id: Uuid,
         amount: i64,
         reason: &str,
+        details: Option<&str>,
         idempotency_key: Option<&str>,
-        enforce_admin_authorization: bool,
     ) -> Result<MembershipLedgerResult, AppendPointsLedgerError> {
         if amount == 0 {
             return Err(AppendPointsLedgerError::InvalidAmount);
@@ -672,6 +713,11 @@ impl Database {
         }
 
         let mut transaction = self.pool.begin().await?;
+        let (actor_id, enforce_admin_authorization) = match actor {
+            PointsLedgerActor::None => (None, false),
+            PointsLedgerActor::Admin(actor_id) => (Some(actor_id), true),
+            PointsLedgerActor::Trusted(actor_id) => (Some(actor_id), false),
+        };
         if enforce_admin_authorization
             && let Some(actor_id) = actor_id
             && !has_permission_with_executor(
@@ -712,9 +758,26 @@ impl Database {
                 return Err(AppendPointsLedgerError::IdempotencyConflict);
             }
             transaction.commit().await?;
+            let audit_id = if let Some(key) = idempotency_key {
+                sqlx::query_scalar::<_, Uuid>(
+                    "SELECT id FROM admin_audit_log
+                     WHERE action = 'membership.points.grant'
+                       AND resource_type = 'membership_account'
+                       AND resource_id = $1
+                       AND summary ->> 'idempotency_key' = $2
+                     ORDER BY created_at DESC, id DESC LIMIT 1",
+                )
+                .bind(user_id)
+                .bind(key)
+                .fetch_optional(&self.pool)
+                .await?
+            } else {
+                None
+            };
             return Ok(MembershipLedgerResult {
                 account,
                 created: false,
+                audit_id,
             });
         }
 
@@ -769,25 +832,30 @@ impl Database {
         .bind(balance)
         .execute(&mut *transaction)
         .await?;
-        if let Some(actor_id) = actor_id {
-            insert_audit(
-                &mut transaction,
-                actor_id,
-                "membership.points.grant",
-                "membership_account",
-                Some(user_id),
-                serde_json::json!({
-                    "amount": amount,
-                    "balance_after": balance,
-                    "idempotency_key": idempotency_key,
-                    "level_after": level_key,
-                    "level_before": account.level_key,
-                    "lifetime_points": lifetime_points,
-                    "reason": reason
-                }),
+        let audit_id = if let Some(actor_id) = actor_id {
+            Some(
+                insert_audit(
+                    &mut transaction,
+                    actor_id,
+                    "membership.points.grant",
+                    "membership_account",
+                    Some(user_id),
+                    serde_json::json!({
+                        "amount": amount,
+                        "balance_after": balance,
+                        "idempotency_key": idempotency_key,
+                        "level_after": level_key,
+                        "level_before": account.level_key,
+                        "lifetime_points": lifetime_points,
+                        "reason": reason,
+                        "operator_details": details
+                    }),
+                )
+                .await?,
             )
-            .await?;
-        }
+        } else {
+            None
+        };
         let automatic_medals = sqlx::query_as::<_, MembershipMedalRecord>(
             "INSERT INTO membership_medals (user_id, medal_key, reason)
              SELECT $1, medal_key, 'rule.points'
@@ -845,6 +913,7 @@ impl Database {
         Ok(MembershipLedgerResult {
             account,
             created: true,
+            audit_id,
         })
     }
 }
@@ -873,6 +942,12 @@ fn medal_key_valid(value: &str) -> bool {
 struct ExistingLedgerEntry {
     amount: i64,
     reason: String,
+}
+
+enum PointsLedgerActor {
+    None,
+    Admin(Uuid),
+    Trusted(Uuid),
 }
 
 fn valid_reason(value: &str) -> bool {

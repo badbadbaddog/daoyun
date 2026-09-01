@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -50,6 +50,7 @@ const topic = {
   excerpt: "摘要",
   content: "第一段\n\n第二段",
   board: "社区广场",
+  boardSlug: "general",
   boardTone: "green" as const,
   author: "社区成员",
   avatarUrl: "https://example.com/avatar.png",
@@ -117,6 +118,23 @@ afterEach(() => {
 })
 
 describe("TopicDetailView", () => {
+  it("publishes the loaded topic for the detail sidebar", async () => {
+    const onTopicLoaded = vi.fn()
+    render(
+      <TopicDetailView
+        topicId={topic.id}
+        session={null}
+        onBack={vi.fn()}
+        onLogin={vi.fn()}
+        onReplyPublished={vi.fn()}
+        onTopicLoaded={onTopicLoaded}
+      />,
+    )
+
+    expect(await screen.findByRole("heading", { name: topic.title })).toBeInTheDocument()
+    expect(onTopicLoaded).toHaveBeenLastCalledWith(topic)
+  })
+
   it("renders a topic and the empty signed-out reply state", async () => {
     const onLogin = vi.fn()
     const user = userEvent.setup()
@@ -125,9 +143,25 @@ describe("TopicDetailView", () => {
     expect(await screen.findByRole("heading", { name: topic.title })).toBeInTheDocument()
     expect(screen.getByRole("link", { name: `查看 ${topic.author} 的主页` }))
       .toHaveAttribute("href", `#user/${topic.authorUsername}`)
+    expect(screen.getByLabelText("主题作者与发布信息")).toHaveTextContent(`${topic.author}`)
+    expect(screen.getByLabelText("主题作者与发布信息")).toHaveTextContent(`${topic.board}`)
+    expect(screen.getByLabelText("主题作者与发布信息")).toHaveTextContent(`${topic.publishedAt}`)
+    expect(within(screen.getByLabelText("主题作者与发布信息")).getByRole("link", { name: topic.board }))
+      .toHaveAttribute("href", "#board/general")
+    expect(screen.getByLabelText("主题作者与发布信息")).toHaveTextContent("0 浏览")
+    expect(screen.getByRole("article", { name: topic.title }))
+      .toHaveAttribute("aria-labelledby", "topic-detail-title")
+    expect(within(screen.getByRole("navigation", { name: "主题位置" })).getByRole("link", { name: "社区" }))
+      .toHaveAttribute("href", "#boards")
+    expect(within(screen.getByRole("navigation", { name: "主题位置" })).getByRole("link", { name: topic.board }))
+      .toHaveAttribute("href", "#board/general")
+    const tags = screen.getByRole("list", { name: "主题标签" })
+    expect(within(tags).getByRole("listitem")).toHaveTextContent("#Rust")
     expect(screen.getByText("还没有回复")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "登录" }))
     expect(onLogin).toHaveBeenCalledTimes(1)
+    await user.click(screen.getByRole("button", { name: "写评论" }))
+    expect(onLogin).toHaveBeenCalledTimes(2)
   })
 
   it("retries a failed topic load", async () => {
@@ -155,6 +189,8 @@ describe("TopicDetailView", () => {
     await user.click(screen.getByRole("button", { name: "发布回复" }))
 
     await waitFor(() => expect(screen.getAllByText("回复正文")).toHaveLength(1))
+    expect(screen.getByRole("status")).toHaveTextContent("回复已发布至 #1 楼")
+    await waitFor(() => expect(screen.getByRole("article", { name: "第 1 楼回复" })).toHaveFocus())
     const firstOptions = vi.mocked(createReply).mock.calls[0][2]
     const secondOptions = vi.mocked(createReply).mock.calls[1][2]
     expect(secondOptions.idempotencyKey).toBe(firstOptions.idempotencyKey)
@@ -188,6 +224,8 @@ describe("TopicDetailView", () => {
     expect(await screen.findByText("#8")).toBeInTheDocument()
     expect(screen.getByText("引用 #3")).toBeInTheDocument()
     expect(screen.getByText("被引用的回复摘要")).toBeInTheDocument()
+    expect(screen.getByText("回复正文").closest("li")).toHaveAttribute("data-reply-level", "1")
+    expect(screen.getByRole("article", { name: "第 8 楼回复" })).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "回复 8 楼" }))
     expect(screen.getByText("回复 #8 @member")).toBeInTheDocument()
     await user.type(screen.getByRole("textbox", { name: "参与讨论" }), "继续讨论")
@@ -195,6 +233,52 @@ describe("TopicDetailView", () => {
 
     await waitFor(() => expect(createReply).toHaveBeenCalled())
     expect(vi.mocked(createReply).mock.calls[0][2].replyToId).toBe(reply.id)
+  })
+
+  it("focuses the existing reply editor from the mobile comment entry", async () => {
+    const user = userEvent.setup()
+    render(<TopicDetailView topicId={topic.id} session={session} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+
+    const editor = await screen.findByRole("textbox", { name: "参与讨论" })
+    const trigger = screen.getByRole("button", { name: "写评论" })
+    await user.click(screen.getByRole("button", { name: "写回复" }))
+
+    expect(editor).toHaveFocus()
+
+    await user.click(screen.getByRole("button", { name: "回复主题" }))
+
+    expect(editor).toHaveFocus()
+
+    await user.click(trigger)
+
+    expect(editor).toHaveFocus()
+    expect(trigger).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByRole("form", { name: "评论编辑器" })).toHaveAttribute("id", "topic-reply-composer")
+
+    await user.click(screen.getByRole("button", { name: "收起评论输入框" }))
+
+    expect(trigger).toHaveFocus()
+    expect(trigger).toHaveAttribute("aria-expanded", "false")
+  })
+
+  it("starts a top-level reply when reopening the generic composer after a floor reply", async () => {
+    const user = userEvent.setup()
+    vi.mocked(getTopic).mockResolvedValue({ ...topic, replies: 1 })
+    vi.mocked(listReplies).mockResolvedValue({ replies: [reply], nextCursor: null })
+    vi.mocked(createReply).mockResolvedValue({ ...reply, floorNumber: 2, replyTo: null })
+    render(<TopicDetailView topicId={topic.id} session={session} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "回复 1 楼" }))
+    expect(screen.getByText("回复 #1 @member")).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "收起评论输入框" }))
+    await user.click(screen.getByRole("button", { name: "回复主题" }))
+    expect(screen.queryByText("回复 #1 @member")).not.toBeInTheDocument()
+
+    await user.type(screen.getByRole("textbox", { name: "参与讨论" }), "新的顶层回复")
+    await user.click(screen.getByRole("button", { name: "发布回复" }))
+    await waitFor(() => expect(createReply).toHaveBeenCalled())
+    expect(vi.mocked(createReply).mock.calls[0][2].replyToId).toBeUndefined()
   })
 
   it("bookmarks and likes the topic and likes a reply with immediate counts", async () => {
@@ -232,6 +316,81 @@ describe("TopicDetailView", () => {
       .toHaveTextContent("3")
     expect(setPostLike).toHaveBeenNthCalledWith(2, reply.id, true, session.csrfToken)
     expect(onTopicUpdated).toHaveBeenCalled()
+  })
+
+  it("keeps bookmarking available while a topic like is pending", async () => {
+    const user = userEvent.setup()
+    let finishLike: ((value: { postId: string; liked: boolean; likeCount: number }) => void) | undefined
+    vi.mocked(setPostLike).mockImplementation(() => new Promise((resolve) => { finishLike = resolve }))
+    vi.mocked(setTopicBookmark).mockResolvedValue({ topicId: topic.id, bookmarked: true })
+    render(<TopicDetailView topicId={topic.id} session={session} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "点赞主题" }))
+
+    const bookmarkButton = screen.getByRole("button", { name: "收藏主题" })
+    expect(bookmarkButton).toBeEnabled()
+    await user.click(bookmarkButton)
+    expect(setTopicBookmark).toHaveBeenCalledWith(topic.id, true, session.csrfToken)
+
+    finishLike?.({ postId: topic.id, liked: true, likeCount: 1 })
+    expect(await screen.findByRole("button", { name: "取消点赞主题" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "取消收藏主题" })).toBeInTheDocument()
+  })
+
+  it("shows load-more failures inside the reply section for signed-out visitors", async () => {
+    const user = userEvent.setup()
+    vi.mocked(getTopic).mockResolvedValue({ ...topic, replies: 2 })
+    vi.mocked(listReplies)
+      .mockResolvedValueOnce({ replies: [reply], nextCursor: "cursor-2" })
+      .mockRejectedValueOnce(new Error("network unavailable"))
+    render(<TopicDetailView topicId={topic.id} session={null} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "加载更多回复" }))
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("更多回复暂时无法加载，请重试")
+    expect(screen.getByRole("button", { name: "加载更多回复" })).toBeEnabled()
+  })
+
+  it("ignores a late load-more response after navigating to another topic", async () => {
+    const user = userEvent.setup()
+    const nextTopic = { ...topic, id: "019fc800-0000-7000-8000-000000000102", title: "新的主题" }
+    const nextReply = { ...reply, id: "019fc800-0000-7000-8000-000000000202", topicId: nextTopic.id, content: "新主题回复" }
+    const staleReply = { ...reply, id: "019fc800-0000-7000-8000-000000000203", content: "旧主题迟到回复" }
+    let finishOldPage: ((page: { replies: (typeof reply)[]; nextCursor: null }) => void) | undefined
+    vi.mocked(getTopic)
+      .mockResolvedValueOnce({ ...topic, replies: 2 })
+      .mockResolvedValueOnce({ ...nextTopic, replies: 1 })
+    vi.mocked(listReplies)
+      .mockResolvedValueOnce({ replies: [reply], nextCursor: "cursor-2" })
+      .mockImplementationOnce(() => new Promise((resolve) => { finishOldPage = resolve }))
+      .mockResolvedValueOnce({ replies: [nextReply], nextCursor: null })
+    const view = render(<TopicDetailView topicId={topic.id} session={null} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "加载更多回复" }))
+    view.rerender(<TopicDetailView topicId={nextTopic.id} session={null} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+
+    expect(await screen.findByRole("heading", { name: nextTopic.title })).toBeInTheDocument()
+    await act(async () => {
+      finishOldPage?.({ replies: [staleReply], nextCursor: null })
+      await Promise.resolve()
+    })
+    expect(screen.queryByText("旧主题迟到回复")).not.toBeInTheDocument()
+    expect(screen.getByText("新主题回复")).toBeInTheDocument()
+  })
+
+  it("copies a canonical topic link from the share action", async () => {
+    const user = userEvent.setup()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    })
+    render(<TopicDetailView topicId={topic.id} session={null} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "分享主题" }))
+
+    expect(writeText).toHaveBeenCalledWith(expect.stringMatching(new RegExp(`#topic/${topic.id}$`)))
+    expect(screen.getByText("链接已复制")).toHaveAttribute("role", "status")
   })
 
   it("submits a topic report with the session csrf token", async () => {
@@ -282,8 +441,8 @@ describe("TopicDetailView", () => {
     render(<TopicDetailView topicId={topic.id} session={session} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
 
     await user.click(await screen.findByRole("button", { name: "编辑" }))
-    await user.clear(screen.getByRole("textbox", { name: "标题" }))
-    await user.type(screen.getByRole("textbox", { name: "标题" }), "更新后的标题")
+    await user.clear(screen.getByRole("textbox", { name: "标题（可选）" }))
+    await user.type(screen.getByRole("textbox", { name: "标题（可选）" }), "更新后的标题")
     await user.click(screen.getByRole("button", { name: "保存修改" }))
 
     expect(await screen.findByRole("heading", { name: "更新后的标题" })).toBeInTheDocument()

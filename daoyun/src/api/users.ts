@@ -77,6 +77,8 @@ export interface UserRelationPage {
   nextCursor: string | null
 }
 
+export type UserSearchPage = UserRelationPage
+
 type UserSummaryDto = Required<components["schemas"]["UserSummary"]>
 type UserProfileDto = components["schemas"]["UserProfile"] & {
   avatar_url: string | null
@@ -129,6 +131,25 @@ export async function getUserProfile(username: string, signal?: AbortSignal): Pr
     throw new Error("用户资料响应格式无效")
   }
   return mapProfile(payload.data)
+}
+
+export async function listUsers(
+  query: string,
+  options: { cursor?: string; limit?: number; signal?: AbortSignal } = {},
+): Promise<UserSearchPage> {
+  const params = new URLSearchParams({ q: query, limit: String(options.limit ?? DEFAULT_LIMIT) })
+  if (options.cursor) params.set("cursor", options.cursor)
+  const response = await fetch(`${USERS_ENDPOINT}?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+    credentials: "include",
+    signal: options.signal,
+  })
+  const payload = await readJson(response)
+  if (!response.ok) throw toApiError(response.status, payload)
+  if (response.status !== 200 || !isUserPageResponse(payload)) {
+    throw new Error("用户搜索响应格式无效")
+  }
+  return { users: payload.data.map(mapSummary), nextCursor: payload.meta.next_cursor }
 }
 
 export async function getCurrentMembership(signal?: AbortSignal): Promise<MembershipAccount> {
@@ -342,12 +363,10 @@ function isMembershipResponse(value: unknown): value is MembershipResponseDto {
     && isNonNegativeInteger(value.data.points_balance)
     && isNonNegativeInteger(value.data.lifetime_points)
     && typeof value.data.level_key === "string"
-    && /^lv_(?:[1-9]|1[0-9]|20)$/.test(value.data.level_key)
+    && /^[a-z][a-z0-9_]{1,63}$/.test(value.data.level_key)
     && typeof value.data.level_number === "number"
     && Number.isSafeInteger(value.data.level_number)
     && value.data.level_number >= 1
-    && value.data.level_number <= 20
-    && value.data.level_key === `lv_${value.data.level_number}`
     && typeof value.data.level_display_name === "string"
     && value.data.level_display_name.trim().length > 0
     && isPositiveInteger(value.data.revision)

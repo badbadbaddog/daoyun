@@ -49,6 +49,7 @@ import type { AdminBoard, BrandAssetKind, BrandLink, GovernancePolicy, RiskAlert
 import { listModerationBoards } from "../api/moderation"
 import type { ModerationBoard } from "../api/moderation"
 import { MembershipAdminPanel } from "./MembershipAdminPanel"
+import { MembershipAdminPage } from "../features/admin-membership/MembershipAdminPage"
 import { AuthorizationAdminPanel } from "./AuthorizationAdminPanel"
 import { OperationsAdminPanel } from "./OperationsAdminPanel"
 import { PluginAdminPanel } from "./PluginAdminPanel"
@@ -77,7 +78,7 @@ const adminModules: AdminModuleDefinition[] = [
   { tab: "reports", label: "举报处理", description: "集中核查举报并记录治理结论。", icon: Flag, requirements: ["governance.reports.read"] },
   { tab: "moderation", label: "内容治理", description: "管理主题状态与版块内容秩序。", icon: Gavel, requirements: ["moderation.topic"] },
   { tab: "risk", label: "风控告警", description: "查看风险信号并调整自动治理策略。", icon: ShieldAlert, requirements: ["governance.policy.read", "governance.alerts.read"] },
-  { tab: "membership", label: "会员经济", description: "配置成长、积分、勋章与用户组规则。", icon: Gem, requirements: ["membership.rules.read", "membership.rules.write", "membership.medals.read", "membership.medals.rules.write", "membership.points.grant", "membership.medals.grant", "community.groups.read"], requirementMode: "any" },
+  { tab: "membership", label: "会员经济", description: "配置成长、积分、勋章、用户组与标准权益。", icon: Gem, requirements: ["membership.rules.read", "membership.rules.write", "membership.medals.read", "membership.medals.rules.write", "membership.points.grant", "membership.medals.grant", "community.groups.read", "entitlements.types.read", "entitlements.types.write", "entitlements.grants.read", "entitlements.grants.write"], requirementMode: "any" },
   { tab: "branding", label: "品牌配置", description: "统一站点品牌、主题与导航展示。", icon: Palette, requirements: ["admin.configuration.read"] },
   { tab: "email", label: "邮件服务", description: "配置 SMTP 发信与注册邮箱验证。", icon: MailCheck, requirements: ["admin.configuration.read"] },
   { tab: "authorization", label: "角色与权限", description: "管理角色能力与人员授权范围。", icon: KeyRound, requirements: ["authorization.roles.read", "authorization.assignments.read"] },
@@ -295,20 +296,26 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
           canInvoke={capabilityKeys.includes("plugins.invoke")}
         />
       ) : (
-        <MembershipAdminPanel
-          csrfToken={session?.csrfToken ?? ""}
-          canReadLevelRules={capabilityKeys.includes("membership.rules.read")}
-          canWriteLevelRules={capabilityKeys.includes("membership.rules.write")}
-          canReadMedalRules={capabilityKeys.includes("membership.medals.read")}
-          canWriteMedalRules={capabilityKeys.includes("membership.medals.rules.write")}
-          canGrantPoints={capabilityKeys.includes("membership.points.grant")}
-          canGrantMedals={capabilityKeys.includes("membership.medals.grant")}
-          canReadGroups={capabilityKeys.includes("community.groups.read")}
-          canWriteGroups={capabilityKeys.includes("community.groups.write")}
-          canReadGroupMemberships={capabilityKeys.includes("community.memberships.read")}
-          canWriteGroupMemberships={capabilityKeys.includes("community.memberships.write")}
-          canReadUsers={capabilityKeys.includes("admin.users.read")}
-        />
+        <MembershipAdminPage>
+          <MembershipAdminPanel
+            csrfToken={session?.csrfToken ?? ""}
+            canReadLevelRules={capabilityKeys.includes("membership.rules.read")}
+            canWriteLevelRules={capabilityKeys.includes("membership.rules.write")}
+            canReadMedalRules={capabilityKeys.includes("membership.medals.read")}
+            canWriteMedalRules={capabilityKeys.includes("membership.medals.rules.write")}
+            canGrantPoints={capabilityKeys.includes("membership.points.grant")}
+            canGrantMedals={capabilityKeys.includes("membership.medals.grant")}
+            canReadGroups={capabilityKeys.includes("community.groups.read")}
+            canWriteGroups={capabilityKeys.includes("community.groups.write")}
+            canReadGroupMemberships={capabilityKeys.includes("community.memberships.read")}
+            canWriteGroupMemberships={capabilityKeys.includes("community.memberships.write")}
+            canReadUsers={capabilityKeys.includes("admin.users.read")}
+            canReadEntitlementTypes={capabilityKeys.includes("entitlements.types.read")}
+            canWriteEntitlementTypes={capabilityKeys.includes("entitlements.types.write")}
+            canReadEntitlementGrants={capabilityKeys.includes("entitlements.grants.read")}
+            canWriteEntitlementGrants={capabilityKeys.includes("entitlements.grants.write")}
+          />
+        </MembershipAdminPage>
       )}
     </AdminShell>
   )

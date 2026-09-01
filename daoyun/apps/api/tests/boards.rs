@@ -63,6 +63,10 @@ async fn public_board_list_is_correlated_filtered_and_cursor_paginated(pool: PgP
     );
     assert_eq!(first_payload["data"][0]["slug"], "first");
     assert_eq!(first_payload["data"][0]["topic_count"], 0);
+    assert!(first_payload["data"][0]["parent_id"].is_null());
+    assert_eq!(first_payload["data"][0]["position"], 10);
+    assert_eq!(first_payload["data"][0]["depth"], 0);
+    assert_eq!(first_payload["data"][0]["child_count"], 0);
 
     let cursor = first_payload["meta"]["next_cursor"]
         .as_str()
@@ -81,6 +85,135 @@ async fn public_board_list_is_correlated_filtered_and_cursor_paginated(pool: PgP
     let second_payload = response_json(second_response).await;
     assert_eq!(second_payload["data"][0]["slug"], "second");
     assert!(second_payload["meta"]["next_cursor"].is_null());
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn public_board_detail_returns_hierarchy_children_breadcrumb_and_viewer_permissions(
+    pool: PgPool,
+) {
+    insert_board(
+        &pool,
+        "019fc610-0000-7000-8000-000000000010",
+        "parent",
+        10,
+        "public",
+    )
+    .await;
+    insert_board(
+        &pool,
+        "019fc610-0000-7000-8000-000000000011",
+        "current",
+        20,
+        "public",
+    )
+    .await;
+    insert_board(
+        &pool,
+        "019fc610-0000-7000-8000-000000000012",
+        "child",
+        30,
+        "public",
+    )
+    .await;
+    sqlx::query("UPDATE boards SET parent_id = $1 WHERE id IN ($2, $3)")
+        .bind(Uuid::parse_str("019fc610-0000-7000-8000-000000000010").unwrap())
+        .bind(Uuid::parse_str("019fc610-0000-7000-8000-000000000011").unwrap())
+        .bind(Uuid::parse_str("019fc610-0000-7000-8000-000000000012").unwrap())
+        .execute(&pool)
+        .await
+        .expect("board hierarchy must update");
+    sqlx::query("UPDATE boards SET parent_id = $1 WHERE id = $2")
+        .bind(Uuid::parse_str("019fc610-0000-7000-8000-000000000011").unwrap())
+        .bind(Uuid::parse_str("019fc610-0000-7000-8000-000000000012").unwrap())
+        .execute(&pool)
+        .await
+        .expect("child board hierarchy must update");
+
+    let response = daoyun_api::app(Database::from_pool(pool))
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/boards/current")
+                .body(Body::empty())
+                .expect("request must be valid"),
+        )
+        .await
+        .expect("router must respond");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let request_id = response.headers()["x-request-id"]
+        .to_str()
+        .expect("request id must be text")
+        .to_owned();
+    let payload = response_json(response).await;
+    assert_eq!(payload["meta"]["request_id"], request_id);
+    assert_eq!(payload["data"]["slug"], "current");
+    assert_eq!(
+        payload["data"]["parent_id"],
+        "019fc610-0000-7000-8000-000000000010"
+    );
+    assert_eq!(payload["data"]["children"][0]["slug"], "child");
+    assert_eq!(payload["data"]["breadcrumb"][0]["slug"], "parent");
+    assert_eq!(payload["data"]["breadcrumb"][1]["slug"], "current");
+    assert_eq!(payload["data"]["viewer"]["can_read"], true);
+    assert_eq!(payload["data"]["viewer"]["can_create_topic"], false);
+    assert_eq!(payload["data"]["viewer"]["can_reply"], false);
+    assert_eq!(payload["data"]["viewer"]["can_upload_attachment"], false);
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn public_board_detail_distinguishes_forbidden_and_missing_boards(pool: PgPool) {
+    let board_id = Uuid::parse_str("019fc610-0000-7000-8000-000000000020").unwrap();
+    insert_board(&pool, &board_id.to_string(), "members-only", 10, "public").await;
+    let policy_id = Uuid::parse_str("019fc610-0000-7000-8000-000000000021").unwrap();
+    sqlx::query(
+        "INSERT INTO content_access_policies (id, target_type, target_id, operator) \
+         VALUES ($1, 'board', $2, 'any_of')",
+    )
+    .bind(policy_id)
+    .bind(board_id)
+    .execute(&pool)
+    .await
+    .expect("access policy must insert");
+    sqlx::query(
+        "INSERT INTO content_access_policy_subjects (policy_id, subject_type) \
+         VALUES ($1, 'authenticated')",
+    )
+    .bind(policy_id)
+    .execute(&pool)
+    .await
+    .expect("access policy subject must insert");
+
+    let app = daoyun_api::app(Database::from_pool(pool));
+    let forbidden = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/boards/members-only")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("forbidden board request must respond");
+    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        response_json(forbidden).await["error"]["code"],
+        "board.forbidden"
+    );
+
+    let missing = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/boards/not-found")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("missing board request must respond");
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        response_json(missing).await["error"]["code"],
+        "board.not_found"
+    );
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
@@ -160,6 +293,12 @@ async fn openapi_documents_the_public_board_list() {
     }
     assert!(document["components"]["schemas"]["BoardSummary"].is_object());
     assert!(document["components"]["schemas"]["BoardTone"].is_object());
+    let detail = &document["paths"]["/api/v1/boards/{slug}"]["get"];
+    assert!(detail.is_object());
+    for status in ["200", "403", "404", "422", "503"] {
+        assert!(detail["responses"][status]["headers"]["x-request-id"].is_object());
+    }
+    assert!(document["components"]["schemas"]["BoardDetail"].is_object());
 }
 
 async fn insert_board(pool: &PgPool, id: &str, slug: &str, position: i32, visibility: &str) {

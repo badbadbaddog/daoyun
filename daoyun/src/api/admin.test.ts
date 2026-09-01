@@ -136,6 +136,7 @@ describe("admin API", () => {
         tone: "green",
         position: 0,
         visibility: "public",
+        status: "open",
         expected_revision: 1,
       }),
     }))
@@ -395,12 +396,13 @@ describe("admin API", () => {
     await expect(grantMembershipPoints({ userId: memberId, amount: 25, reason: "运营奖励", idempotencyKey: "grant-1" }, "csrf"))
       .resolves.toEqual({
         created: true,
+        auditId: null,
         account: { userId: memberId, pointsBalance: 25, lifetimePoints: 25, levelKey: "lv_2", levelNumber: 2, levelDisplayName: "Lv2", revision: 2, updatedAt: "2026-08-07T01:00:00Z" },
       })
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/admin/membership/points", expect.objectContaining({
       method: "POST",
       headers: expect.objectContaining({ "x-csrf-token": "csrf" }),
-      body: JSON.stringify({ user_id: memberId, amount: 25, reason: "运营奖励", idempotency_key: "grant-1" }),
+      body: JSON.stringify({ user_id: memberId, amount: 25, reason: "运营奖励", details: null, idempotency_key: "grant-1" }),
     }))
   })
 

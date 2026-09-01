@@ -57,7 +57,7 @@ describe("AdminDashboard", () => {
   it("shows user and board summaries with explicit empty states", async () => {
     render(<AdminDashboard
       capabilityKeys={["admin.users.read", "admin.configuration.read"]}
-      boards={[{ id: reportId, parentId: null, slug: "hidden", name: "内部版块", description: "", icon: "folder", tone: "green", position: 0, visibility: "hidden", topicCount: 0, revision: 1 }]}
+      boards={[{ id: reportId, parentId: null, slug: "hidden", name: "内部版块", description: "", icon: "folder", tone: "green", position: 0, visibility: "hidden", topicCount: 0, revision: 1, status: "open", mergedIntoBoardId: null }]}
       onNavigate={vi.fn()}
     />)
 

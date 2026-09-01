@@ -9,7 +9,8 @@ use crate::BoardTone;
 pub struct CreateTopicRequest {
     #[serde(default)]
     pub board_id: Option<Uuid>,
-    pub title: String,
+    #[serde(default)]
+    pub title: Option<String>,
     pub content: String,
     #[serde(default)]
     pub rich_content: Option<Value>,
@@ -83,6 +84,14 @@ pub struct ReplyRevision {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FeedMode {
+    Recommended,
+    Following,
+    Latest,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TopicSort {
@@ -132,6 +141,7 @@ pub struct TopicSummary {
     pub view_count: u64,
     pub is_featured: bool,
     pub is_pinned: bool,
+    pub image_url: Option<String>,
     pub tags: Vec<TopicTag>,
 }
 

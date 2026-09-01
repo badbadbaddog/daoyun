@@ -78,6 +78,7 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
   const [draft, setDraft] = useState<InstallDraft>(emptyDraft)
+  const [installStep, setInstallStep] = useState<1 | 2 | 3 | 4>(1)
   const [componentFile, setComponentFile] = useState<File | null>(null)
   const [payloads, setPayloads] = useState<Record<string, string>>({})
   const [outputs, setOutputs] = useState<Record<string, string>>({})
@@ -117,8 +118,9 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
     const form = event.currentTarget
     setError(""); setNotice("")
     if (!componentFile) { setError("请选择 WebAssembly Component 文件"); return }
-    if (componentFile.size > MAX_COMPONENT_BYTES) { setError("组件文件不能超过 8 MiB"); return }
-    if (componentFile.size === 0) { setError("组件文件不能为空"); return }
+    const componentError = validateComponentFile(componentFile)
+    if (componentError) { setError(componentError); return }
+    if (!(await hasWasmMagic(componentFile))) { setError("组件文件不是有效的 WebAssembly 二进制"); return }
     if (draft.capabilities.length === 0) { setError("至少选择一项插件能力"); return }
     if (draft.eventSubscriptions.length > 0 && !draft.capabilities.includes("events.subscribe")) { setError("声明事件订阅前需要勾选“订阅业务事件”能力"); return }
     if (draft.capabilities.some((capability) => TARGETED_WRITE_CAPABILITIES.includes(capability)) && !draft.dataScopes.includes("users.targeted")) {
@@ -166,7 +168,7 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
         componentBase64,
       }, csrfToken)
       setPlugins((current) => [...current, installed].sort((left, right) => left.key.localeCompare(right.key)))
-      setDraft(emptyDraft); setComponentFile(null); setNotice("插件已安装，启用前仍会重新校验组件")
+      setDraft(emptyDraft); setInstallStep(1); setComponentFile(null); setNotice("插件已安装，启用前仍会重新校验组件")
       form.reset()
     } catch (reason) {
       setError(apiMessage(reason, "插件安装失败，请稍后重试。"))
@@ -290,12 +292,14 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
               </header>
               {plugin.description && <p>{plugin.description}</p>}
               <dl>
+                <div><dt>运行状态</dt><dd>{plugin.status === "enabled" ? "正在运行" : "已停用"}</dd></div>
+                <div><dt>风险等级</dt><dd><strong>{`${riskLabel(pluginRisk(plugin.capabilities, plugin.dataScopes))}风险`}</strong></dd></div>
                 <div><dt>能力</dt><dd>{plugin.capabilities.map(capabilityLabel).join("、")}</dd></div>
-                {plugin.businessApiVersion && <div><dt>业务契约</dt><dd>业务 ABI {plugin.businessApiVersion}</dd></div>}
+                <div><dt>WIT / ABI</dt><dd>{plugin.businessApiVersion ? `业务 ABI ${plugin.businessApiVersion}` : "旧版 content-transform ABI"}</dd></div>
                 {plugin.dataScopes.length > 0 && <div><dt>数据范围</dt><dd>{plugin.dataScopes.map(dataScopeLabel).join("、")}</dd></div>}
                 {plugin.eventSubscriptions.length > 0 && <div><dt>事件订阅</dt><dd>{plugin.eventSubscriptions.map(eventLabel).join("、")}</dd></div>}
-                <div><dt>组件</dt><dd>{formatBytes(plugin.componentSize)} · SHA-256 {plugin.componentSha256.slice(0, 12)}…</dd></div>
-                <div><dt>修订</dt><dd>{plugin.revision}</dd></div>
+                <div><dt>组件</dt><dd>Wasm Component · {formatBytes(plugin.componentSize)} · SHA-256 {plugin.componentSha256.slice(0, 12)}…</dd></div>
+                <div><dt>Revision</dt><dd>{plugin.revision}</dd></div>
               </dl>
               {canLifecycle && <div className="plugin-row__actions">
                 <button className="secondary-button" type="button" disabled={busyId === plugin.id} onClick={() => void changeStatus(plugin)} aria-label={`${plugin.status === "enabled" ? "停用" : "启用"}插件：${plugin.name}`}>
@@ -304,16 +308,20 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
                 </button>
                 {plugin.status === "disabled" && <button className="secondary-button" type="button" disabled={busyId === plugin.id} onClick={() => void remove(plugin)} aria-label={`卸载插件：${plugin.name}`}><Trash2 size={14} aria-hidden="true" />卸载</button>}
               </div>}
-              {canInvoke && plugin.status === "enabled" && <div className="plugin-runner">
-                <label><span>调用输入：{plugin.name}</span><textarea rows={5} value={payloads[plugin.id] ?? DEFAULT_UI_INPUT} onChange={(event) => setPayloads((current) => ({ ...current, [plugin.id]: event.target.value }))} /></label>
-                <div className="plugin-row__actions">
-                  {!plugin.businessApiVersion && plugin.capabilities.includes("content.transform") && <button className="secondary-button" type="button" disabled={busyId === plugin.id} onClick={() => void run(plugin, "content_transform")} aria-label={`转换内容：${plugin.name}`}><Play size={14} aria-hidden="true" />转换内容</button>}
-                  {!plugin.businessApiVersion && plugin.capabilities.includes("ui.panel") && <button className="secondary-button" type="button" disabled={busyId === plugin.id} onClick={() => void run(plugin, "ui_render")} aria-label={`渲染面板：${plugin.name}`}><Play size={14} aria-hidden="true" />渲染面板</button>}
+              {canInvoke && plugin.status === "enabled" && <details className="plugin-runner">
+                <summary>开发者工具</summary>
+                <div aria-label={`开发者工具：${plugin.name}`}>
+                  <p>仅用于授权调试。原始 JSON 输入不会改变 manifest、WIT 或 capability 审批。</p>
+                  <label><span>调用输入：{plugin.name}</span><textarea rows={5} value={payloads[plugin.id] ?? DEFAULT_UI_INPUT} onChange={(event) => setPayloads((current) => ({ ...current, [plugin.id]: event.target.value }))} /></label>
+                  <div className="plugin-row__actions">
+                    {!plugin.businessApiVersion && plugin.capabilities.includes("content.transform") && <button className="secondary-button" type="button" disabled={busyId === plugin.id} onClick={() => void run(plugin, "content_transform")} aria-label={`转换内容：${plugin.name}`}><Play size={14} aria-hidden="true" />转换内容</button>}
+                    {!plugin.businessApiVersion && plugin.capabilities.includes("ui.panel") && <button className="secondary-button" type="button" disabled={busyId === plugin.id} onClick={() => void run(plugin, "ui_render")} aria-label={`渲染面板：${plugin.name}`}><Play size={14} aria-hidden="true" />渲染面板</button>}
+                  </div>
+                  {outputs[plugin.id] !== undefined && <pre className="plugin-output" aria-label={`插件输出：${plugin.name}`}>{outputs[plugin.id]}</pre>}
+                  {schemas[plugin.id] && <PluginPanelFrame schema={schemas[plugin.id]} />}
                 </div>
-                {outputs[plugin.id] !== undefined && <pre className="plugin-output" aria-label={`插件输出：${plugin.name}`}>{outputs[plugin.id]}</pre>}
-                {schemas[plugin.id] && <PluginPanelFrame schema={schemas[plugin.id]} />}
-              </div>}
-              {contributionErrors[plugin.id] && <p className="plugin-contribution-error" role="status">{contributionErrors[plugin.id]}</p>}
+              </details>}
+              {contributionErrors[plugin.id] && <p className="plugin-contribution-error" role="status"><strong>贡献加载故障</strong><span>{contributionErrors[plugin.id]}</span></p>}
               {(contributions[plugin.id] ?? []).filter((item) => item.slot === "admin_plugin").map((item, index) => (
                 <section className="plugin-contribution" key={`${plugin.id}-${index}`} aria-label={`插件扩展：${item.schema.title}`}>
                   <PluginPanelFrame schema={item.schema} />
@@ -342,23 +350,50 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
 
       {canInstall && <form className="admin-form plugin-install" onSubmit={submitInstall}>
         <div className="admin-form__heading"><h3>安装插件</h3><span className="admin-badge">默认停用</span></div>
-        <div className="admin-form__grid">
-          <label><span>插件键</span><input required pattern="[a-z][a-z0-9_]{2,63}" value={draft.key} onChange={(event) => setDraft({ ...draft, key: event.target.value })} /></label>
-          <label><span>名称</span><input required maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
-          <label><span>版本</span><input required pattern="(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)" value={draft.version} onChange={(event) => setDraft({ ...draft, version: event.target.value })} /></label>
-        </div>
-        <label><span>说明</span><textarea rows={2} maxLength={500} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label>
-        <fieldset className="plugin-capabilities"><legend>声明能力</legend>
-          {PLUGIN_CAPABILITIES.map((capability) => <label key={capability}><input type="checkbox" checked={draft.capabilities.includes(capability)} onChange={(event) => setDraft({ ...draft, capabilities: event.target.checked ? [...draft.capabilities, capability] : draft.capabilities.filter((item) => item !== capability) })} /><span>{capabilityLabel(capability)}</span></label>)}
-        </fieldset>
-        <fieldset className="plugin-capabilities"><legend>数据范围（安装审批）</legend>
-          {PLUGIN_DATA_SCOPES.map((scope) => <label key={scope}><input type="checkbox" checked={draft.dataScopes.includes(scope)} onChange={(event) => setDraft({ ...draft, dataScopes: event.target.checked ? [...draft.dataScopes, scope] : draft.dataScopes.filter((item) => item !== scope) })} /><span>{dataScopeLabel(scope)}</span></label>)}
-        </fieldset>
-        <fieldset className="plugin-capabilities"><legend>事件订阅（安装审批）</legend>
-          {PLUGIN_EVENTS.map((eventName) => <label key={eventName}><input type="checkbox" checked={draft.eventSubscriptions.includes(eventName)} onChange={(event) => setDraft({ ...draft, eventSubscriptions: event.target.checked ? [...draft.eventSubscriptions, eventName] : draft.eventSubscriptions.filter((item) => item !== eventName) })} /><span>{eventLabel(eventName)}</span></label>)}
-        </fieldset>
-        <label><span>WebAssembly Component 文件</span><input aria-label="WebAssembly Component 文件" type="file" accept=".wasm,application/wasm" required onChange={(event) => { const file = event.target.files?.[0] ?? null; setComponentFile(file); if (file && file.size > MAX_COMPONENT_BYTES) setError("组件文件不能超过 8 MiB") }} /><small>解码后最大 8 MiB，安装前校验 WIT 接口。</small></label>
-        <div className="admin-form__actions"><button className="primary-button" type="submit" disabled={busyId === "install"}>{busyId === "install" ? <LoaderCircle className="topic-loading__spinner" size={15} aria-hidden="true" /> : <Upload size={15} aria-hidden="true" />}安装插件</button></div>
+        <p className="plugin-install__step">{installStepLabel(installStep)}</p>
+        {installStep === 1 && <>
+          <div className="admin-form__grid">
+            <label><span>插件键</span><input aria-label="插件键" required pattern="[a-z][a-z0-9_]{2,63}" value={draft.key} onChange={(event) => setDraft({ ...draft, key: event.target.value })} /></label>
+            <label><span>名称</span><input aria-label="名称" required maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
+            <label><span>版本</span><input aria-label="版本" required pattern="(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)" value={draft.version} onChange={(event) => setDraft({ ...draft, version: event.target.value })} /></label>
+          </div>
+          <label><span>说明</span><textarea rows={2} maxLength={500} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label>
+          <div className="admin-form__actions"><button className="primary-button" type="button" onClick={() => setInstallStep(2)} disabled={!draft.key.trim() || !draft.name.trim()}>下一步：能力审批</button></div>
+        </>}
+        {installStep === 2 && <>
+          <fieldset className="plugin-capabilities"><legend>声明能力</legend>
+            {PLUGIN_CAPABILITIES.map((capability) => <label key={capability}><input type="checkbox" checked={draft.capabilities.includes(capability)} onChange={(event) => setDraft({ ...draft, capabilities: event.target.checked ? [...draft.capabilities, capability] : draft.capabilities.filter((item) => item !== capability) })} /><span>{capabilityLabel(capability)}</span></label>)}
+          </fieldset>
+          <fieldset className="plugin-capabilities"><legend>数据范围（安装审批）</legend>
+            {PLUGIN_DATA_SCOPES.map((scope) => <label key={scope}><input type="checkbox" checked={draft.dataScopes.includes(scope)} onChange={(event) => setDraft({ ...draft, dataScopes: event.target.checked ? [...draft.dataScopes, scope] : draft.dataScopes.filter((item) => item !== scope) })} /><span>{dataScopeLabel(scope)}</span></label>)}
+          </fieldset>
+          <fieldset className="plugin-capabilities"><legend>事件订阅（安装审批）</legend>
+            {PLUGIN_EVENTS.map((eventName) => <label key={eventName}><input type="checkbox" checked={draft.eventSubscriptions.includes(eventName)} onChange={(event) => setDraft({ ...draft, eventSubscriptions: event.target.checked ? [...draft.eventSubscriptions, eventName] : draft.eventSubscriptions.filter((item) => item !== eventName) })} /><span>{eventLabel(eventName)}</span></label>)}
+          </fieldset>
+          <p><strong>{`${riskLabel(pluginRisk(draft.capabilities, draft.dataScopes))}风险`}</strong> · 安装只批准 manifest 中声明的能力与数据范围。</p>
+          <div className="admin-form__actions"><button className="secondary-button" type="button" onClick={() => setInstallStep(1)}>上一步</button><button className="primary-button" type="button" onClick={() => setInstallStep(3)}>下一步：组件文件</button></div>
+        </>}
+        {installStep === 3 && <>
+          <label><span>WebAssembly Component 文件</span><input aria-label="WebAssembly Component 文件" type="file" accept=".wasm,application/wasm" required onChange={(event) => { const file = event.target.files?.[0] ?? null; setComponentFile(file); const nextError = file ? validateComponentFile(file) : ""; setError(nextError) }} /><small>仅接受 .wasm WebAssembly Component，最大 8 MiB；安装与启用时服务端继续执行 WIT/ABI 校验。</small></label>
+          {componentFile && !validateComponentFile(componentFile) && <p role="status"><strong>文件预检通过</strong> · {componentFile.name} · {formatBytes(componentFile.size)}</p>}
+          <div className="admin-form__actions"><button className="secondary-button" type="button" onClick={() => setInstallStep(2)}>上一步</button><button className="primary-button" type="button" onClick={() => { if (!componentFile) { setError("请选择 WebAssembly Component 文件"); return } const nextError = validateComponentFile(componentFile); if (nextError) { setError(nextError); return } setError(""); setInstallStep(4) }}>下一步：确认安装</button></div>
+        </>}
+        {installStep === 4 && <>
+          <section className="plugin-install__review" aria-label="Manifest 摘要">
+            <h4>Manifest 摘要</h4>
+            <p><strong>{draft.key} · {draft.version}</strong></p>
+            <p>能力：{draft.capabilities.map(capabilityLabel).join("、")}</p>
+            <p>数据范围：{draft.dataScopes.length > 0 ? draft.dataScopes.map(dataScopeLabel).join("、") : "无"}</p>
+            <p>事件订阅：{draft.eventSubscriptions.length > 0 ? draft.eventSubscriptions.map(eventLabel).join("、") : "无"}</p>
+            <p><strong>{`${riskLabel(pluginRisk(draft.capabilities, draft.dataScopes))}风险`}</strong> · 安装后默认停用。</p>
+          </section>
+          <section className="plugin-install__review" aria-label="组件文件摘要">
+            <h4>组件文件摘要</h4>
+            <p>{componentFile?.name} · {componentFile ? formatBytes(componentFile.size) : "未选择"}</p>
+            <p>服务端将在安装与启用时继续执行 manifest、Wasm Component、WIT / ABI 和 capability 校验。</p>
+          </section>
+          <div className="admin-form__actions"><button className="secondary-button" type="button" onClick={() => setInstallStep(3)}>上一步</button><button className="primary-button" type="submit" disabled={busyId === "install"}>{busyId === "install" ? <LoaderCircle className="topic-loading__spinner" size={15} aria-hidden="true" /> : <Upload size={15} aria-hidden="true" />}确认安装</button></div>
+        </>}
       </form>}
     </div>
   )
@@ -388,14 +423,58 @@ function escapeHtml(value: string): string {
   })[character] ?? character)
 }
 
+async function readFileBytes(file: Blob): Promise<Uint8Array> {
+  const buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error ?? new Error("读取组件文件失败"))
+    reader.onload = () => {
+      if (reader.result instanceof ArrayBuffer) resolve(reader.result)
+      else reject(new Error("读取组件文件失败"))
+    }
+    reader.readAsArrayBuffer(file)
+  })
+  return new Uint8Array(buffer)
+}
+
 async function fileToBase64(file: File): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer())
+  const bytes = await readFileBytes(file)
   const chunks: string[] = []
   const chunkSize = 0x8000
   for (let offset = 0; offset < bytes.length; offset += chunkSize) {
     chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + chunkSize)))
   }
   return btoa(chunks.join(""))
+}
+
+function validateComponentFile(file: File): string {
+  if (file.size > MAX_COMPONENT_BYTES) return "组件文件不能超过 8 MiB"
+  if (file.size === 0) return "组件文件不能为空"
+  const nameIsWasm = file.name.toLowerCase().endsWith(".wasm")
+  const mimeIsWasm = file.type === "" || file.type === "application/wasm" || file.type === "application/octet-stream"
+  return nameIsWasm && mimeIsWasm ? "" : "请选择 .wasm WebAssembly Component 文件"
+}
+
+async function hasWasmMagic(file: File): Promise<boolean> {
+  const bytes = await readFileBytes(file.slice(0, 4))
+  return bytes.length === 4 && bytes[0] === 0x00 && bytes[1] === 0x61 && bytes[2] === 0x73 && bytes[3] === 0x6d
+}
+
+type PluginRisk = "low" | "medium" | "high" | "critical"
+
+function pluginRisk(capabilities: PluginCapability[], dataScopes: PluginDataScope[]): PluginRisk {
+  if (capabilities.includes("notifications.write")) return "critical"
+  if (capabilities.some((capability) => capability === "points.write" || capability === "experience.write" || capability === "entitlements.write")) return "high"
+  if (capabilities.includes("storage.read_write") || capabilities.includes("tasks.schedule") || dataScopes.includes("users.read.membership") || dataScopes.includes("users.targeted")) return "high"
+  if (capabilities.includes("events.subscribe")) return "medium"
+  return "low"
+}
+
+function riskLabel(risk: PluginRisk): string {
+  return ({ low: "低", medium: "中", high: "高", critical: "严重" } satisfies Record<PluginRisk, string>)[risk]
+}
+
+function installStepLabel(step: 1 | 2 | 3 | 4): string {
+  return ({ 1: "步骤 1 / 4 · 基本信息", 2: "步骤 2 / 4 · 能力审批", 3: "步骤 3 / 4 · 组件文件", 4: "步骤 4 / 4 · 确认安装" } as const)[step]
 }
 
 function capabilityLabel(capability: PluginCapability): string {

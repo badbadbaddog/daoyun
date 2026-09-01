@@ -192,6 +192,117 @@ async fn topic_list_supports_public_author_filters_and_authenticated_following_s
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn feed_facade_maps_recommended_following_and_latest_modes(pool: PgPool) {
+    let config = daoyun_api::AuthConfig::default().with_secure_cookies(false);
+    let app = daoyun_api::app_with_config(Database::from_pool(pool.clone()), config);
+    let (member_cookies, member_csrf) = register_member(&app).await;
+    let owner_id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username = 'owner'")
+        .fetch_one(&pool)
+        .await
+        .expect("owner fixture must exist");
+    let member_id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username = 'member'")
+        .fetch_one(&pool)
+        .await
+        .expect("member fixture must exist");
+    let board_id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM boards WHERE slug = 'general'")
+        .fetch_one(&pool)
+        .await
+        .expect("default board fixture must exist");
+    let owner_topic = fixture_id(161);
+    let member_topic = fixture_id(162);
+    insert_topic(
+        &pool,
+        owner_topic,
+        board_id,
+        owner_id,
+        "popular owner post",
+        "2026-08-03T10:00:00Z",
+        false,
+        false,
+    )
+    .await;
+    insert_topic(
+        &pool,
+        member_topic,
+        board_id,
+        member_id,
+        "newest member post",
+        "2026-08-03T11:00:00Z",
+        false,
+        false,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE topics SET hot_score = CASE WHEN id = $1 THEN 100 ELSE 1 END WHERE id IN ($1, $2)",
+    )
+    .bind(owner_topic)
+    .bind(member_topic)
+    .execute(&pool)
+    .await
+    .expect("feed popularity fixtures must update");
+
+    let latest = app
+        .clone()
+        .oneshot(get_request("/api/v1/feed?mode=latest"))
+        .await
+        .expect("latest feed must respond");
+    assert_eq!(latest.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(latest).await["data"][0]["id"],
+        member_topic.to_string()
+    );
+
+    let recommended = app
+        .clone()
+        .oneshot(get_request("/api/v1/feed?mode=recommended"))
+        .await
+        .expect("recommended feed must respond");
+    assert_eq!(recommended.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(recommended).await["data"][0]["id"],
+        owner_topic.to_string()
+    );
+
+    let anonymous_following = app
+        .clone()
+        .oneshot(get_request("/api/v1/feed?mode=following"))
+        .await
+        .expect("anonymous following feed must respond");
+    assert_eq!(anonymous_following.status(), StatusCode::UNAUTHORIZED);
+
+    let followed = app
+        .clone()
+        .oneshot(state_change_request(
+            Method::PUT,
+            &format!("/api/v1/users/{owner_id}/follow"),
+            &member_cookies,
+            &member_csrf,
+        ))
+        .await
+        .expect("follow request must respond");
+    assert_eq!(followed.status(), StatusCode::OK);
+
+    let following = app
+        .clone()
+        .oneshot(get_request_with_headers(
+            "/api/v1/feed?mode=following",
+            &member_cookies,
+        ))
+        .await
+        .expect("authenticated following feed must respond");
+    assert_eq!(following.status(), StatusCode::OK);
+    let following_payload = response_json(following).await;
+    assert_eq!(following_payload["data"].as_array().map(Vec::len), Some(1));
+    assert_eq!(following_payload["data"][0]["author"]["username"], "owner");
+
+    let invalid = app
+        .oneshot(get_request("/api/v1/feed?mode=unknown"))
+        .await
+        .expect("invalid feed mode must respond");
+    assert_eq!(invalid.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
 async fn topic_detail_returns_content_and_hides_every_unavailable_variant(pool: PgPool) {
     let author = fixture_id(1);
     let board = fixture_id(11);
@@ -450,6 +561,104 @@ async fn publishing_uses_the_default_board_and_replays_idempotently(pool: PgPool
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn post_facade_reuses_topic_storage_handlers_and_comment_chain(pool: PgPool) {
+    let config = daoyun_api::AuthConfig::default().with_secure_cookies(false);
+    let app = daoyun_api::app_with_config(Database::from_pool(pool), config);
+    let (cookies, csrf) = register_member(&app).await;
+
+    let created = app
+        .clone()
+        .oneshot(json_request_with_headers_and_idempotency(
+            "/api/v1/posts",
+            serde_json::json!({"content": "统一 Post 正文"}),
+            &cookies,
+            &csrf,
+            "post-facade-create-001",
+        ))
+        .await
+        .expect("post facade creation must respond");
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let created_payload = response_json(created).await;
+    let post_id = created_payload["data"]["id"]
+        .as_str()
+        .expect("post facade must return an id")
+        .to_owned();
+    assert_eq!(created_payload["data"]["title"], "");
+    assert_eq!(created_payload["data"]["content"], "统一 Post 正文");
+
+    let legacy_detail = app
+        .clone()
+        .oneshot(get_request(&format!("/api/v1/topics/{post_id}")))
+        .await
+        .expect("legacy topic detail must read facade-created post");
+    assert_eq!(legacy_detail.status(), StatusCode::OK);
+    let legacy_payload = response_json(legacy_detail).await;
+    assert_eq!(legacy_payload["data"]["id"], post_id);
+    assert_eq!(legacy_payload["data"]["content"], "统一 Post 正文");
+
+    let updated = app
+        .clone()
+        .oneshot(json_request_with_headers(
+            Method::PATCH,
+            &format!("/api/v1/posts/{post_id}"),
+            serde_json::json!({
+                "base_revision": 1,
+                "title": "兼容 Post 标题"
+            }),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .expect("post facade update must respond");
+    assert_eq!(updated.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(updated).await["data"]["title"],
+        "兼容 Post 标题"
+    );
+
+    let comment_path = format!("/api/v1/posts/{post_id}/comments");
+    let comment = app
+        .clone()
+        .oneshot(json_request_with_headers_and_idempotency(
+            &comment_path,
+            serde_json::json!({"content": "兼容评论"}),
+            &cookies,
+            &csrf,
+            "post-facade-comment-001",
+        ))
+        .await
+        .expect("post facade comment must respond");
+    assert_eq!(comment.status(), StatusCode::CREATED);
+
+    let legacy_replies = app
+        .clone()
+        .oneshot(get_request(&format!("/api/v1/topics/{post_id}/replies")))
+        .await
+        .expect("legacy reply route must expose facade comment");
+    assert_eq!(legacy_replies.status(), StatusCode::OK);
+    let replies_payload = response_json(legacy_replies).await;
+    assert_eq!(replies_payload["data"][0]["content"], "兼容评论");
+
+    let deleted = app
+        .clone()
+        .oneshot(state_change_request(
+            Method::DELETE,
+            &format!("/api/v1/posts/{post_id}"),
+            &cookies,
+            &csrf,
+        ))
+        .await
+        .expect("post facade deletion must respond");
+    assert_eq!(deleted.status(), StatusCode::OK);
+
+    let legacy_deleted = app
+        .oneshot(get_request(&format!("/api/v1/topics/{post_id}")))
+        .await
+        .expect("deleted legacy detail must respond");
+    assert_eq!(legacy_deleted.status(), StatusCode::NOT_FOUND);
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
 async fn publishing_validates_fields_and_body_limit(pool: PgPool) {
     let config = daoyun_api::AuthConfig::default().with_secure_cookies(false);
     let app = daoyun_api::app_with_config(Database::from_pool(pool), config);
@@ -468,8 +677,22 @@ async fn publishing_validates_fields_and_body_limit(pool: PgPool) {
         .expect("invalid topic request must respond");
     assert_eq!(invalid.status(), StatusCode::UNPROCESSABLE_ENTITY);
     let invalid_payload = response_json(invalid).await;
-    assert!(invalid_payload["error"]["fields"]["title"].is_array());
+    assert!(invalid_payload["error"]["fields"]["title"].is_null());
     assert!(invalid_payload["error"]["fields"]["content"].is_array());
+
+    let invalid_title = app
+        .clone()
+        .oneshot(json_request_with_headers(
+            Method::POST,
+            "/api/v1/topics",
+            serde_json::json!({"title": "x".repeat(161), "content": "正文"}),
+            &cookie_header,
+            Some(&csrf_token),
+        ))
+        .await
+        .expect("oversized title request must respond");
+    assert_eq!(invalid_title.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(response_json(invalid_title).await["error"]["fields"]["title"].is_array());
 
     let invalid_key = app
         .clone()
@@ -1296,9 +1519,24 @@ async fn openapi_documents_public_topic_list_and_detail() {
     assert_eq!(response.status(), StatusCode::OK);
     let document = response_json(response).await;
 
+    let feed_path = &document["paths"]["/api/v1/feed"]["get"];
+    assert!(feed_path.is_object());
+    assert_eq!(feed_path["operationId"], "getFeed");
     assert!(document["paths"]["/api/v1/topics"]["get"].is_object());
     assert!(document["paths"]["/api/v1/topics/{topic_id}"]["get"].is_object());
     assert!(document["paths"]["/api/v1/topics"]["post"].is_object());
+    let posts_path = &document["paths"]["/api/v1/posts"];
+    assert!(posts_path["get"].is_object());
+    assert!(posts_path["post"].is_object());
+    assert_eq!(posts_path["get"]["operationId"], "listPosts");
+    assert_eq!(posts_path["post"]["operationId"], "createPost");
+    let post_path = &document["paths"]["/api/v1/posts/{post_id}"];
+    assert!(post_path["get"].is_object());
+    assert!(post_path["patch"].is_object());
+    assert!(post_path["delete"].is_object());
+    let comments_path = &document["paths"]["/api/v1/posts/{post_id}/comments"];
+    assert!(comments_path["get"].is_object());
+    assert!(comments_path["post"].is_object());
     assert!(document["paths"]["/api/v1/admin/moderation/boards"]["get"].is_object());
     assert!(document["paths"]["/api/v1/admin/moderation/topics"]["get"].is_object());
     let list_parameters = document["paths"]["/api/v1/topics"]["get"]["parameters"]
@@ -1331,6 +1569,7 @@ async fn openapi_documents_public_topic_list_and_detail() {
             .is_object()
     );
     for schema in [
+        "FeedMode",
         "TopicAuthorSummary",
         "TopicBoardSummary",
         "TopicDetail",
@@ -1371,8 +1610,19 @@ async fn openapi_documents_public_topic_list_and_detail() {
         );
     }
     assert!(
+        document["components"]["schemas"]["TopicSummary"]["properties"]["image_url"].is_object()
+    );
+    assert!(
         document["components"]["schemas"]["CreateReplyRequest"]["properties"]["reply_to_id"]
             .is_object()
+    );
+    let create_topic_required = document["components"]["schemas"]["CreateTopicRequest"]["required"]
+        .as_array()
+        .expect("CreateTopicRequest required fields must be documented");
+    assert!(create_topic_required.iter().any(|field| field == "content"));
+    assert!(
+        !create_topic_required.iter().any(|field| field == "title"),
+        "title must remain optional for unified post creation"
     );
 }
 

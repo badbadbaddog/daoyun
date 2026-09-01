@@ -48,15 +48,15 @@ const REPLY_BODY_LIMIT: usize = 128 * 1024;
 #[derive(Debug, Default, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub(crate) struct ListTopicsQuery {
-    board: Option<String>,
-    query: Option<String>,
-    tag: Option<String>,
-    author: Option<String>,
-    scope: Option<TopicScope>,
-    featured: Option<bool>,
-    sort: Option<TopicSort>,
-    cursor: Option<Uuid>,
-    limit: Option<u16>,
+    pub(crate) board: Option<String>,
+    pub(crate) query: Option<String>,
+    pub(crate) tag: Option<String>,
+    pub(crate) author: Option<String>,
+    pub(crate) scope: Option<TopicScope>,
+    pub(crate) featured: Option<bool>,
+    pub(crate) sort: Option<TopicSort>,
+    pub(crate) cursor: Option<Uuid>,
+    pub(crate) limit: Option<u16>,
 }
 
 #[derive(Debug, Default, Deserialize, IntoParams)]
@@ -1286,7 +1286,7 @@ fn validate_create_request(
     request: CreateTopicRequest,
 ) -> Result<ValidatedCreateTopic, FieldErrors> {
     let mut fields = FieldErrors::new();
-    let title = request.title.trim().to_owned();
+    let title = request.title.unwrap_or_default().trim().to_owned();
     let (content, rich_content) = validate_body_content(
         request.content,
         request.rich_content,
@@ -1295,11 +1295,11 @@ fn validate_create_request(
         &mut fields,
     );
     let tags = validate_tags(request.tags, &mut fields);
-    if !(1..=160).contains(&title.chars().count()) || title.chars().any(char::is_control) {
+    if !title.is_empty() && (title.chars().count() > 160 || title.chars().any(char::is_control)) {
         add_field_error(
             &mut fields,
             "title",
-            "标题必须为 1 到 160 个字符且不能包含控制字符",
+            "标题最多 160 个字符且不能包含控制字符",
         );
     }
     if fields.is_empty() {
@@ -1419,13 +1419,14 @@ fn validate_update_request(
         add_field_error(&mut fields, "base_revision", "base_revision 必须是正整数");
     }
     let title = request.title.map(|value| value.trim().to_owned());
-    if title.as_deref().is_some_and(|value| {
-        !(1..=160).contains(&value.chars().count()) || value.chars().any(char::is_control)
-    }) {
+    if title
+        .as_deref()
+        .is_some_and(|value| value.chars().count() > 160 || value.chars().any(char::is_control))
+    {
         add_field_error(
             &mut fields,
             "title",
-            "标题必须为 1 到 160 个字符且不能包含控制字符",
+            "标题最多 160 个字符且不能包含控制字符",
         );
     }
     let (content, rich_content) = if let Some(rich_content) = request.rich_content {
@@ -1641,6 +1642,9 @@ pub(crate) fn topic_summary(record: PublicTopicRecord) -> Result<TopicSummary, (
         view_count: u64::try_from(record.view_count).map_err(|_| ())?,
         is_featured: record.is_featured,
         is_pinned: record.is_pinned,
+        image_url: record
+            .image_attachment_id
+            .map(|attachment_id| format!("/api/v1/attachments/{attachment_id}/thumbnail")),
         tags: record
             .tags
             .into_iter()

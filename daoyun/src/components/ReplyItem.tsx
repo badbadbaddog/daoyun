@@ -222,7 +222,7 @@ export function ReplyItem({
   }
 
   return (
-    <article className="reply-item" id={`reply-${reply.id}`}>
+    <article className="reply-item" id={`reply-${reply.id}`} tabIndex={-1} aria-label={`第 ${reply.floorNumber} 楼回复`}>
       <a
         className="reply-item__avatar"
         href={`#user/${reply.author.username}`}
@@ -297,28 +297,57 @@ export function ReplyItem({
         )}
 
         {!editing && (
-          <div className="reply-item__interactions">
-            <button className="secondary-button" type="button" aria-label={`回复 ${reply.floorNumber} 楼`} onClick={() => onReplyTo(reply)}>
-              <ReplyIcon size={14} aria-hidden="true" />
-              回复
-            </button>
-            <button
-              className="secondary-button"
-              type="button"
-              aria-label={reply.liked ? "取消点赞回复" : "点赞回复"}
-              aria-pressed={reply.liked === true}
-              disabled={busyAction !== null}
-              onClick={() => void toggleLike()}
-            >
-              {busyAction === "like"
-                ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" />
-                : <ThumbsUp size={14} fill={reply.liked ? "currentColor" : "none"} aria-hidden="true" />}
-              {reply.likeCount}
-            </button>
-            <button className="secondary-button" type="button" onClick={beginReport}>
-              <Flag size={14} aria-hidden="true" />
-              举报回复
-            </button>
+          <div className="reply-item__toolbar" role="group" aria-label={`第 ${reply.floorNumber} 楼操作`}>
+            <div className="reply-item__interactions">
+              <button className="secondary-button" type="button" aria-label={`回复 ${reply.floorNumber} 楼`} onClick={() => onReplyTo(reply)}>
+                <ReplyIcon size={14} aria-hidden="true" />
+                回复
+              </button>
+              <button
+                className="secondary-button reply-item__like"
+                type="button"
+                aria-label={reply.liked ? "取消点赞回复" : "点赞回复"}
+                aria-pressed={reply.liked === true}
+                disabled={busyAction !== null}
+                onClick={() => void toggleLike()}
+              >
+                {busyAction === "like"
+                  ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" />
+                  : <ThumbsUp size={14} fill={reply.liked ? "currentColor" : "none"} aria-hidden="true" />}
+                {reply.likeCount}
+              </button>
+              <button className="secondary-button" type="button" aria-label="举报回复" onClick={beginReport}>
+                <Flag size={14} aria-hidden="true" />
+                举报
+              </button>
+            </div>
+
+            {canEdit && (
+              <div className="reply-item__actions">
+                <button className="secondary-button" type="button" aria-label="编辑回复" onClick={beginEditing}>
+                  <Edit3 size={14} aria-hidden="true" />
+                  编辑
+                </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  aria-label={showRevisions ? "收起回复修订历史" : "查看回复修订历史"}
+                  onClick={() => void toggleRevisions()}
+                >
+                  <History size={14} aria-hidden="true" />
+                  修订
+                </button>
+                <button
+                  className="secondary-button reply-action--danger"
+                  type="button"
+                  aria-label="删除回复"
+                  onClick={() => { setError(""); setConfirmingDelete(true) }}
+                >
+                  <Trash2 size={14} aria-hidden="true" />
+                  删除
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -344,23 +373,6 @@ export function ReplyItem({
               <button className="primary-button" type="submit" disabled={reportPending}>{reportPending ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" /> : <Flag size={14} aria-hidden="true" />}{reportPending ? "正在提交" : "提交举报"}</button>
             </div>
           </form>
-        )}
-
-        {canEdit && !editing && (
-          <div className="reply-item__actions">
-            <button className="secondary-button" type="button" onClick={beginEditing}>
-              <Edit3 size={14} aria-hidden="true" />
-              编辑回复
-            </button>
-            <button className="secondary-button" type="button" onClick={() => void toggleRevisions()}>
-              <History size={14} aria-hidden="true" />
-              {showRevisions ? "收起回复修订历史" : "查看回复修订历史"}
-            </button>
-            <button className="secondary-button reply-action--danger" type="button" onClick={() => { setError(""); setConfirmingDelete(true) }}>
-              <Trash2 size={14} aria-hidden="true" />
-              删除回复
-            </button>
-          </div>
         )}
 
         {confirmingDelete && (

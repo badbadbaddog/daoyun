@@ -81,6 +81,9 @@ pub struct AdminCommunityGroup {
     pub display_order: i32,
     pub permission_keys: Vec<String>,
     pub quotas: BTreeMap<String, i64>,
+    pub member_count: i64,
+    pub expiring_member_count: i64,
+    pub access_policy_reference_count: i64,
     pub revision: i64,
     #[schema(value_type = String, format = DateTime)]
     pub created_at: String,

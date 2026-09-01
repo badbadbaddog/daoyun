@@ -126,9 +126,13 @@ impl Database {
             return Err(AttachmentError::Forbidden);
         }
         let topic = sqlx::query_as::<_, AttachmentTopicRow>(
-            "SELECT author_id, board_id, status, deleted_at FROM topics WHERE id = $1 FOR UPDATE",
+            "SELECT author_id, board_id, status, deleted_at FROM topics \
+             WHERE id = $1 \
+               AND daoyun_can_access_content('topic', id, $2, CURRENT_TIMESTAMP) \
+             FOR UPDATE",
         )
         .bind(input.topic_id)
+        .bind(input.uploader_id)
         .fetch_optional(&mut *transaction)
         .await?
         .ok_or(AttachmentError::TopicUnavailable)?;

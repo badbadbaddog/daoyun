@@ -1,96 +1,79 @@
-import { HardDriveUpload, LoaderCircle, Save, ShieldCheck, X } from "lucide-react"
+import { LoaderCircle, Save, ShieldCheck, X } from "lucide-react"
 import { useEffect, useRef, type FormEvent, type KeyboardEvent, type MouseEvent } from "react"
 
-import type { AdminCommunityGroup } from "../api/admin"
+import type { AdminCommunityGroup, CommunityGroupStatus } from "../api/admin"
 
-export interface CommunityGroupQuotaDraft {
-  uploadDaily: string
-  fileMegabytes: string
-  storageMegabytes: string
-  downloadMegabytesDaily: string
+export interface CommunityGroupDraft {
+  internalKey: string
+  displayName: string
+  description: string
+  isBase: boolean
+  displayOrder: string
+  status: CommunityGroupStatus
+  permissionKeys: string[]
+  quotas: Record<string, string>
 }
 
-interface CommunityGroupQuotaDialogProps {
-  group: AdminCommunityGroup
-  value: CommunityGroupQuotaDraft
+interface CommunityGroupEditorDialogProps {
+  group: AdminCommunityGroup | null
+  value: CommunityGroupDraft
   pending: boolean
   error: string
-  onChange: (patch: Partial<CommunityGroupQuotaDraft>) => void
+  onChange: (patch: Partial<CommunityGroupDraft>) => void
   onClose: () => void
   onSubmit: (event: FormEvent) => void
 }
 
-const focusableSelector = "button:not(:disabled), input:not(:disabled), [href], [tabindex]:not([tabindex='-1'])"
+const focusableSelector = "button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [href], [tabindex]:not([tabindex='-1'])"
 
-export function CommunityGroupQuotaDialog({ group, value, pending, error, onChange, onClose, onSubmit }: CommunityGroupQuotaDialogProps) {
+export function CommunityGroupEditorDialog({ group, value, pending, error, onChange, onClose, onSubmit }: CommunityGroupEditorDialogProps) {
   const dialogRef = useRef<HTMLFormElement | null>(null)
   const firstFieldRef = useRef<HTMLInputElement | null>(null)
-
-  useEffect(() => {
-    firstFieldRef.current?.focus()
-  }, [])
+  useEffect(() => { firstFieldRef.current?.focus() }, [])
 
   function handleKeyDown(event: KeyboardEvent<HTMLFormElement>) {
-    if (event.key === "Escape" && !pending) {
-      event.preventDefault()
-      onClose()
-      return
-    }
+    if (event.key === "Escape" && !pending) { event.preventDefault(); onClose(); return }
     if (event.key !== "Tab") return
     const controls = [...(dialogRef.current?.querySelectorAll<HTMLElement>(focusableSelector) ?? [])]
-    if (controls.length === 0) return
-    const first = controls[0]
-    const last = controls[controls.length - 1]
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault()
-      last.focus()
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault()
-      first.focus()
-    }
+    const first = controls[0]; const last = controls.at(-1)
+    if (!first || !last) return
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
   }
 
-  function closeFromBackdrop(event: MouseEvent<HTMLDivElement>) {
-    if (event.currentTarget === event.target && !pending) onClose()
-  }
+  function closeFromBackdrop(event: MouseEvent<HTMLDivElement>) { if (event.currentTarget === event.target && !pending) onClose() }
+  function togglePermission(key: string, checked: boolean) { onChange({ permissionKeys: checked ? [...value.permissionKeys, key].sort() : value.permissionKeys.filter((item) => item !== key) }) }
 
-  return (
-    <div className="dialog-backdrop membership-growth-dialog-backdrop" onMouseDown={closeFromBackdrop}>
-      <form ref={dialogRef} className="membership-growth-dialog community-group-quota-dialog" role="dialog" aria-modal="true" aria-labelledby="community-group-quota-title" aria-describedby="community-group-quota-description" onSubmit={onSubmit} onKeyDown={handleKeyDown}>
-        <header className="membership-growth-dialog__header">
-          <div className="membership-growth-dialog__heading">
-            <span className="membership-growth-dialog__heading-icon"><HardDriveUpload size={17} aria-hidden="true" /></span>
-            <div><h4 id="community-group-quota-title">配置附件额度</h4><p id="community-group-quota-description">{group.displayName} · {group.internalKey}</p></div>
-          </div>
-          <button className="icon-button" type="button" aria-label="关闭附件额度配置" title="关闭附件额度配置" disabled={pending} onClick={onClose}><X size={16} aria-hidden="true" /></button>
-        </header>
-
-        <div className="community-group-quota-dialog__notice"><ShieldCheck size={17} aria-hidden="true" /><div><strong>额度只约束普通成员</strong><span>超级管理员仍需通过文件类型与 50 MB 系统安全限制。</span></div></div>
-
-        <div className="membership-growth-dialog__body">
-          <fieldset className="membership-growth-dialog__section">
-            <legend><span aria-hidden="true">01</span><strong>上传限制</strong><small aria-hidden="true">控制上传频率与单个文件体积</small></legend>
-            <div className="membership-growth-dialog__fields">
-              <label htmlFor="community-group-upload-daily"><span>每日上传数量</span><div className="membership-growth-dialog__input-group membership-growth-dialog__input-group--suffix"><input ref={firstFieldRef} id="community-group-upload-daily" aria-label="每日上传数量" type="number" min={0} max={10_000} step={1} value={value.uploadDaily} disabled={pending} onChange={(event) => onChange({ uploadDaily: event.target.value })} required /><span>张 / 天</span></div><small>填写 0 表示禁止该组上传附件</small></label>
-              <label htmlFor="community-group-file-size"><span>单文件大小</span><div className="membership-growth-dialog__input-group membership-growth-dialog__input-group--suffix"><input id="community-group-file-size" aria-label="单文件大小" type="number" min={0} max={50} step={1} value={value.fileMegabytes} disabled={pending} onChange={(event) => onChange({ fileMegabytes: event.target.value })} required /><span>MB</span></div><small>系统安全上限为 50 MB</small></label>
-            </div>
-          </fieldset>
-
-          <fieldset className="membership-growth-dialog__section">
-            <legend><span aria-hidden="true">02</span><strong>空间与流量</strong><small aria-hidden="true">控制累计占用和每日下载流量</small></legend>
-            <div className="membership-growth-dialog__fields">
-              <label htmlFor="community-group-storage"><span>总存储空间</span><div className="membership-growth-dialog__input-group membership-growth-dialog__input-group--suffix"><input id="community-group-storage" aria-label="总存储空间" type="number" min={0} max={1_048_576} step={1} value={value.storageMegabytes} disabled={pending} onChange={(event) => onChange({ storageMegabytes: event.target.value })} required /><span>MB</span></div><small>该用户全部有效附件的累计空间</small></label>
-              <label htmlFor="community-group-download-daily"><span>每日下载流量</span><div className="membership-growth-dialog__input-group membership-growth-dialog__input-group--suffix"><input id="community-group-download-daily" aria-label="每日下载流量" type="number" min={0} max={1_048_576} step={1} value={value.downloadMegabytesDaily} disabled={pending} onChange={(event) => onChange({ downloadMegabytesDaily: event.target.value })} required /><span>MB / 天</span></div><small>填写 0 表示禁止该组下载附件</small></label>
-            </div>
-          </fieldset>
-        </div>
-
-        {error && <p className="form-alert" role="alert">{error}</p>}
-        <div className="membership-growth-form-actions">
-          <p><ShieldCheck size={16} aria-hidden="true" /><span><strong>保存后立即生效</strong><small>不会修改用户组的其他权限和额度</small></span></p>
-          <div><button className="secondary-button" type="button" disabled={pending} onClick={onClose}>取消</button><button className="primary-button" type="submit" disabled={pending}>{pending ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" /> : <Save size={14} aria-hidden="true" />}保存额度</button></div>
-        </div>
-      </form>
-    </div>
-  )
+  return <div className="dialog-backdrop membership-growth-dialog-backdrop" onMouseDown={closeFromBackdrop}>
+    <form ref={dialogRef} className="membership-growth-dialog community-group-quota-dialog" role="dialog" aria-modal="true" aria-labelledby="community-group-editor-title" onSubmit={onSubmit} onKeyDown={handleKeyDown}>
+      <header className="membership-growth-dialog__header"><div><h4 id="community-group-editor-title">{group ? "编辑用户组" : "创建用户组"}</h4><p>{group ? `${group.displayName} · revision ${group.revision}` : "创建基础组或附加组"}</p></div><button className="icon-button" type="button" aria-label="关闭用户组编辑" title="关闭用户组编辑" disabled={pending} onClick={onClose}><X size={16} aria-hidden="true" /></button></header>
+      <div className="membership-growth-dialog__body">
+        <fieldset className="membership-growth-dialog__section"><legend><strong>基本信息与排序</strong></legend><div className="membership-growth-dialog__fields">
+          <label>内部键<input ref={firstFieldRef} aria-label="内部键" value={value.internalKey} readOnly={Boolean(group)} disabled={pending} onChange={(event) => onChange({ internalKey: event.target.value })} /></label>
+          <label>显示名称<input aria-label="显示名称" value={value.displayName} disabled={pending} onChange={(event) => onChange({ displayName: event.target.value })} /></label>
+          <label>说明<textarea aria-label="用户组说明" value={value.description} disabled={pending} onChange={(event) => onChange({ description: event.target.value })} /></label>
+          <label>显示顺序<input aria-label="显示顺序" type="number" min={0} max={1_000_000} value={value.displayOrder} disabled={pending} onChange={(event) => onChange({ displayOrder: event.target.value })} /></label>
+          <label>状态<select aria-label="用户组状态" value={value.status} disabled={pending || !group} onChange={(event) => onChange({ status: event.target.value as CommunityGroupStatus })}><option value="active">启用</option><option value="disabled">停用</option><option value="archived">归档</option></select></label>
+          <label className="admin-checkbox"><input type="checkbox" checked={value.isBase} disabled={pending || Boolean(group)} onChange={(event) => onChange({ isBase: event.target.checked })} /><span>基础组（否则为附加组）</span></label>
+        </div></fieldset>
+        <fieldset className="membership-growth-dialog__section"><legend><strong>社区权限</strong></legend><div className="community-group-permission-grid">{communityPermissionKeys.map((key) => <label className="admin-checkbox" key={key}><input type="checkbox" checked={value.permissionKeys.includes(key)} disabled={pending} onChange={(event) => togglePermission(key, event.target.checked)} /><span>{key}</span></label>)}</div><small>用户组权限和标准权益只包含社区行为，不包含治理或后台能力。</small></fieldset>
+        <fieldset className="membership-growth-dialog__section"><legend><strong>全部额度</strong></legend><div className="membership-growth-dialog__fields">{communityQuotaKeys.map(({ key, label, maximum }) => <label key={key}>{label}<input aria-label={label} type="number" min={0} max={maximum} value={value.quotas[key] ?? "0"} disabled={pending} onChange={(event) => onChange({ quotas: { ...value.quotas, [key]: event.target.value } })} /><small>{key}</small></label>)}</div></fieldset>
+      </div>
+      <div className="community-group-quota-dialog__notice"><ShieldCheck size={17} aria-hidden="true" /><span>保存受 CSRF、RBAC、审计和 revision 保护；标准权益与用户组保持分离。</span></div>
+      {error && <p className="form-alert" role="alert">{error}</p>}
+      <div className="membership-growth-form-actions"><button className="secondary-button" type="button" disabled={pending} onClick={onClose}>取消</button><button className="primary-button" type="submit" disabled={pending}>{pending ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" /> : <Save size={14} aria-hidden="true" />}{group ? "保存用户组" : "创建用户组"}</button></div>
+    </form>
+  </div>
 }
+
+export const communityPermissionKeys = ["board.read", "topic.read", "topic.create", "reply.create", "message.send", "attachment.upload", "attachment.download", "topic.poll.create", "topic.bounty.create", "topic.lottery.join", "content.external_link.use", "profile.signature.use", "content.pre_moderation.required"] as const
+export const communityQuotaKeys = [
+  { key: "topic.create.daily", label: "每日主题数", maximum: 1_000_000 },
+  { key: "reply.create.daily", label: "每日回复数", maximum: 1_000_000 },
+  { key: "message.send.daily", label: "每日私信数", maximum: 1_000_000 },
+  { key: "attachment.upload.daily", label: "每日上传数量", maximum: 10_000 },
+  { key: "attachment.file.bytes", label: "单文件字节数", maximum: Number.MAX_SAFE_INTEGER },
+  { key: "attachment.storage.bytes", label: "总存储字节数", maximum: Number.MAX_SAFE_INTEGER },
+  { key: "attachment.download.bytes.daily", label: "每日下载字节数", maximum: Number.MAX_SAFE_INTEGER },
+  { key: "content.external_link.daily", label: "每日外链数", maximum: 1_000_000 },
+] as const

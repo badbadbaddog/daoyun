@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   Bookmark,
+  ChevronRight,
   Edit3,
   FileSearch,
   Flag,
@@ -10,6 +11,7 @@ import {
   RefreshCw,
   Save,
   Send,
+  Share2,
   Trash2,
   ThumbsUp,
   X,
@@ -32,6 +34,7 @@ import {
 import type { TopicDetail, TopicReply, TopicRevision } from "../api/topics"
 import { plainTextDocument, type RichTextDocument } from "../editor/richContent"
 import { parseTopicTags } from "../utils/tags"
+import { topicDisplayTitle } from "../utils/topicPresentation"
 import { ReplyItem } from "./ReplyItem"
 import { RichTextContent } from "./RichTextContent"
 import { RichTextEditor } from "./RichTextEditor"
@@ -46,9 +49,11 @@ interface TopicDetailViewProps {
   onReplyDeleted?: (topicId: string) => void
   onTopicUpdated?: (topic: TopicDetail) => void
   onTopicDeleted?: (topicId: string) => void
+  onTopicLoaded?: (topic: TopicDetail | null) => void
 }
 
 type LoadStatus = "loading" | "ready" | "error"
+const ignoreLoadedTopic = () => undefined
 
 export function TopicDetailView({
   topicId,
@@ -59,8 +64,11 @@ export function TopicDetailView({
   onReplyDeleted = () => undefined,
   onTopicUpdated = () => undefined,
   onTopicDeleted = () => undefined,
+  onTopicLoaded = ignoreLoadedTopic,
 }: TopicDetailViewProps) {
   const idempotencyKeyRef = useRef<string | null>(null)
+  const replyLoadGenerationRef = useRef(0)
+  const topicStateRef = useRef<TopicDetail | null>(null)
   const [topic, setTopic] = useState<TopicDetail | null>(null)
   const [replies, setReplies] = useState<TopicReply[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
@@ -70,8 +78,12 @@ export function TopicDetailView({
   const [content, setContent] = useState("")
   const [richContent, setRichContent] = useState<RichTextDocument>(() => plainTextDocument(""))
   const [replyTarget, setReplyTarget] = useState<TopicReply | null>(null)
+  const [mobileReplyOpen, setMobileReplyOpen] = useState(false)
   const [fieldError, setFieldError] = useState("")
   const [formError, setFormError] = useState("")
+  const [replyListError, setReplyListError] = useState("")
+  const [replyStatus, setReplyStatus] = useState("")
+  const [replyFocusId, setReplyFocusId] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [editing, setEditing] = useState(false)
   const [draftTitle, setDraftTitle] = useState("")
@@ -83,8 +95,10 @@ export function TopicDetailView({
   const [revisions, setRevisions] = useState<TopicRevision[]>([])
   const [revisionStatus, setRevisionStatus] = useState<LoadStatus>("ready")
   const [showRevisions, setShowRevisions] = useState(false)
-  const [interactionBusy, setInteractionBusy] = useState<"bookmark" | "like" | null>(null)
+  const [bookmarkPending, setBookmarkPending] = useState(false)
+  const [likePending, setLikePending] = useState(false)
   const [interactionError, setInteractionError] = useState("")
+  const [shareMessage, setShareMessage] = useState("")
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [deletePending, setDeletePending] = useState(false)
   const [reporting, setReporting] = useState(false)
@@ -95,24 +109,43 @@ export function TopicDetailView({
   const [reportError, setReportError] = useState("")
   const deleteConfirmRef = useRef<HTMLButtonElement>(null)
   const replyFormRef = useRef<HTMLFormElement>(null)
+  const mobileReplyTriggerRef = useRef<HTMLButtonElement>(null)
+  const onTopicLoadedRef = useRef(onTopicLoaded)
+  onTopicLoadedRef.current = onTopicLoaded
 
   useEffect(() => {
     if (confirmingDelete) deleteConfirmRef.current?.focus()
   }, [confirmingDelete])
 
   useEffect(() => {
+    if (!replyFocusId) return
+    const replyElement = document.getElementById(`reply-${replyFocusId}`)
+    if (!replyElement) return
+    replyElement.focus()
+    setReplyFocusId(null)
+  }, [replies, replyFocusId])
+
+  useEffect(() => {
     const controller = new AbortController()
+    replyLoadGenerationRef.current += 1
     setLoadStatus("loading")
+    setLoadingMore(false)
     setTopic(null)
+    topicStateRef.current = null
+    onTopicLoadedRef.current(null)
     setReplies([])
     setNextCursor(null)
+    setReplyListError("")
+    setReplyStatus("")
 
     Promise.all([
       getTopic(topicId, controller.signal),
       listReplies(topicId, { signal: controller.signal }),
     ]).then(([loadedTopic, page]) => {
       if (!controller.signal.aborted) {
+        topicStateRef.current = loadedTopic
         setTopic(loadedTopic)
+        onTopicLoadedRef.current(loadedTopic)
         setDraftTitle(loadedTopic.title)
         setDraftContent(loadedTopic.content)
         setDraftRichContent(loadedTopic.richContent ?? plainTextDocument(loadedTopic.content))
@@ -127,6 +160,7 @@ export function TopicDetailView({
       }
     }).catch(() => {
       if (!controller.signal.aborted) {
+        onTopicLoadedRef.current(null)
         setLoadStatus("error")
       }
     })
@@ -179,8 +213,8 @@ export function TopicDetailView({
     if (!topic || !session || !canEdit || submitting) return
     const title = draftTitle.trim()
     const contentValue = draftContent.trim()
-    if ([...title].length < 1 || [...title].length > 160) {
-      setEditError("标题需为 1-160 个字符")
+    if ([...title].length > 160) {
+      setEditError("标题最多 160 个字符")
       return
     }
     if ([...contentValue].length < 1 || [...contentValue].length > 100_000) {
@@ -197,6 +231,7 @@ export function TopicDetailView({
         richContent: draftRichContent,
         tags: parseTopicTags(draftTags, topic.tags),
       }, { csrfToken: session.csrfToken })
+      topicStateRef.current = updated
       setTopic(updated)
       setDraftTitle(updated.title)
       setDraftContent(updated.content)
@@ -244,18 +279,22 @@ export function TopicDetailView({
 
   async function loadMoreReplies() {
     if (!nextCursor || loadingMore) return
+    const generation = replyLoadGenerationRef.current
     setLoadingMore(true)
+    setReplyListError("")
     try {
       const page = await listReplies(topicId, { cursor: nextCursor })
+      if (generation !== replyLoadGenerationRef.current) return
       setReplies((current) => [
         ...current,
         ...page.replies.filter((reply) => !current.some((item) => item.id === reply.id)),
       ])
       setNextCursor(page.nextCursor)
     } catch {
-      setFormError("更多回复暂时无法加载，请重试")
+      if (generation !== replyLoadGenerationRef.current) return
+      setReplyListError("更多回复暂时无法加载，请重试")
     } finally {
-      setLoadingMore(false)
+      if (generation === replyLoadGenerationRef.current) setLoadingMore(false)
     }
   }
 
@@ -264,6 +303,7 @@ export function TopicDetailView({
     const normalizedContent = content.trim()
     setFieldError("")
     setFormError("")
+    setReplyStatus("")
     if ([...normalizedContent].length < 1) {
       setFieldError("请输入回复内容")
       return
@@ -289,10 +329,17 @@ export function TopicDetailView({
       setReplies((current) => current.some((item) => item.id === reply.id)
         ? current
         : [...current, reply])
-      setTopic((current) => current ? { ...current, replies: current.replies + 1 } : current)
+      setTopic((current) => {
+        const updated = current ? { ...current, replies: current.replies + 1 } : current
+        topicStateRef.current = updated
+        return updated
+      })
       setContent("")
       setRichContent(plainTextDocument(""))
       setReplyTarget(null)
+      setMobileReplyOpen(false)
+      setReplyStatus(`回复已发布至 #${reply.floorNumber} 楼`)
+      setReplyFocusId(reply.id)
       idempotencyKeyRef.current = null
       onReplyPublished(topicId)
     } catch (error) {
@@ -315,9 +362,13 @@ export function TopicDetailView({
 
   function handleReplyDeleted(replyId: string) {
     setReplies((current) => current.filter((reply) => reply.id !== replyId))
-    setTopic((current) => current
-      ? { ...current, replies: Math.max(0, current.replies - 1) }
-      : current)
+    setTopic((current) => {
+      const updated = current
+        ? { ...current, replies: Math.max(0, current.replies - 1) }
+        : current
+      topicStateRef.current = updated
+      return updated
+    })
     onReplyDeleted(topicId)
     if (replyTarget?.id === replyId) clearReplyTarget()
   }
@@ -333,8 +384,25 @@ export function TopicDetailView({
       return
     }
     setReplyTarget(reply)
+    setMobileReplyOpen(true)
     idempotencyKeyRef.current = null
     queueMicrotask(() => replyFormRef.current?.querySelector<HTMLElement>("[role='textbox']")?.focus())
+  }
+
+  function openMobileReplyComposer() {
+    if (!session) {
+      onLogin()
+      return
+    }
+    setReplyTarget(null)
+    idempotencyKeyRef.current = null
+    setMobileReplyOpen(true)
+    queueMicrotask(() => replyFormRef.current?.querySelector<HTMLElement>("[role='textbox']")?.focus())
+  }
+
+  function closeMobileReplyComposer() {
+    setMobileReplyOpen(false)
+    queueMicrotask(() => mobileReplyTriggerRef.current?.focus())
   }
 
   async function toggleBookmark() {
@@ -343,19 +411,23 @@ export function TopicDetailView({
       onLogin()
       return
     }
-    if (interactionBusy) return
-    setInteractionBusy("bookmark")
+    if (bookmarkPending) return
+    const targetTopicId = topic.id
+    setBookmarkPending(true)
     setInteractionError("")
     try {
-      const state = await setTopicBookmark(topic.id, topic.bookmarked !== true, session.csrfToken)
-      const updated = { ...topic, bookmarked: state.bookmarked }
+      const state = await setTopicBookmark(targetTopicId, topic.bookmarked !== true, session.csrfToken)
+      const current = topicStateRef.current
+      if (!current || current.id !== targetTopicId) return
+      const updated = { ...current, bookmarked: state.bookmarked }
+      topicStateRef.current = updated
       setTopic(updated)
       onTopicUpdated(updated)
     } catch (caught) {
       if (caught instanceof RelationApiError && caught.status === 401) onLogin()
       setInteractionError("收藏操作失败，请重试")
     } finally {
-      setInteractionBusy(null)
+      setBookmarkPending(false)
     }
   }
 
@@ -365,19 +437,37 @@ export function TopicDetailView({
       onLogin()
       return
     }
-    if (interactionBusy) return
-    setInteractionBusy("like")
+    if (likePending) return
+    const targetTopicId = topic.id
+    setLikePending(true)
     setInteractionError("")
     try {
-      const state = await setPostLike(topic.id, topic.liked !== true, session.csrfToken)
-      const updated = { ...topic, liked: state.liked, likes: state.likeCount }
+      const state = await setPostLike(targetTopicId, topic.liked !== true, session.csrfToken)
+      const current = topicStateRef.current
+      if (!current || current.id !== targetTopicId) return
+      const updated = { ...current, liked: state.liked, likes: state.likeCount }
+      topicStateRef.current = updated
       setTopic(updated)
       onTopicUpdated(updated)
     } catch (caught) {
       if (caught instanceof RelationApiError && caught.status === 401) onLogin()
       setInteractionError("点赞操作失败，请重试")
     } finally {
-      setInteractionBusy(null)
+      setLikePending(false)
+    }
+  }
+
+  async function shareTopic() {
+    if (!topic) return
+    const shareUrl = new URL(window.location.href)
+    shareUrl.hash = `topic/${topic.id}`
+    setShareMessage("")
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable")
+      await navigator.clipboard.writeText(shareUrl.toString())
+      setShareMessage("链接已复制")
+    } catch {
+      setShareMessage("链接复制失败，请从地址栏复制")
     }
   }
 
@@ -437,22 +527,27 @@ export function TopicDetailView({
     )
   }
 
+  const displayTitle = topicDisplayTitle(topic)
+
   return (
     <section className="topic-detail" aria-labelledby="topic-detail-title">
       <div className="topic-detail__toolbar">
+        <nav className="topic-detail__breadcrumb" aria-label="主题位置">
+          <a href="#boards">社区</a>
+          <ChevronRight size={12} aria-hidden="true" />
+          <a href={topic.boardSlug ? `#board/${topic.boardSlug}` : "#boards"}>{topic.board}</a>
+          <ChevronRight size={12} aria-hidden="true" />
+          <span aria-current="page">主题详情</span>
+        </nav>
         <button className="secondary-button" type="button" onClick={onBack}>
           <ArrowLeft size={16} aria-hidden="true" />
           返回主题列表
         </button>
       </div>
 
-      <article className="topic-detail__article">
-        <div className="topic-detail__board">
-          <span className={`board-tag board-tag--${topic.boardTone}`}>{topic.board}</span>
-          <time>{topic.publishedAt}</time>
-        </div>
+      <article className="topic-detail__article" aria-labelledby="topic-detail-title">
         <div className="topic-detail__title-row">
-          <h1 id="topic-detail-title">{topic.title}</h1>
+          <h1 id="topic-detail-title">{displayTitle}</h1>
           {canEdit && !editing && (
             <button className="secondary-button" type="button" onClick={beginEditing}>
               <Edit3 size={15} aria-hidden="true" />
@@ -460,28 +555,41 @@ export function TopicDetailView({
             </button>
           )}
         </div>
-        <a
-          className="topic-detail__author"
-          href={`#user/${topic.authorUsername}`}
-          aria-label={`查看 ${topic.author} 的主页`}
-        >
-          <UserAvatar
-            username={topic.authorUsername}
-            displayName={topic.author}
-            avatarUrl={topic.avatarUrl}
-            size="medium"
-          />
-          <strong>{topic.author}</strong>
-        </a>
-        {topic.tags.length > 0 && (
-          <div className="topic-detail__tags" aria-label="主题标签">
-            {topic.tags.map((tag) => <span className="topic-tag" key={tag.slug}>#{tag.name}</span>)}
+        <div className="topic-detail__author-meta" aria-label="主题作者与发布信息">
+          <a
+            className="topic-detail__author"
+            href={`#user/${topic.authorUsername}`}
+            aria-label={`查看 ${topic.author} 的主页`}
+          >
+            <UserAvatar
+              username={topic.authorUsername}
+              displayName={topic.author}
+              avatarUrl={topic.avatarUrl}
+              size="medium"
+            />
+            <span className="topic-detail__author-copy">
+              <strong>{topic.author}</strong>
+              <span>@{topic.authorUsername}</span>
+            </span>
+          </a>
+          <div className="topic-detail__publication">
+            <a className={`board-tag board-tag--${topic.boardTone}`} href={topic.boardSlug ? `#board/${topic.boardSlug}` : "#boards"}>
+              {topic.board}
+            </a>
+            <time dateTime={topic.publishedAtIso}>{topic.publishedAt}</time>
+            <span aria-hidden="true">·</span>
+            <span>{topic.views} 浏览</span>
           </div>
+        </div>
+        {topic.tags.length > 0 && (
+          <ul className="topic-detail__tags" aria-label="主题标签">
+            {topic.tags.map((tag) => <li className="topic-tag" key={tag.slug}>#{tag.name}</li>)}
+          </ul>
         )}
         {editing ? (
           <form className="topic-edit-form" onSubmit={(event) => { event.preventDefault(); void submitEdit() }} aria-busy={submitting}>
             <label>
-              <span>标题</span>
+              <span>标题（可选）</span>
               <input value={draftTitle} maxLength={160} onChange={(event) => setDraftTitle(event.target.value)} />
             </label>
             <div className="composer-field">
@@ -531,36 +639,45 @@ export function TopicDetailView({
         )}
         <div className="topic-interactions" aria-label="主题互动">
           <button
-            className="secondary-button"
+            className="secondary-button topic-interactions__like"
             type="button"
-            aria-label={topic.bookmarked ? "取消收藏主题" : "收藏主题"}
-            aria-pressed={topic.bookmarked === true}
-            disabled={interactionBusy !== null}
-            onClick={() => void toggleBookmark()}
+            aria-label={topic.liked ? "取消点赞主题" : "点赞主题"}
+            aria-pressed={topic.liked === true}
+            disabled={likePending}
+            onClick={() => void toggleTopicLike()}
           >
-            {interactionBusy === "bookmark"
+            {likePending
               ? <LoaderCircle className="topic-loading__spinner" size={15} aria-hidden="true" />
-              : <Bookmark size={15} fill={topic.bookmarked ? "currentColor" : "none"} aria-hidden="true" />}
-            {topic.bookmarked ? "已收藏" : "收藏"}
+              : <ThumbsUp size={15} fill={topic.liked ? "currentColor" : "none"} aria-hidden="true" />}
+            {topic.liked ? "已点赞" : "点赞"} {topic.likes}
           </button>
           <button
             className="secondary-button"
             type="button"
-            aria-label={topic.liked ? "取消点赞主题" : "点赞主题"}
-            aria-pressed={topic.liked === true}
-            disabled={interactionBusy !== null}
-            onClick={() => void toggleTopicLike()}
+            aria-label={topic.bookmarked ? "取消收藏主题" : "收藏主题"}
+            aria-pressed={topic.bookmarked === true}
+            disabled={bookmarkPending}
+            onClick={() => void toggleBookmark()}
           >
-            {interactionBusy === "like"
+            {bookmarkPending
               ? <LoaderCircle className="topic-loading__spinner" size={15} aria-hidden="true" />
-              : <ThumbsUp size={15} fill={topic.liked ? "currentColor" : "none"} aria-hidden="true" />}
-            {topic.likes}
+              : <Bookmark size={15} fill={topic.bookmarked ? "currentColor" : "none"} aria-hidden="true" />}
+            {topic.bookmarked ? "已收藏" : "收藏"}
+          </button>
+          <button className="secondary-button" type="button" aria-label="回复主题" onClick={openMobileReplyComposer}>
+            <MessageCircle size={15} aria-hidden="true" />
+            回复 {topic.replies}
+          </button>
+          <button className="secondary-button" type="button" aria-label="分享主题" onClick={() => void shareTopic()}>
+            <Share2 size={15} aria-hidden="true" />
+            分享
           </button>
           <button className="secondary-button" type="button" onClick={beginReport}>
             <Flag size={15} aria-hidden="true" />
             举报主题
           </button>
         </div>
+        {shareMessage && <p className="interaction-alert" role="status">{shareMessage}</p>}
         {interactionError && <p className="interaction-alert" role="alert">{interactionError}</p>}
         {reportMessage && <p className="interaction-alert" role="status">{reportMessage}</p>}
         {reporting && (
@@ -626,17 +743,31 @@ export function TopicDetailView({
 
       <section className="reply-section" aria-labelledby="reply-heading">
         <div className="reply-section__heading">
-          <MessageCircle size={18} aria-hidden="true" />
-          <h2 id="reply-heading">回复</h2>
-          <span>{topic.replies}</span>
+          <div className="reply-section__title">
+            <MessageCircle size={18} aria-hidden="true" />
+            <h2 id="reply-heading">评论</h2>
+            <span>{topic.replies} 条</span>
+          </div>
+          <button
+            className="secondary-button reply-section__compose"
+            type="button"
+            aria-controls={session ? "topic-reply-composer" : undefined}
+            onClick={openMobileReplyComposer}
+          >
+            <MessageCircle size={14} aria-hidden="true" />
+            写回复
+          </button>
         </div>
+
+        {replyStatus && <p className="reply-section__notice" role="status">{replyStatus}</p>}
+        {replyListError && <p className="reply-section__notice reply-section__notice--error" role="alert">{replyListError}</p>}
 
         {replies.length === 0 ? (
           <div className="reply-empty" role="status">还没有回复</div>
         ) : (
           <ol className="reply-list">
             {replies.map((reply) => (
-              <li key={reply.id}>
+              <li key={reply.id} data-reply-level={reply.replyTo ? "1" : "0"}>
                 <ReplyItem
                   reply={reply}
                   session={session}
@@ -659,7 +790,20 @@ export function TopicDetailView({
         )}
 
         {session ? (
-          <form ref={replyFormRef} className="reply-form" onSubmit={(event) => { event.preventDefault(); void submitReply() }} aria-busy={submitting}>
+          <form
+            id="topic-reply-composer"
+            ref={replyFormRef}
+            className={`reply-form${mobileReplyOpen ? " reply-form--mobile-open" : ""}`}
+            onSubmit={(event) => { event.preventDefault(); void submitReply() }}
+            aria-busy={submitting}
+            aria-label="评论编辑器"
+          >
+            <div className="reply-form__mobile-header">
+              <strong>{replyTarget ? `回复 ${replyTarget.floorNumber} 楼` : "参与讨论"}</strong>
+              <button className="icon-button" type="button" aria-label="收起评论输入框" title="收起评论输入框" onClick={closeMobileReplyComposer}>
+                <X size={16} aria-hidden="true" />
+              </button>
+            </div>
             <span className="composer-field__label">参与讨论</span>
             {replyTarget && (
               <div className="reply-target" role="status">
@@ -701,6 +845,20 @@ export function TopicDetailView({
           </div>
         )}
       </section>
+
+      <div className="topic-mobile-comment-entry">
+        <button
+          ref={mobileReplyTriggerRef}
+          type="button"
+          aria-label="写评论"
+          aria-controls={session ? "topic-reply-composer" : undefined}
+          aria-expanded={session ? mobileReplyOpen : undefined}
+          onClick={openMobileReplyComposer}
+        >
+          <MessageCircle size={17} aria-hidden="true" />
+          <span>{session ? "写评论…" : "登录后参与讨论"}</span>
+        </button>
+      </div>
     </section>
   )
 }

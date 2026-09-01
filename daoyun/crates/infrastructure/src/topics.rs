@@ -65,6 +65,8 @@ pub struct PublicTopicRecord {
     pub is_featured: bool,
     pub is_pinned: bool,
     #[sqlx(skip)]
+    pub image_attachment_id: Option<Uuid>,
+    #[sqlx(skip)]
     pub tags: Vec<PublicTagRecord>,
 }
 
@@ -1112,11 +1114,13 @@ impl Database {
             "SELECT id FROM boards \
              WHERE visibility = 'public' AND deleted_at IS NULL \
                AND ($1::uuid IS NULL OR id = $1) \
+               AND daoyun_can_access_content('board', id, $2, CURRENT_TIMESTAMP) \
              ORDER BY position, id \
              LIMIT 1 \
              FOR SHARE",
         )
         .bind(input.board_id)
+        .bind(input.author_id)
         .fetch_optional(&mut *transaction)
         .await?
         .ok_or(CreateTopicError::BoardUnavailable)?;
@@ -1726,9 +1730,11 @@ impl Database {
                AND t.status = 'published' AND t.deleted_at IS NULL \
                AND b.visibility = 'public' AND b.deleted_at IS NULL \
                AND u.status = 'active' \
+               AND daoyun_can_access_content('topic', t.id, $2, CURRENT_TIMESTAMP) \
              FOR UPDATE OF t FOR SHARE OF b, u",
         )
         .bind(input.topic_id)
+        .bind(input.author_id)
         .fetch_optional(&mut *transaction)
         .await?;
         if visible_topic.is_none() {
@@ -2297,6 +2303,7 @@ impl Database {
                 record.tags = tags_by_topic.remove(&record.id).unwrap_or_default();
             }
         }
+        hydrate_topic_cover_images(&self.pool, &mut records, filters.viewer_user_id).await?;
         if let Some(viewer_user_id) = filters.viewer_user_id {
             hydrate_topic_viewer_states(&self.pool, &mut records, viewer_user_id).await?;
         }
@@ -2354,6 +2361,19 @@ impl Database {
         .fetch_all(&self.pool)
         .await?;
         let mut detail = PublicTopicDetailRecord::from(row);
+        let cover_candidates = detail
+            .rich_content
+            .as_ref()
+            .and_then(first_public_rich_content_image_id)
+            .map(|attachment_id| HashMap::from([(topic_id, attachment_id)]))
+            .unwrap_or_default();
+        hydrate_topic_cover_candidates(
+            &self.pool,
+            std::slice::from_mut(&mut detail.summary),
+            cover_candidates,
+            viewer_user_id,
+        )
+        .await?;
         detail.reply_gate_unlocked =
             reply_gate_is_unlocked(&self.pool, topic_id, viewer_user_id).await?;
         detail.summary.tags = tags;
@@ -2432,6 +2452,144 @@ async fn hydrate_topic_viewer_states(
         topic.viewer_liked = Some(liked);
     }
     Ok(())
+}
+
+pub(crate) async fn hydrate_topic_cover_images(
+    pool: &sqlx::PgPool,
+    topics: &mut [PublicTopicRecord],
+    viewer_user_id: Option<Uuid>,
+) -> Result<(), sqlx::Error> {
+    let topic_ids = topics.iter().map(|topic| topic.id).collect::<Vec<_>>();
+    if topic_ids.is_empty() {
+        return Ok(());
+    }
+    let documents = sqlx::query_as::<_, TopicRichContentRow>(
+        "SELECT post.topic_id, post.rich_content \
+         FROM posts AS post \
+         WHERE post.topic_id = ANY($1::uuid[]) \
+           AND post.kind = 'topic' AND post.status = 'published' \
+           AND post.deleted_at IS NULL",
+    )
+    .bind(&topic_ids)
+    .fetch_all(pool)
+    .await?;
+    let candidates = documents
+        .into_iter()
+        .filter_map(|document| {
+            document
+                .rich_content
+                .as_ref()
+                .and_then(first_public_rich_content_image_id)
+                .map(|attachment_id| (document.topic_id, attachment_id))
+        })
+        .collect::<HashMap<_, _>>();
+    hydrate_topic_cover_candidates(pool, topics, candidates, viewer_user_id).await
+}
+
+async fn hydrate_topic_cover_candidates(
+    pool: &sqlx::PgPool,
+    topics: &mut [PublicTopicRecord],
+    candidates: HashMap<Uuid, Uuid>,
+    viewer_user_id: Option<Uuid>,
+) -> Result<(), sqlx::Error> {
+    if candidates.is_empty() {
+        return Ok(());
+    }
+    let attachment_ids = candidates.values().copied().collect::<Vec<_>>();
+    let topic_ids = candidates.keys().copied().collect::<Vec<_>>();
+    let available = sqlx::query_as::<_, TopicCoverAttachmentRow>(
+        "SELECT attachment.id, attachment.topic_id \
+         FROM topic_attachments AS attachment \
+         INNER JOIN topics AS topic ON topic.id = attachment.topic_id \
+         WHERE attachment.id = ANY($1::uuid[]) \
+           AND attachment.topic_id = ANY($2::uuid[]) \
+           AND attachment.status = 'ready' \
+           AND attachment.scan_status = 'clean' \
+           AND attachment.deleted_at IS NULL \
+           AND attachment.mime_type LIKE 'image/%' \
+           AND topic.status = 'published' AND topic.deleted_at IS NULL \
+           AND daoyun_can_access_content('topic', topic.id, $3, CURRENT_TIMESTAMP) \
+           AND daoyun_can_access_content('attachment', attachment.id, $3, CURRENT_TIMESTAMP)",
+    )
+    .bind(&attachment_ids)
+    .bind(&topic_ids)
+    .bind(viewer_user_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|attachment| (attachment.topic_id, attachment.id))
+    .collect::<HashMap<_, _>>();
+    for topic in topics {
+        topic.image_attachment_id = candidates.get(&topic.id).and_then(|candidate| {
+            (available.get(&topic.id) == Some(candidate)).then_some(*candidate)
+        });
+    }
+    Ok(())
+}
+
+fn first_public_rich_content_image_id(value: &Value) -> Option<Uuid> {
+    let object = value.as_object()?;
+    if object.get("type").and_then(Value::as_str) == Some("replyGate") {
+        return None;
+    }
+    if object.get("type").and_then(Value::as_str) == Some("image")
+        && let Some(attachment_id) = object
+            .get("attrs")
+            .and_then(Value::as_object)
+            .and_then(|attrs| attrs.get("attachmentId"))
+            .and_then(Value::as_str)
+            .and_then(|value| Uuid::parse_str(value).ok())
+    {
+        return Some(attachment_id);
+    }
+    object
+        .get("content")
+        .and_then(Value::as_array)
+        .and_then(|content| content.iter().find_map(first_public_rich_content_image_id))
+}
+
+#[cfg(test)]
+mod cover_image_tests {
+    use super::first_public_rich_content_image_id;
+    use serde_json::json;
+    use sqlx::types::Uuid;
+
+    #[test]
+    fn rich_content_cover_uses_the_first_public_image_in_document_order() {
+        let first = Uuid::from_u128(1);
+        let second = Uuid::from_u128(2);
+        let document = json!({
+            "type": "doc",
+            "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "正文"}]},
+                {"type": "image", "attrs": {"attachmentId": first}},
+                {"type": "image", "attrs": {"attachmentId": second}}
+            ]
+        });
+
+        assert_eq!(first_public_rich_content_image_id(&document), Some(first));
+    }
+
+    #[test]
+    fn rich_content_cover_skips_reply_gates_and_invalid_image_ids() {
+        let public = Uuid::from_u128(3);
+        let document = json!({
+            "type": "doc",
+            "content": [
+                {
+                    "type": "replyGate",
+                    "attrs": {"locked": true},
+                    "content": [
+                        {"type": "image", "attrs": {"attachmentId": Uuid::from_u128(4)}}
+                    ]
+                },
+                {"type": "image", "attrs": {"attachmentId": "not-a-uuid"}},
+                {"type": "image", "attrs": {"attachmentId": public}}
+            ]
+        });
+
+        assert_eq!(first_public_rich_content_image_id(&document), Some(public));
+    }
 }
 
 async fn hydrate_reply_viewer_states(
@@ -2564,6 +2722,18 @@ struct TopicTagJoinRow {
 }
 
 #[derive(Debug, FromRow)]
+struct TopicRichContentRow {
+    topic_id: Uuid,
+    rich_content: Option<Value>,
+}
+
+#[derive(Debug, FromRow)]
+struct TopicCoverAttachmentRow {
+    id: Uuid,
+    topic_id: Uuid,
+}
+
+#[derive(Debug, FromRow)]
 struct TopicViewerStateRow {
     topic_id: Uuid,
     bookmarked: bool,
@@ -2594,6 +2764,7 @@ impl From<PublicTopicDetailRow> for PublicTopicDetailRecord {
                 view_count: row.view_count,
                 is_featured: row.is_featured,
                 is_pinned: row.is_pinned,
+                image_attachment_id: None,
                 tags: Vec::new(),
             },
             content: row.content,

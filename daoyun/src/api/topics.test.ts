@@ -25,6 +25,7 @@ const topicPayload = {
   id: "019fc800-0000-7000-8000-000000000101",
   title: "发布主题",
   excerpt: "这是主题正文",
+  image_url: "/api/v1/attachments/019fc800-0000-7000-8000-000000000301/thumbnail",
   author: {
     id: "019fc700-0000-7000-8000-000000000004",
     username: "member",
@@ -85,9 +86,12 @@ describe("topics API client", () => {
       topics: [expect.objectContaining({
         title: "发布主题",
         board: "社区广场",
+        boardSlug: "general",
         authorId: topicPayload.author.id,
         authorUsername: "member",
         avatarUrl: "https://example.com/member.png",
+        imageUrl: "/api/v1/attachments/019fc800-0000-7000-8000-000000000301/thumbnail",
+        publishedAtIso: "2026-08-03T10:00:00Z",
       })],
       nextCursor: "019fc800-0000-7000-8000-000000000101",
     })
@@ -98,6 +102,15 @@ describe("topics API client", () => {
         headers: { Accept: "application/json" },
       }),
     )
+  })
+
+  it("rejects topic board slugs that cannot be routed", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      data: [{ ...topicPayload, board: { ...topicPayload.board, slug: "general/escape" } }],
+      meta: { request_id: "019fc800-0000-7000-8000-000000000102", next_cursor: null },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }))
+
+    await expect(listTopics()).rejects.toThrow("主题列表响应格式无效")
   })
 
   it("posts a topic with credentials, csrf and idempotency headers", async () => {
@@ -117,7 +130,7 @@ describe("topics API client", () => {
         "x-csrf-token": "a".repeat(64),
         "idempotency-key": "topic-create-001",
       }),
-      body: JSON.stringify({ title: "发布主题", content: "这是主题正文" }),
+      body: JSON.stringify({ content: "这是主题正文", title: "发布主题" }),
     }))
   })
 
@@ -178,6 +191,25 @@ describe("topics API client", () => {
       `/api/v1/topics/${topicPayload.id}/replies?limit=20`,
       expect.objectContaining({ headers: { Accept: "application/json" } }),
     )
+  })
+
+  it("loads a valid topic detail without an optional title", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      data: {
+        ...topicPayload,
+        title: "",
+        content: "只有正文的讨论",
+        content_revision: 1,
+        has_locked_content: false,
+      },
+      meta: { request_id: "019fc800-0000-7000-8000-000000000102" },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }))
+
+    await expect(getTopic(topicPayload.id)).resolves.toMatchObject({
+      id: topicPayload.id,
+      title: "",
+      content: "只有正文的讨论",
+    })
   })
 
   it("shares strict topic-page parsing with relationship clients", () => {

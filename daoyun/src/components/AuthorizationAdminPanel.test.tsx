@@ -30,7 +30,7 @@ vi.mock("../api/admin", async () => {
 })
 
 const csrfToken = "a".repeat(64)
-const board = { id: "019fc900-0000-7000-8000-000000000101", parentId: null, slug: "general", name: "社区广场", description: "公开讨论", icon: "messages", tone: "green" as const, position: 0, visibility: "public" as const, topicCount: 2, revision: 1 }
+const board = { id: "019fc900-0000-7000-8000-000000000101", parentId: null, slug: "general", name: "社区广场", description: "公开讨论", icon: "messages", tone: "green" as const, position: 0, visibility: "public" as const, topicCount: 2, revision: 1, status: "open" as const, mergedIntoBoardId: null }
 const customRole = {
   id: "019fc900-0000-7000-8000-000000000501",
   key: "board_moderator",

@@ -5,17 +5,30 @@ import {
   AdminApiError,
   createAdminBoard,
   deleteAdminBoard,
+  getAdminBoardMergeImpact,
   getAdminBoardDeletionImpact,
+  getAdminContentAccessPolicy,
   listAdminBoards,
+  mergeAdminBoard,
+  putAdminContentAccessPolicy,
+  rollbackAdminBoardMerge,
   updateAdminBoard,
   type AdminBoard,
+  type AdminBoardMergeImpact,
+  type AdminBoardMergeMutation,
   type AdminBoardInput,
   type AdminBoardDeletionImpact,
   type AdminBoardUpdateInput,
   type AdminBoardVisibility,
+  type AdminContentAccessPolicy,
+  type AdminContentAccessPolicyInput,
+  type ContentAccessOperator,
+  type ContentAccessSubjectType,
   type BoardTone,
 } from "../api/admin"
 import { BoardTree, buildBoardTree, compareBoards, filterBoardTree } from "./BoardTree"
+import { RevisionConflictNotice } from "./admin/RevisionConflictNotice"
+import { Drawer } from "./ui/Drawer"
 
 interface BoardAdminPanelProps {
   boards: AdminBoard[]
@@ -28,7 +41,10 @@ interface BoardEditorState {
   mode: "create" | "edit"
   parentId: string | null
   board: AdminBoard | null
+  section: "basic" | "content" | "access" | "governance" | "danger"
 }
+
+type AccessPolicyDraft = Pick<AdminContentAccessPolicyInput, "operator" | "subjects">
 
 export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: BoardAdminPanelProps) {
   const tree = useMemo(() => buildBoardTree(boards), [boards])
@@ -43,17 +59,27 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
   const [deletionImpact, setDeletionImpact] = useState<AdminBoardDeletionImpact | null>(null)
   const [deletionLoading, setDeletionLoading] = useState(false)
   const [syncRequired, setSyncRequired] = useState(false)
+  const [revisionConflict, setRevisionConflict] = useState(false)
+  const [accessPolicy, setAccessPolicy] = useState<AdminContentAccessPolicy | null>(null)
+  const [accessDraft, setAccessDraft] = useState<AccessPolicyDraft | null>(null)
+  const [accessLoading, setAccessLoading] = useState(false)
+  const [merging, setMerging] = useState<AdminBoard | null>(null)
+  const [mergeTargetId, setMergeTargetId] = useState("")
+  const [mergeImpact, setMergeImpact] = useState<AdminBoardMergeImpact | null>(null)
+  const [mergeMutation, setMergeMutation] = useState<AdminBoardMergeMutation | null>(null)
+  const [mergeLoading, setMergeLoading] = useState(false)
+  const [mergeMessage, setMergeMessage] = useState("")
   const visibleTree = useMemo(() => filterBoardTree(tree, query), [query, tree])
 
   function startCreate(parentId: string | null) {
     const siblings = siblingBoards(boards, parentId)
-    setEditor({ mode: "create", parentId, board: null })
+    setEditor({ mode: "create", parentId, board: null, section: "basic" })
     setDraft(emptyDraft(parentId, siblings.length))
     setMessage("")
   }
 
-  function startEdit(board: AdminBoard) {
-    setEditor({ mode: "edit", parentId: board.parentId, board })
+  function startEdit(board: AdminBoard, section: BoardEditorState["section"] = "basic") {
+    setEditor({ mode: "edit", parentId: board.parentId, board, section })
     setDraft({
       parentId: board.parentId,
       slug: board.slug,
@@ -65,6 +91,25 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
       visibility: board.visibility,
     })
     setMessage("")
+    setRevisionConflict(false)
+    if (section === "access") void loadAccessPolicy(board)
+  }
+
+  async function loadAccessPolicy(board: AdminBoard) {
+    setAccessLoading(true)
+    setAccessPolicy(null)
+    setAccessDraft(null)
+    setMessage("")
+    setRevisionConflict(false)
+    try {
+      const policy = await getAdminContentAccessPolicy("board", board.id)
+      setAccessPolicy(policy)
+      setAccessDraft({ operator: policy.operator, subjects: policy.subjects })
+    } catch (reason) {
+      setMessage(apiMessage(reason, "访问策略读取失败，请稍后重试。"))
+    } finally {
+      setAccessLoading(false)
+    }
   }
 
   async function saveEditor(event: React.FormEvent) {
@@ -73,31 +118,40 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
     setPendingId(editor.board?.id ?? "create")
     setMessage("")
     try {
-      if (editor.mode === "create") {
+      if (editor.mode === "edit" && editor.section === "access" && editor.board && accessPolicy && accessDraft) {
+        await putAdminContentAccessPolicy("board", editor.board.id, {
+          ...accessDraft,
+          expectedRevision: accessPolicy.revision,
+        }, csrfToken)
+        setEditor(null)
+        setMessage("访问策略已保存")
+      } else if (editor.mode === "create") {
         const saved = await createAdminBoard(draft, csrfToken)
         const synchronized = await refreshBoards()
         if (saved.parentId) setExpandedIds((current) => new Set(current).add(saved.parentId as string))
         setMessage(synchronized ? "版块已创建" : "版块已创建，但列表刷新失败，请刷新页面。")
+        setEditor(null)
       } else if (editor.board) {
         const saved = await updateAdminBoard(editor.board.id, toUpdateInput(editor.board, draft), csrfToken)
         const synchronized = await refreshBoards()
-        setFeedback({ boardId: saved.id, message: synchronized ? "已保存" : "已保存，请刷新页面", kind: synchronized ? "success" : "error" })
+        setFeedback({ boardId: saved.id, message: synchronized ? `${saved.name}的设置已保存` : `${saved.name}已保存，列表同步失败`, kind: synchronized ? "success" : "error" })
+        setEditor(null)
       }
-      setEditor(null)
     } catch (reason) {
+      setRevisionConflict(reason instanceof AdminApiError && reason.status === 409)
       setMessage(apiMessage(reason, "保存失败，请稍后重试。"))
     } finally {
       setPendingId(null)
     }
   }
 
-  async function mutate(board: AdminBoard, changes: Partial<AdminBoardInput>) {
+  async function mutate(board: AdminBoard, changes: Partial<AdminBoardInput>, action: string) {
     setPendingId(board.id)
     setFeedback(null)
     try {
       const saved = await updateAdminBoard(board.id, toUpdateInput(board, changes), csrfToken)
       const synchronized = await refreshBoards()
-      setFeedback({ boardId: saved.id, message: synchronized ? "已保存" : "已保存，请刷新页面", kind: synchronized ? "success" : "error" })
+      setFeedback({ boardId: saved.id, message: synchronized ? `${saved.name}${action}已保存` : `${saved.name}${action}已保存，列表同步失败`, kind: synchronized ? "success" : "error" })
     } catch (reason) {
       setFeedback({ boardId: board.id, message: apiMessage(reason, "保存失败，请重试。"), kind: "error" })
     } finally {
@@ -108,15 +162,15 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
   function move(board: AdminBoard, direction: "up" | "down" | "in" | "out") {
     const siblings = siblingBoards(boards, board.parentId)
     const index = siblings.findIndex((item) => item.id === board.id)
-    if (direction === "up" && index > 0) void mutate(board, { position: index - 1 })
-    if (direction === "down" && index >= 0 && index < siblings.length - 1) void mutate(board, { position: index + 1 })
+    if (direction === "up" && index > 0) void mutate(board, { position: index - 1 }, "上移")
+    if (direction === "down" && index >= 0 && index < siblings.length - 1) void mutate(board, { position: index + 1 }, "下移")
     if (direction === "in" && index > 0) {
       const nextParent = siblings[index - 1]
-      void mutate(board, { parentId: nextParent.id, position: siblingBoards(boards, nextParent.id).length })
+      void mutate(board, { parentId: nextParent.id, position: siblingBoards(boards, nextParent.id).length }, `移入${nextParent.name}`)
     }
     if (direction === "out" && board.parentId) {
       const parent = boards.find((item) => item.id === board.parentId)
-      if (parent) void mutate(board, { parentId: parent.parentId, position: parent.position + 1 })
+      if (parent) void mutate(board, { parentId: parent.parentId, position: parent.position + 1 }, "移出父版块")
     }
   }
 
@@ -161,6 +215,77 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
     }
   }
 
+  function openMerge(board: AdminBoard) {
+    setMerging(board)
+    setMergeTargetId("")
+    setMergeImpact(null)
+    setMergeMutation(null)
+    setMergeMessage("")
+  }
+
+  async function previewMerge(targetBoardId: string) {
+    if (!merging) return
+    setMergeTargetId(targetBoardId)
+    setMergeImpact(null)
+    setMergeMutation(null)
+    setMergeMessage("")
+    if (!targetBoardId) return
+    setMergeLoading(true)
+    try {
+      setMergeImpact(await getAdminBoardMergeImpact(merging.id, targetBoardId))
+    } catch (reason) {
+      setMergeMessage(apiMessage(reason, "合并影响读取失败，请稍后重试。"))
+    } finally {
+      setMergeLoading(false)
+    }
+  }
+
+  async function confirmMerge() {
+    if (!merging || !mergeImpact?.canMerge) return
+    setPendingId(merging.id)
+    setMergeLoading(true)
+    setMergeMessage("")
+    try {
+      const mutation = await mergeAdminBoard(merging.id, {
+        targetBoardId: mergeImpact.targetBoardId,
+        expectedSourceRevision: mergeImpact.sourceRevision,
+        expectedTargetRevision: mergeImpact.targetRevision,
+        idempotencyKey: crypto.randomUUID(),
+      }, csrfToken)
+      setMergeMutation(mutation)
+      setMergeMessage("版块合并已完成")
+      await refreshBoards()
+    } catch (reason) {
+      setMergeMessage(apiMessage(reason, "版块合并失败，请稍后重试。"))
+    } finally {
+      setMergeLoading(false)
+      setPendingId(null)
+    }
+  }
+
+  async function rollbackMerge() {
+    if (!merging || !mergeMutation || mergeMutation.rolledBack) return
+    setPendingId(merging.id)
+    setMergeLoading(true)
+    setMergeMessage("")
+    try {
+      const mutation = await rollbackAdminBoardMerge(merging.id, {
+        auditId: mergeMutation.auditId,
+        expectedSourceRevision: mergeMutation.sourceRevision,
+        expectedTargetRevision: mergeMutation.targetRevision,
+        idempotencyKey: crypto.randomUUID(),
+      }, csrfToken)
+      setMergeMutation(mutation)
+      setMergeMessage("合并已回滚")
+      await refreshBoards()
+    } catch (reason) {
+      setMergeMessage(apiMessage(reason, "合并回滚失败，请稍后重试。"))
+    } finally {
+      setMergeLoading(false)
+      setPendingId(null)
+    }
+  }
+
   const deletionBlocked = !deletionImpact?.canDelete
 
   return (
@@ -186,15 +311,28 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
           feedback={feedback}
           onToggle={(boardId) => setExpandedIds((current) => toggleSet(current, boardId))}
           onAddChild={(board) => startCreate(board.id)}
-          onEdit={startEdit}
+          onEdit={(board) => startEdit(board)}
           onMove={move}
-          onVisibility={(board) => void mutate(board, { visibility: board.visibility === "public" ? "hidden" : "public" })}
+          onVisibility={(board) => void mutate(board, { visibility: board.visibility === "public" ? "hidden" : "public" }, board.visibility === "public" ? "设为隐藏" : "设为公开")}
+          onAccessPolicy={(board) => startEdit(board, "access")}
+          onGovernance={(board) => startEdit(board, "governance")}
+          onMerge={openMerge}
           onDelete={(board) => void openDeletion(board)}
         />
       ) : <p className="admin-empty" role="status">{query ? "没有匹配的版块" : "尚未创建版块"}</p>}
       {syncRequired && <p className="form-alert" role="alert">服务端已完成操作，但无法同步最新顺序。请刷新页面后再继续编辑。</p>}
       {message && <p className={message.includes("失败") ? "form-alert" : "admin-success"} role={message.includes("失败") ? "alert" : "status"}>{message}</p>}
-      {editor && <BoardEditor editor={editor} draft={draft} saving={pendingId !== null} onDraft={setDraft} onCancel={() => setEditor(null)} onSubmit={saveEditor} parentName={boards.find((board) => board.id === editor.parentId)?.name ?? null} />}
+      {editor && <BoardEditor editor={editor} draft={draft} accessPolicy={accessPolicy} accessDraft={accessDraft} accessLoading={accessLoading} saving={pendingId !== null} conflict={revisionConflict} error={message} onDraft={setDraft} onAccessDraft={setAccessDraft} onCancel={() => { setEditor(null); setRevisionConflict(false) }} onRefresh={() => { if (editor.section === "access" && editor.board) void loadAccessPolicy(editor.board); else void refreshBoards() }} onSubmit={saveEditor} parentName={boards.find((board) => board.id === editor.parentId)?.name ?? null} />}
+      {merging && (
+        <section className="admin-confirm-panel" role="dialog" aria-modal="true" aria-labelledby="board-merge-heading">
+          <div><h3 id="board-merge-heading">合并“{merging.name}”</h3><button className="icon-button" type="button" onClick={() => setMerging(null)} aria-label="关闭合并确认" title="关闭"><X size={15} /></button></div>
+          {!mergeMutation && <label><span>目标版块</span><select aria-label="目标版块" value={mergeTargetId} onChange={(event) => void previewMerge(event.target.value)} disabled={mergeLoading}><option value="">请选择目标版块</option>{boards.filter((board) => board.id !== merging.id && board.status !== "merged").map((board) => <option key={board.id} value={board.id}>{board.name}</option>)}</select></label>}
+          {mergeLoading && <p role="status">正在处理合并…</p>}
+          {mergeImpact && !mergeMutation && <><ul><li>{mergeImpact.topicCount} 个主题</li><li>{mergeImpact.replyCount} 条回复</li><li>{mergeImpact.childCount} 个子版块</li></ul>{mergeImpact.blockedReason && <p className="form-alert" role="alert">{mergeBlockedReasonMessage(mergeImpact.blockedReason)}</p>}<button className="danger-button" type="button" onClick={() => void confirmMerge()} disabled={!mergeImpact.canMerge || mergeLoading}>确认合并版块</button></>}
+          {mergeMutation && <><dl><div><dt>审计编号</dt><dd>{mergeMutation.auditId}</dd></div><div><dt>迁移主题</dt><dd>{mergeMutation.movedTopicCount}</dd></div><div><dt>回滚截止</dt><dd>{new Date(mergeMutation.rollbackDeadline).toLocaleString("zh-CN")}</dd></div></dl>{!mergeMutation.rolledBack && Date.parse(mergeMutation.rollbackDeadline) > Date.now() && <button className="danger-button" type="button" onClick={() => void rollbackMerge()} disabled={mergeLoading}>24 小时内回滚合并</button>}</>}
+          {mergeMessage && <p className={mergeMessage.includes("失败") ? "form-alert" : "admin-success"} role={mergeMessage.includes("失败") ? "alert" : "status"}>{mergeMessage}</p>}
+        </section>
+      )}
       {deleting && (
         <section className="admin-confirm-panel" role="dialog" aria-modal="true" aria-labelledby="board-delete-heading">
           <div><h3 id="board-delete-heading">删除“{deleting.name}”</h3><button className="icon-button" type="button" onClick={() => { setDeleting(null); setDeletionImpact(null) }} aria-label="关闭删除确认" title="关闭"><X size={15} /></button></div>
@@ -209,20 +347,43 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
   )
 }
 
-function BoardEditor({ editor, draft, saving, onDraft, onCancel, onSubmit, parentName }: { editor: BoardEditorState; draft: AdminBoardInput; saving: boolean; onDraft: (draft: AdminBoardInput) => void; onCancel: () => void; onSubmit: (event: React.FormEvent) => void; parentName: string | null }) {
+function BoardEditor({ editor, draft, accessPolicy, accessDraft, accessLoading, saving, conflict, error, onDraft, onAccessDraft, onCancel, onRefresh, onSubmit, parentName }: { editor: BoardEditorState; draft: AdminBoardInput; accessPolicy: AdminContentAccessPolicy | null; accessDraft: AccessPolicyDraft | null; accessLoading: boolean; saving: boolean; conflict: boolean; error: string; onDraft: (draft: AdminBoardInput) => void; onAccessDraft: (draft: AccessPolicyDraft | null) => void; onCancel: () => void; onRefresh: () => void; onSubmit: (event: React.FormEvent) => void; parentName: string | null }) {
   const heading = editor.mode === "edit" ? `编辑“${editor.board?.name ?? "版块"}”` : parentName ? `在“${parentName}”下新增子版块` : "新建顶级版块"
-  return <form className="admin-form admin-board-editor" onSubmit={onSubmit}><div className="admin-form__heading"><h3>{heading}</h3><button className="icon-button" type="button" onClick={onCancel} aria-label="取消版块编辑" title="取消"><X size={15} /></button></div>
+  return <Drawer title={heading} description={editor.board ? `当前 revision ${editor.board.revision}` : "创建后可继续配置访问策略和治理人员"} onClose={onCancel} busy={saving}><form className="admin-form admin-board-editor" onSubmit={onSubmit}>
+    <nav className="admin-board-editor__sections" aria-label="版块设置分区"><a href="#board-basic">基本信息</a><a href="#board-content">内容规则</a><a href="#board-access">访问权限</a><a href="#board-governance">治理人员</a><a href="#board-danger">危险操作</a></nav>
+    <fieldset id="board-basic"><legend>基本信息</legend>
     <div className="admin-form__grid"><label><span>版块名称</span><input value={draft.name} onChange={(event) => onDraft({ ...draft, name: event.target.value })} maxLength={80} required /></label><label><span>版块 Slug</span><input value={draft.slug} onChange={(event) => onDraft({ ...draft, slug: event.target.value })} maxLength={80} required /></label></div>
     <label><span>版块描述</span><textarea rows={2} value={draft.description} onChange={(event) => onDraft({ ...draft, description: event.target.value })} maxLength={280} /></label>
     <div className="admin-form__grid"><label><span>图标 Slug</span><input value={draft.icon} onChange={(event) => onDraft({ ...draft, icon: event.target.value })} maxLength={32} required /></label><label><span>色调</span><select value={draft.tone} onChange={(event) => onDraft({ ...draft, tone: event.target.value as BoardTone })}><option value="green">绿色</option><option value="blue">蓝色</option><option value="amber">琥珀</option><option value="rose">玫红</option></select></label></div>
-    <label><span>可见性</span><select value={draft.visibility} onChange={(event) => onDraft({ ...draft, visibility: event.target.value as AdminBoardVisibility })}><option value="public">公开</option><option value="hidden">隐藏</option></select></label>
-    <button className="primary-button" type="submit" disabled={saving}>{saving && <LoaderCircle className="topic-loading__spinner" size={15} aria-hidden="true" />}{editor.mode === "edit" ? "保存版块" : editor.parentId ? "创建子版块" : "创建顶级版块"}</button>
-  </form>
+    <label><span>可见状态（与访问策略分离）</span><select value={draft.visibility} onChange={(event) => onDraft({ ...draft, visibility: event.target.value as AdminBoardVisibility })}><option value="public">公开</option><option value="hidden">隐藏</option></select></label></fieldset>
+    <fieldset id="board-content"><legend>内容规则</legend><p>主题、回复和附件规则沿用服务端社区权限与版块限制。</p></fieldset>
+    <fieldset id="board-access"><legend>访问权限</legend>
+      {editor.mode === "create" && <p>创建版块后可配置访问策略。</p>}
+      {editor.mode === "edit" && accessLoading && <p role="status">正在加载访问策略…</p>}
+      {editor.mode === "edit" && accessDraft && <>
+        <label><span>匹配方式</span><select aria-label="访问策略匹配方式" value={accessDraft.operator} onChange={(event) => onAccessDraft({ ...accessDraft, operator: event.target.value as ContentAccessOperator })}><option value="any_of">满足任一主体</option><option value="all_of">满足全部主体</option></select></label>
+        {accessDraft.subjects.map((subject, index) => <div className="admin-form__grid" key={`${index}-${subject.subjectType}`}>
+          <label><span>访问主体 {index + 1}</span><select aria-label={`访问主体 ${index + 1}`} value={subject.subjectType} onChange={(event) => onAccessDraft({ ...accessDraft, subjects: accessDraft.subjects.map((item, itemIndex) => itemIndex === index ? emptyAccessSubject(event.target.value as ContentAccessSubjectType) : item) })}><option value="public">所有访客</option><option value="authenticated">已登录用户</option><option value="community_group">社区用户组</option><option value="entitlement">标准权益</option><option value="governance">治理人员</option></select></label>
+          {subject.subjectType === "community_group" && <label><span>社区用户组 ID</span><input aria-label={`社区用户组 ID ${index + 1}`} value={subject.communityGroupId ?? ""} onChange={(event) => onAccessDraft({ ...accessDraft, subjects: accessDraft.subjects.map((item, itemIndex) => itemIndex === index ? { ...item, communityGroupId: event.target.value } : item) })} required /></label>}
+          {subject.subjectType === "entitlement" && <label><span>标准权益 Key</span><input aria-label={`标准权益 Key ${index + 1}`} value={subject.subjectKey ?? ""} onChange={(event) => onAccessDraft({ ...accessDraft, subjects: accessDraft.subjects.map((item, itemIndex) => itemIndex === index ? { ...item, subjectKey: event.target.value } : item) })} required /></label>}
+          {accessDraft.subjects.length > 1 && <button className="secondary-button" type="button" onClick={() => onAccessDraft({ ...accessDraft, subjects: accessDraft.subjects.filter((_, itemIndex) => itemIndex !== index) })}>移除主体 {index + 1}</button>}
+        </div>)}
+        <button className="secondary-button" type="button" onClick={() => onAccessDraft({ ...accessDraft, subjects: [...accessDraft.subjects, emptyAccessSubject("authenticated")] })}>添加访问主体</button>
+        {accessPolicy && <p>当前访问策略 revision {accessPolicy.revision}</p>}
+      </>}
+    </fieldset>
+    <fieldset id="board-governance"><legend>治理人员</legend><p>治理角色继续使用 RBAC 与版块 scope，不写入社区用户组或标准权益。</p></fieldset>
+    <fieldset id="board-danger"><legend>危险操作</legend><p>合并和删除必须先读取影响预览，并返回审计编号。</p></fieldset>
+    {conflict && <RevisionConflictNotice onRefresh={onRefresh} />}{error && !conflict && <p className="form-alert" role="alert">{error}</p>}
+    <button className="primary-button" type="submit" disabled={saving || (editor.section === "access" && (accessLoading || !accessDraft))}>{saving && <LoaderCircle className="topic-loading__spinner" size={15} aria-hidden="true" />}{editor.section === "access" ? "保存访问策略" : editor.mode === "edit" ? "保存版块" : editor.parentId ? "创建子版块" : "创建顶级版块"}</button>
+  </form></Drawer>
 }
 
 function emptyDraft(parentId: string | null, position: number): AdminBoardInput { return { parentId, slug: "", name: "", description: "", icon: "messages", tone: "green", position, visibility: "public" } }
+function emptyAccessSubject(subjectType: ContentAccessSubjectType) { return { subjectType, communityGroupId: null, subjectKey: null } }
 function rootBoards(boards: AdminBoard[]) { return siblingBoards(boards, null) }
 function siblingBoards(boards: AdminBoard[], parentId: string | null) { return boards.filter((board) => board.parentId === parentId).sort(compareBoards) }
 function toUpdateInput(board: AdminBoard, changes: Partial<AdminBoardInput>): AdminBoardUpdateInput { return { parentId: changes.parentId === undefined ? board.parentId : changes.parentId, slug: changes.slug ?? board.slug, name: changes.name ?? board.name, description: changes.description ?? board.description, icon: changes.icon ?? board.icon, tone: changes.tone ?? board.tone, position: changes.position ?? board.position, visibility: changes.visibility ?? board.visibility, expectedRevision: board.revision } }
 function toggleSet(values: Set<string>, value: string) { const next = new Set(values); if (next.has(value)) next.delete(value); else next.add(value); return next }
 function apiMessage(reason: unknown, fallback: string) { return reason instanceof AdminApiError ? reason.message : fallback }
+function mergeBlockedReasonMessage(reason: NonNullable<AdminBoardMergeImpact["blockedReason"]>) { return ({ same_board: "源版块和目标版块不能相同。", target_descendant: "目标版块不能是源版块的子版块。", source_has_children: "源版块仍有子版块，请先迁移子版块。", topic_limit_exceeded: "合并后的主题数量超过 5000 条限制。", source_unavailable: "源版块当前不可合并。", target_unavailable: "目标版块当前不可接收合并。" })[reason] }

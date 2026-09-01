@@ -14,14 +14,15 @@ import {
   createRecentAuthentication,
   logout,
 } from "./api/auth"
-import { listBoards } from "./api/boards"
+import { getBoard, listBoards } from "./api/boards"
 import { getPublicSiteBranding } from "./api/branding"
+import { listFeed } from "./api/feed"
 import { getAdminAccess } from "./api/admin"
 import { listModerationBoards } from "./api/moderation"
 import { createReply, createTopic, getTopic, listReplies, listTags, listTopics } from "./api/topics"
 import type { ListTopicsOptions } from "./api/topics"
 import { getUserProfile, listUserRelations } from "./api/users"
-import { listBookmarks, setTopicBookmark } from "./api/relations"
+import { listBookmarks, setPostLike, setTopicBookmark } from "./api/relations"
 import { createConversation, listConversations, listMessages, markConversationRead } from "./api/messages"
 import {
   getInstallationStatus,
@@ -33,6 +34,12 @@ import { rememberOidcSettingsReturn } from "./utils/oidcSettingsReturn"
 
 vi.mock("./api/boards", () => ({
   listBoards: vi.fn(),
+  getBoard: vi.fn(),
+  BoardApiError: class BoardApiError extends Error {
+    constructor(readonly message: string, readonly status: number, readonly code: string) {
+      super(message)
+    }
+  },
 }))
 
 vi.mock("./api/branding", () => ({
@@ -56,6 +63,10 @@ vi.mock("./components/AdminView", () => ({
       <button type="button" onClick={() => { onTabChange("reports"); onQueryChange("status=open&report_id=019fc900-0000-7000-8000-000000000802") }}>打开举报待办</button>
     </section>
   ),
+}))
+
+vi.mock("./api/feed", () => ({
+  listFeed: vi.fn(),
 }))
 
 vi.mock("./api/topics", () => ({
@@ -130,11 +141,15 @@ vi.mock("./api/auth", async () => {
 const boardFixtures: Board[] = [
   {
     id: "019fc630-0000-7000-8000-000000000001",
+    parentId: null,
     slug: "engineering",
     name: "工程实践",
     description: "Rust、架构与部署",
     icon: "code",
     tone: "green",
+    position: 10,
+    depth: 0,
+    childCount: 0,
     topicCount: 12,
   },
 ]
@@ -209,7 +224,7 @@ const brandingFixture = {
   navigationLinks: [],
   footerText: null,
   footerLinks: [],
-  primaryColor: "#176a4d",
+  primaryColor: "#2f7bff",
   accentColor: "#c85516",
   themePreset: "default" as const,
   listDensity: "comfortable" as const,
@@ -219,6 +234,7 @@ const brandingFixture = {
 beforeEach(() => {
   vi.mocked(listBoards).mockReset()
   vi.mocked(listBoards).mockReturnValue(new Promise(() => {}))
+  vi.mocked(getBoard).mockReset()
   vi.mocked(getPublicSiteBranding).mockReset().mockResolvedValue(brandingFixture)
   vi.mocked(getAdminAccess).mockReset().mockResolvedValue({ capabilityKeys: [] })
   vi.mocked(listModerationBoards).mockReset().mockResolvedValue([])
@@ -233,6 +249,13 @@ beforeEach(() => {
     })
     return Promise.resolve({ topics: filtered, nextCursor: null })
   })
+  vi.mocked(listFeed).mockReset().mockImplementation((mode, options = {}) => listTopics({
+    cursor: options.cursor,
+    limit: options.limit,
+    signal: options.signal,
+    sort: mode === "recommended" ? "popular" : "latest",
+    scope: mode === "following" ? "following" : undefined,
+  }))
   vi.mocked(createTopic).mockReset()
   vi.mocked(listTags).mockReset().mockResolvedValue([])
   vi.mocked(getTopic).mockReset().mockResolvedValue({
@@ -282,6 +305,11 @@ beforeEach(() => {
     topicId,
     bookmarked,
   }))
+  vi.mocked(setPostLike).mockReset().mockImplementation((postId, liked) => Promise.resolve({
+    postId,
+    liked,
+    likeCount: liked ? 97 : 96,
+  }))
   vi.mocked(listConversations).mockReset().mockResolvedValue({ conversations: [], nextCursor: null })
   vi.mocked(listMessages).mockReset().mockResolvedValue({ messages: [], nextCursor: null })
   vi.mocked(markConversationRead).mockReset()
@@ -314,7 +342,7 @@ describe("DaoYun community home", () => {
 
     expect(await screen.findByTestId("site-admin-view")).toHaveAttribute("data-requested-tab", "reports")
     expect(screen.getByTestId("site-admin-view")).toHaveAttribute("data-requested-query", "status=open")
-    expect(screen.queryByRole("navigation", { name: "社区板块" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("navigation", { name: "常用社区" })).not.toBeInTheDocument()
     expect(listBoards).not.toHaveBeenCalled()
     expect(listTopics).not.toHaveBeenCalled()
   })
@@ -338,7 +366,7 @@ describe("DaoYun community home", () => {
 
     expect(screen.queryByTestId("site-admin-view")).not.toBeInTheDocument()
     expect(await screen.findByRole("heading", { name: "社区动态" })).toBeInTheDocument()
-    expect(screen.getByRole("navigation", { name: "社区板块" })).toBeInTheDocument()
+    expect(screen.getByRole("navigation", { name: "常用社区" })).toBeInTheDocument()
   })
 
   it("renders the OIDC claim completion flow at its dedicated hash route", async () => {
@@ -421,15 +449,36 @@ describe("DaoYun community home", () => {
     expect(screen.getByRole("link", { name: "文档中心" })).toHaveAttribute("href", "/docs")
     expect(screen.getByText("天际自托管社区")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "隐私" })).toHaveAttribute("href", "#privacy")
-    expect(document.querySelector(".topic-cover img")).toHaveAttribute("src", "https://cdn.example.com/default-cover.webp")
+    expect(document.querySelector(".topic-row")).toHaveAttribute("data-layout", "discussion")
+    expect(document.querySelector('.topic-cover img[src="https://cdn.example.com/default-cover.webp"]')).not.toBeInTheDocument()
     await waitFor(() => {
       expect(document.documentElement).toHaveAttribute("data-brand-preset", "compact")
       expect(document.documentElement).toHaveAttribute("data-list-density", "compact")
       expect(document.documentElement.style.getPropertyValue("--brand")).toBe("#123456")
+      expect(document.documentElement.style.getPropertyValue("--brand-hover")).toBe("color-mix(in srgb, #123456 88%, #000)")
+      expect(document.documentElement.style.getPropertyValue("--brand-active")).toBe("color-mix(in srgb, #123456 78%, #000)")
+      expect(document.documentElement.style.getPropertyValue("--brand-foreground")).toBe("#ffffff")
       expect(document.documentElement.style.getPropertyValue("--accent")).toBe("#c2410c")
     })
     expect(document.title).toBe("天际社区")
     expect(document.querySelector('link[data-daoyun-favicon="true"]')).toHaveAttribute("href", "https://cdn.example.com/favicon.ico")
+  })
+
+  it("keeps the clear community blue companion tokens theme-aware", async () => {
+    vi.mocked(getPublicSiteBranding).mockResolvedValue({
+      ...brandingFixture,
+      primaryColor: "#2F7BFF",
+    })
+
+    render(<App />)
+
+    await screen.findByRole("heading", { name: "社区动态" })
+    await waitFor(() => expect(document.documentElement.style.getPropertyValue("--brand")).toBe("#2F7BFF"))
+    expect(document.documentElement.style.getPropertyValue("--brand-hover")).toBe("")
+    expect(document.documentElement.style.getPropertyValue("--brand-active")).toBe("")
+    expect(document.documentElement.style.getPropertyValue("--brand-strong")).toBe("")
+    expect(document.documentElement.style.getPropertyValue("--brand-soft")).toBe("")
+    expect(document.documentElement.style.getPropertyValue("--brand-foreground")).toBe("")
   })
 
   it("bookmarks a feed topic for the authenticated user", async () => {
@@ -500,17 +549,40 @@ describe("DaoYun community home", () => {
       .toBeInTheDocument()
   })
 
-  it("filters topics from the header search", async () => {
+  it("opens a shareable search route from the header", async () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await user.type(await screen.findByRole("searchbox", { name: "搜索社区内容" }), "编辑器")
+    await user.type(await screen.findByRole("searchbox", { name: "搜索社区内容" }), "编辑器{Enter}")
 
     const main = within(screen.getByRole("main"))
+    expect(await main.findByRole("heading", { name: "搜索：编辑器" })).toBeInTheDocument()
     expect(await main.findByText("富文本编辑器的协作草稿方案已经开放讨论"))
       .toBeInTheDocument()
     expect(main.queryByText("用 Rust 构建社区平台，我们为什么选择模块化单体"))
       .not.toBeInTheDocument()
+    expect(window.location.hash).toBe("#search?q=%E7%BC%96%E8%BE%91%E5%99%A8")
+  })
+
+  it("likes a feed topic without opening the detail view", async () => {
+    vi.mocked(getCurrentSession).mockResolvedValue({
+      user: {
+        id: topicFixtures[0].authorId,
+        username: topicFixtures[0].authorUsername,
+        email: "member@example.com",
+        displayName: topicFixtures[0].author,
+      },
+      csrfToken: "a".repeat(64),
+    })
+    const user = userEvent.setup()
+    render(<App />)
+
+    const like = await screen.findByRole("button", { name: `点赞主题：${topicFixtures[0].title}` })
+    await user.click(like)
+
+    expect(setPostLike).toHaveBeenCalledWith(topicFixtures[0].id, true, "a".repeat(64))
+    expect(await screen.findByRole("button", { name: `取消点赞主题：${topicFixtures[0].title}` }))
+      .toHaveAttribute("aria-pressed", "true")
   })
 
   it("clears the active header search and restores the feed", async () => {
@@ -542,41 +614,33 @@ describe("DaoYun community home", () => {
   it("uses latest posts as the default topic ordering", async () => {
     render(<App />)
 
-    expect(await screen.findByRole("tab", { name: "最新发帖" })).toHaveAttribute("aria-selected", "true")
-    expect(screen.getByRole("tab", { name: "最新回复" })).toBeInTheDocument()
-    expect(screen.getByRole("tab", { name: "热门讨论" })).toBeInTheDocument()
-    expect(listTopics).toHaveBeenLastCalledWith(expect.objectContaining({ sort: "latest" }))
+    expect(await screen.findByRole("tab", { name: "最新" })).toHaveAttribute("aria-selected", "true")
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["推荐", "关注", "最新"])
+    expect(listFeed).toHaveBeenLastCalledWith("latest", expect.objectContaining({ signal: expect.any(AbortSignal) }))
   })
 
-  it("requests topics ordered by latest reply", async () => {
-    const user = userEvent.setup()
+  it("keeps the legacy active-feed route available without adding a fourth home tab", async () => {
+    window.location.hash = "#active"
     render(<App />)
 
-    await user.click(await screen.findByRole("tab", { name: "最新回复" }))
-
-    expect(listTopics).toHaveBeenLastCalledWith(expect.objectContaining({ sort: "active" }))
+    await waitFor(() => expect(listTopics).toHaveBeenLastCalledWith(expect.objectContaining({ sort: "active" })))
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["推荐", "关注", "最新"])
   })
 
   it("requests topics ordered by popularity", async () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await user.click(await screen.findByRole("tab", { name: "热门讨论" }))
+    await user.click(await screen.findByRole("tab", { name: "推荐" }))
 
-    expect(listTopics).toHaveBeenLastCalledWith(expect.objectContaining({ sort: "popular" }))
+    expect(listFeed).toHaveBeenLastCalledWith("recommended", expect.objectContaining({ signal: expect.any(AbortSignal) }))
   })
 
-  it("switches to the featured topic feed", async () => {
-    const user = userEvent.setup()
+  it("does not expose the legacy featured feed as a fourth home tab", async () => {
     render(<App />)
 
-    await user.click(await screen.findByRole("tab", { name: "精华" }))
-
-    const main = within(screen.getByRole("main"))
-    expect(await main.findByText("刀云设计系统：让品牌配置保持克制而有辨识度"))
-      .toBeInTheDocument()
-    expect(main.queryByText("新成员报到：正在搭建我的独立摄影社区"))
-      .not.toBeInTheDocument()
+    await screen.findByRole("heading", { name: "社区动态" })
+    expect(screen.queryByRole("tab", { name: "精华" })).not.toBeInTheDocument()
   })
 
   it("filters topics by a server-provided tag", async () => {
@@ -606,8 +670,7 @@ describe("DaoYun community home", () => {
 
     await user.click(await screen.findByRole("tab", { name: "关注" }))
 
-    expect(listTopics).toHaveBeenLastCalledWith(expect.objectContaining({
-      scope: "following",
+    expect(listFeed).toHaveBeenLastCalledWith("following", expect.objectContaining({
       signal: expect.any(AbortSignal),
     }))
     expect(await within(screen.getByRole("main")).findByText(topicFixtures[0].title)).toBeInTheDocument()
@@ -629,8 +692,7 @@ describe("DaoYun community home", () => {
     const communityNavigation = await screen.findByRole("complementary", { name: "社区导航" })
     await user.click(within(communityNavigation).getByRole("link", { name: "关注" }))
 
-    expect(listTopics).toHaveBeenLastCalledWith(expect.objectContaining({
-      scope: "following",
+    expect(listFeed).toHaveBeenLastCalledWith("following", expect.objectContaining({
       signal: expect.any(AbortSignal),
     }))
   })
@@ -672,7 +734,7 @@ describe("DaoYun community home", () => {
     expect(await screen.findByRole("heading", { name: "登录后查看关注动态" })).toBeInTheDocument()
     expect(listTopics).not.toHaveBeenCalledWith(expect.objectContaining({ scope: "following" }))
     await user.click(screen.getByRole("button", { name: "登录查看关注动态" }))
-    expect(screen.getByRole("dialog", { name: "登录刀云" })).toBeInTheDocument()
+    expect(await screen.findByRole("dialog", { name: "登录刀云" })).toBeInTheDocument()
   })
 
   it("opens a topic author's public profile", async () => {
@@ -755,14 +817,14 @@ describe("DaoYun community home", () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await user.click(await screen.findByRole("button", { name: "发布主题" }))
-    expect(screen.getByRole("dialog", { name: "发布新主题" })).toBeInTheDocument()
+    await user.click(await screen.findByRole("button", { name: "分享此刻的想法" }))
+    expect(await screen.findByRole("dialog", { name: "发布内容" })).toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: "关闭发布窗口" }))
-    expect(screen.queryByRole("dialog", { name: "发布新主题" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: "发布内容" })).not.toBeInTheDocument()
   })
 
-  it("adds a newly published topic returned by the API", async () => {
+  it("opens the newly published topic returned by the API", async () => {
     const user = userEvent.setup()
     vi.mocked(listBoards)
       .mockResolvedValueOnce(boardFixtures)
@@ -787,16 +849,18 @@ describe("DaoYun community home", () => {
     })
 
     render(<App />)
-    await user.click(await screen.findByRole("button", { name: "发布主题" }))
-    await user.type(screen.getByRole("textbox", { name: "标题" }), "真实发布主题")
+    await user.click(await screen.findByRole("button", { name: "分享此刻的想法" }))
+    await user.click(screen.getByRole("button", { name: "添加标题" }))
+    await user.type(screen.getByRole("textbox", { name: "标题（可选）" }), "真实发布主题")
     await user.type(screen.getByRole("textbox", { name: "正文" }), "真实正文")
-    const composer = within(screen.getByRole("dialog", { name: "发布新主题" }))
+    const composer = within(screen.getByRole("dialog", { name: "发布内容" }))
     await user.click(composer.getByRole("button", { name: "发布" }))
 
-    expect(await within(screen.getByRole("main")).findByText("真实发布主题")).toBeInTheDocument()
-    expect(screen.getByRole("option", { name: "Rust" })).toBeInTheDocument()
-    expect(screen.queryByRole("dialog", { name: "发布新主题" })).not.toBeInTheDocument()
-    expect(await within(screen.getByRole("navigation", { name: "社区板块" })).findByText("13"))
+    const publishedTopicId = "019fc800-0000-7000-8000-000000000109"
+    await waitFor(() => expect(window.location.hash).toBe(`#topic/${publishedTopicId}`))
+    expect(getTopic).toHaveBeenCalledWith(publishedTopicId, expect.any(AbortSignal))
+    expect(screen.queryByRole("dialog", { name: "发布内容" })).not.toBeInTheDocument()
+    expect(await within(screen.getByRole("navigation", { name: "常用社区" })).findByText("13"))
       .toBeInTheDocument()
     expect(listBoards).toHaveBeenCalledTimes(2)
   })
@@ -834,7 +898,7 @@ describe("DaoYun community home", () => {
 
     render(<App />)
 
-    const boardNavigation = await screen.findByRole("navigation", { name: "社区板块" })
+    const boardNavigation = await screen.findByRole("navigation", { name: "常用社区" })
     expect(await within(boardNavigation).findByText("工程实践")).toBeInTheDocument()
     expect(within(boardNavigation).getByText("12")).toBeInTheDocument()
   })
@@ -845,11 +909,11 @@ describe("DaoYun community home", () => {
 
     const { rerender } = render(<App />)
 
-    expect(await screen.findByText("正在加载板块")).toBeInTheDocument()
+    expect(await screen.findByText("正在加载社区")).toBeInTheDocument()
 
     rerender(<App key="empty-boards" />)
 
-    expect(await screen.findByText("暂无公开板块")).toHaveAttribute("role", "status")
+    expect(await screen.findByText("暂无常用社区")).toHaveAttribute("role", "status")
   })
 
   it("retries the board request after a loading failure", async () => {
@@ -860,10 +924,10 @@ describe("DaoYun community home", () => {
 
     render(<App />)
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("板块加载失败")
-    await user.click(screen.getByRole("button", { name: "重试加载板块" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent("社区加载失败")
+    await user.click(screen.getByRole("button", { name: "重试加载社区" }))
 
-    const boardNavigation = screen.getByRole("navigation", { name: "社区板块" })
+    const boardNavigation = screen.getByRole("navigation", { name: "常用社区" })
     expect(await within(boardNavigation).findByText("工程实践")).toBeInTheDocument()
     expect(listBoards).toHaveBeenCalledTimes(2)
   })
@@ -950,6 +1014,33 @@ describe("DaoYun community home", () => {
     expect(screen.queryByRole("menuitem", { name: "系统后台" })).not.toBeInTheDocument()
   })
 
+  it("clears the previous board topics while a newly selected board is loading", async () => {
+    window.location.hash = "#board/engineering"
+    const engineeringBoard = {
+      ...boardFixtures[0],
+      children: [],
+      breadcrumb: [{ id: boardFixtures[0].id, slug: boardFixtures[0].slug, name: boardFixtures[0].name }],
+      viewer: { canRead: true, canCreateTopic: false, canReply: false, canUploadAttachment: false },
+    }
+    const designBoard = {
+      ...engineeringBoard,
+      id: "019fc630-0000-7000-8000-000000000002",
+      slug: "design",
+      name: "产品设计",
+      breadcrumb: [{ id: "019fc630-0000-7000-8000-000000000002", slug: "design", name: "产品设计" }],
+    }
+    const pendingDesignBoard = new Promise<typeof designBoard>(() => {})
+    vi.mocked(getBoard).mockImplementation((slug) => slug === "engineering" ? Promise.resolve(engineeringBoard) : pendingDesignBoard)
+
+    render(<App />)
+
+    expect(await screen.findByRole("heading", { name: topicFixtures[0].title })).toBeInTheDocument()
+    window.location.hash = "#board/design"
+    window.dispatchEvent(new HashChangeEvent("hashchange"))
+    await waitFor(() => expect(getBoard).toHaveBeenCalledWith("design", expect.any(AbortSignal)))
+    await waitFor(() => expect(screen.queryByText(topicFixtures[0].title)).not.toBeInTheDocument())
+  })
+
   it("shows the site administration entry to a board-scoped moderator", async () => {
     const user = userEvent.setup()
     vi.mocked(getCurrentSession).mockResolvedValue({
@@ -983,6 +1074,15 @@ describe("DaoYun community home", () => {
 
     expect(screen.getAllByRole("menuitem", { name: "站点管理" })).toHaveLength(1)
     expect(screen.getByRole("menuitem", { name: "站点管理" })).toHaveAttribute("href", "#admin")
+  })
+
+  it("restores a topic detail directly from its hash route", async () => {
+    window.location.hash = `#topic/${topicFixtures[0].id}`
+
+    render(<App />)
+
+    expect(await screen.findByText("完整主题正文")).toBeInTheDocument()
+    expect(getTopic).toHaveBeenCalledWith(topicFixtures[0].id, expect.any(AbortSignal))
   })
 })
 

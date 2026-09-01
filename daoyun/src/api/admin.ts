@@ -5,6 +5,9 @@ export type BrandThemePreset = components["schemas"]["BrandThemePreset"]
 export type BrandListDensity = components["schemas"]["BrandListDensity"]
 export type BrandHomeMode = components["schemas"]["BrandHomeMode"]
 export type AdminBoardVisibility = components["schemas"]["AdminBoardVisibility"]
+export type AdminBoardStatus = "open" | "read_only" | "hidden" | "archived" | "merged"
+export type ContentAccessOperator = components["schemas"]["ContentAccessOperator"]
+export type ContentAccessSubjectType = components["schemas"]["ContentAccessSubjectType"]
 export type BoardTone = components["schemas"]["BoardTone"]
 export type BrandAssetKind = "logo" | "favicon"
 
@@ -62,6 +65,8 @@ export interface SmtpSettingsInput {
 }
 
 export interface AdminBoard {
+  status: AdminBoardStatus
+  mergedIntoBoardId: string | null
   id: string
   parentId: string | null
   slug: string
@@ -76,6 +81,7 @@ export interface AdminBoard {
 }
 
 export interface AdminBoardInput {
+  status?: Exclude<AdminBoardStatus, "merged">
   parentId: string | null
   slug: string
   name: string
@@ -96,6 +102,76 @@ export interface AdminBoardDeletionImpact {
   topicCount: number
   replyCount: number
   canDelete: boolean
+}
+
+export interface AdminContentAccessSubject {
+  subjectType: ContentAccessSubjectType
+  communityGroupId: string | null
+  subjectKey: string | null
+}
+
+export interface AdminContentAccessPolicy {
+  id: string
+  targetType: "board" | "topic" | "post" | "attachment"
+  targetId: string
+  operator: ContentAccessOperator
+  subjects: AdminContentAccessSubject[]
+  revision: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AdminContentAccessPolicyInput {
+  operator: ContentAccessOperator
+  subjects: AdminContentAccessSubject[]
+  expectedRevision?: number | null
+}
+
+export type AdminBoardMergeBlockedReason =
+  | "same_board"
+  | "target_descendant"
+  | "source_has_children"
+  | "topic_limit_exceeded"
+  | "source_unavailable"
+  | "target_unavailable"
+
+export interface AdminBoardMergeImpact {
+  sourceBoardId: string
+  targetBoardId: string
+  sourceRevision: number
+  targetRevision: number
+  topicCount: number
+  replyCount: number
+  childCount: number
+  topicLimit: number
+  canMerge: boolean
+  blockedReason: AdminBoardMergeBlockedReason | null
+}
+
+export interface MergeAdminBoardInput {
+  targetBoardId: string
+  expectedSourceRevision: number
+  expectedTargetRevision: number
+  idempotencyKey: string
+}
+
+export interface RollbackAdminBoardMergeInput {
+  auditId: string
+  expectedSourceRevision: number
+  expectedTargetRevision: number
+  idempotencyKey: string
+}
+
+export interface AdminBoardMergeMutation {
+  auditId: string
+  sourceBoardId: string
+  targetBoardId: string
+  movedTopicCount: number
+  sourceRevision: number
+  targetRevision: number
+  rollbackDeadline: string
+  rolledBack: boolean
+  replayed: boolean
 }
 
 export interface GovernancePolicy {
@@ -134,6 +210,9 @@ export interface AdminCommunityGroup {
   revision: number
   createdAt: string
   updatedAt: string
+  memberCount?: number
+  expiringMemberCount?: number
+  accessPolicyReferenceCount?: number
 }
 
 export interface UpdateAdminCommunityGroupInput {
@@ -142,6 +221,16 @@ export interface UpdateAdminCommunityGroupInput {
   description: string
   displayOrder: number
   status: CommunityGroupStatus
+  permissionKeys: string[]
+  quotas: Record<string, number>
+}
+
+export interface CreateAdminCommunityGroupInput {
+  internalKey: string
+  displayName: string
+  description: string
+  isBase: boolean
+  displayOrder: number
   permissionKeys: string[]
   quotas: Record<string, number>
 }
@@ -171,6 +260,74 @@ export interface GrantAdminCommunityGroupMembershipInput {
 
 export interface CommunityGroupMembershipMutation {
   membership: AdminCommunityGroupMembership
+  replayed: boolean
+}
+
+export interface StandardEntitlementType {
+  id: string
+  internalKey: string
+  displayName: string
+  status: CommunityGroupStatus
+  currentVersion: number
+  permissionKeys: string[]
+  quotas: Record<string, number>
+  revision: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface StandardEntitlementVersion {
+  id: string
+  entitlementTypeId: string
+  version: number
+  permissionKeys: string[]
+  quotas: Record<string, number>
+  createdBy: string
+  createdAt: string
+}
+
+export interface AdminStandardEntitlement {
+  id: string
+  userId: string
+  entitlementTypeId: string
+  entitlementKey: string
+  typeVersion: number
+  permissionSnapshot: string[]
+  quotaSnapshot: Record<string, number>
+  source: string
+  sourceReferenceId: string | null
+  reason: string
+  startsAt: string
+  endsAt: string | null
+  revokedAt: string | null
+  revokedBy: string | null
+  revocationReason: string | null
+  revision: number
+  grantedBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PutStandardEntitlementTypeInput {
+  displayName: string
+  permissionKeys: string[]
+  quotas: Record<string, number>
+  expectedRevision: number | null
+}
+
+export interface GrantStandardEntitlementInput {
+  userId: string
+  entitlementTypeId: string
+  source: string
+  sourceReferenceId: string | null
+  reason: string
+  startsAt: string
+  endsAt: string | null
+  idempotencyKey: string
+}
+
+export interface StandardEntitlementMutation {
+  entitlement: AdminStandardEntitlement
   replayed: boolean
 }
 
@@ -217,12 +374,14 @@ export interface MembershipPointsGrantInput {
   userId: string
   amount: number
   reason: string
+  details?: string | null
   idempotencyKey?: string | null
 }
 
 export interface MembershipPointsGrant {
   account: MembershipAccount
   created: boolean
+  auditId: string | null
 }
 
 export interface MembershipMedalRule {
@@ -454,10 +613,15 @@ const presets = new Set<BrandThemePreset>(["default", "dark", "compact", "high_c
 const densities = new Set<BrandListDensity>(["comfortable", "compact"])
 const homeModes = new Set<BrandHomeMode>(["latest", "hot", "featured"])
 const visibilities = new Set<AdminBoardVisibility>(["public", "hidden"])
+const boardStatuses = new Set<AdminBoardStatus>(["open", "read_only", "hidden", "archived", "merged"])
+const contentAccessSubjectTypes = new Set<ContentAccessSubjectType>(["public", "authenticated", "community_group", "entitlement", "governance"])
+const contentAccessOperators = new Set<ContentAccessOperator>(["any_of", "all_of"])
+const mergeBlockedReasons = new Set<AdminBoardMergeBlockedReason>(["same_board", "target_descendant", "source_has_children", "topic_limit_exceeded", "source_unavailable", "target_unavailable"])
 const tones = new Set<BoardTone>(["green", "blue", "amber", "rose"])
 const membershipLevelPattern = /^lv_(?:[1-9]|1[0-9]|20)$/
 const membershipMedalPattern = /^medal_(?:0[1-9]|1[0-7])$/
 const capabilityKeyPattern = /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/
+const internalKeyPattern = /^[a-z][a-z0-9_]{2,63}$/
 
 export class AdminApiError extends Error {
   readonly status: number
@@ -546,6 +710,91 @@ export async function getAdminBoardDeletionImpact(boardId: string, signal?: Abor
     headers: { Accept: "application/json" }, credentials: "include", signal,
   })
   return parseResponse(response, isBoardDeletionImpactDto)
+}
+
+export async function getAdminContentAccessPolicy(
+  targetType: "board" | "topic" | "post" | "attachment",
+  targetId: string,
+  signal?: AbortSignal,
+): Promise<AdminContentAccessPolicy> {
+  const response = await fetch(`/api/v1/admin/content-access-policies/${targetType}/${targetId}`, {
+    headers: { Accept: "application/json" }, credentials: "include", signal,
+  })
+  return parseResponse(response, isContentAccessPolicyDto)
+}
+
+export async function putAdminContentAccessPolicy(
+  targetType: "board" | "topic" | "post" | "attachment",
+  targetId: string,
+  input: AdminContentAccessPolicyInput,
+  csrfToken: string,
+  signal?: AbortSignal,
+): Promise<AdminContentAccessPolicy> {
+  const response = await fetch(`/api/v1/admin/content-access-policies/${targetType}/${targetId}`, {
+    method: "PUT",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken },
+    credentials: "include",
+    body: JSON.stringify({
+      operator: input.operator,
+      subjects: input.subjects.map(toContentAccessSubjectDto),
+      expected_revision: input.expectedRevision ?? null,
+    } satisfies PutContentAccessPolicyRequestDto),
+    signal,
+  })
+  return parseResponse(response, isContentAccessPolicyDto)
+}
+
+export async function getAdminBoardMergeImpact(
+  sourceBoardId: string,
+  targetBoardId: string,
+  signal?: AbortSignal,
+): Promise<AdminBoardMergeImpact> {
+  const response = await fetch(`/api/v1/admin/boards/${sourceBoardId}/merge-impact?target_board_id=${encodeURIComponent(targetBoardId)}`, {
+    headers: { Accept: "application/json" }, credentials: "include", signal,
+  })
+  return parseResponse(response, isBoardMergeImpactDto)
+}
+
+export async function mergeAdminBoard(
+  sourceBoardId: string,
+  input: MergeAdminBoardInput,
+  csrfToken: string,
+  signal?: AbortSignal,
+): Promise<AdminBoardMergeMutation> {
+  const response = await fetch(`/api/v1/admin/boards/${sourceBoardId}/merge`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken },
+    credentials: "include",
+    body: JSON.stringify({
+      target_board_id: input.targetBoardId,
+      expected_source_revision: input.expectedSourceRevision,
+      expected_target_revision: input.expectedTargetRevision,
+      idempotency_key: input.idempotencyKey,
+    }),
+    signal,
+  })
+  return parseResponse(response, isBoardMergeMutationDto)
+}
+
+export async function rollbackAdminBoardMerge(
+  sourceBoardId: string,
+  input: RollbackAdminBoardMergeInput,
+  csrfToken: string,
+  signal?: AbortSignal,
+): Promise<AdminBoardMergeMutation> {
+  const response = await fetch(`/api/v1/admin/boards/${sourceBoardId}/merge/rollback`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken },
+    credentials: "include",
+    body: JSON.stringify({
+      audit_id: input.auditId,
+      expected_source_revision: input.expectedSourceRevision,
+      expected_target_revision: input.expectedTargetRevision,
+      idempotency_key: input.idempotencyKey,
+    }),
+    signal,
+  })
+  return parseResponse(response, isBoardMergeMutationDto)
 }
 
 export async function getGovernancePolicy(signal?: AbortSignal): Promise<GovernancePolicy> {
@@ -673,6 +922,26 @@ export async function listAdminCommunityGroups(signal?: AbortSignal): Promise<Ad
   return parseResponse<AdminCommunityGroup[]>(response, (value): value is AdminCommunityGroupDto[] => Array.isArray(value) && value.every(isAdminCommunityGroupDto))
 }
 
+export async function createAdminCommunityGroup(input: CreateAdminCommunityGroupInput, csrfToken: string, signal?: AbortSignal): Promise<AdminCommunityGroup> {
+  const body: CreateCommunityGroupRequestDto = {
+    internal_key: input.internalKey,
+    display_name: input.displayName,
+    description: input.description,
+    is_base: input.isBase,
+    display_order: input.displayOrder,
+    permission_keys: input.permissionKeys,
+    quotas: input.quotas,
+  }
+  const response = await fetch("/api/v1/admin/community/groups", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken },
+    credentials: "include",
+    body: JSON.stringify(body),
+    signal,
+  })
+  return parseResponse(response, isAdminCommunityGroupDto)
+}
+
 export async function updateAdminCommunityGroup(groupId: string, input: UpdateAdminCommunityGroupInput, csrfToken: string, signal?: AbortSignal): Promise<AdminCommunityGroup> {
   if (!uuidPattern.test(groupId)) throw new AdminApiError(422, "validation.failed", "用户组标识格式无效")
   const body: UpdateCommunityGroupRequestDto = {
@@ -757,6 +1026,87 @@ export async function revokeAdminCommunityGroupMembership(membershipId: string, 
     signal,
   })
   return parseResponse(response, isCommunityGroupMembershipMutationDto)
+}
+
+export async function listStandardEntitlementTypes(signal?: AbortSignal): Promise<StandardEntitlementType[]> {
+  const response = await fetch("/api/v1/admin/entitlements/types", {
+    headers: { Accept: "application/json" },
+    credentials: "include",
+    signal,
+  })
+  return parseResponse<StandardEntitlementType[]>(response, (value): value is StandardEntitlementTypeDto[] => Array.isArray(value) && value.every(isStandardEntitlementTypeDto))
+}
+
+export async function listStandardEntitlementVersions(internalKey: string, signal?: AbortSignal): Promise<StandardEntitlementVersion[]> {
+  if (!internalKeyPattern.test(internalKey)) throw new AdminApiError(422, "validation.failed", "权益类型内部键格式无效")
+  const response = await fetch(`/api/v1/admin/entitlements/types/${encodeURIComponent(internalKey)}/versions`, {
+    headers: { Accept: "application/json" },
+    credentials: "include",
+    signal,
+  })
+  return parseResponse<StandardEntitlementVersion[]>(response, (value): value is StandardEntitlementVersionDto[] => Array.isArray(value) && value.every(isStandardEntitlementVersionDto))
+}
+
+export async function listAdminStandardEntitlements(userId: string, signal?: AbortSignal): Promise<AdminStandardEntitlement[]> {
+  if (!uuidPattern.test(userId)) throw new AdminApiError(422, "validation.failed", "用户标识格式无效")
+  const response = await fetch(`/api/v1/admin/entitlements?${new URLSearchParams({ user_id: userId })}`, {
+    headers: { Accept: "application/json" },
+    credentials: "include",
+    signal,
+  })
+  return parseResponse<AdminStandardEntitlement[]>(response, (value): value is AdminStandardEntitlementDto[] => Array.isArray(value) && value.every(isAdminStandardEntitlementDto))
+}
+
+export async function putStandardEntitlementType(internalKey: string, input: PutStandardEntitlementTypeInput, csrfToken: string, signal?: AbortSignal): Promise<StandardEntitlementType> {
+  if (!internalKeyPattern.test(internalKey)) throw new AdminApiError(422, "validation.failed", "权益类型内部键格式无效")
+  const body: PutStandardEntitlementTypeRequestDto = {
+    display_name: input.displayName,
+    permission_keys: input.permissionKeys,
+    quotas: input.quotas,
+    expected_revision: input.expectedRevision,
+  }
+  const response = await fetch(`/api/v1/admin/entitlements/types/${encodeURIComponent(internalKey)}`, {
+    method: "PUT",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken },
+    credentials: "include",
+    body: JSON.stringify(body),
+    signal,
+  })
+  return parseResponse(response, isStandardEntitlementTypeDto)
+}
+
+export async function grantStandardEntitlement(input: GrantStandardEntitlementInput, csrfToken: string, signal?: AbortSignal): Promise<StandardEntitlementMutation> {
+  const body: GrantStandardEntitlementRequestDto = {
+    user_id: input.userId,
+    entitlement_type_id: input.entitlementTypeId,
+    source: input.source,
+    source_reference_id: input.sourceReferenceId,
+    reason: input.reason,
+    starts_at: input.startsAt,
+    ends_at: input.endsAt,
+    idempotency_key: input.idempotencyKey,
+  }
+  const response = await fetch("/api/v1/admin/entitlements", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken },
+    credentials: "include",
+    body: JSON.stringify(body),
+    signal,
+  })
+  return parseResponse(response, isStandardEntitlementMutationDto)
+}
+
+export async function revokeStandardEntitlement(entitlementId: string, expectedRevision: number, reason: string, idempotencyKey: string, csrfToken: string, signal?: AbortSignal): Promise<StandardEntitlementMutation> {
+  if (!uuidPattern.test(entitlementId)) throw new AdminApiError(422, "validation.failed", "权益记录标识格式无效")
+  const body: RevokeStandardEntitlementRequestDto = { expected_revision: expectedRevision, reason, idempotency_key: idempotencyKey }
+  const response = await fetch(`/api/v1/admin/entitlements/${encodeURIComponent(entitlementId)}/revoke`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken },
+    credentials: "include",
+    body: JSON.stringify(body),
+    signal,
+  })
+  return parseResponse(response, isStandardEntitlementMutationDto)
 }
 
 export async function createAdminGrowthLevel(input: CreateAdminGrowthLevelInput, csrfToken: string, signal?: AbortSignal): Promise<AdminGrowthLevel> {
@@ -845,6 +1195,13 @@ export async function grantMembershipMedal(input: MembershipMedalGrantInput, csr
     body: JSON.stringify({ user_id: input.userId, medal_key: input.medalKey, reason: input.reason }), signal,
   })
   return parseResponse(response, isMembershipMedalGrantDto)
+}
+
+export async function getAdminMembershipAccount(userId: string, signal?: AbortSignal): Promise<MembershipAccount> {
+  const response = await fetch(`/api/v1/admin/membership/users/${encodeURIComponent(userId)}`, {
+    headers: { Accept: "application/json" }, credentials: "include", signal,
+  })
+  return parseResponse(response, isMembershipAccountDto)
 }
 
 export async function listMembershipMedalOperations(options: ListMembershipMedalOperationsOptions = {}): Promise<{ operations: MembershipMedalOperation[]; nextCursor: string | null }> {
@@ -995,7 +1352,10 @@ type SmtpSettingsDto = {
   registration_email_verification_enabled: boolean
 }
 type AdminCapabilityAccessDto = components["schemas"]["AdminCapabilityAccess"]
-type AdminBoardDto = components["schemas"]["AdminBoard"]
+type AdminBoardDto = components["schemas"]["AdminBoard"] & {
+  status?: AdminBoardStatus
+  merged_into_board_id?: string | null
+}
 type AdminBoardDeletionImpactDto = components["schemas"]["AdminBoardDeletionImpact"]
 type GovernancePolicyDto = components["schemas"]["GovernancePolicy"]
 type UserSummaryDto = Required<components["schemas"]["UserSummary"]>
@@ -1016,24 +1376,70 @@ type AuditEntryDto = Omit<components["schemas"]["AdminAuditEntry"], "actor" | "r
 type RiskAlertPageDto = Omit<components["schemas"]["PageResponse_RiskAlert"], "data" | "meta"> & { data: RiskAlertDto[]; meta: Required<components["schemas"]["PageMeta"]> }
 type AuditPageDto = Omit<components["schemas"]["PageResponse_AdminAuditEntry"], "data" | "meta"> & { data: AuditEntryDto[]; meta: Required<components["schemas"]["PageMeta"]> }
 type UpdateSiteBrandingRequestDto = components["schemas"]["UpdateSiteBrandingRequest"]
-type CreateAdminBoardRequestDto = components["schemas"]["CreateAdminBoardRequest"]
-type UpdateAdminBoardRequestDto = components["schemas"]["UpdateAdminBoardRequest"]
+type CreateAdminBoardRequestDto = components["schemas"]["CreateAdminBoardRequest"] & { status?: Exclude<AdminBoardStatus, "merged"> }
+type ContentAccessPolicyDto = components["schemas"]["ContentAccessPolicy"]
+type ContentAccessSubjectDto = components["schemas"]["ContentAccessSubject"]
+type PutContentAccessPolicyRequestDto = components["schemas"]["PutContentAccessPolicyRequest"]
+type AdminBoardMergeImpactDto = {
+  source_board_id: string
+  target_board_id: string
+  source_revision: number
+  target_revision: number
+  topic_count: number
+  reply_count: number
+  child_count: number
+  topic_limit: number
+  can_merge: boolean
+  blocked_reason?: AdminBoardMergeBlockedReason | null
+}
+type AdminBoardMergeMutationDto = {
+  audit_id: string
+  source_board_id: string
+  target_board_id: string
+  moved_topic_count: number
+  source_revision: number
+  target_revision: number
+  rollback_deadline: string
+  rolled_back: boolean
+  replayed: boolean
+}
+type UpdateAdminBoardRequestDto = components["schemas"]["UpdateAdminBoardRequest"] & { status?: Exclude<AdminBoardStatus, "merged"> }
 type UpdateGovernancePolicyRequestDto = components["schemas"]["UpdateGovernancePolicyRequest"]
 type UpdateRiskAlertRequestDto = components["schemas"]["UpdateRiskAlertRequest"]
 type AdminGrowthLevelDto = components["schemas"]["AdminGrowthLevel"]
-type AdminCommunityGroupDto = components["schemas"]["AdminCommunityGroup"]
+type AdminCommunityGroupDto = components["schemas"]["AdminCommunityGroup"] & {
+  member_count?: number
+  expiring_member_count?: number
+  access_policy_reference_count?: number
+}
 type AdminCommunityGroupMembershipDto = components["schemas"]["AdminCommunityGroupMembership"]
 type GrantCommunityGroupMembershipRequestDto = components["schemas"]["GrantCommunityGroupMembershipRequest"]
 type RevokeCommunityGroupMembershipRequestDto = components["schemas"]["RevokeCommunityGroupMembershipRequest"]
 type CommunityGroupMembershipMutationDto = components["schemas"]["CommunityGroupMembershipMutation"]
+type CreateCommunityGroupRequestDto = components["schemas"]["CreateCommunityGroupRequest"]
 type UpdateCommunityGroupRequestDto = components["schemas"]["UpdateCommunityGroupRequest"]
 type SetDefaultCommunityGroupRequestDto = components["schemas"]["SetDefaultCommunityGroupRequest"]
+type StandardEntitlementTypeDto = components["schemas"]["StandardEntitlementType"]
+type AdminStandardEntitlementDto = components["schemas"]["AdminStandardEntitlement"]
+type PutStandardEntitlementTypeRequestDto = components["schemas"]["PutStandardEntitlementTypeRequest"]
+type GrantStandardEntitlementRequestDto = components["schemas"]["GrantStandardEntitlementRequest"]
+type RevokeStandardEntitlementRequestDto = components["schemas"]["RevokeStandardEntitlementRequest"]
+type StandardEntitlementMutationDto = components["schemas"]["StandardEntitlementMutation"]
+type StandardEntitlementVersionDto = {
+  id: string
+  entitlement_type_id: string
+  version: number
+  permission_keys: string[]
+  quotas: Record<string, number>
+  created_by: string
+  created_at: string
+}
 type CreateGrowthLevelRequestDto = components["schemas"]["CreateGrowthLevelRequest"]
 type UpdateGrowthLevelRequestDto = components["schemas"]["UpdateGrowthLevelRequest"]
 type MembershipLevelRuleDto = components["schemas"]["MembershipLevelRule"]
 type UpdateMembershipLevelRuleRequestDto = components["schemas"]["UpdateMembershipLevelRuleRequest"]
-type GrantMembershipPointsRequestDto = components["schemas"]["GrantMembershipPointsRequest"]
-type MembershipPointsGrantDto = components["schemas"]["MembershipPointsGrant"]
+type GrantMembershipPointsRequestDto = components["schemas"]["GrantMembershipPointsRequest"] & { details?: string | null }
+type MembershipPointsGrantDto = components["schemas"]["MembershipPointsGrant"] & { audit_id?: string | null }
 type MembershipAccountDto = components["schemas"]["MembershipAccount"]
 type MembershipMedalRuleDto = { key: string; display_name: string; enabled: boolean; required_lifetime_points: number | null; updated_at: string }
 type MembershipMedalDto = { key: string; display_name: string; asset_url: string; sha256: string; granted_at: string }
@@ -1085,15 +1491,22 @@ function mapValue(value: unknown): unknown {
   if (isOperationsAlertRuleDto(value)) return { id: value.id, key: value.key, name: value.name, kind: value.kind, threshold: value.threshold, windowSeconds: value.window_seconds, enabled: value.enabled, revision: value.revision, createdAt: value.created_at, updatedAt: value.updated_at }
   if (isBrandingDto(value)) return { siteName: value.site_name, logoUrl: value.logo_url, faviconUrl: value.favicon_url, defaultCoverUrl: value.default_cover_url, navigationLinks: value.navigation_links, footerText: value.footer_text, footerLinks: value.footer_links, primaryColor: value.primary_color, accentColor: value.accent_color, themePreset: value.theme_preset, listDensity: value.list_density, homeMode: value.home_mode }
   if (isSmtpSettingsDto(value)) return { host: value.host, port: value.port, username: value.username, passwordConfigured: value.password_configured, tlsMode: value.tls_mode, fromEmail: value.from_email, fromName: value.from_name, enabled: value.enabled, registrationEmailVerificationEnabled: value.registration_email_verification_enabled }
-  if (isBoardDto(value)) return { id: value.id, parentId: value.parent_id ?? null, slug: value.slug, name: value.name, description: value.description, icon: value.icon, tone: value.tone, position: value.position, visibility: value.visibility, topicCount: value.topic_count, revision: value.revision }
+  if (isBoardDto(value)) return { id: value.id, parentId: value.parent_id ?? null, slug: value.slug, name: value.name, description: value.description, icon: value.icon, tone: value.tone, position: value.position, visibility: value.visibility, status: value.status ?? (value.visibility === "hidden" ? "hidden" : "open"), mergedIntoBoardId: value.merged_into_board_id ?? null, topicCount: value.topic_count, revision: value.revision }
+  if (isContentAccessPolicyDto(value)) return { id: value.id, targetType: value.target_type, targetId: value.target_id, operator: value.operator, subjects: value.subjects.map((subject) => ({ subjectType: subject.subject_type, communityGroupId: subject.community_group_id ?? null, subjectKey: subject.subject_key ?? null })), revision: value.revision, createdAt: value.created_at, updatedAt: value.updated_at }
+  if (isBoardMergeImpactDto(value)) return { sourceBoardId: value.source_board_id, targetBoardId: value.target_board_id, sourceRevision: value.source_revision, targetRevision: value.target_revision, topicCount: value.topic_count, replyCount: value.reply_count, childCount: value.child_count, topicLimit: value.topic_limit, canMerge: value.can_merge, blockedReason: value.blocked_reason ?? null }
+  if (isBoardMergeMutationDto(value)) return { auditId: value.audit_id, sourceBoardId: value.source_board_id, targetBoardId: value.target_board_id, movedTopicCount: value.moved_topic_count, sourceRevision: value.source_revision, targetRevision: value.target_revision, rollbackDeadline: value.rollback_deadline, rolledBack: value.rolled_back, replayed: value.replayed }
   if (isBoardDeletionImpactDto(value)) return { boardId: value.board_id, childCount: value.child_count, topicCount: value.topic_count, replyCount: value.reply_count, canDelete: value.can_delete }
   if (isGovernancePolicyDto(value)) return { enabled: value.enabled, alertScoreThreshold: value.alert_score_threshold, reporterWindowMinutes: value.reporter_window_minutes, reporterAlertLimit: value.reporter_alert_limit }
   if (isAdminGrowthLevelDto(value)) return { id: value.id, internalKey: value.internal_key, levelOrder: value.level_order, displayName: value.display_name, requiredExperience: value.required_experience, iconAssetId: value.icon_asset_id ?? null, color: value.color ?? null, description: value.description, status: value.status, revision: value.revision, publishedAt: value.published_at ?? null, createdAt: value.created_at, updatedAt: value.updated_at }
-  if (isAdminCommunityGroupDto(value)) return { id: value.id, internalKey: value.internal_key, displayName: value.display_name, description: value.description, displayOrder: value.display_order, isBase: value.is_base, isDefault: value.is_default, status: value.status, permissionKeys: value.permission_keys, quotas: value.quotas, revision: value.revision, createdAt: value.created_at, updatedAt: value.updated_at }
+  if (isAdminCommunityGroupDto(value)) return { id: value.id, internalKey: value.internal_key, displayName: value.display_name, description: value.description, displayOrder: value.display_order, isBase: value.is_base, isDefault: value.is_default, status: value.status, permissionKeys: value.permission_keys, quotas: value.quotas, revision: value.revision, createdAt: value.created_at, updatedAt: value.updated_at, memberCount: value.member_count ?? 0, expiringMemberCount: value.expiring_member_count ?? 0, accessPolicyReferenceCount: value.access_policy_reference_count ?? 0 }
   if (isAdminCommunityGroupMembershipDto(value)) return mapAdminCommunityGroupMembership(value)
   if (isCommunityGroupMembershipMutationDto(value)) return { membership: mapAdminCommunityGroupMembership(value.membership), replayed: value.replayed }
+  if (isStandardEntitlementTypeDto(value)) return mapStandardEntitlementType(value)
+  if (isStandardEntitlementVersionDto(value)) return mapStandardEntitlementVersion(value)
+  if (isAdminStandardEntitlementDto(value)) return mapAdminStandardEntitlement(value)
+  if (isStandardEntitlementMutationDto(value)) return { entitlement: mapAdminStandardEntitlement(value.entitlement), replayed: value.replayed }
   if (isMembershipLevelRuleDto(value)) return { levelKey: value.level_key, levelNumber: value.level_number, levelDisplayName: value.level_display_name, requiredLifetimePoints: value.required_lifetime_points, enabled: value.enabled, updatedAt: value.updated_at }
-  if (isMembershipPointsGrantDto(value)) return { account: mapValue(value.account) as MembershipAccount, created: value.created }
+  if (isMembershipPointsGrantDto(value)) return { account: mapValue(value.account) as MembershipAccount, created: value.created, auditId: value.audit_id ?? null }
   if (isMembershipAccountDto(value)) return { userId: value.user_id, pointsBalance: value.points_balance, lifetimePoints: value.lifetime_points, levelKey: value.level_key, levelNumber: value.level_number, levelDisplayName: value.level_display_name, revision: value.revision, updatedAt: value.updated_at }
   if (isMembershipMedalRuleDto(value)) return { key: value.key, displayName: value.display_name, enabled: value.enabled, requiredLifetimePoints: value.required_lifetime_points, updatedAt: value.updated_at }
   if (isMembershipMedalGrantDto(value)) return { medal: mapValue(value.medal) as MembershipMedal, created: value.created }
@@ -1109,12 +1522,13 @@ function mapValue(value: unknown): unknown {
 }
 
 function toBrandingDto(value: SiteBrandingInput): UpdateSiteBrandingRequestDto { return { site_name: value.siteName, logo_url: value.logoUrl, favicon_url: value.faviconUrl, default_cover_url: value.defaultCoverUrl, navigation_links: value.navigationLinks, footer_text: value.footerText, footer_links: value.footerLinks, primary_color: value.primaryColor, accent_color: value.accentColor, theme_preset: value.themePreset, list_density: value.listDensity, home_mode: value.homeMode } }
-function toCreateBoardDto(value: AdminBoardInput): CreateAdminBoardRequestDto { return { parent_id: value.parentId, slug: value.slug, name: value.name, description: value.description, icon: value.icon, tone: value.tone, position: value.position, visibility: value.visibility } }
-function toUpdateBoardDto(value: AdminBoardUpdateInput): UpdateAdminBoardRequestDto { return { parent_id: value.parentId, slug: value.slug, name: value.name, description: value.description, icon: value.icon, tone: value.tone, position: value.position, visibility: value.visibility, expected_revision: value.expectedRevision } }
+function toCreateBoardDto(value: AdminBoardInput): CreateAdminBoardRequestDto { return { parent_id: value.parentId, slug: value.slug, name: value.name, description: value.description, icon: value.icon, tone: value.tone, position: value.position, visibility: value.visibility, status: value.status ?? (value.visibility === "hidden" ? "hidden" : "open") } }
+function toUpdateBoardDto(value: AdminBoardUpdateInput): UpdateAdminBoardRequestDto { return { parent_id: value.parentId, slug: value.slug, name: value.name, description: value.description, icon: value.icon, tone: value.tone, position: value.position, visibility: value.visibility, status: value.status ?? (value.visibility === "hidden" ? "hidden" : "open"), expected_revision: value.expectedRevision } }
+function toContentAccessSubjectDto(value: AdminContentAccessSubject): ContentAccessSubjectDto { return { subject_type: value.subjectType, community_group_id: value.communityGroupId, subject_key: value.subjectKey } }
 function toCreateAdminGrowthLevelDto(value: CreateAdminGrowthLevelInput): CreateGrowthLevelRequestDto { return { internal_key: value.internalKey, level_order: value.levelOrder, display_name: value.displayName, required_experience: value.requiredExperience, icon_asset_id: value.iconAssetId, color: value.color, description: value.description } }
 function toUpdateAdminGrowthLevelDto(value: UpdateAdminGrowthLevelInput): UpdateGrowthLevelRequestDto { return { expected_revision: value.expectedRevision, level_order: value.levelOrder, display_name: value.displayName, required_experience: value.requiredExperience, icon_asset_id: value.iconAssetId, color: value.color, description: value.description, status: value.status } }
 function toMembershipLevelRuleDto(value: MembershipLevelRuleInput): UpdateMembershipLevelRuleRequestDto { return { required_lifetime_points: value.requiredLifetimePoints, enabled: value.enabled, display_name: value.displayName } }
-function toMembershipPointsGrantDto(value: MembershipPointsGrantInput): GrantMembershipPointsRequestDto { return { user_id: value.userId, amount: value.amount, reason: value.reason, idempotency_key: value.idempotencyKey ?? null } }
+function toMembershipPointsGrantDto(value: MembershipPointsGrantInput): GrantMembershipPointsRequestDto { return { user_id: value.userId, amount: value.amount, reason: value.reason, details: value.details?.trim() || null, idempotency_key: value.idempotencyKey ?? null } }
 
 function isEnvelope(value: unknown): value is Envelope<unknown> { return isRecord(value) && "data" in value && isRecord(value.meta) && isUuid(value.meta.request_id) }
 function isAdminCapabilityAccessDto(value: unknown): value is AdminCapabilityAccessDto { return isRecord(value) && Array.isArray(value.capability_keys) && value.capability_keys.every((key: unknown) => typeof key === "string" && capabilityKeyPattern.test(key)) && new Set(value.capability_keys).size === value.capability_keys.length }
@@ -1127,22 +1541,34 @@ function isHttpsUrl(value: unknown): value is string { if (typeof value !== "str
 function isBrandLinks(value: unknown): value is BrandLink[] { return Array.isArray(value) && value.length <= 8 && value.every((link) => isRecord(link) && typeof link.label === "string" && link.label.trim().length > 0 && link.label.length <= 40 && typeof link.url === "string" && isSafeBrandLinkUrl(link.url)) }
 function isSafeBrandLinkUrl(value: string): boolean { if (value.startsWith("https://")) return isHttpsUrl(value); return (value.startsWith("/") && !value.startsWith("//") && !value.includes("\\")) || value.startsWith("#") }
 function isBoard(value: unknown): value is AdminBoardDto { return isBoardDto(value) }
-function isBoardDto(value: unknown): value is AdminBoardDto { return isRecord(value) && isUuid(value.id) && "parent_id" in value && (value.parent_id === null || isUuid(value.parent_id)) && typeof value.slug === "string" && typeof value.name === "string" && typeof value.description === "string" && typeof value.icon === "string" && typeof value.tone === "string" && tones.has(value.tone as BoardTone) && Number.isSafeInteger(value.position) && value.position >= 0 && typeof value.visibility === "string" && visibilities.has(value.visibility as AdminBoardVisibility) && Number.isSafeInteger(value.topic_count) && value.topic_count >= 0 && Number.isSafeInteger(value.revision) && value.revision > 0 }
+function isBoardDto(value: unknown): value is AdminBoardDto { return isRecord(value) && isUuid(value.id) && "parent_id" in value && (value.parent_id === null || isUuid(value.parent_id)) && typeof value.slug === "string" && typeof value.name === "string" && typeof value.description === "string" && typeof value.icon === "string" && typeof value.tone === "string" && tones.has(value.tone as BoardTone) && Number.isSafeInteger(value.position) && value.position >= 0 && typeof value.visibility === "string" && visibilities.has(value.visibility as AdminBoardVisibility) && (value.status === undefined || (typeof value.status === "string" && boardStatuses.has(value.status as AdminBoardStatus))) && (value.merged_into_board_id === undefined || value.merged_into_board_id === null || isUuid(value.merged_into_board_id)) && Number.isSafeInteger(value.topic_count) && value.topic_count >= 0 && Number.isSafeInteger(value.revision) && value.revision > 0 }
 function isBoardDeletionImpactDto(value: unknown): value is AdminBoardDeletionImpactDto { return isRecord(value) && isUuid(value.board_id) && Number.isSafeInteger(value.child_count) && value.child_count >= 0 && Number.isSafeInteger(value.topic_count) && value.topic_count >= 0 && Number.isSafeInteger(value.reply_count) && value.reply_count >= 0 && typeof value.can_delete === "boolean" && value.can_delete === (value.child_count === 0 && value.topic_count === 0) }
+function isContentAccessSubjectDto(value: unknown): value is ContentAccessSubjectDto { if (!isRecord(value) || typeof value.subject_type !== "string" || !contentAccessSubjectTypes.has(value.subject_type as ContentAccessSubjectType)) return false; const groupId = value.community_group_id; const subjectKey = value.subject_key; if (value.subject_type === "community_group") return isUuid(groupId) && (subjectKey === null || subjectKey === undefined); if (value.subject_type === "entitlement") return (groupId === null || groupId === undefined) && typeof subjectKey === "string" && internalKeyPattern.test(subjectKey); return (groupId === null || groupId === undefined) && (subjectKey === null || subjectKey === undefined) }
+function isContentAccessPolicyDto(value: unknown): value is ContentAccessPolicyDto { return isRecord(value) && isUuid(value.id) && (value.target_type === "board" || value.target_type === "topic" || value.target_type === "post" || value.target_type === "attachment") && isUuid(value.target_id) && typeof value.operator === "string" && contentAccessOperators.has(value.operator as ContentAccessOperator) && Array.isArray(value.subjects) && value.subjects.length > 0 && value.subjects.every(isContentAccessSubjectDto) && Number.isSafeInteger(value.revision) && value.revision >= 1 && isTimestamp(value.created_at) && isTimestamp(value.updated_at) }
+function isBoardMergeImpactDto(value: unknown): value is AdminBoardMergeImpactDto { return isRecord(value) && isUuid(value.source_board_id) && isUuid(value.target_board_id) && Number.isSafeInteger(value.source_revision) && value.source_revision >= 0 && Number.isSafeInteger(value.target_revision) && value.target_revision >= 0 && Number.isSafeInteger(value.topic_count) && value.topic_count >= 0 && Number.isSafeInteger(value.reply_count) && value.reply_count >= 0 && Number.isSafeInteger(value.child_count) && value.child_count >= 0 && Number.isSafeInteger(value.topic_limit) && value.topic_limit === 5000 && typeof value.can_merge === "boolean" && (value.blocked_reason === null || value.blocked_reason === undefined || (typeof value.blocked_reason === "string" && mergeBlockedReasons.has(value.blocked_reason as AdminBoardMergeBlockedReason))) && value.can_merge === (value.blocked_reason === null || value.blocked_reason === undefined) }
+function isBoardMergeMutationDto(value: unknown): value is AdminBoardMergeMutationDto { return isRecord(value) && isUuid(value.audit_id) && isUuid(value.source_board_id) && isUuid(value.target_board_id) && Number.isSafeInteger(value.moved_topic_count) && value.moved_topic_count >= 0 && Number.isSafeInteger(value.source_revision) && value.source_revision > 0 && Number.isSafeInteger(value.target_revision) && value.target_revision > 0 && isTimestamp(value.rollback_deadline) && typeof value.rolled_back === "boolean" && typeof value.replayed === "boolean" }
 function isGovernancePolicy(value: unknown): value is GovernancePolicy { return isGovernancePolicyDto(value) }
 function isGovernancePolicyDto(value: unknown): value is GovernancePolicyDto { return isRecord(value) && typeof value.enabled === "boolean" && Number.isSafeInteger(value.alert_score_threshold) && value.alert_score_threshold >= 1 && value.alert_score_threshold <= 100 && Number.isSafeInteger(value.reporter_window_minutes) && value.reporter_window_minutes >= 1 && value.reporter_window_minutes <= 1440 && Number.isSafeInteger(value.reporter_alert_limit) && value.reporter_alert_limit >= 1 && value.reporter_alert_limit <= 100 }
 function isAdminGrowthLevelDto(value: unknown): value is AdminGrowthLevelDto { return isRecord(value) && isUuid(value.id) && typeof value.internal_key === "string" && /^[a-z][a-z0-9_]{2,63}$/.test(value.internal_key) && Number.isSafeInteger(value.level_order) && value.level_order >= 1 && isValidGrowthText(value.display_name, 1, 80, true) && Number.isSafeInteger(value.required_experience) && value.required_experience >= 0 && (value.icon_asset_id === null || value.icon_asset_id === undefined || isUuid(value.icon_asset_id)) && (value.color === null || value.color === undefined || (typeof value.color === "string" && /^#[0-9a-f]{6}$/i.test(value.color))) && isValidGrowthText(value.description, 0, 500, false) && isGrowthLevelStatus(value.status) && Number.isSafeInteger(value.revision) && value.revision >= 1 && (value.published_at === null || value.published_at === undefined || isTimestamp(value.published_at)) && isTimestamp(value.created_at) && isTimestamp(value.updated_at) }
-function isAdminCommunityGroupDto(value: unknown): value is AdminCommunityGroupDto { return isRecord(value) && isUuid(value.id) && /^[a-z][a-z0-9_]{2,63}$/.test(value.internal_key) && isValidGrowthText(value.display_name, 1, 80, true) && isValidGrowthText(value.description, 0, 500, false) && Number.isSafeInteger(value.display_order) && value.display_order >= 0 && typeof value.is_base === "boolean" && typeof value.is_default === "boolean" && (!value.is_default || (value.is_base && value.status === "active")) && isCommunityGroupStatus(value.status) && Array.isArray(value.permission_keys) && value.permission_keys.every((key: unknown) => typeof key === "string" && capabilityKeyPattern.test(key)) && isQuotaMap(value.quotas) && Number.isSafeInteger(value.revision) && value.revision >= 1 && isTimestamp(value.created_at) && isTimestamp(value.updated_at) }
+function isAdminCommunityGroupDto(value: unknown): value is AdminCommunityGroupDto { return isRecord(value) && isUuid(value.id) && /^[a-z][a-z0-9_]{2,63}$/.test(value.internal_key) && isValidGrowthText(value.display_name, 1, 80, true) && isValidGrowthText(value.description, 0, 500, false) && Number.isSafeInteger(value.display_order) && value.display_order >= 0 && typeof value.is_base === "boolean" && typeof value.is_default === "boolean" && (!value.is_default || (value.is_base && value.status === "active")) && isCommunityGroupStatus(value.status) && Array.isArray(value.permission_keys) && value.permission_keys.every((key: unknown) => typeof key === "string" && capabilityKeyPattern.test(key)) && isQuotaMap(value.quotas) && Number.isSafeInteger(value.revision) && value.revision >= 1 && isTimestamp(value.created_at) && isTimestamp(value.updated_at) && isOptionalNonNegativeInteger(value.member_count) && isOptionalNonNegativeInteger(value.expiring_member_count) && isOptionalNonNegativeInteger(value.access_policy_reference_count) }
 function isAdminCommunityGroupMembershipDto(value: unknown): value is AdminCommunityGroupMembershipDto { return isRecord(value) && isUuid(value.id) && isUuid(value.user_id) && isRecord(value.group) && isUuid(value.group.id) && typeof value.group.internal_key === "string" && typeof value.group.display_name === "string" && (value.membership_kind === "base" || value.membership_kind === "additional") && typeof value.source === "string" && (value.source_reference_id === undefined || value.source_reference_id === null || isUuid(value.source_reference_id)) && typeof value.reason === "string" && isTimestamp(value.starts_at) && (value.ends_at === undefined || value.ends_at === null || isTimestamp(value.ends_at)) && (value.revoked_at === undefined || value.revoked_at === null || isTimestamp(value.revoked_at)) && (value.revocation_reason === undefined || value.revocation_reason === null || typeof value.revocation_reason === "string") && Number.isSafeInteger(value.revision) && value.revision >= 1 }
 function isCommunityGroupMembershipMutationDto(value: unknown): value is CommunityGroupMembershipMutationDto { return isRecord(value) && isAdminCommunityGroupMembershipDto(value.membership) && typeof value.replayed === "boolean" }
 function mapAdminCommunityGroupMembership(value: AdminCommunityGroupMembershipDto): AdminCommunityGroupMembership { return { id: value.id, userId: value.user_id, group: { id: value.group.id, internalKey: value.group.internal_key, displayName: value.group.display_name }, membershipKind: value.membership_kind as "base" | "additional", source: value.source, sourceReferenceId: value.source_reference_id ?? null, reason: value.reason, startsAt: value.starts_at, endsAt: value.ends_at ?? null, revokedAt: value.revoked_at ?? null, revocationReason: value.revocation_reason ?? null, revision: value.revision } }
+function isStandardEntitlementTypeDto(value: unknown): value is StandardEntitlementTypeDto { return isRecord(value) && isUuid(value.id) && typeof value.internal_key === "string" && internalKeyPattern.test(value.internal_key) && isValidGrowthText(value.display_name, 1, 80, true) && isCommunityGroupStatus(value.status) && Number.isSafeInteger(value.current_version) && Number(value.current_version) >= 1 && Array.isArray(value.permission_keys) && value.permission_keys.every((key: unknown) => typeof key === "string" && capabilityKeyPattern.test(key)) && isQuotaMap(value.quotas) && Number.isSafeInteger(value.revision) && Number(value.revision) >= 1 && isTimestamp(value.created_at) && isTimestamp(value.updated_at) }
+function isStandardEntitlementVersionDto(value: unknown): value is StandardEntitlementVersionDto { return isRecord(value) && isUuid(value.id) && isUuid(value.entitlement_type_id) && Number.isSafeInteger(value.version) && Number(value.version) >= 1 && Array.isArray(value.permission_keys) && value.permission_keys.every((key: unknown) => typeof key === "string" && capabilityKeyPattern.test(key)) && isQuotaMap(value.quotas) && isUuid(value.created_by) && isTimestamp(value.created_at) }
+function isAdminStandardEntitlementDto(value: unknown): value is AdminStandardEntitlementDto { return isRecord(value) && isUuid(value.id) && isUuid(value.user_id) && isUuid(value.entitlement_type_id) && typeof value.entitlement_key === "string" && internalKeyPattern.test(value.entitlement_key) && Number.isSafeInteger(value.type_version) && Number(value.type_version) >= 1 && Array.isArray(value.permission_snapshot) && value.permission_snapshot.every((key: unknown) => typeof key === "string" && capabilityKeyPattern.test(key)) && isQuotaMap(value.quota_snapshot) && typeof value.source === "string" && (value.source_reference_id === null || value.source_reference_id === undefined || typeof value.source_reference_id === "string") && typeof value.reason === "string" && isTimestamp(value.starts_at) && (value.ends_at === null || value.ends_at === undefined || isTimestamp(value.ends_at)) && (value.revoked_at === null || value.revoked_at === undefined || isTimestamp(value.revoked_at)) && (value.revoked_by === null || value.revoked_by === undefined || isUuid(value.revoked_by)) && (value.revocation_reason === null || value.revocation_reason === undefined || typeof value.revocation_reason === "string") && Number.isSafeInteger(value.revision) && Number(value.revision) >= 1 && isUuid(value.granted_by) && isTimestamp(value.created_at) && isTimestamp(value.updated_at) }
+function isStandardEntitlementMutationDto(value: unknown): value is StandardEntitlementMutationDto { return isRecord(value) && isAdminStandardEntitlementDto(value.entitlement) && typeof value.replayed === "boolean" }
+function mapStandardEntitlementType(value: StandardEntitlementTypeDto): StandardEntitlementType { return { id: value.id, internalKey: value.internal_key, displayName: value.display_name, status: value.status as CommunityGroupStatus, currentVersion: value.current_version, permissionKeys: value.permission_keys, quotas: value.quotas, revision: value.revision, createdAt: value.created_at, updatedAt: value.updated_at } }
+function mapStandardEntitlementVersion(value: StandardEntitlementVersionDto): StandardEntitlementVersion { return { id: value.id, entitlementTypeId: value.entitlement_type_id, version: value.version, permissionKeys: value.permission_keys, quotas: value.quotas, createdBy: value.created_by, createdAt: value.created_at } }
+function mapAdminStandardEntitlement(value: AdminStandardEntitlementDto): AdminStandardEntitlement { return { id: value.id, userId: value.user_id, entitlementTypeId: value.entitlement_type_id, entitlementKey: value.entitlement_key, typeVersion: value.type_version, permissionSnapshot: value.permission_snapshot, quotaSnapshot: value.quota_snapshot, source: value.source, sourceReferenceId: value.source_reference_id ?? null, reason: value.reason, startsAt: value.starts_at, endsAt: value.ends_at ?? null, revokedAt: value.revoked_at ?? null, revokedBy: value.revoked_by ?? null, revocationReason: value.revocation_reason ?? null, revision: value.revision, grantedBy: value.granted_by, createdAt: value.created_at, updatedAt: value.updated_at } }
 function isCommunityGroupStatus(value: unknown): value is CommunityGroupStatus { return value === "active" || value === "disabled" || value === "archived" }
 function isQuotaMap(value: unknown): value is Record<string, number> { return isRecord(value) && Object.entries(value).every(([key, quota]) => capabilityKeyPattern.test(key) && Number.isSafeInteger(quota) && quota >= 0) }
+function isOptionalNonNegativeInteger(value: unknown): value is number | undefined { return value === undefined || (Number.isSafeInteger(value) && Number(value) >= 0) }
 function isGrowthLevelStatus(value: unknown): value is GrowthLevelStatus { return value === "draft" || value === "published" || value === "disabled" || value === "archived" }
 function isValidGrowthText(value: unknown, minimumLength: number, maximumLength: number, mustBeTrimmed: boolean): value is string { return typeof value === "string" && (!mustBeTrimmed || value === value.trim()) && Array.from(value).length >= minimumLength && Array.from(value).length <= maximumLength && !Array.from(value).some((character) => /\p{Cc}/u.test(character)) }
 function isMembershipLevelRuleDto(value: unknown): value is MembershipLevelRuleDto { return isRecord(value) && typeof value.level_key === "string" && membershipLevelPattern.test(value.level_key) && Number.isSafeInteger(value.level_number) && value.level_number >= 1 && value.level_number <= 20 && value.level_key === `lv_${value.level_number}` && typeof value.level_display_name === "string" && value.level_display_name.trim().length > 0 && Number.isSafeInteger(value.required_lifetime_points) && value.required_lifetime_points >= 0 && typeof value.enabled === "boolean" && typeof value.updated_at === "string" }
-function isMembershipAccountDto(value: unknown): value is MembershipAccountDto { return isRecord(value) && isUuid(value.user_id) && Number.isSafeInteger(value.points_balance) && value.points_balance >= 0 && Number.isSafeInteger(value.lifetime_points) && value.lifetime_points >= 0 && typeof value.level_key === "string" && membershipLevelPattern.test(value.level_key) && Number.isSafeInteger(value.level_number) && value.level_number >= 1 && value.level_number <= 20 && value.level_key === `lv_${value.level_number}` && typeof value.level_display_name === "string" && value.level_display_name.trim().length > 0 && Number.isSafeInteger(value.revision) && value.revision >= 0 && typeof value.updated_at === "string" }
-function isMembershipPointsGrantDto(value: unknown): value is MembershipPointsGrantDto { return isRecord(value) && typeof value.created === "boolean" && isMembershipAccountDto(value.account) }
+function isMembershipAccountDto(value: unknown): value is MembershipAccountDto { return isRecord(value) && isUuid(value.user_id) && Number.isSafeInteger(value.points_balance) && value.points_balance >= 0 && Number.isSafeInteger(value.lifetime_points) && value.lifetime_points >= 0 && typeof value.level_key === "string" && /^[a-z][a-z0-9_]{1,63}$/.test(value.level_key) && Number.isSafeInteger(value.level_number) && value.level_number >= 1 && typeof value.level_display_name === "string" && value.level_display_name.trim().length > 0 && Number.isSafeInteger(value.revision) && value.revision >= 0 && typeof value.updated_at === "string" }
+function isMembershipPointsGrantDto(value: unknown): value is MembershipPointsGrantDto { return isRecord(value) && typeof value.created === "boolean" && isMembershipAccountDto(value.account) && (value.audit_id === undefined || value.audit_id === null || isUuid(value.audit_id)) }
 function isMembershipMedalRuleDto(value: unknown): value is MembershipMedalRuleDto { return isRecord(value) && typeof value.key === "string" && membershipMedalPattern.test(value.key) && value.display_name === `勋章 ${value.key.slice(-2)}` && typeof value.enabled === "boolean" && (value.required_lifetime_points === null || (Number.isSafeInteger(value.required_lifetime_points) && value.required_lifetime_points >= 0)) && typeof value.updated_at === "string" }
 function isMembershipMedalDto(value: unknown): value is MembershipMedalDto { return isRecord(value) && typeof value.key === "string" && membershipMedalPattern.test(value.key) && value.display_name === `勋章 ${value.key.slice(-2)}` && typeof value.asset_url === "string" && value.asset_url.startsWith("/assets/membership/medals/") && typeof value.sha256 === "string" && /^[0-9a-f]{64}$/.test(value.sha256) && typeof value.granted_at === "string" }
 function isMembershipMedalGrantDto(value: unknown): value is MembershipMedalGrantDto { return isRecord(value) && typeof value.created === "boolean" && isMembershipMedalDto(value.medal) }

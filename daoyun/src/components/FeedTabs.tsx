@@ -1,13 +1,9 @@
-import { Clock3, Flame, MessageCircle, Sparkles, Users2 } from "lucide-react"
-
 import type { FeedFilter } from "../types/community"
 
-const tabs: Array<{ id: FeedFilter; label: string; icon: typeof Clock3 }> = [
-  { id: "latest", label: "最新发帖", icon: Clock3 },
-  { id: "active", label: "最新回复", icon: MessageCircle },
-  { id: "hot", label: "热门讨论", icon: Flame },
-  { id: "featured", label: "精华", icon: Sparkles },
-  { id: "following", label: "关注", icon: Users2 },
+const tabs: Array<{ id: FeedFilter; label: string }> = [
+  { id: "hot", label: "推荐" },
+  { id: "following", label: "关注" },
+  { id: "latest", label: "最新" },
 ]
 
 interface FeedTabsProps {
@@ -15,22 +11,49 @@ interface FeedTabsProps {
   onChange: (filter: FeedFilter) => void
 }
 export function FeedTabs({ active, onChange }: FeedTabsProps) {
+  const visibleActive = tabs.some((tab) => tab.id === active)
+    ? active
+    : active === "featured" ? "hot" : "latest"
+
+  const selectFromKeyboard = (index: number) => {
+    const next = tabs[(index + tabs.length) % tabs.length]
+    onChange(next.id)
+    document.getElementById(`feed-tab-${next.id}`)?.focus()
+  }
+
   return (
-    <div className="feed-tabs" role="tablist" aria-label="主题排序">
+    <div className="feed-tabs" id="feed-tabs" role="tablist" aria-label="首页内容流">
       {tabs.map((tab) => {
-        const Icon = tab.icon
-        const isActive = active === tab.id
+        const isActive = visibleActive === tab.id
 
         return (
           <button
             className={`feed-tab${isActive ? " feed-tab--active" : ""}`}
             type="button"
             role="tab"
+            id={`feed-tab-${tab.id}`}
+            aria-controls="feed-panel"
             aria-selected={isActive}
+            tabIndex={isActive ? 0 : -1}
             key={tab.id}
             onClick={() => onChange(tab.id)}
+            onKeyDown={(event) => {
+              const index = tabs.findIndex((item) => item.id === tab.id)
+              if (event.key === "ArrowRight") {
+                event.preventDefault()
+                selectFromKeyboard(index + 1)
+              } else if (event.key === "ArrowLeft") {
+                event.preventDefault()
+                selectFromKeyboard(index - 1)
+              } else if (event.key === "Home") {
+                event.preventDefault()
+                selectFromKeyboard(0)
+              } else if (event.key === "End") {
+                event.preventDefault()
+                selectFromKeyboard(tabs.length - 1)
+              }
+            }}
           >
-            <Icon size={16} />
             <span>{tab.label}</span>
           </button>
         )

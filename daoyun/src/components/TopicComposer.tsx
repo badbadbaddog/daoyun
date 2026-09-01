@@ -1,13 +1,14 @@
 import { LoaderCircle, Send, X } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
-import { createTopic, TopicApiError } from "../api/topics"
+import { createPost } from "../api/posts"
+import { TopicApiError } from "../api/topics"
 import { uploadDraftImage } from "../api/attachments"
 import type { AuthSession } from "../api/auth"
 import type { Topic } from "../types/community"
 import type { Board, TopicTag } from "../types/community"
 import { parseTopicTags } from "../utils/tags"
-import { plainTextDocument, type RichTextDocument } from "../editor/richContent"
+import { plainTextDocument, sanitizeRichContent, toPlainText, type RichTextDocument } from "../editor/richContent"
 import { RichTextEditor } from "./RichTextEditor"
 
 interface TopicComposerProps {
@@ -15,18 +16,31 @@ interface TopicComposerProps {
   boards: Board[]
   session: AuthSession | null
   availableTags?: TopicTag[]
+  defaultBoardId?: string | null
   onClose: () => void
   onPublished: (topic: Topic) => void
 }
 
 type FieldErrors = Record<string, string[]>
 
-export function TopicComposer({ open, boards, session, availableTags = [], onClose, onPublished }: TopicComposerProps) {
+interface ComposerDraft {
+  version: 1
+  title: string
+  richContent: RichTextDocument
+  boardId: string
+  tagInput: string
+  savedAt: string
+}
+
+export function TopicComposer({ open, boards, session, availableTags = [], defaultBoardId = null, onClose, onPublished }: TopicComposerProps) {
   const titleRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const submittingRef = useRef(false)
   const idempotencyKeyRef = useRef<string | null>(null)
+  const savedDraftSnapshotRef = useRef("")
+  const restoredDraftKeyRef = useRef<string | null>(null)
   const [title, setTitle] = useState("")
+  const [titleVisible, setTitleVisible] = useState(false)
   const [content, setContent] = useState("")
   const [richContent, setRichContent] = useState<RichTextDocument>(() => plainTextDocument(""))
   const [boardId, setBoardId] = useState("")
@@ -36,6 +50,10 @@ export function TopicComposer({ open, boards, session, availableTags = [], onClo
   const [submitting, setSubmitting] = useState(false)
   submittingRef.current = submitting
 
+  const draftKey = useMemo(
+    () => composerDraftKey(session?.user.id ?? "guest", defaultBoardId),
+    [defaultBoardId, session?.user.id],
+  )
   const selectedBoard = useMemo(
     () => boards.find((board) => board.id === boardId) ?? boards[0],
     [boardId, boards],
@@ -45,13 +63,63 @@ export function TopicComposer({ open, boards, session, availableTags = [], onClo
     if (!open) return
 
     setBoardId((current) => {
-      const next = boards.some((board) => board.id === current) ? current : boards[0]?.id || ""
+      const preferred = defaultBoardId && boards.some((board) => board.id === defaultBoardId)
+        ? defaultBoardId
+        : null
+      const next = preferred ?? (boards.some((board) => board.id === current) ? current : boards[0]?.id || "")
       if (next !== current) idempotencyKeyRef.current = null
       return next
     })
     setFieldErrors({})
     setFormError("")
-  }, [boards, open])
+  }, [boards, defaultBoardId, open])
+
+  useEffect(() => {
+    if (!open) {
+      restoredDraftKeyRef.current = null
+      return
+    }
+    if (restoredDraftKeyRef.current === draftKey) return
+
+    const draft = readComposerDraft(draftKey)
+    if (draft) {
+      const restoredRichContent = sanitizeRichContent(draft.richContent)
+      setTitle(draft.title)
+      setTitleVisible(Boolean(draft.title.trim()))
+      setContent(toPlainText(restoredRichContent))
+      setRichContent(restoredRichContent)
+      if (!defaultBoardId && boards.some((board) => board.id === draft.boardId)) setBoardId(draft.boardId)
+      setTagInput(draft.tagInput)
+      savedDraftSnapshotRef.current = composerDraftSnapshot(
+        draft.title,
+        restoredRichContent,
+        defaultBoardId ?? draft.boardId,
+        draft.tagInput,
+      )
+    } else {
+      savedDraftSnapshotRef.current = composerDraftSnapshot(title, richContent, boardId, tagInput)
+    }
+    restoredDraftKeyRef.current = draftKey
+  }, [boardId, boards, defaultBoardId, draftKey, open, richContent, tagInput, title])
+
+  useEffect(() => {
+    if (!open || restoredDraftKeyRef.current !== draftKey) return
+    const snapshot = composerDraftSnapshot(title, richContent, boardId, tagInput)
+    const timer = window.setTimeout(() => {
+      const saved = hasComposerDraftContent(title, content, tagInput)
+        ? writeComposerDraft(draftKey, {
+          version: 1,
+          title,
+          richContent,
+          boardId,
+          tagInput,
+          savedAt: new Date().toISOString(),
+        })
+        : removeComposerDraft(draftKey)
+      if (saved) savedDraftSnapshotRef.current = snapshot
+    }, 150)
+    return () => window.clearTimeout(timer)
+  }, [boardId, content, draftKey, open, richContent, tagInput, title])
 
   useEffect(() => {
     if (!open) return
@@ -59,7 +127,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], onClo
     const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = "hidden"
-    titleRef.current?.focus()
+    /* body editor owns initial focus */
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !submittingRef.current) close()
     }
@@ -93,14 +161,23 @@ export function TopicComposer({ open, boards, session, availableTags = [], onClo
     }
   }, [open])
 
-  function close() {
+  function close(options: { skipConfirm?: boolean; clearDraft?: boolean } = {}) {
+    const snapshot = composerDraftSnapshot(title, richContent, boardId, tagInput)
+    const hasUnsavedChanges = hasComposerDraftContent(title, content, tagInput)
+      && snapshot !== savedDraftSnapshotRef.current
+    if (!options.skipConfirm && hasUnsavedChanges && !window.confirm("还有尚未保存的编辑内容，确定关闭吗？")) return
+    if (options.clearDraft) removeComposerDraft(draftKey)
     setTitle("")
+    setTitleVisible(false)
     setContent("")
     setRichContent(plainTextDocument(""))
+    setBoardId("")
     setTagInput("")
     setFieldErrors({})
     setFormError("")
     idempotencyKeyRef.current = null
+    savedDraftSnapshotRef.current = ""
+    restoredDraftKeyRef.current = null
     onClose()
   }
 
@@ -108,8 +185,8 @@ export function TopicComposer({ open, boards, session, availableTags = [], onClo
     const errors: FieldErrors = {}
     const normalizedTitle = title.trim()
     const normalizedContent = content.trim()
-    if (countCharacters(normalizedTitle) < 1 || countCharacters(normalizedTitle) > 160) {
-      errors.title = ["标题需为 1-160 个字符"]
+    if (countCharacters(normalizedTitle) > 160) {
+      errors.title = ["标题最多 160 个字符"]
     }
     if (countCharacters(normalizedContent) < 1) {
       errors.content = ["请输入正文"]
@@ -133,9 +210,9 @@ export function TopicComposer({ open, boards, session, availableTags = [], onClo
       const idempotencyKey = idempotencyKeyRef.current ?? createIdempotencyKey()
       idempotencyKeyRef.current = idempotencyKey
       const tags = parseTopicTags(tagInput, availableTags)
-      const topic = await createTopic(
+      const topic = await createPost(
         {
-          title: title.trim(),
+          ...(title.trim() ? { title: title.trim() } : {}),
           content: content.trim(),
           richContent,
           boardId: selectedBoard?.id,
@@ -146,8 +223,8 @@ export function TopicComposer({ open, boards, session, availableTags = [], onClo
           idempotencyKey,
         },
       )
+      close({ skipConfirm: true, clearDraft: true })
       onPublished(topic)
-      close()
     } catch (error) {
       if (error instanceof TopicApiError) {
         setFieldErrors(error.fields)
@@ -172,9 +249,9 @@ export function TopicComposer({ open, boards, session, availableTags = [], onClo
         <div className="dialog-header">
           <div>
             <p>{selectedBoard?.name ?? "社区广场"}</p>
-            <h2 id="composer-title">发布新主题</h2>
+            <h2 id="composer-title">发布内容</h2>
           </div>
-          <button className="icon-button" type="button" onClick={close} disabled={submitting} aria-label="关闭发布窗口" title="关闭">
+          <button className="icon-button" type="button" onClick={() => close()} disabled={submitting} aria-label="关闭发布窗口" title="关闭">
             <X size={19} aria-hidden="true" />
           </button>
         </div>
@@ -190,23 +267,36 @@ export function TopicComposer({ open, boards, session, availableTags = [], onClo
               </select>
             </label>
           )}
-          <label>
-            <span>标题</span>
-            <input
-              ref={titleRef}
-              type="text"
-              value={title}
-              maxLength={160}
-              placeholder="清晰地概括你想讨论的内容"
-              aria-invalid={inputError("title") ? "true" : undefined}
-              aria-describedby={inputError("title") ? "composer-title-error" : undefined}
-              onChange={(event) => {
-                setTitle(event.target.value)
-                idempotencyKeyRef.current = null
+          {titleVisible ? (
+            <label>
+              <span>标题（可选）</span>
+              <input
+                ref={titleRef}
+                type="text"
+                value={title}
+                maxLength={160}
+                placeholder="需要时再补充标题"
+                aria-invalid={inputError("title") ? "true" : undefined}
+                aria-describedby={inputError("title") ? "composer-title-error" : undefined}
+                onChange={(event) => {
+                  setTitle(event.target.value)
+                  idempotencyKeyRef.current = null
+                }}
+              />
+              {inputError("title") && <p id="composer-title-error" className="composer-field-error">{inputError("title")}</p>}
+            </label>
+          ) : (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => {
+                setTitleVisible(true)
+                window.setTimeout(() => titleRef.current?.focus(), 0)
               }}
-            />
-            {inputError("title") && <p id="composer-title-error" className="composer-field-error">{inputError("title")}</p>}
-          </label>
+            >
+              添加标题
+            </button>
+          )}
           <div className="composer-field">
             <span className="composer-field__label">正文</span>
             <RichTextEditor
@@ -214,6 +304,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], onClo
               ariaLabel="正文"
               placeholder="补充背景、你的判断和希望大家讨论的问题"
               maxCharacters={1_000_000}
+              autoFocus
               onImageUpload={session
                 ? (file, onProgress, signal) => uploadDraftImage(file, session.csrfToken, onProgress, signal)
                 : undefined}
@@ -253,7 +344,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], onClo
           </label>
           {formError && <p className="composer-form-error" role="alert">{formError}</p>}
           <div className="dialog-toolbar">
-            <span className="dialog-toolbar__hint">内容将自动保存为安全的结构化格式</span>
+            <span className="dialog-toolbar__hint">本地草稿自动保存 · 发布后进入详情</span>
             <button className="primary-button" type="submit" disabled={submitting}>
               {submitting ? <LoaderCircle className="topic-loading__spinner" size={16} aria-hidden="true" /> : <Send size={16} aria-hidden="true" />}
               {submitting ? "正在发布" : "发布"}
@@ -284,4 +375,69 @@ function createIdempotencyKey(): string {
 
 function countCharacters(value: string): number {
   return [...value].length
+}
+
+function composerDraftKey(userId: string, defaultBoardId: string | null): string {
+  return `daoyun:composer-draft:v1:${userId}:${defaultBoardId ?? "global"}`
+}
+
+function composerDraftSnapshot(
+  title: string,
+  richContent: RichTextDocument,
+  boardId: string,
+  tagInput: string,
+): string {
+  return JSON.stringify({ title, richContent, boardId, tagInput })
+}
+
+function hasComposerDraftContent(title: string, content: string, tagInput: string): boolean {
+  return Boolean(title.trim() || content.trim() || tagInput.trim())
+}
+
+function readComposerDraft(key: string): ComposerDraft | null {
+  try {
+    const raw = window.localStorage.getItem(key)
+    if (!raw) return null
+    const value: unknown = JSON.parse(raw)
+    if (!isRecord(value)
+      || value.version !== 1
+      || typeof value.title !== "string"
+      || typeof value.boardId !== "string"
+      || typeof value.tagInput !== "string"
+      || typeof value.savedAt !== "string") {
+      return null
+    }
+    return {
+      version: 1,
+      title: value.title,
+      richContent: sanitizeRichContent(value.richContent),
+      boardId: value.boardId,
+      tagInput: value.tagInput,
+      savedAt: value.savedAt,
+    }
+  } catch {
+    return null
+  }
+}
+
+function writeComposerDraft(key: string, draft: ComposerDraft): boolean {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(draft))
+    return true
+  } catch {
+    return false
+  }
+}
+
+function removeComposerDraft(key: string): boolean {
+  try {
+    window.localStorage.removeItem(key)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }

@@ -33,6 +33,17 @@ pub struct StandardEntitlementTypeRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StandardEntitlementVersionRecord {
+    pub id: Uuid,
+    pub entitlement_type_id: Uuid,
+    pub version: i32,
+    pub permission_keys: Vec<String>,
+    pub quotas: BTreeMap<String, i64>,
+    pub created_by: Uuid,
+    pub created_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GrantStandardEntitlementRecord {
     pub user_id: Uuid,
     pub entitlement_type_id: Uuid,
@@ -230,6 +241,86 @@ impl Database {
 }
 
 impl Database {
+    pub async fn list_standard_entitlement_types(
+        &self,
+    ) -> Result<Vec<StandardEntitlementTypeRecord>, DatabaseError> {
+        let rows = sqlx::query_as::<_, EntitlementTypeRow>(
+            "SELECT entitlement_type.id, entitlement_type.internal_key,
+                    entitlement_type.display_name, entitlement_type.status,
+                    entitlement_type.current_version, version.permission_keys,
+                    version.quotas, entitlement_type.revision,
+                    entitlement_type.created_at, entitlement_type.updated_at
+             FROM standard_entitlement_types AS entitlement_type
+             INNER JOIN standard_entitlement_versions AS version
+               ON version.entitlement_type_id = entitlement_type.id
+              AND version.version = entitlement_type.current_version
+             ORDER BY entitlement_type.internal_key",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(map_type_row)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| {
+                DatabaseError::from(sqlx::Error::Protocol(
+                    "invalid entitlement type projection".to_owned(),
+                ))
+            })
+    }
+
+    pub async fn list_standard_entitlement_versions(
+        &self,
+        internal_key: &str,
+    ) -> Result<Vec<StandardEntitlementVersionRecord>, DatabaseError> {
+        let rows = sqlx::query_as::<_, EntitlementVersionRow>(
+            "SELECT version.id, version.entitlement_type_id, version.version,
+                    version.permission_keys, version.quotas, version.created_by,
+                    version.created_at
+             FROM standard_entitlement_versions AS version
+             INNER JOIN standard_entitlement_types AS entitlement_type
+               ON entitlement_type.id = version.entitlement_type_id
+             WHERE entitlement_type.internal_key = $1
+             ORDER BY version.version DESC",
+        )
+        .bind(internal_key)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(map_version_row)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| {
+                DatabaseError::from(sqlx::Error::Protocol(
+                    "invalid entitlement version projection".to_owned(),
+                ))
+            })
+    }
+
+    pub async fn list_standard_entitlements_for_admin(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<StandardEntitlementRecord>, DatabaseError> {
+        let rows = sqlx::query_as::<_, EntitlementRow>(
+            "SELECT id, user_id, entitlement_type_id, entitlement_key, type_version,
+                    permission_snapshot, quota_snapshot, source, source_reference_id,
+                    reason, starts_at, ends_at, revoked_at, revoked_by,
+                    revocation_reason, revoke_idempotency_key, revision, granted_by,
+                    created_at, updated_at
+             FROM user_standard_entitlements WHERE user_id = $1
+             ORDER BY created_at DESC, id DESC",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(map_entitlement_row)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| {
+                DatabaseError::from(sqlx::Error::Protocol(
+                    "invalid entitlement projection".to_owned(),
+                ))
+            })
+    }
+
     pub async fn standard_entitlement_subject(
         &self,
         entitlement_id: Uuid,
@@ -652,6 +743,17 @@ struct EntitlementTypeRow {
 }
 
 #[derive(Debug, FromRow)]
+struct EntitlementVersionRow {
+    id: Uuid,
+    entitlement_type_id: Uuid,
+    version: i32,
+    permission_keys: Vec<String>,
+    quotas: Value,
+    created_by: Uuid,
+    created_at: OffsetDateTime,
+}
+
+#[derive(Debug, FromRow)]
 struct GrantTypeRow {
     id: Uuid,
     internal_key: String,
@@ -721,6 +823,20 @@ fn map_type_row(
         revision: row.revision,
         created_at: row.created_at,
         updated_at: row.updated_at,
+    })
+}
+
+fn map_version_row(
+    row: EntitlementVersionRow,
+) -> Result<StandardEntitlementVersionRecord, StandardEntitlementMutationError> {
+    Ok(StandardEntitlementVersionRecord {
+        id: row.id,
+        entitlement_type_id: row.entitlement_type_id,
+        version: row.version,
+        permission_keys: row.permission_keys,
+        quotas: quotas_from_value(row.quotas)?,
+        created_by: row.created_by,
+        created_at: row.created_at,
     })
 }
 

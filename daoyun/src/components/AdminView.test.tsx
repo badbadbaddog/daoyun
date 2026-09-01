@@ -11,6 +11,7 @@ import {
   getAdminSiteBranding,
   getSmtpSettings,
   getAdminGrowthLevels,
+  getAdminMembershipAccount,
   listMembershipMedalOperations,
   getMembershipMedalRules,
   getMembershipLevelRules,
@@ -30,6 +31,7 @@ import {
   testSmtpSettings,
 } from "../api/admin"
 import { listModerationBoards } from "../api/moderation"
+import { listUsers } from "../api/users"
 import { AdminView } from "./AdminView"
 
 vi.mock("../api/admin", async () => {
@@ -44,6 +46,7 @@ vi.mock("../api/admin", async () => {
     updateSmtpSettings: vi.fn(),
     testSmtpSettings: vi.fn(),
     getAdminGrowthLevels: vi.fn(),
+    getAdminMembershipAccount: vi.fn(),
     getMembershipMedalRules: vi.fn(),
     listMembershipMedalOperations: vi.fn(),
     createAdminGrowthLevel: vi.fn(),
@@ -60,6 +63,11 @@ vi.mock("../api/admin", async () => {
     deleteBrandAsset: vi.fn(),
     uploadBrandAsset: vi.fn(),
   }
+})
+
+vi.mock("../api/users", async () => {
+  const actual = await vi.importActual<typeof import("../api/users")>("../api/users")
+  return { ...actual, listUsers: vi.fn() }
 })
 
 vi.mock("../api/moderation", async () => {
@@ -97,7 +105,7 @@ const session: AuthSession = {
 }
 const branding = { siteName: "刀云", logoUrl: null, faviconUrl: null, defaultCoverUrl: null, navigationLinks: [], footerText: null, footerLinks: [], primaryColor: "#1f8f5f", accentColor: "#d97706", themePreset: "default" as const, listDensity: "comfortable" as const, homeMode: "latest" as const }
 const smtpSettings = { host: "smtp.example.com", port: 587, username: "mailer", passwordConfigured: true, tlsMode: "starttls" as const, fromEmail: "noreply@example.com", fromName: "刀云", enabled: true, registrationEmailVerificationEnabled: true }
-const board = { id: "019fc900-0000-7000-8000-000000000101", parentId: null, slug: "general", name: "社区广场", description: "公开讨论", icon: "messages", tone: "green" as const, position: 0, visibility: "public" as const, topicCount: 2, revision: 1 }
+const board = { id: "019fc900-0000-7000-8000-000000000101", parentId: null, slug: "general", name: "社区广场", description: "公开讨论", icon: "messages", tone: "green" as const, position: 0, visibility: "public" as const, topicCount: 2, revision: 1, status: "open" as const, mergedIntoBoardId: null }
 const membershipRules = [
   { levelKey: "lv_1", levelNumber: 1, levelDisplayName: "Lv1", requiredLifetimePoints: 0, enabled: true, updatedAt: "2026-08-07T01:00:00Z" },
   { levelKey: "lv_2", levelNumber: 2, levelDisplayName: "Lv2", requiredLifetimePoints: 25, enabled: true, updatedAt: "2026-08-07T01:00:00Z" },
@@ -166,6 +174,20 @@ beforeEach(() => {
   vi.mocked(deleteBrandAsset).mockResolvedValue(branding)
   vi.mocked(getMembershipLevelRules).mockResolvedValue(membershipRules)
   vi.mocked(getAdminGrowthLevels).mockResolvedValue(growthLevels)
+  vi.mocked(getAdminMembershipAccount).mockResolvedValue({
+    userId: memberId,
+    pointsBalance: 50,
+    lifetimePoints: 80,
+    levelKey: "lv_2",
+    levelNumber: 2,
+    levelDisplayName: "Lv2",
+    revision: 2,
+    updatedAt: "2026-08-07T01:00:00Z",
+  })
+  vi.mocked(listUsers).mockResolvedValue({
+    users: [{ id: memberId, username: "member", displayName: "会员", avatarUrl: null }],
+    nextCursor: null,
+  })
   vi.mocked(getMembershipMedalRules).mockResolvedValue(medalRules)
   vi.mocked(listMembershipMedalOperations).mockResolvedValue({ operations: medalOperations, nextCursor: null })
   vi.mocked(createAdminGrowthLevel).mockResolvedValue(growthLevels[0])
@@ -178,6 +200,7 @@ beforeEach(() => {
   })
   vi.mocked(grantMembershipPoints).mockResolvedValue({
     created: true,
+    auditId: "019fc900-0000-7000-8000-000000000999",
     account: { userId: memberId, pointsBalance: 30, lifetimePoints: 30, levelKey: "lv_2", levelNumber: 2, levelDisplayName: "Lv2", revision: 2, updatedAt: "2026-08-07T01:00:00Z" },
   })
   vi.mocked(listAuthorizationPermissions).mockResolvedValue([])
@@ -690,20 +713,24 @@ describe("AdminView", () => {
     await waitFor(() => expect(screen.queryByText("traveler")).not.toBeInTheDocument())
   })
 
-  it("grants points and renders the resulting account level", async () => {
+  it("searches a member, grants mapped-reason points, and renders the ledger result", async () => {
     const user = userEvent.setup()
     render(<AdminView session={session} onBack={vi.fn()} />)
 
     await user.click(await screen.findByRole("button", { name: "会员经济" }))
     await screen.findByRole("heading", { name: "会员经济", level: 1 })
     await user.click(screen.getByRole("tab", { name: "积分运营" }))
-    await user.type(screen.getByLabelText("目标用户 UUID"), memberId)
+    await user.type(screen.getByRole("searchbox", { name: "搜索用户" }), "会员")
+    await user.click(await screen.findByRole("button", { name: "选择会员 @member" }))
+    expect(await within(screen.getByLabelText("已选用户")).findByText("50")).toBeInTheDocument()
     await user.type(screen.getByLabelText("积分数量"), "30")
-    await user.type(screen.getByLabelText(/^授予理由/), "campaign.reward")
-    await user.click(screen.getByRole("button", { name: "授予积分" }))
+    await user.selectOptions(screen.getByLabelText("运营原因"), "operations.community_reward")
+    await user.type(screen.getByLabelText("补充说明"), "季度社区贡献")
+    await user.click(screen.getByRole("button", { name: "确认积分操作" }))
 
-    expect(grantMembershipPoints).toHaveBeenCalledWith({ userId: memberId, amount: 30, reason: "campaign.reward", idempotencyKey: expect.any(String) }, session.csrfToken)
-    expect(await screen.findByText("积分已记入账本")).toBeInTheDocument()
+    expect(grantMembershipPoints).toHaveBeenCalledWith({ userId: memberId, amount: 30, reason: "operations.community_reward", details: "季度社区贡献", idempotencyKey: expect.stringMatching(/^admin-points:/) }, session.csrfToken)
+    expect(await screen.findByText("积分操作完成")).toBeInTheDocument()
+    expect(screen.getByText(/审计编号：019fc900/)).toBeInTheDocument()
   })
 
   it("lets a points-only operator use the grant workspace without loading rule catalogs", async () => {
@@ -711,7 +738,7 @@ describe("AdminView", () => {
     render(<AdminView session={session} onBack={vi.fn()} requestedTab="membership" />)
 
     expect(await screen.findByRole("heading", { name: "会员经济", level: 1 })).toBeInTheDocument()
-    expect(screen.getByLabelText("目标用户 UUID")).toBeInTheDocument()
+    expect(screen.getByRole("searchbox", { name: "搜索用户" })).toBeInTheDocument()
     expect(screen.queryByLabelText("勋章目标用户 UUID")).not.toBeInTheDocument()
     expect(getAdminGrowthLevels).not.toHaveBeenCalled()
   })

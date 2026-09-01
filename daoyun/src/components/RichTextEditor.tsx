@@ -39,6 +39,7 @@ interface RichTextEditorProps {
   ariaLabel: string
   placeholder: string
   maxCharacters: number
+  autoFocus?: boolean
   disabled?: boolean
   invalid?: boolean
   errorMessageId?: string
@@ -63,6 +64,7 @@ export function RichTextEditor({
   ariaLabel,
   placeholder,
   maxCharacters,
+  autoFocus = false,
   disabled = false,
   invalid = false,
   errorMessageId,
@@ -129,6 +131,11 @@ export function RichTextEditor({
     if (!editor) return
     editor.setEditable(!disabled)
   }, [disabled, editor])
+
+  useEffect(() => {
+    if (!editor || !autoFocus || disabled) return
+    editor.commands.focus("start")
+  }, [autoFocus, disabled, editor])
 
   useEffect(() => {
     if (!editor) return

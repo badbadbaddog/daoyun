@@ -2,58 +2,78 @@
   color-scheme: light;
   font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
   font-synthesis: none;
-  --background: #f7f8f7;
+  --background: #f7f9fc;
   --surface: #ffffff;
   --surface-raised: #ffffff;
-  --surface-soft: #f0f3f1;
-  --surface-hover: #edf2ef;
-  --text: #17201c;
-  --text-soft: #637069;
-  --text-faint: #526158;
-  --border: #dfe5e1;
-  --border-strong: #cbd4cf;
-  --brand: #176a4d;
-  --brand-strong: #0e5039;
-  --brand-soft: #e5f2ec;
+  --surface-soft: #f7f9fc;
+  --surface-muted: var(--surface-soft);
+  --surface-hover: #eef3f9;
+  --text: #111827;
+  --text-primary: var(--text);
+  --text-soft: #6b7280;
+  --text-secondary: var(--text-soft);
+  --text-muted: var(--text-soft);
+  --text-faint: #6b7280;
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+  --brand: #2f7bff;
+  --brand-hover: #246beb;
+  --brand-active: #1d5ed8;
+  --brand-strong: var(--brand-hover);
+  --brand-soft: #eaf2ff;
+  --brand-foreground: #ffffff;
+  --brand-strong-foreground: #ffffff;
   --accent: #c85516;
   --accent-soft: #fceee6;
-  --blue: #2168a7;
-  --blue-soft: #e8f1fa;
+  --blue: var(--brand);
+  --blue-soft: var(--brand-soft);
   --amber: #9a5b0a;
   --amber-soft: #fbf0dc;
   --rose: #a6415a;
   --rose-soft: #faeaf0;
   --orange: #c85516;
-  --shadow: 0 8px 24px rgb(24 42 33 / 7%);
+  --shadow: 0 8px 24px rgb(17 24 39 / 7%);
   --radius: 8px;
+  --radius-sm: 6px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
   --header-height: 58px;
-  --topic-row-min-height: 132px;
-  --topic-row-gap: 11px;
-  --topic-row-padding-top: 18px;
-  --topic-row-padding-right: 14px;
-  --topic-row-padding-bottom: 16px;
-  --topic-row-padding-left: 18px;
+  --topic-row-min-height: 116px;
+  --topic-row-gap: 9px;
+  --topic-row-padding-top: 14px;
+  --topic-row-padding-right: 12px;
+  --topic-row-padding-bottom: 12px;
+  --topic-row-padding-left: 14px;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --background: #111512;
-  --surface: #171c19;
-  --surface-raised: #1b211d;
-  --surface-soft: #202722;
-  --surface-hover: #253029;
-  --text: #f2f5f3;
-  --text-soft: #a8b3ad;
-  --text-faint: #7e8a84;
-  --border: #303a34;
-  --border-strong: #414d46;
-  --brand: #55bf93;
-  --brand-strong: #82d2ae;
-  --brand-soft: #183b2d;
+  --background: #0f172a;
+  --surface: #111827;
+  --surface-raised: #172033;
+  --surface-soft: #1e293b;
+  --surface-hover: #263449;
+  --text: #f8fafc;
+  --text-soft: #cbd5e1;
+  --text-faint: #94a3b8;
+  --border: #334155;
+  --border-strong: #475569;
+  --brand: #2f7bff;
+  --brand-hover: #246beb;
+  --brand-active: #1d5ed8;
+  --brand-strong: #8ab4ff;
+  --brand-soft: #172b4d;
+  --brand-foreground: #ffffff;
+  --brand-strong-foreground: #ffffff;
   --accent: #ef965f;
   --accent-soft: #3e281d;
-  --blue: #78b7e9;
-  --blue-soft: #193349;
+  --blue: #8ab4ff;
+  --blue-soft: #172b4d;
   --amber: #e5ad58;
   --amber-soft: #3d2f1b;
   --rose: #e398a9;
@@ -65,26 +85,26 @@
 :root[data-brand-preset="compact"],
 :root[data-list-density="compact"] {
   --header-height: 54px;
-  --topic-row-min-height: 116px;
-  --topic-row-gap: 9px;
-  --topic-row-padding-top: 14px;
-  --topic-row-padding-right: 12px;
-  --topic-row-padding-bottom: 12px;
-  --topic-row-padding-left: 14px;
+  --topic-row-min-height: 108px;
+  --topic-row-gap: 8px;
+  --topic-row-padding-top: 12px;
+  --topic-row-padding-right: 10px;
+  --topic-row-padding-bottom: 10px;
+  --topic-row-padding-left: 12px;
 }
 
 :root[data-brand-preset="high_contrast"] {
-  --border: #8b9790;
-  --border-strong: #536158;
-  --text-soft: #35433b;
-  --text-faint: #4e5b53;
+  --border: #9ca3af;
+  --border-strong: #6b7280;
+  --text-soft: #4b5563;
+  --text-faint: #6b7280;
 }
 
 :root[data-theme="dark"][data-brand-preset="high_contrast"] {
-  --border: #829087;
-  --border-strong: #b5c1b9;
-  --text-soft: #d3ddd7;
-  --text-faint: #bdc9c1;
+  --border: #94a3b8;
+  --border-strong: #cbd5e1;
+  --text-soft: #e2e8f0;
+  --text-faint: #cbd5e1;
 }
 
 @media (max-width: 900px) {

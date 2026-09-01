@@ -224,6 +224,7 @@ pub struct GrantMembershipPointsRequest {
     pub user_id: uuid::Uuid,
     pub amount: i64,
     pub reason: String,
+    pub details: Option<String>,
     pub idempotency_key: Option<String>,
 }
 
@@ -231,4 +232,41 @@ pub struct GrantMembershipPointsRequest {
 pub struct MembershipPointsGrant {
     pub account: MembershipAccount,
     pub created: bool,
+    pub audit_id: Option<uuid::Uuid>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct PointsLedgerEntry {
+    pub id: uuid::Uuid,
+    pub amount: i64,
+    pub reason: String,
+    pub balance_after: i64,
+    #[schema(value_type = String, format = DateTime)]
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct StandardEntitlement {
+    pub id: uuid::Uuid,
+    pub internal_key: String,
+    pub type_version: i32,
+    pub quotas: std::collections::BTreeMap<String, i64>,
+    #[schema(value_type = String, format = DateTime)]
+    pub starts_at: String,
+    #[schema(value_type = Option<String>, format = DateTime)]
+    pub ends_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct PublicMembershipGroup {
+    pub id: uuid::Uuid,
+    pub internal_key: String,
+    pub display_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct UserMembershipSummary {
+    pub current_level: GrowthLevel,
+    pub medals: Vec<MembershipMedal>,
+    pub public_groups: Vec<PublicMembershipGroup>,
 }
