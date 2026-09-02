@@ -51,16 +51,56 @@ Phase 1 已把默认 `#top` 解析为推荐流 `#hot`，但桌面左侧“首页
 
 未修改布局 CSS，本阶段不引入新的横向溢出风险。
 
-## 3. 下一优先级
+## 3. 11.2 跨页面上下文与返回语义（DONE）
 
-### 11.2 跨页面上下文与返回语义
+### 问题
 
-审计主题详情、个人主页、搜索、收藏、版块详情中的“返回 / 关闭 / 清空搜索”路径：
+此前 `CommunityApp.closeMainView()` 无论详情从哪里进入，都会固定跳到 `latest`。因此：
 
-- 从推荐进入详情，应尽量回到推荐及原滚动位置。
-- 从版块进入详情，应优先回到对应版块，而不是无条件回首页。
-- 从搜索进入详情，应保留搜索 query / scope。
-- 避免用浏览器 history 与 hash route 形成双重状态源；现有 `useHashRoute` 仍作为单一页面状态源。
+- 从推荐 / 关注进入详情后会丢失 feed 语义。
+- 从版块进入主题后“返回主题列表”会离开当前版块。
+- 从搜索进入主题后会丢失 query / scope。
+- 直接 deep-link 打开主题时也会被送到“最新”，与 canonical 首页语义冲突。
+
+### 实现
+
+- 保持 hash route 为唯一页面状态源，没有引入 React Router history 或第二套 URL 状态。
+- `CommunityApp` 只为可返回的详情型 route 维护轻量来源栈：topic / user / bookmarks / messages / notifications。
+- 进入详情时记录前一条完整 `CommunityRoute`；返回时恢复原 route，因此搜索的 query / scope、版块 slug、关注 feed 都可以精确恢复。
+- 同一详情内部变化不会重复压栈，例如同一 topic 的 reply 定位、同一 messages 里的 conversation 切换。
+- 通过返回动作恢复 route 时不会再次把来源压入栈，避免 A -> B -> 返回 A 后形成循环。
+- 没有可恢复来源的 direct deep-link 安全回到 canonical 推荐首页 `#hot`。
+- OIDC claim 完成后的默认落点也统一为 `#hot`。
+
+### 自动化证据
+
+新增契约覆盖：
+
+- direct topic -> 返回 `#hot`。
+- search `q + type` -> topic -> 返回原搜索 URL。
+- board -> topic -> 返回原 board。
+- following -> user profile -> 返回 `#following`。
+
+最新门禁：
+
+- `src/App.test.tsx`：**58 / 58 PASS**。
+- 前端全量：**77 files / 558 tests PASS**。
+- `pnpm typecheck`：**PASS**。
+- `pnpm build`：**PASS**，Vite 6.4.3，**1760 modules transformed**。
+
+### Production 浏览器证据
+
+1440px：
+
+- 搜索 `本地自动回归主题` / `type=topics` -> 打开真实主题 -> “返回主题列表”后完整恢复原搜索 hash。
+- `#board/general` -> 打开真实主题 -> “返回主题列表”后恢复 `#board/general`。
+
+390x844：
+
+- 推荐首页与主题详情生产构建均正常。
+- 移动主题详情当前设计没有桌面版“返回主题列表”按钮，因此本阶段未伪造一个新入口；底部 canonical 首页仍为 `#hot`。
+
+## 4. 下一优先级
 
 ### 11.3 首页高频交互一致性
 
@@ -71,6 +111,6 @@ Phase 1 已把默认 `#top` 解析为推荐流 `#hot`，但桌面左侧“首页
 - 桌面右栏与移动端是否存在功能入口不对等。
 - 推荐 / 关注 / 最新切换后的滚动恢复与视觉反馈。
 
-## 4. 提交约束
+## 5. 提交约束
 
 父级 Git 仓库 `C:\Users\111\Documents\Playground` 仍包含大量与 DaoYun 无关的未跟踪项目。Phase 2 继续只允许明确 `daoyun/...` 路径暂存，**禁止 `git add -A`**。

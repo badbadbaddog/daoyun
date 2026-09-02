@@ -611,6 +611,61 @@ describe("DaoYun community home", () => {
     expect(await screen.findByRole("heading", { name: "社区发现" })).toBeInTheDocument()
   })
 
+  it("returns a direct topic detail to the recommended home", async () => {
+    window.location.hash = `#topic/${topicFixtures[0].id}`
+    const user = userEvent.setup()
+    render(<App />)
+
+    expect(await screen.findByText("完整主题正文")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "返回主题列表" }))
+
+    expect(await screen.findByRole("heading", { name: "社区发现" })).toBeInTheDocument()
+    expect(window.location.hash).toBe("#hot")
+    expect(screen.getByRole("tab", { name: "推荐" })).toHaveAttribute("aria-selected", "true")
+  })
+
+  it("returns a topic detail to the exact search context", async () => {
+    window.location.hash = "#search?q=Rust&type=topics"
+    const user = userEvent.setup()
+    render(<App />)
+
+    expect(await screen.findByRole("heading", { name: "搜索：Rust" })).toBeInTheDocument()
+    const searchResults = await screen.findByRole("tabpanel")
+    await user.click(await within(searchResults).findByRole("link", { name: new RegExp(topicFixtures[0].title) }))
+    expect(await screen.findByText("完整主题正文")).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "返回主题列表" }))
+
+    expect(await screen.findByRole("heading", { name: "搜索：Rust" })).toBeInTheDocument()
+    expect(window.location.hash).toBe("#search?q=Rust&type=topics")
+  })
+
+  it("returns a topic detail to the board it was opened from", async () => {
+    window.location.hash = "#board/engineering"
+    vi.mocked(getBoard).mockResolvedValue({
+      ...boardFixtures[0],
+      children: [],
+      breadcrumb: [{ id: boardFixtures[0].id, slug: boardFixtures[0].slug, name: boardFixtures[0].name }],
+      viewer: {
+        canRead: true,
+        canCreateTopic: true,
+        canReply: true,
+        canUploadAttachment: false,
+      },
+    })
+    const user = userEvent.setup()
+    render(<App />)
+
+    expect(await screen.findByRole("heading", { name: boardFixtures[0].name })).toBeInTheDocument()
+    await user.click(await screen.findByRole("heading", { name: topicFixtures[0].title }))
+    expect(await screen.findByText("完整主题正文")).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "返回主题列表" }))
+
+    expect(await screen.findByRole("heading", { name: boardFixtures[0].name })).toBeInTheDocument()
+    expect(window.location.hash).toBe("#board/engineering")
+  })
+
   it("uses the discovery recommendation feed as the default home ordering", async () => {
     render(<App />)
 
@@ -724,6 +779,29 @@ describe("DaoYun community home", () => {
       ))
       expect(followingRequests).toHaveLength(2)
     })
+  })
+
+  it("returns a user profile to the following feed context", async () => {
+    const user = userEvent.setup()
+    vi.mocked(getCurrentSession).mockResolvedValue({
+      user: {
+        id: "019fc700-0000-7000-8000-000000000001",
+        username: "owner",
+        email: "owner@example.com",
+        displayName: "管理员",
+      },
+      csrfToken: "a".repeat(64),
+    })
+    render(<App />)
+
+    await user.click(await screen.findByRole("tab", { name: "关注" }))
+    await user.click(await screen.findByRole("link", { name: `查看 ${topicFixtures[0].author} 的主页` }))
+    expect(await screen.findByRole("heading", { name: topicFixtures[0].author })).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "返回社区" }))
+
+    expect(window.location.hash).toBe("#following")
+    expect(await screen.findByRole("tab", { name: "关注" })).toHaveAttribute("aria-selected", "true")
   })
 
   it("prompts a signed-out visitor to log in before loading the following feed", async () => {

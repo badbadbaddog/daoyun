@@ -30,7 +30,7 @@ import type { MembershipCenterData } from "../features/membership/membershipType
 import { useFeedScrollRestoration } from "../features/feed/useFeedScrollRestoration"
 import { useSearchParams } from "../features/search/useSearchParams"
 import { useTopicFeed } from "../features/search/useTopicFeed"
-import type { CommunityRoute } from "../router/communityRoute"
+import { formatRoute, type CommunityRoute } from "../router/communityRoute"
 import type { NavigateOptions } from "../router/hashRouter"
 import type { Board, FeedFilter, Topic, TopicTag } from "../types/community"
 import { consumeOidcSettingsReturn } from "../utils/oidcSettingsReturn"
@@ -42,9 +42,10 @@ type TopicLoadStatus = "loading" | "ready" | "error"
 type AuthLoadStatus = "loading" | "ready" | "error"
 type AdminAccess = "unknown" | "allowed" | "denied"
 type Navigate = (route: CommunityRoute, options?: NavigateOptions) => void
+type CommunityPageRoute = Exclude<CommunityRoute, { kind: "admin" }>
 
 interface CommunityAppProps {
-  route: Exclude<CommunityRoute, { kind: "admin" }>
+  route: CommunityPageRoute
   navigate: Navigate
 }
 
@@ -65,6 +66,9 @@ const SearchPage = lazy(() => import("../features/search/SearchPage").then((modu
 
 export function CommunityApp({ route, navigate }: CommunityAppProps) {
   const previousRouteKindRef = useRef<CommunityRoute["kind"]>(route.kind)
+  const previousRouteRef = useRef<CommunityPageRoute>(route)
+  const returnRouteStackRef = useRef<CommunityPageRoute[]>([])
+  const routeBackNavigationRef = useRef(false)
   const lastFeedRef = useRef<FeedFilter>(route.kind === "feed" ? route.feed : "latest")
   if (route.kind === "feed") lastFeedRef.current = route.feed
   const activeFeed = route.kind === "feed" ? route.feed : lastFeedRef.current
@@ -151,6 +155,24 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
       setTopicRequestVersion((version) => version + 1)
     }
   }, [route.kind])
+
+  useEffect(() => {
+    const previousRoute = previousRouteRef.current
+    previousRouteRef.current = route
+    if (formatRoute(previousRoute) === formatRoute(route)) return
+
+    if (routeBackNavigationRef.current) {
+      routeBackNavigationRef.current = false
+      return
+    }
+
+    if (isBackableRoute(route)) {
+      if (!sameBackableView(previousRoute, route)) returnRouteStackRef.current.push(previousRoute)
+      return
+    }
+
+    returnRouteStackRef.current = []
+  }, [route])
 
   useEffect(() => {
     if (route.kind === "search") setQuery(route.query)
@@ -487,9 +509,11 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   }
 
   function closeMainView() {
+    const returnRoute = returnRouteStackRef.current.pop() ?? { kind: "feed", feed: "hot" as const }
+    routeBackNavigationRef.current = true
     setInitialConversation(null)
     setTopicDetailSidebarTopic(null)
-    navigate({ kind: "feed", feed: "latest" })
+    navigate(returnRoute)
   }
 
   function applyTopicBookmark(topicId: string, bookmarked: boolean) {
@@ -595,7 +619,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   }
 
   function completeOidcClaim() {
-    navigate({ kind: "feed", feed: "latest" })
+    navigate({ kind: "feed", feed: "hot" })
   }
 
   if (route.kind === "oidcClaim") {
@@ -875,14 +899,30 @@ function CommunityRouteLoading() {
   return <div className="route-loading" role="status" aria-live="polite">正在加载页面…</div>
 }
 
-function primaryNavigationActive(route: Exclude<CommunityRoute, { kind: "admin" }>) {
+function isBackableRoute(route: CommunityPageRoute): boolean {
+  return route.kind === "topic"
+    || route.kind === "user"
+    || route.kind === "bookmarks"
+    || route.kind === "messages"
+    || route.kind === "notifications"
+}
+
+function sameBackableView(left: CommunityPageRoute, right: CommunityPageRoute): boolean {
+  if (left.kind !== right.kind) return false
+  if (left.kind === "topic" && right.kind === "topic") return left.topicId === right.topicId
+  if (left.kind === "user" && right.kind === "user") return left.username === right.username
+  if (left.kind === "messages" && right.kind === "messages") return true
+  return left.kind === "bookmarks" || left.kind === "notifications"
+}
+
+function primaryNavigationActive(route: CommunityPageRoute) {
   if (route.kind === "board" || route.kind === "boardIndex") return "community" as const
   if (route.kind === "bookmarks") return "bookmarks" as const
   if (route.kind === "feed") return route.feed === "following" ? "following" as const : "home" as const
   return "none" as const
 }
 
-function mobileNavigationActive(route: Exclude<CommunityRoute, { kind: "admin" }>) {
+function mobileNavigationActive(route: CommunityPageRoute) {
   if (route.kind === "board" || route.kind === "boardIndex") return "community" as const
   if (route.kind === "notifications") return "notifications" as const
   if (route.kind === "user" || route.kind === "member") return "profile" as const
