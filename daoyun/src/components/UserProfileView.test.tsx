@@ -344,6 +344,39 @@ describe("UserProfileView", () => {
     }
   })
 
+  it("keeps only one owner security panel open and exposes its expanded state", async () => {
+    const user = userEvent.setup()
+    const ownProfile: UserProfile = {
+      ...profile,
+      viewer: { ...profile.viewer!, isSelf: true },
+    }
+    vi.mocked(getUserProfile).mockResolvedValue(ownProfile)
+    render(
+      <UserProfileView
+        username="member"
+        session={{ ...session, user: { ...session.user, id: profile.id, username: "member" } }}
+        onBack={vi.fn()}
+        onLogin={vi.fn()}
+        onOpenTopic={vi.fn()}
+      />,
+    )
+
+    const passwordTrigger = await screen.findByRole("button", { name: "修改密码" })
+    const sessionsTrigger = screen.getByRole("button", { name: "管理设备会话" })
+    expect(passwordTrigger).toHaveAttribute("aria-expanded", "false")
+    expect(sessionsTrigger).toHaveAttribute("aria-expanded", "false")
+
+    await user.click(passwordTrigger)
+    expect(passwordTrigger).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByRole("region", { name: "修改密码" })).toBeInTheDocument()
+
+    await user.click(sessionsTrigger)
+    expect(passwordTrigger).toHaveAttribute("aria-expanded", "false")
+    expect(sessionsTrigger).toHaveAttribute("aria-expanded", "true")
+    expect(screen.queryByRole("region", { name: "修改密码" })).not.toBeInTheDocument()
+    expect(await screen.findByRole("region", { name: "设备会话" })).toBeInTheDocument()
+  })
+
   it("follows the profile and updates the visible follower count", async () => {
     const user = userEvent.setup()
     render(

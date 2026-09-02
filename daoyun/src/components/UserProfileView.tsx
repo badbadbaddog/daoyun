@@ -42,6 +42,7 @@ import { UserAvatar } from "./UserAvatar"
 
 type ProfileTab = "topics" | UserRelation
 type LoadStatus = "loading" | "ready" | "error"
+type OwnerSecurityPanel = "devices" | "password" | "identities" | "passkeys" | "mfa" | null
 
 interface UserProfileViewProps {
   username: string
@@ -76,11 +77,7 @@ export function UserProfileView({
   const [relationStatus, setRelationStatus] = useState<LoadStatus>("ready")
   const [relationRequestVersion, setRelationRequestVersion] = useState(0)
   const [editing, setEditing] = useState(false)
-  const [showDeviceSessions, setShowDeviceSessions] = useState(false)
-  const [showPasswordChange, setShowPasswordChange] = useState(false)
-  const [showExternalIdentities, setShowExternalIdentities] = useState(openExternalIdentities)
-  const [showPasskeys, setShowPasskeys] = useState(false)
-  const [showMfa, setShowMfa] = useState(false)
+  const [ownerSecurityPanel, setOwnerSecurityPanel] = useState<OwnerSecurityPanel>(openExternalIdentities ? "identities" : null)
   const [followPending, setFollowPending] = useState(false)
   const [followError, setFollowError] = useState("")
   const [messagePending, setMessagePending] = useState(false)
@@ -92,11 +89,7 @@ export function UserProfileView({
     const controller = new AbortController()
     setStatus("loading")
     setEditing(false)
-    setShowDeviceSessions(false)
-    setShowPasswordChange(false)
-    setShowExternalIdentities(openExternalIdentities)
-    setShowPasskeys(false)
-    setShowMfa(false)
+    setOwnerSecurityPanel(openExternalIdentities ? "identities" : null)
     setActiveTab("topics")
     Promise.all([
       getUserProfile(username, controller.signal),
@@ -148,6 +141,10 @@ export function UserProfileView({
     const next = tabs[(nextIndex + tabs.length) % tabs.length]
     setActiveTab(next)
     document.getElementById(`profile-tab-${next}`)?.focus()
+  }
+
+  function toggleOwnerSecurityPanel(panel: Exclude<OwnerSecurityPanel, null>) {
+    setOwnerSecurityPanel((current) => current === panel ? null : panel)
   }
 
   async function handleFollow() {
@@ -348,22 +345,22 @@ export function UserProfileView({
             <p>管理登录凭据、设备与额外验证方式，不会展示在公开主页。</p>
           </div>
           <div className="profile-owner-tools__actions">
-            <button className="secondary-button" type="button" onClick={() => setShowDeviceSessions((value) => !value)}>
+            <button className="secondary-button" type="button" aria-expanded={ownerSecurityPanel === "devices"} aria-controls="profile-device-sessions-panel" onClick={() => toggleOwnerSecurityPanel("devices")}>
               管理设备会话
             </button>
-            <button className="secondary-button" type="button" onClick={() => setShowPasswordChange((value) => !value)}>
+            <button className="secondary-button" type="button" aria-expanded={ownerSecurityPanel === "password"} aria-controls="profile-password-panel" onClick={() => toggleOwnerSecurityPanel("password")}>
               <KeyRound size={15} aria-hidden="true" />
               修改密码
             </button>
-            <button className="secondary-button" type="button" onClick={() => setShowExternalIdentities((value) => !value)}>
+            <button className="secondary-button" type="button" aria-expanded={ownerSecurityPanel === "identities"} aria-controls="profile-identities-panel" onClick={() => toggleOwnerSecurityPanel("identities")}>
               <Fingerprint size={15} aria-hidden="true" />
               登录方式
             </button>
-            <button className="secondary-button" type="button" onClick={() => setShowPasskeys((value) => !value)}>
+            <button className="secondary-button" type="button" aria-expanded={ownerSecurityPanel === "passkeys"} aria-controls="profile-passkeys-panel" onClick={() => toggleOwnerSecurityPanel("passkeys")}>
               <Fingerprint size={15} aria-hidden="true" />
               通行密钥
             </button>
-            <button className="secondary-button" type="button" onClick={() => setShowMfa((value) => !value)}>
+            <button className="secondary-button" type="button" aria-expanded={ownerSecurityPanel === "mfa"} aria-controls="profile-mfa-panel" onClick={() => toggleOwnerSecurityPanel("mfa")}>
               多因素认证
             </button>
           </div>
@@ -371,34 +368,34 @@ export function UserProfileView({
       )}
 
       {editing && <ProfileEditForm profile={profile} onSave={handleSave} onCancel={() => setEditing(false)} />}
-      {showDeviceSessions && session && <DeviceSessionsPanel session={session} onClose={() => setShowDeviceSessions(false)} />}
-      {showPasswordChange && session && (
-        <PasswordChangePanel
+      {ownerSecurityPanel === "devices" && session && <div id="profile-device-sessions-panel"><DeviceSessionsPanel session={session} onClose={() => setOwnerSecurityPanel(null)} /></div>}
+      {ownerSecurityPanel === "password" && session && (
+        <div id="profile-password-panel"><PasswordChangePanel
           session={session}
-          onClose={() => setShowPasswordChange(false)}
+          onClose={() => setOwnerSecurityPanel(null)}
           onSessionChange={onSessionChange ?? (() => undefined)}
-        />
+        /></div>
       )}
-      {showExternalIdentities && session && (
-        <ExternalIdentitiesPanel
+      {ownerSecurityPanel === "identities" && session && (
+        <div id="profile-identities-panel"><ExternalIdentitiesPanel
           session={session}
-          onClose={() => setShowExternalIdentities(false)}
+          onClose={() => setOwnerSecurityPanel(null)}
           onSessionChange={onSessionChange ?? (() => undefined)}
-        />
+        /></div>
       )}
-      {showPasskeys && session && (
-        <PasskeysPanel
+      {ownerSecurityPanel === "passkeys" && session && (
+        <div id="profile-passkeys-panel"><PasskeysPanel
           session={session}
-          onClose={() => setShowPasskeys(false)}
+          onClose={() => setOwnerSecurityPanel(null)}
           onSessionChange={onSessionChange ?? (() => undefined)}
-        />
+        /></div>
       )}
-      {showMfa && session && (
-        <MfaPanel
+      {ownerSecurityPanel === "mfa" && session && (
+        <div id="profile-mfa-panel"><MfaPanel
           session={session}
-          onClose={() => setShowMfa(false)}
+          onClose={() => setOwnerSecurityPanel(null)}
           onSessionChange={onSessionChange ?? (() => undefined)}
-        />
+        /></div>
       )}
 
       <div className="profile-tabs" role="tablist" aria-label="用户内容">
