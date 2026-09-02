@@ -118,6 +118,17 @@ afterEach(() => {
 })
 
 describe("TopicDetailView", () => {
+  it("allows leaving while the topic request is still loading", async () => {
+    const user = userEvent.setup()
+    const onBack = vi.fn()
+    vi.mocked(getTopic).mockReturnValue(new Promise(() => {}))
+    render(<TopicDetailView topicId={topic.id} session={null} onBack={onBack} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+
+    expect(screen.getByRole("status")).toHaveTextContent("正在加载主题")
+    await user.click(screen.getByRole("button", { name: "返回主题列表" }))
+    expect(onBack).toHaveBeenCalledTimes(1)
+  })
+
   it("publishes the loaded topic for the detail sidebar", async () => {
     const onTopicLoaded = vi.fn()
     render(

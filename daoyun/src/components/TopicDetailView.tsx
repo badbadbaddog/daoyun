@@ -522,6 +522,12 @@ export function TopicDetailView({
       <div className="topic-detail-state" role="status">
         <LoaderCircle className="topic-loading__spinner" size={22} aria-hidden="true" />
         <span>正在加载主题</span>
+        <div className="topic-detail-state__actions">
+          <button className="secondary-button" type="button" onClick={onBack}>
+            <ArrowLeft size={15} aria-hidden="true" />
+            返回主题列表
+          </button>
+        </div>
       </div>
     )
   }

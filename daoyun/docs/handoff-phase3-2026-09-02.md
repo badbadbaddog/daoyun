@@ -1,6 +1,6 @@
 # DaoYun Phase 3 交接：2026-09-02
 
-> 当前状态：**IN PROGRESS**。Phase 2 已在 `c71f412` 收口。Phase 3 的 12.1 移动主题详情返回入口对等与 12.2 主题详情失败态可恢复已经完成实现、自动化和真实 production 验收；下一步进入 12.3 同类失败态审计。
+> 当前状态：**DONE / 12.3 READY TO COMMIT**。Phase 2 已在 `c71f412` 收口。Phase 3 的 12.1 移动主题详情返回入口对等、12.2 主题详情失败态可恢复、12.3 加载中可退出与同类失败态审计均已完成实现和门禁；12.1 / 12.2 已提交，12.3 等待按明确路径提交。
 
 ## 1. 基线
 
@@ -26,45 +26,46 @@
 
 真实 390x844 production 使用格式合法但不存在的 UUID 触发后端 404，页面真实显示两个恢复动作；点击返回后回到 `#hot`。该 404 是验收主动制造，不属于回归错误。
 
-## 4. 最新门禁
+## 4. 12.3 已完成
 
-- 定向 `TopicDetailView + responsive + App`：**3 files / 91 tests PASS**
+同类审计覆盖 `UserProfileView`、`BookmarksView`、`MessagesView`、`NotificationsView`。这些页面的顶层“返回社区”都位于 loading / error 分支之外，个人主页 `ProfileState` 也始终先渲染返回动作，因此没有复现主题详情的退出死路，不做无意义统一改造。
+
+唯一剩余缺口是主题详情 loading state：请求未完成前整页只有 spinner。现在 loading state 同样显示“返回主题列表”，继续复用 Phase 2 的 source-aware `onBack`。新增测试把 `getTopic()` 保持永久 pending，确认等待期间仍能离开。
+
+12.1 / 12.2 已提交：`fa03626 fix: restore mobile topic detail recovery`。
+
+## 5. Phase 3 最终门禁
+
+- 12.3 定向 `TopicDetailView + App`：**2 files / 82 tests PASS**
+- `TopicDetailView.test.tsx`：**22 / 22 PASS**
 - `src/App.test.tsx`：**60 / 60 PASS**
-- 前端全量：**77 files / 566 tests PASS**
+- 前端全量：**77 files / 567 tests PASS**
 - `pnpm typecheck`：**PASS**
 - `pnpm build`：**PASS**
 - Vite：6.4.3
 - production build：**1760 modules transformed**
 - CSS：**258.56 kB / 38.84 kB gzip**
-- TopicDetail chunk：**34.00 kB / 9.59 kB gzip**
-
-定向并发测试曾暴露 `uses the discovery recommendation feed as the default home ordering` 在 API effect 尚未执行时立即断言 `listFeed` 的测试竞态；改为 `waitFor` 后定向与全量都稳定通过。产品逻辑未改变。
+- TopicDetail chunk：**34.21 kB / 9.61 kB gzip**
 
 浏览器事实：
 
-- 390x844 正常主题：移动“返回主题列表”可见并可回来源。
+- 390x844 正常主题：移动“返回主题列表”真实可见并可回来源。
 - 390x844 404 主题：错误态“返回主题列表 / 重试加载主题”同时可见，direct deep-link 返回 `#hot`。
 - 1440x1000 正常主题：桌面返回行为保持不变。
-- 正常流程只有匿名 `/auth/session` 预期 401；404 场景额外出现预期的 topic/replies 404；路由切换时被取消的 feed 请求可出现 `ERR_ABORTED`，属于主动导航取消。
+- 12.3 最新 production build 又重新打开真实主题并确认返回入口无回归；loading 瞬态由永久 pending 的组件契约精确锁定。
+- 正常流程只有匿名 `/auth/session` 预期 401；404 验收额外产生预期 topic/replies 404；主动路由切换可能取消 feed 请求产生 `ERR_ABORTED`。
 
-## 5. 当前改动文件
+## 6. 12.3 当前待提交文件
 
-- `src/styles.community.css`
-- `src/styles.responsive.test.ts`
 - `src/components/TopicDetailView.tsx`
 - `src/components/TopicDetailView.test.tsx`
-- `src/App.test.tsx`
 - `docs/specs/community-ui-phase-3.md`
 - `docs/handoff-phase3-2026-09-02.md`
 
-## 6. 下一执行顺序
+## 7. 阶段结论
 
-1. 对本轮 12.1 / 12.2 做 `git diff --check` 并按明确路径单独提交。
-2. 进入 12.3，审计个人主页、收藏、私信、通知等页面的加载失败 / 空态恢复入口。
-3. 只修复真实可复现的“失败态死路”或移动可达性断层，不新增新业务功能。
-4. 每个切片继续执行定向 -> 全量 -> typecheck -> build -> production 浏览器门禁。
-5. Phase 3 仍为 **IN PROGRESS**，不要提前标记 DONE。
+Phase 3 的 12.1–12.3 已全部完成。后续若继续 UI/UX 优化，应新开 Phase 4 / 独立任务；不要继续向 Phase 3 扩张新业务范围。
 
-## 7. Git 约束
+## 8. Git 约束
 
 父级 `Playground` 仍有大量与 DaoYun 无关的未跟踪文件。只暂存明确 `daoyun/...` 路径，**禁止 `git add -A`**。

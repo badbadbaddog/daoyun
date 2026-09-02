@@ -1,7 +1,7 @@
 # 刀云社区 UI/UX Phase 3
 
 日期：2026-09-02
-状态：**IN PROGRESS**
+状态：**DONE**
 
 ## 1. 阶段目标
 
@@ -63,20 +63,38 @@ Phase 2 已在 `c71f412` 完成首页 canonical 语义、详情来源上下文�
 - 点击“返回主题列表”后 direct deep-link 安全回 `#hot`。
 - 浏览器中的该 404 是本项验收刻意制造；匿名 `/auth/session` 401 仍为既有预期探测。
 
-## 4. 当前门禁
+## 4. 12.3 加载中可退出与同类失败态审计（DONE）
 
-- Phase 3 定向：`TopicDetailView + responsive + App` **3 files / 91 tests PASS**。
-- 前端全量：**77 files / 566 tests PASS**。
+### 审计结果
+
+继续检查个人主页、收藏、私信、通知后，确认这些页面的顶层“返回社区”都位于 loading / error 分支之外：即使数据请求失败，来源退出入口仍然存在；个人主页的 `ProfileState` 也始终先渲染返回动作。它们没有复现主题详情的死路，因此没有为了“统一改造”而制造无必要改动。
+
+主题详情仍有一个同类缺口：`loadStatus === "loading"` 会整页替换成 spinner，直到请求完成前没有 source-aware 返回入口。慢网络或挂起请求下，用户仍必须等待请求结束才能触发应用内返回。
+
+### 实现
+
+- 主题 loading state 现在直接提供“返回主题列表”。
+- 继续复用同一 `onBack`，所以从搜索 / 版块 / feed 进入时仍恢复精确来源；direct deep-link 仍使用 Phase 2 的安全 `#hot` fallback。
+- 新增组件契约：让 `getTopic()` 永久 pending，确认 loading 文案存在时“返回主题列表”已经可点击且调用 `onBack`。
+- 没有改变 API 请求、AbortController、错误态重试或最终 ready DOM。
+
+## 5. Phase 3 最终门禁
+
+- 12.3 定向 `TopicDetailView + App`：**2 files / 82 tests PASS**。
+- `TopicDetailView.test.tsx`：**22 / 22 PASS**。
+- `src/App.test.tsx`：**60 / 60 PASS**。
+- 前端全量：**77 files / 567 tests PASS**。
 - `pnpm typecheck`：**PASS**。
 - `pnpm build`：**PASS**，Vite 6.4.3，**1760 modules transformed**。
 - production CSS：`258.56 kB / 38.84 kB gzip`。
-- `TopicDetailView` production chunk：`34.00 kB / 9.59 kB gzip`。
-- 推荐默认流测试补上异步 `waitFor`，消除定向并发运行中 API effect 尚未落地就断言的测试竞态；没有改变产品行为。
+- `TopicDetailView` production chunk：`34.21 kB / 9.61 kB gzip`。
+- 最新 production build 在 390x844 重新打开真实主题，“返回主题列表”仍真实可见；12.1 / 12.2 的正常返回与 404 恢复浏览器证据继续成立。
+- 推荐默认流测试使用异步 `waitFor` 消除了定向并发运行中的测试竞态；没有改变产品行为。
 
-## 5. 12.3 下一审计方向
+## 6. Phase 3 结论
 
-继续检查其他详情 / 账户页面是否存在同类“加载失败只能重试、无法回来源”的死路，优先查看个人主页、收藏、私信、通知等真实页面。只修复可复现的同类问题，不把 Phase 3 扩张成新功能阶段。
+12.1–12.3 已把主题详情在移动端、加载中、加载失败三个此前不对等的状态补齐到同一套 source-aware 返回语义；同类账户页面审计未发现需要继续修改的死路。**Phase 3 = DONE**。后续优化应新开阶段，不再向本阶段追加新功能。
 
-## 6. Git 约束
+## 7. Git 约束
 
 父级 Git 仓库 `C:\Users\111\Documents\Playground` 仍包含大量与 DaoYun 无关的未跟踪项目。继续只暂存明确 `daoyun/...` 路径，**禁止 `git add -A`**。
