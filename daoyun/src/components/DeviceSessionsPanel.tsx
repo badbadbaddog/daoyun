@@ -3,6 +3,7 @@ import { Laptop, LoaderCircle, RefreshCw, ShieldCheck, X } from "lucide-react"
 
 import type { AuthSession, DeviceSession } from "../api/auth"
 import { listDeviceSessions, revokeDeviceSession } from "../api/auth"
+import { ModalDialog } from "./ui/ModalDialog"
 
 interface DeviceSessionsPanelProps {
   session: AuthSession
@@ -16,7 +17,8 @@ export function DeviceSessionsPanel({ session, onClose }: DeviceSessionsPanelPro
   const [pendingSession, setPendingSession] = useState<DeviceSession | null>(null)
   const [revoking, setRevoking] = useState(false)
   const [message, setMessage] = useState("")
-  const confirmButtonRef = useRef<HTMLButtonElement>(null)
+  const revokeTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -35,10 +37,6 @@ export function DeviceSessionsPanel({ session, onClose }: DeviceSessionsPanelPro
     return () => controller.abort()
   }, [requestVersion])
 
-  useEffect(() => {
-    if (pendingSession) confirmButtonRef.current?.focus()
-  }, [pendingSession])
-
   async function confirmRevoke() {
     if (!pendingSession || pendingSession.isCurrent || revoking) return
     setRevoking(true)
@@ -48,6 +46,7 @@ export function DeviceSessionsPanel({ session, onClose }: DeviceSessionsPanelPro
       setSessions((current) => current.filter((item) => item.id !== pendingSession.id))
       setPendingSession(null)
       setMessage("设备会话已撤销")
+      queueMicrotask(() => closeButtonRef.current?.focus())
     } catch {
       setMessage("设备会话暂时无法撤销。")
     } finally {
@@ -65,7 +64,7 @@ export function DeviceSessionsPanel({ session, onClose }: DeviceSessionsPanelPro
             <p>查看并撤销其他已登录设备。</p>
           </div>
         </div>
-        <button className="icon-button" type="button" onClick={onClose} aria-label="关闭设备会话" title="关闭">
+        <button ref={closeButtonRef} className="icon-button" type="button" onClick={onClose} aria-label="关闭设备会话" title="关闭">
           <X size={16} aria-hidden="true" />
         </button>
       </div>
@@ -93,7 +92,7 @@ export function DeviceSessionsPanel({ session, onClose }: DeviceSessionsPanelPro
               {item.isCurrent ? (
                 <button className="secondary-button" type="button" disabled>当前会话</button>
               ) : (
-                <button className="danger-button" type="button" onClick={() => setPendingSession(item)} aria-label={`撤销会话：${item.deviceLabel}`}>
+                <button className="danger-button" type="button" onClick={(event) => { revokeTriggerRef.current = event.currentTarget; setPendingSession(item) }} aria-haspopup="dialog" aria-label={`撤销会话：${item.deviceLabel}`}>
                   撤销
                 </button>
               )}
@@ -103,20 +102,16 @@ export function DeviceSessionsPanel({ session, onClose }: DeviceSessionsPanelPro
       )}
       {message && <p className={message.endsWith("。") ? "form-alert" : "device-sessions__success"} role="status">{message}</p>}
 
-      {pendingSession && (
-        <div className="modal-backdrop" role="presentation">
-          <section className="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="revoke-device-session-title">
-            <h2 id="revoke-device-session-title">确认撤销设备会话</h2>
-            <p>撤销后，该设备需要重新登录。</p>
-            <div className="confirm-dialog__actions">
-              <button className="secondary-button" type="button" onClick={() => setPendingSession(null)} disabled={revoking}>取消</button>
-              <button ref={confirmButtonRef} className="danger-button" type="button" onClick={() => void confirmRevoke()} disabled={revoking}>
-                {revoking ? "正在撤销" : "确认撤销"}
-              </button>
-            </div>
-          </section>
+      {pendingSession && <ModalDialog backdropClassName="modal-backdrop" className="confirm-dialog" role="alertdialog" titleId="revoke-device-session-title" busy={revoking} returnFocus={revokeTriggerRef.current} onClose={() => setPendingSession(null)}>
+        <h2 id="revoke-device-session-title">确认撤销设备会话</h2>
+        <p>撤销后，该设备需要重新登录。</p>
+        <div className="confirm-dialog__actions">
+          <button className="secondary-button" type="button" onClick={() => setPendingSession(null)} disabled={revoking}>取消</button>
+          <button className="danger-button" type="button" onClick={() => void confirmRevoke()} disabled={revoking}>
+            {revoking ? "正在撤销" : "确认撤销"}
+          </button>
         </div>
-      )}
+      </ModalDialog>}
     </section>
   )
 }

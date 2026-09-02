@@ -290,27 +290,80 @@ function ModerationTopicRow({ topic, capabilities, canMove, canReadAudit, histor
   const historyId = `topic-moderation-history-${topic.id}`
   const menuId = `topic-moderation-actions-${topic.id}`
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const menuTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const hasActions = capabilities.has("moderation.topic") || capabilities.has("moderation.topic.pin") || capabilities.has("moderation.topic.feature") || capabilities.has("moderation.topic.lock") || canMove || canReadAudit
   const displayTitle = moderationTopicDisplayTitle(topic)
 
   useEffect(() => {
     if (!menuOpen) return
-    function closeMenu(event: MouseEvent) {
+    function closeMenu(event: PointerEvent) {
       if (event.target instanceof Node && !menuRef.current?.contains(event.target)) setMenuOpen(false)
     }
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setMenuOpen(false)
-    }
-    document.addEventListener("mousedown", closeMenu)
-    document.addEventListener("keydown", closeOnEscape)
-    return () => {
-      document.removeEventListener("mousedown", closeMenu)
-      document.removeEventListener("keydown", closeOnEscape)
-    }
+    document.addEventListener("pointerdown", closeMenu)
+    return () => document.removeEventListener("pointerdown", closeMenu)
   }, [menuOpen])
 
+  function menuItems() {
+    return [...(menuRef.current?.querySelectorAll<HTMLButtonElement>("[role='menuitem']:not(:disabled)") ?? [])]
+  }
+
+  function openMenu(target: "first" | "last" = "first") {
+    setMenuOpen(true)
+    queueMicrotask(() => {
+      const items = menuItems()
+      items[target === "last" ? items.length - 1 : 0]?.focus()
+    })
+  }
+
+  function closeMenu(restoreFocus: boolean) {
+    setMenuOpen(false)
+    if (restoreFocus) queueMicrotask(() => menuTriggerRef.current?.focus())
+  }
+
+  function handleTriggerKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault()
+      openMenu("first")
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault()
+      openMenu("last")
+    }
+  }
+
+  function handleMenuKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    const items = menuItems()
+    const index = items.indexOf(document.activeElement as HTMLButtonElement)
+    if (event.key === "Escape") {
+      event.preventDefault()
+      closeMenu(true)
+      return
+    }
+    if (event.key === "Tab") {
+      closeMenu(false)
+      return
+    }
+    if (event.key === "Home") {
+      event.preventDefault()
+      items[0]?.focus()
+      return
+    }
+    if (event.key === "End") {
+      event.preventDefault()
+      items.at(-1)?.focus()
+      return
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault()
+      items[(index + 1 + items.length) % items.length]?.focus()
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault()
+      items[(index - 1 + items.length) % items.length]?.focus()
+    }
+  }
+
   function runAction(action: () => void) {
+    menuTriggerRef.current?.focus()
     setMenuOpen(false)
     action()
   }
@@ -330,15 +383,37 @@ function ModerationTopicRow({ topic, capabilities, canMove, canReadAudit, histor
       <div className="moderation-topic-row__audit" data-label="审核状态" role="cell"><span className={`moderation-status moderation-status--${topic.moderationStatus}`}>{moderationStatusLabel(topic.moderationStatus)}</span></div>
       <div className="moderation-topic-row__state" data-label="治理状态" role="cell">{topic.pinned && <span className="moderation-state moderation-state--pinned">已置顶</span>}{topic.featured && <span className="moderation-state moderation-state--featured">已精选</span>}{topic.locked && <span className="moderation-state moderation-state--locked">已锁定</span>}{!topic.pinned && !topic.featured && !topic.locked && <span className="moderation-state--empty">—</span>}</div>
       <div ref={menuRef} className="moderation-topic-row__actions" data-label="操作" role="cell">
-        {hasActions ? <><button className="secondary-button moderation-action-trigger" type="button" aria-label={`操作：${displayTitle}`} aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={menuId} onClick={() => setMenuOpen((open) => !open)}>操作<ChevronDown size={12} aria-hidden="true" /></button>
-          {menuOpen && <div id={menuId} className="moderation-action-menu" role="menu" aria-label={`主题操作：${displayTitle}`}>
-            {capabilities.has("moderation.topic") && <><button className="moderation-action--danger" type="button" onClick={() => runAction(() => onModerate(topic, "hidden"))}>隐藏</button><button className="moderation-action--danger" type="button" onClick={() => runAction(() => onModerate(topic, "rejected"))}>驳回</button></>}
-            {capabilities.has("moderation.topic.pin") && <button className={topic.pinned ? "moderation-action--active" : ""} type="button" onClick={() => runAction(() => onGovern(topic, topic.pinned ? "unpin" : "pin"))}>{topic.pinned ? "取消置顶" : "置顶"}</button>}
-            {capabilities.has("moderation.topic.feature") && <button className={topic.featured ? "moderation-action--active" : ""} type="button" onClick={() => runAction(() => onGovern(topic, topic.featured ? "unfeature" : "feature"))}>{topic.featured ? "取消精选" : "精选"}</button>}
-            {capabilities.has("moderation.topic.lock") && <button type="button" onClick={() => runAction(() => onGovern(topic, topic.locked ? "unlock" : "lock"))}>{topic.locked ? "解锁" : "锁定"}</button>}
-            {canMove && <button type="button" onClick={() => runAction(() => onGovern(topic, "move"))}>移动</button>}
-            {canReadAudit && <button type="button" aria-expanded={historyExpanded} aria-controls={historyId} onClick={() => runAction(onToggleHistory)}>处理记录</button>}
-          </div>}</> : <span className="moderation-state--empty">—</span>}
+        {hasActions ? <>
+          <button
+            ref={menuTriggerRef}
+            className="secondary-button moderation-action-trigger"
+            type="button"
+            aria-label={`操作：${displayTitle}`}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-controls={menuId}
+            onKeyDown={handleTriggerKeyDown}
+            onClick={() => {
+              if (menuOpen) closeMenu(false)
+              else openMenu("first")
+            }}
+          >
+            操作<ChevronDown size={12} aria-hidden="true" />
+          </button>
+          {menuOpen && (
+            <div id={menuId} className="moderation-action-menu" role="menu" aria-label={`主题操作：${displayTitle}`} onKeyDown={handleMenuKeyDown}>
+              {capabilities.has("moderation.topic") && <>
+                <button className="moderation-action--danger" type="button" role="menuitem" onClick={() => runAction(() => onModerate(topic, "hidden"))}>隐藏</button>
+                <button className="moderation-action--danger" type="button" role="menuitem" onClick={() => runAction(() => onModerate(topic, "rejected"))}>驳回</button>
+              </>}
+              {capabilities.has("moderation.topic.pin") && <button className={topic.pinned ? "moderation-action--active" : ""} type="button" role="menuitem" onClick={() => runAction(() => onGovern(topic, topic.pinned ? "unpin" : "pin"))}>{topic.pinned ? "取消置顶" : "置顶"}</button>}
+              {capabilities.has("moderation.topic.feature") && <button className={topic.featured ? "moderation-action--active" : ""} type="button" role="menuitem" onClick={() => runAction(() => onGovern(topic, topic.featured ? "unfeature" : "feature"))}>{topic.featured ? "取消精选" : "精选"}</button>}
+              {capabilities.has("moderation.topic.lock") && <button type="button" role="menuitem" onClick={() => runAction(() => onGovern(topic, topic.locked ? "unlock" : "lock"))}>{topic.locked ? "解锁" : "锁定"}</button>}
+              {canMove && <button type="button" role="menuitem" onClick={() => runAction(() => onGovern(topic, "move"))}>移动</button>}
+              {canReadAudit && <button type="button" role="menuitem" aria-expanded={historyExpanded} aria-controls={historyId} onClick={() => runAction(onToggleHistory)}>处理记录</button>}
+            </div>
+          )}
+        </> : <span className="moderation-state--empty">—</span>}
       </div>
     </div>
     {historyVisited && <div id={historyId} className="moderation-topic-row__history" role="row" hidden={!historyExpanded}><div role="cell" aria-colspan={10}><TopicModerationHistory topicId={topic.id} /></div></div>}

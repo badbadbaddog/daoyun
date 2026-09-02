@@ -39,6 +39,26 @@ describe("EntitlementsWorkspace", () => {
     expect(publish).not.toHaveBeenCalled()
   })
 
+  it("keeps the publisher inside a keyboard modal and restores the publish trigger", async () => {
+    const user = userEvent.setup()
+    render(<EntitlementsWorkspace onPublishVersion={vi.fn()} />)
+
+    const trigger = screen.getByRole("button", { name: "发布新版本" })
+    await user.click(trigger)
+    const dialog = screen.getByRole("dialog", { name: "发布权益版本" })
+    const internalKey = screen.getByRole("textbox", { name: "内部键" })
+    const cancel = screen.getByRole("button", { name: "取消" })
+    await waitFor(() => expect(internalKey).toHaveFocus())
+    await user.tab({ shift: true })
+    expect(cancel).toHaveFocus()
+    await user.tab()
+    expect(internalKey).toHaveFocus()
+
+    await user.keyboard("{Escape}")
+    expect(dialog).not.toBeInTheDocument()
+    await waitFor(() => expect(trigger).toHaveFocus())
+  })
+
   it("loads entitlement types and stable version snapshots", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse([entitlementTypeDto()]))

@@ -4425,7 +4425,9 @@ body:has(.auth-overlay) {
 .admin-board-tree__feedback--success { color: var(--brand-strong); }
 .admin-board-tree__feedback--error { color: var(--rose); }
 .admin-board-editor { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 20px; }
-.admin-confirm-panel { display: grid; gap: 10px; margin-top: 18px; border: 1px solid color-mix(in srgb, var(--rose) 28%, var(--border)); border-radius: 7px; background: var(--surface-raised); padding: 14px; }
+body:has(.admin-confirm-backdrop) { overflow: hidden; }
+.admin-confirm-panel { display: grid; width: min(520px, 100%); max-height: calc(100dvh - 40px); overflow: auto; gap: 10px; margin: 0; border: 1px solid color-mix(in srgb, var(--rose) 28%, var(--border)); border-radius: 7px; outline: 0; background: var(--surface-raised); padding: 14px; box-shadow: 0 24px 64px rgb(0 0 0 / 24%); }
+.admin-confirm-panel:focus { box-shadow: 0 24px 64px rgb(0 0 0 / 24%), 0 0 0 3px color-mix(in srgb, var(--rose) 16%, transparent); }
 .admin-confirm-panel > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .admin-confirm-panel h3, .admin-confirm-panel p, .admin-confirm-panel ul { margin: 0; }
 .admin-confirm-panel h3 { font-size: 14px; }

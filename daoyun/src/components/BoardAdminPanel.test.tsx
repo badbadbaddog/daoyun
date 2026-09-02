@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -248,6 +248,39 @@ describe("BoardAdminPanel", () => {
     expect(screen.getByRole("button", { name: "确认删除版块" })).toBeDisabled()
   })
 
+  it("keeps deletion modal while impact is loading, then dismisses from the backdrop and restores the source trigger", async () => {
+    const user = userEvent.setup()
+    let resolveImpact!: (value: { boardId: string; childCount: number; topicCount: number; replyCount: number; canDelete: boolean }) => void
+    vi.mocked(getAdminBoardDeletionImpact).mockImplementationOnce(() => new Promise((resolve) => { resolveImpact = resolve }))
+    renderPanel()
+
+    const trigger = screen.getByRole("button", { name: "更多操作：社区交流" })
+    await user.click(trigger)
+    await user.click(screen.getByRole("menuitem", { name: "删除版块" }))
+
+    const dialog = await screen.findByRole("dialog", { name: "删除“社区交流”" })
+    const close = screen.getByRole("button", { name: "关闭删除确认" })
+    expect(dialog).toHaveAttribute("aria-busy", "true")
+    expect(close).toBeDisabled()
+    expect(dialog).toHaveFocus()
+
+    await user.keyboard("{Escape}")
+    expect(screen.getByRole("dialog", { name: "删除“社区交流”" })).toBeInTheDocument()
+    fireEvent.mouseDown(dialog.parentElement as HTMLElement)
+    expect(screen.getByRole("dialog", { name: "删除“社区交流”" })).toBeInTheDocument()
+
+    await act(async () => {
+      resolveImpact({ boardId: rootId, childCount: 1, topicCount: 12, replyCount: 34, canDelete: false })
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(close).toBeEnabled())
+    expect(dialog).toHaveAttribute("aria-busy", "false")
+
+    fireEvent.mouseDown(dialog.parentElement as HTMLElement)
+    expect(screen.queryByRole("dialog", { name: "删除“社区交流”" })).not.toBeInTheDocument()
+    await waitFor(() => expect(trigger).toHaveFocus())
+  })
+
   it("loads, edits, and saves the access policy with its expected revision", async () => {
     const user = userEvent.setup()
     renderPanel()
@@ -280,6 +313,30 @@ describe("BoardAdminPanel", () => {
 
     expect(await screen.findByText("数据已被其他管理员更新")).toBeInTheDocument()
     expect(screen.getByRole("dialog", { name: "编辑“社区交流”" })).toBeInTheDocument()
+  })
+
+  it("traps merge focus, closes with Escape, and restores the source action menu trigger", async () => {
+    const user = userEvent.setup()
+    renderPanel()
+
+    const trigger = screen.getByRole("button", { name: "更多操作：社区交流" })
+    await user.click(trigger)
+    await user.click(screen.getByRole("menuitem", { name: "合并版块" }))
+
+    const dialog = await screen.findByRole("dialog", { name: "合并“社区交流”" })
+    const close = screen.getByRole("button", { name: "关闭合并确认" })
+    const target = screen.getByLabelText("目标版块")
+    expect(close).toHaveFocus()
+
+    await user.tab({ shift: true })
+    expect(target).toHaveFocus()
+    await user.tab()
+    expect(close).toHaveFocus()
+
+    await user.keyboard("{Escape}")
+    expect(screen.queryByRole("dialog", { name: "合并“社区交流”" })).not.toBeInTheDocument()
+    await waitFor(() => expect(trigger).toHaveFocus())
+    expect(dialog).not.toBeInTheDocument()
   })
 
   it("previews a merge target, executes the merge, and rolls it back within 24 hours", async () => {

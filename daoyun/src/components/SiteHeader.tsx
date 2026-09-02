@@ -1,5 +1,5 @@
 import { Award, Bell, Bookmark, LoaderCircle, LogIn, LogOut, MessageCircle, Moon, Plus, Search, ShieldCheck, Sun, UserRound, X } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react"
 
 import type { AuthSession } from "../api/auth"
 import { BrandMark } from "./BrandMark"
@@ -47,6 +47,8 @@ export function SiteHeader({
   managementAccess,
 }: SiteHeaderProps) {
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const accountMenuRef = useRef<HTMLDivElement>(null)
+  const accountMenuTriggerRef = useRef<HTMLButtonElement>(null)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
 
@@ -71,6 +73,75 @@ export function SiteHeader({
       setAccountMenuOpen(false)
     }
   }, [session])
+
+  useEffect(() => {
+    if (!accountMenuOpen) return
+    function closeAccountMenuFromPointer(event: PointerEvent) {
+      if (event.target instanceof Node && !accountMenuRef.current?.contains(event.target)) {
+        setAccountMenuOpen(false)
+      }
+    }
+    document.addEventListener("pointerdown", closeAccountMenuFromPointer)
+    return () => document.removeEventListener("pointerdown", closeAccountMenuFromPointer)
+  }, [accountMenuOpen])
+
+  function accountMenuItems() {
+    return [...(accountMenuRef.current?.querySelectorAll<HTMLElement>("[role='menuitem']:not(:disabled)") ?? [])]
+  }
+
+  function openAccountMenu(target: "first" | "last" = "first") {
+    setAccountMenuOpen(true)
+    queueMicrotask(() => {
+      const items = accountMenuItems()
+      items[target === "last" ? items.length - 1 : 0]?.focus()
+    })
+  }
+
+  function closeAccountMenu(restoreFocus: boolean) {
+    setAccountMenuOpen(false)
+    if (restoreFocus) queueMicrotask(() => accountMenuTriggerRef.current?.focus())
+  }
+
+  function handleAccountTriggerKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault()
+      openAccountMenu("first")
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault()
+      openAccountMenu("last")
+    }
+  }
+
+  function handleAccountMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const items = accountMenuItems()
+    const index = items.indexOf(document.activeElement as HTMLElement)
+    if (event.key === "Escape") {
+      event.preventDefault()
+      closeAccountMenu(true)
+      return
+    }
+    if (event.key === "Tab") {
+      closeAccountMenu(false)
+      return
+    }
+    if (event.key === "Home") {
+      event.preventDefault()
+      items[0]?.focus()
+      return
+    }
+    if (event.key === "End") {
+      event.preventDefault()
+      items.at(-1)?.focus()
+      return
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault()
+      items[(index + 1 + items.length) % items.length]?.focus()
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault()
+      items[(index - 1 + items.length) % items.length]?.focus()
+    }
+  }
 
   useEffect(() => {
     if (!mobileSearchOpen) return
@@ -160,14 +231,20 @@ export function SiteHeader({
               登录状态
             </button>
           ) : session ? (
-            <div className="account-menu">
+            <div ref={accountMenuRef} className="account-menu">
               <button
+                ref={accountMenuTriggerRef}
                 className="avatar-button"
                 type="button"
                 aria-label="打开个人菜单"
+                aria-haspopup="menu"
                 aria-expanded={accountMenuOpen}
                 title="个人菜单"
-                onClick={() => setAccountMenuOpen((open) => !open)}
+                onKeyDown={handleAccountTriggerKeyDown}
+                onClick={() => {
+                  if (accountMenuOpen) closeAccountMenu(false)
+                  else openAccountMenu("first")
+                }}
               >
                 <UserAvatar
                   username={session.user.username}
@@ -177,38 +254,38 @@ export function SiteHeader({
                 />
               </button>
               {accountMenuOpen && (
-                <div className="account-menu__popover" role="menu" aria-label="个人菜单">
+                <div className="account-menu__popover" role="menu" aria-label="个人菜单" onKeyDown={handleAccountMenuKeyDown}>
                   <div className="account-menu__identity">
                     <strong>{session.user.displayName}</strong>
                     <span>@{session.user.username}</span>
                   </div>
-                  <a className="account-menu__action" href={`#user/${session.user.username}`} role="menuitem" onClick={() => setAccountMenuOpen(false)}>
+                  <a className="account-menu__action" href={`#user/${session.user.username}`} role="menuitem" onClick={() => closeAccountMenu(false)}>
                     <UserRound size={15} aria-hidden="true" />
                     个人主页
                   </a>
-                  <a className="account-menu__action" href="#member" role="menuitem" onClick={() => setAccountMenuOpen(false)}>
+                  <a className="account-menu__action" href="#member" role="menuitem" onClick={() => closeAccountMenu(false)}>
                     <Award size={15} aria-hidden="true" />
                     会员中心
                   </a>
-                  <a className="account-menu__action" href="#bookmarks" role="menuitem" onClick={() => setAccountMenuOpen(false)}>
+                  <a className="account-menu__action" href="#bookmarks" role="menuitem" onClick={() => closeAccountMenu(false)}>
                     <Bookmark size={15} aria-hidden="true" />
                     收藏
                   </a>
-                  <a className="account-menu__action" href="#messages" role="menuitem" onClick={() => setAccountMenuOpen(false)}>
+                  <a className="account-menu__action" href="#messages" role="menuitem" onClick={() => closeAccountMenu(false)}>
                     <MessageCircle size={15} aria-hidden="true" />
                     私信
                   </a>
-                  <a className="account-menu__action" href="#notifications" role="menuitem" onClick={() => setAccountMenuOpen(false)}>
+                  <a className="account-menu__action" href="#notifications" role="menuitem" onClick={() => closeAccountMenu(false)}>
                     <Bell size={15} aria-hidden="true" />
                     通知
                   </a>
                   {(systemAdminAccess === "allowed" || managementAccess === "allowed") && (
-                    <a className="account-menu__action" href="#admin" role="menuitem" onClick={() => setAccountMenuOpen(false)}>
+                    <a className="account-menu__action" href="#admin" role="menuitem" onClick={() => closeAccountMenu(false)}>
                       <ShieldCheck size={15} aria-hidden="true" />
                       站点管理
                     </a>
                   )}
-                  <button className="account-menu__action" type="button" role="menuitem" onClick={() => { setAccountMenuOpen(false); void onLogout() }}>
+                  <button className="account-menu__action" type="button" role="menuitem" onClick={() => { closeAccountMenu(false); void onLogout() }}>
                     <LogOut size={15} aria-hidden="true" />
                     退出登录
                   </button>

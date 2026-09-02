@@ -1,5 +1,5 @@
 import userEvent from "@testing-library/user-event"
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { governTopic, listModerationTopics, listTopicModerationHistory, moderateTopic, ModerationApiError } from "../api/moderation"
@@ -68,7 +68,7 @@ describe("ModerationAdminPanel", () => {
     render(<ModerationAdminPanel boards={[{ ...board, capabilityKeys: [] }]} csrfToken="csrf-token" />)
 
     expect(await screen.findByText("当前账号没有主题治理权限")).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "隐藏" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("menuitem", { name: "隐藏" })).not.toBeInTheDocument()
   })
 
   it("appends another page and keeps pagination retryable after a failure", async () => {
@@ -147,13 +147,37 @@ describe("ModerationAdminPanel", () => {
     expect(within(sideRail).getByRole("group", { name: "审核状态筛选" })).toBeInTheDocument()
     expect(within(sideRail).getByRole("group", { name: "治理状态筛选" })).toBeInTheDocument()
     expect(within(sideRail).getByRole("region", { name: "近期反馈" })).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "隐藏" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("menuitem", { name: "隐藏" })).not.toBeInTheDocument()
 
     const menu = await openTopicActions(user)
 
-    expect(within(menu).getByRole("button", { name: "隐藏" })).toBeEnabled()
-    expect(within(menu).getByRole("button", { name: "移动" })).toBeEnabled()
-    expect(within(menu).getByRole("button", { name: "处理记录" })).toBeEnabled()
+    expect(within(menu).getByRole("menuitem", { name: "隐藏" })).toBeEnabled()
+    expect(within(menu).getByRole("menuitem", { name: "移动" })).toBeEnabled()
+    expect(within(menu).getByRole("menuitem", { name: "处理记录" })).toBeEnabled()
+  })
+
+  it("supports complete keyboard focus semantics in the topic action menu", async () => {
+    const user = userEvent.setup()
+    vi.mocked(listModerationTopics).mockResolvedValue({ topics: [topic], nextCursor: null })
+
+    render(<ModerationAdminPanel boards={[fullCapabilityBoard, targetBoard]} csrfToken="csrf-token" canReadAudit />)
+
+    const trigger = await screen.findByRole("button", { name: `操作：${topic.title}` })
+    trigger.focus()
+    await user.keyboard("{ArrowDown}")
+    await waitFor(() => expect(screen.getByRole("menuitem", { name: "隐藏" })).toHaveFocus())
+    expect(trigger).toHaveAttribute("aria-expanded", "true")
+
+    await user.keyboard("{End}")
+    expect(screen.getByRole("menuitem", { name: "处理记录" })).toHaveFocus()
+    await user.keyboard("{ArrowDown}")
+    expect(screen.getByRole("menuitem", { name: "隐藏" })).toHaveFocus()
+    await user.keyboard("{Escape}")
+    expect(screen.queryByRole("menu", { name: `主题操作：${topic.title}` })).not.toBeInTheDocument()
+    await waitFor(() => expect(trigger).toHaveFocus())
+
+    await user.keyboard("{ArrowUp}")
+    await waitFor(() => expect(screen.getByRole("menuitem", { name: "处理记录" })).toHaveFocus())
   })
 
   it("shows only scoped actions and removes a published topic after hiding it", async () => {
@@ -166,12 +190,12 @@ describe("ModerationAdminPanel", () => {
     expect(await screen.findByRole("heading", { name: "主题治理工作台" })).toBeInTheDocument()
     expect(screen.getByText(topic.title)).toBeInTheDocument()
     const menu = await openTopicActions(user)
-    expect(within(menu).getByRole("button", { name: "隐藏" })).toBeInTheDocument()
-    expect(within(menu).getByRole("button", { name: "置顶" })).toBeInTheDocument()
-    expect(within(menu).queryByRole("button", { name: "精选" })).not.toBeInTheDocument()
-    expect(within(menu).queryByRole("button", { name: "锁定" })).not.toBeInTheDocument()
+    expect(within(menu).getByRole("menuitem", { name: "隐藏" })).toBeInTheDocument()
+    expect(within(menu).getByRole("menuitem", { name: "置顶" })).toBeInTheDocument()
+    expect(within(menu).queryByRole("menuitem", { name: "精选" })).not.toBeInTheDocument()
+    expect(within(menu).queryByRole("menuitem", { name: "锁定" })).not.toBeInTheDocument()
 
-    await user.click(within(menu).getByRole("button", { name: "隐藏" }))
+    await user.click(within(menu).getByRole("menuitem", { name: "隐藏" }))
     await user.type(screen.getByRole("textbox", { name: "处理备注" }), "违反板块规则")
     await user.click(screen.getByRole("button", { name: "确认隐藏主题" }))
 
@@ -187,7 +211,7 @@ describe("ModerationAdminPanel", () => {
 
     render(<ModerationAdminPanel boards={[board]} csrfToken="csrf-token" />)
     await openTopicActions(user)
-    await user.click(screen.getByRole("button", { name: "置顶" }))
+    await user.click(screen.getByRole("menuitem", { name: "置顶" }))
     await user.click(screen.getByRole("button", { name: "确认置顶主题" }))
 
     expect(governTopic).toHaveBeenCalledWith(topic.id, { action: "pin", expectedRevision: 4, reason: undefined, targetBoardId: undefined }, "csrf-token")
@@ -202,7 +226,7 @@ describe("ModerationAdminPanel", () => {
 
     const menu = await openTopicActions(userEvent.setup())
     for (const action of ["隐藏", "驳回", "置顶", "精选", "锁定", "移动", "处理记录"]) {
-      expect(within(menu).getByRole("button", { name: action })).toBeEnabled()
+      expect(within(menu).getByRole("menuitem", { name: action })).toBeEnabled()
     }
   })
 
@@ -213,7 +237,7 @@ describe("ModerationAdminPanel", () => {
 
     render(<ModerationAdminPanel boards={[fullCapabilityBoard, targetBoard]} csrfToken="csrf-token" />)
     await openTopicActions(user)
-    await user.click(screen.getByRole("button", { name: "移动" }))
+    await user.click(screen.getByRole("menuitem", { name: "移动" }))
 
     expect(screen.getByRole("combobox", { name: "目标板块" })).toHaveValue(targetBoard.id)
     await user.type(screen.getByRole("textbox", { name: "处理备注" }), "移动到反馈板块")
@@ -236,7 +260,7 @@ describe("ModerationAdminPanel", () => {
 
     render(<ModerationAdminPanel boards={[board]} csrfToken="csrf-token" />)
     await openTopicActions(user)
-    await user.click(screen.getByRole("button", { name: "隐藏" }))
+    await user.click(screen.getByRole("menuitem", { name: "隐藏" }))
     await user.type(screen.getByRole("textbox", { name: "处理备注" }), "内容异常")
     await user.click(screen.getByRole("button", { name: "确认隐藏主题" }))
 
@@ -255,7 +279,7 @@ describe("ModerationAdminPanel", () => {
 
     render(<ModerationAdminPanel boards={[board]} csrfToken="csrf-token" />)
     await openTopicActions(user)
-    await user.click(screen.getByRole("button", { name: "置顶" }))
+    await user.click(screen.getByRole("menuitem", { name: "置顶" }))
     const dialog = screen.getByRole("dialog", { name: "置顶主题" })
 
     fireEvent.submit(dialog)
@@ -276,7 +300,7 @@ describe("ModerationAdminPanel", () => {
 
     render(<ModerationAdminPanel boards={[board]} csrfToken="csrf-token" />)
     await openTopicActions(user)
-    await user.click(screen.getByRole("button", { name: "隐藏" }))
+    await user.click(screen.getByRole("menuitem", { name: "隐藏" }))
     await user.type(screen.getByRole("textbox", { name: "处理备注" }), "内容异常")
     await user.click(screen.getByRole("button", { name: "确认隐藏主题" }))
 
@@ -298,7 +322,7 @@ describe("ModerationAdminPanel", () => {
     render(<ModerationAdminPanel boards={[board]} csrfToken="csrf-token" />)
 
     await openTopicActions(user)
-    await user.click(screen.getByRole("button", { name: "隐藏" }))
+    await user.click(screen.getByRole("menuitem", { name: "隐藏" }))
 
     const dialog = screen.getByRole("dialog", { name: "隐藏主题" })
     expect(dialog).toBeInTheDocument()
@@ -318,7 +342,7 @@ describe("ModerationAdminPanel", () => {
 
     render(<ModerationAdminPanel boards={[board]} csrfToken="csrf-token" />)
     await openTopicActions(user)
-    await user.click(screen.getByRole("button", { name: "隐藏" }))
+    await user.click(screen.getByRole("menuitem", { name: "隐藏" }))
     await user.type(screen.getByRole("textbox", { name: "处理备注" }), "a")
     await user.click(screen.getByRole("button", { name: "确认隐藏主题" }))
 
@@ -363,7 +387,7 @@ describe("ModerationAdminPanel", () => {
 
     render(<ModerationAdminPanel boards={[board]} csrfToken="csrf-token" />)
     await openTopicActions(user)
-    await user.click(screen.getByRole("button", { name: "置顶" }))
+    await user.click(screen.getByRole("menuitem", { name: "置顶" }))
     await user.click(screen.getByRole("button", { name: "确认置顶主题" }))
 
     expect(within(screen.getByRole("dialog", { name: "置顶主题" })).getByRole("alert")).toHaveTextContent(/^主题已被其他操作更新，请刷新列表后重试$/)
@@ -386,18 +410,18 @@ describe("ModerationAdminPanel", () => {
 
     const { rerender } = render(<ModerationAdminPanel boards={[board]} csrfToken="csrf-token" />)
     expect(await screen.findByText(topic.title)).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "处理记录" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("menuitem", { name: "处理记录" })).not.toBeInTheDocument()
 
     rerender(<ModerationAdminPanel boards={[board]} csrfToken="csrf-token" canReadAudit />)
     await openTopicActions(user)
-    const historyButton = screen.getByRole("button", { name: "处理记录" })
+    const historyButton = screen.getByRole("menuitem", { name: "处理记录" })
     expect(historyButton).toHaveAttribute("aria-expanded", "false")
     await user.click(historyButton)
 
     expect(await screen.findByText("重要公告")).toBeInTheDocument()
     expect(within(screen.getByRole("region", { name: "主题处理记录" })).getByText("置顶")).toBeInTheDocument()
     const expandedMenu = await openTopicActions(user)
-    expect(within(expandedMenu).getByRole("button", { name: "处理记录" })).toHaveAttribute("aria-expanded", "true")
+    expect(within(expandedMenu).getByRole("menuitem", { name: "处理记录" })).toHaveAttribute("aria-expanded", "true")
     expect(listTopicModerationHistory).toHaveBeenCalledWith(expect.objectContaining({ topicId: topic.id, limit: 20 }))
   })
 
@@ -408,13 +432,13 @@ describe("ModerationAdminPanel", () => {
 
     render(<ModerationAdminPanel boards={[board]} csrfToken="csrf-token" canReadAudit />)
     await openTopicActions(user)
-    const historyButton = screen.getByRole("button", { name: "处理记录" })
+    const historyButton = screen.getByRole("menuitem", { name: "处理记录" })
     await user.click(historyButton)
     await screen.findByText("暂无处理记录")
     await openTopicActions(user)
-    await user.click(screen.getByRole("button", { name: "处理记录" }))
+    await user.click(screen.getByRole("menuitem", { name: "处理记录" }))
     await openTopicActions(user)
-    await user.click(screen.getByRole("button", { name: "处理记录" }))
+    await user.click(screen.getByRole("menuitem", { name: "处理记录" }))
 
     expect(await screen.findByText("暂无处理记录")).toBeInTheDocument()
     expect(listTopicModerationHistory).toHaveBeenCalledTimes(1)

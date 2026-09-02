@@ -1,5 +1,5 @@
 import { Fingerprint, LogIn, MailCheck, UserPlus, X } from "lucide-react"
-import { forwardRef, useEffect, useRef, useState } from "react"
+import { forwardRef, useEffect, useState } from "react"
 
 import {
   AuthApiError,
@@ -13,6 +13,7 @@ import {
   verifyMfaChallenge,
 } from "../api/auth"
 import type { AuthSession, MfaChallenge, PasskeyAssertionOptions } from "../api/auth"
+import { ModalDialog } from "./ui/ModalDialog"
 
 type AuthMode = "login" | "register"
 type FieldErrors = Record<string, string[]>
@@ -43,7 +44,6 @@ export function AuthPanel({ open, mode, onClose, onAuthenticated }: AuthPanelPro
   const [passkeySubmitting, setPasskeySubmitting] = useState(false)
   const [mfaChallenge, setMfaChallenge] = useState<MfaChallenge | null>(null)
   const [mfaCode, setMfaCode] = useState("")
-  const firstInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setCurrentMode(mode)
@@ -77,27 +77,13 @@ export function AuthPanel({ open, mode, onClose, onAuthenticated }: AuthPanelPro
     return () => window.clearInterval(timer)
   }, [resendSeconds])
 
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-
-    firstInputRef.current?.focus()
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose()
-      }
-    }
-    window.addEventListener("keydown", closeOnEscape)
-    return () => window.removeEventListener("keydown", closeOnEscape)
-  }, [onClose, open, currentMode])
-
   if (!open) {
     return null
   }
 
   const isRegister = currentMode === "register"
   const submitLabel = submitting ? (isRegister ? "正在注册" : "正在登录") : (isRegister ? "注册" : "登录")
+  const dialogBusy = submitting || passkeySubmitting || requestingCode
 
   function switchMode(nextMode: AuthMode) {
     if (submitting || nextMode === currentMode) {
@@ -254,14 +240,13 @@ export function AuthPanel({ open, mode, onClose, onAuthenticated }: AuthPanelPro
   const describedBy = (field: string) => inputError(field) ? `${field}-error` : undefined
 
   return (
-    <div className="auth-overlay" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="auth-panel" role="dialog" aria-modal="true" aria-labelledby="auth-panel-title">
+    <ModalDialog backdropClassName="auth-overlay" className="auth-panel" titleId="auth-panel-title" busy={dialogBusy} initialFocusSelector="input:not(:disabled)" onClose={onClose}>
         <header className="auth-panel__header">
           <div>
             <span className="auth-panel__eyebrow">刀云社区</span>
             <h2 id="auth-panel-title">{isRegister ? "注册刀云" : "登录刀云"}</h2>
           </div>
-          <button className="icon-button" type="button" aria-label="关闭身份窗口" title="关闭" onClick={onClose}>
+          <button className="icon-button" type="button" aria-label="关闭身份窗口" title="关闭" disabled={dialogBusy} onClick={onClose}>
             <X size={18} aria-hidden="true" />
           </button>
         </header>
@@ -311,7 +296,6 @@ export function AuthPanel({ open, mode, onClose, onAuthenticated }: AuthPanelPro
           {isRegister ? (
             <>
               <AuthField
-                ref={firstInputRef}
                 id="auth-username"
                 label="用户名"
                 value={username}
@@ -375,7 +359,6 @@ export function AuthPanel({ open, mode, onClose, onAuthenticated }: AuthPanelPro
             </>
           ) : (
             <AuthField
-              ref={firstInputRef}
               id="auth-identifier"
               label="用户名或邮箱"
               value={identifier}
@@ -409,8 +392,7 @@ export function AuthPanel({ open, mode, onClose, onAuthenticated }: AuthPanelPro
             </button>
           )}
         </form>}
-      </section>
-    </div>
+    </ModalDialog>
   )
 }
 

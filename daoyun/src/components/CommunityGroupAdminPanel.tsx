@@ -5,6 +5,7 @@ import { AdminApiError, createAdminCommunityGroup, listAdminCommunityGroups, set
 import { RevisionConflictNotice } from "./admin/RevisionConflictNotice"
 import { CommunityGroupMembershipManager } from "./CommunityGroupMembershipManager"
 import { CommunityGroupEditorDialog, communityQuotaKeys, type CommunityGroupDraft } from "./CommunityGroupQuotaDialog"
+import { ModalDialog } from "./ui/ModalDialog"
 
 interface CommunityGroupAdminPanelProps { csrfToken: string; canWrite: boolean; canReadMemberships?: boolean; canWriteMemberships?: boolean; canReadUsers?: boolean }
 
@@ -85,7 +86,7 @@ export function CommunityGroupAdminPanel({ csrfToken, canWrite, canReadMembershi
       {canReadMemberships && canReadUsers && !loading && !error && <CommunityGroupMembershipManager groups={groups} csrfToken={csrfToken} canWrite={canWriteMemberships} />}
     </div>
     {editorOpen && <CommunityGroupEditorDialog group={editing} value={draft} pending={saving} error={error} onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))} onClose={closeOverlay} onSubmit={(event) => void saveGroup(event)} />}
-    {archiveTarget && <div className="dialog-backdrop"><section className="dialog-panel" role="dialog" aria-modal="true" aria-labelledby="archive-group-heading"><h3 id="archive-group-heading">归档{archiveTarget.displayName}</h3><p>将影响 {archiveTarget.memberCount ?? 0} 位有效成员、{archiveTarget.expiringMemberCount ?? 0} 位即将到期成员，并保留 {archiveTarget.accessPolicyReferenceCount ?? 0} 个访问策略引用供后续调整。</p><p>归档后该组不再参与有效权限与额度计算；历史成员关系、审计记录和策略引用不会删除。</p>{error && <p className="form-alert" role="alert">{error}</p>}{conflict && <RevisionConflictNotice onRefresh={() => void loadGroups()} />}<div><button className="secondary-button" type="button" disabled={saving} onClick={closeOverlay}>取消</button><button className="danger-button" type="button" disabled={saving} onClick={() => void archiveGroup()}>确认归档</button></div></section></div>}
+    {archiveTarget && <ModalDialog className="dialog-panel" titleId="archive-group-heading" busy={saving} returnFocus={triggerRef.current} onClose={closeOverlay}><h3 id="archive-group-heading">归档{archiveTarget.displayName}</h3><p>将影响 {archiveTarget.memberCount ?? 0} 位有效成员、{archiveTarget.expiringMemberCount ?? 0} 位即将到期成员，并保留 {archiveTarget.accessPolicyReferenceCount ?? 0} 个访问策略引用供后续调整。</p><p>归档后该组不再参与有效权限与额度计算；历史成员关系、审计记录和策略引用不会删除。</p>{error && <p className="form-alert" role="alert">{error}</p>}{conflict && <RevisionConflictNotice onRefresh={() => void loadGroups()} />}<div><button className="secondary-button" type="button" disabled={saving} onClick={closeOverlay}>取消</button><button className="danger-button" type="button" disabled={saving} onClick={() => void archiveGroup()}>确认归档</button></div></ModalDialog>}
   </>
 }
 

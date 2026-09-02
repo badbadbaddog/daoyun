@@ -226,6 +226,28 @@ describe("DY-ADMIN-MEMBER-002 group safeguards", () => {
     expect(await screen.findByText("贡献者已创建")).toBeInTheDocument()
   })
 
+  it("keeps archive confirmation modal, closes with Escape, and restores the archive trigger", async () => {
+    const user = userEvent.setup()
+    const additional = groupDto({ id: "0198d874-e991-7b62-8b38-3986f55c8d71", internal_key: "event_member", display_name: "活动成员", is_base: false, is_default: false, member_count: 12, expiring_member_count: 3, access_policy_reference_count: 2 })
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(jsonResponse([groupDto(), additional])))
+
+    render(<CommunityGroupAdminPanel csrfToken="csrf-token" canWrite />)
+    const trigger = await screen.findByRole("button", { name: "归档活动成员" })
+    await user.click(trigger)
+    const dialog = screen.getByRole("dialog", { name: "归档活动成员" })
+    const cancel = screen.getByRole("button", { name: "取消" })
+    const confirm = screen.getByRole("button", { name: "确认归档" })
+    await waitFor(() => expect(cancel).toHaveFocus())
+    await user.tab({ shift: true })
+    expect(confirm).toHaveFocus()
+    await user.tab()
+    expect(cancel).toHaveFocus()
+
+    await user.keyboard("{Escape}")
+    expect(dialog).not.toBeInTheDocument()
+    await waitFor(() => expect(trigger).toHaveFocus())
+  })
+
   it("confirms archive impact and writes the current revision", async () => {
     const user = userEvent.setup()
     const additional = groupDto({ id: "0198d874-e991-7b62-8b38-3986f55c8d71", internal_key: "event_member", display_name: "活动成员", is_base: false, is_default: false, member_count: 12, expiring_member_count: 3, access_policy_reference_count: 2 })

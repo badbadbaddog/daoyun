@@ -1,5 +1,5 @@
 import { ChevronsDown, ChevronsUp, LoaderCircle, Plus, Search, X } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 
 import {
   AdminApiError,
@@ -29,6 +29,7 @@ import {
 import { BoardTree, buildBoardTree, compareBoards, filterBoardTree } from "./BoardTree"
 import { RevisionConflictNotice } from "./admin/RevisionConflictNotice"
 import { Drawer } from "./ui/Drawer"
+import { ModalDialog } from "./ui/ModalDialog"
 
 interface BoardAdminPanelProps {
   boards: AdminBoard[]
@@ -69,6 +70,8 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
   const [mergeMutation, setMergeMutation] = useState<AdminBoardMergeMutation | null>(null)
   const [mergeLoading, setMergeLoading] = useState(false)
   const [mergeMessage, setMergeMessage] = useState("")
+  const mergeReturnFocusRef = useRef<HTMLElement | null>(null)
+  const deletionReturnFocusRef = useRef<HTMLElement | null>(null)
   const visibleTree = useMemo(() => filterBoardTree(tree, query), [query, tree])
 
   function startCreate(parentId: string | null) {
@@ -202,6 +205,7 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
   }
 
   async function openDeletion(board: AdminBoard) {
+    deletionReturnFocusRef.current = currentDialogReturnFocus()
     setDeleting(board)
     setDeletionImpact(null)
     setDeletionLoading(true)
@@ -216,6 +220,7 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
   }
 
   function openMerge(board: AdminBoard) {
+    mergeReturnFocusRef.current = currentDialogReturnFocus()
     setMerging(board)
     setMergeTargetId("")
     setMergeImpact(null)
@@ -324,27 +329,33 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
       {message && <p className={message.includes("失败") ? "form-alert" : "admin-success"} role={message.includes("失败") ? "alert" : "status"}>{message}</p>}
       {editor && <BoardEditor editor={editor} draft={draft} accessPolicy={accessPolicy} accessDraft={accessDraft} accessLoading={accessLoading} saving={pendingId !== null} conflict={revisionConflict} error={message} onDraft={setDraft} onAccessDraft={setAccessDraft} onCancel={() => { setEditor(null); setRevisionConflict(false) }} onRefresh={() => { if (editor.section === "access" && editor.board) void loadAccessPolicy(editor.board); else void refreshBoards() }} onSubmit={saveEditor} parentName={boards.find((board) => board.id === editor.parentId)?.name ?? null} />}
       {merging && (
-        <section className="admin-confirm-panel" role="dialog" aria-modal="true" aria-labelledby="board-merge-heading">
-          <div><h3 id="board-merge-heading">合并“{merging.name}”</h3><button className="icon-button" type="button" onClick={() => setMerging(null)} aria-label="关闭合并确认" title="关闭"><X size={15} /></button></div>
+        <ModalDialog titleId="board-merge-heading" className="admin-confirm-panel" backdropClassName="dialog-backdrop admin-confirm-backdrop" busy={mergeLoading || pendingId === merging.id} returnFocus={mergeReturnFocusRef.current} onClose={() => setMerging(null)}>
+          <div><h3 id="board-merge-heading">合并“{merging.name}”</h3><button className="icon-button" type="button" onClick={() => setMerging(null)} disabled={mergeLoading || pendingId === merging.id} aria-label="关闭合并确认" title="关闭"><X size={15} /></button></div>
           {!mergeMutation && <label><span>目标版块</span><select aria-label="目标版块" value={mergeTargetId} onChange={(event) => void previewMerge(event.target.value)} disabled={mergeLoading}><option value="">请选择目标版块</option>{boards.filter((board) => board.id !== merging.id && board.status !== "merged").map((board) => <option key={board.id} value={board.id}>{board.name}</option>)}</select></label>}
           {mergeLoading && <p role="status">正在处理合并…</p>}
           {mergeImpact && !mergeMutation && <><ul><li>{mergeImpact.topicCount} 个主题</li><li>{mergeImpact.replyCount} 条回复</li><li>{mergeImpact.childCount} 个子版块</li></ul>{mergeImpact.blockedReason && <p className="form-alert" role="alert">{mergeBlockedReasonMessage(mergeImpact.blockedReason)}</p>}<button className="danger-button" type="button" onClick={() => void confirmMerge()} disabled={!mergeImpact.canMerge || mergeLoading}>确认合并版块</button></>}
           {mergeMutation && <><dl><div><dt>审计编号</dt><dd>{mergeMutation.auditId}</dd></div><div><dt>迁移主题</dt><dd>{mergeMutation.movedTopicCount}</dd></div><div><dt>回滚截止</dt><dd>{new Date(mergeMutation.rollbackDeadline).toLocaleString("zh-CN")}</dd></div></dl>{!mergeMutation.rolledBack && Date.parse(mergeMutation.rollbackDeadline) > Date.now() && <button className="danger-button" type="button" onClick={() => void rollbackMerge()} disabled={mergeLoading}>24 小时内回滚合并</button>}</>}
           {mergeMessage && <p className={mergeMessage.includes("失败") ? "form-alert" : "admin-success"} role={mergeMessage.includes("失败") ? "alert" : "status"}>{mergeMessage}</p>}
-        </section>
+        </ModalDialog>
       )}
       {deleting && (
-        <section className="admin-confirm-panel" role="dialog" aria-modal="true" aria-labelledby="board-delete-heading">
-          <div><h3 id="board-delete-heading">删除“{deleting.name}”</h3><button className="icon-button" type="button" onClick={() => { setDeleting(null); setDeletionImpact(null) }} aria-label="关闭删除确认" title="关闭"><X size={15} /></button></div>
+        <ModalDialog titleId="board-delete-heading" className="admin-confirm-panel" backdropClassName="dialog-backdrop admin-confirm-backdrop" busy={deletionLoading || pendingId === deleting.id} returnFocus={deletionReturnFocusRef.current} onClose={() => { setDeleting(null); setDeletionImpact(null) }}>
+          <div><h3 id="board-delete-heading">删除“{deleting.name}”</h3><button className="icon-button" type="button" onClick={() => { setDeleting(null); setDeletionImpact(null) }} disabled={deletionLoading || pendingId === deleting.id} aria-label="关闭删除确认" title="关闭"><X size={15} /></button></div>
           <p>删除后版块会从社区隐藏，首版不会自动迁移或合并内容。</p>
           {deletionLoading && <p role="status">正在计算删除影响…</p>}
           {deletionImpact && <ul><li>{deletionImpact.childCount} 个子版块</li><li>{deletionImpact.topicCount} 个主题</li><li>{deletionImpact.replyCount} 条回复</li></ul>}
           {deletionImpact && deletionBlocked && <p className="form-alert" role="alert">请先处理子版块和主题，再删除此版块。</p>}
           <button className="danger-button" type="button" onClick={() => void confirmDelete()} disabled={deletionLoading || deletionBlocked || pendingId !== null}>确认删除版块</button>
-        </section>
+        </ModalDialog>
       )}
     </section>
   )
+}
+
+function currentDialogReturnFocus() {
+  const activeElement = document.activeElement
+  if (!(activeElement instanceof HTMLElement)) return null
+  return activeElement.closest(".action-menu")?.querySelector<HTMLElement>("[aria-haspopup='menu']") ?? activeElement
 }
 
 function BoardEditor({ editor, draft, accessPolicy, accessDraft, accessLoading, saving, conflict, error, onDraft, onAccessDraft, onCancel, onRefresh, onSubmit, parentName }: { editor: BoardEditorState; draft: AdminBoardInput; accessPolicy: AdminContentAccessPolicy | null; accessDraft: AccessPolicyDraft | null; accessLoading: boolean; saving: boolean; conflict: boolean; error: string; onDraft: (draft: AdminBoardInput) => void; onAccessDraft: (draft: AccessPolicyDraft | null) => void; onCancel: () => void; onRefresh: () => void; onSubmit: (event: React.FormEvent) => void; parentName: string | null }) {

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -69,6 +69,31 @@ describe("AuthPanel", () => {
     expect(screen.getByRole("heading", { name: "注册刀云" })).toBeInTheDocument()
     expect(screen.getByRole("textbox", { name: "显示名称" })).toBeInTheDocument()
     expect(screen.getByRole("textbox", { name: "邮箱" })).toBeInTheDocument()
+  })
+
+  it("focuses the login field and blocks Escape or backdrop dismissal while login is pending", async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    const onAuthenticated = vi.fn()
+    let resolveLogin!: (value: AuthSession) => void
+    vi.mocked(login).mockImplementationOnce(() => new Promise((resolve) => { resolveLogin = resolve }))
+    render(<AuthPanel open mode="login" onClose={onClose} onAuthenticated={onAuthenticated} />)
+
+    const identifier = screen.getByRole("textbox", { name: "用户名或邮箱" })
+    await waitFor(() => expect(identifier).toHaveFocus())
+    await user.type(identifier, "member")
+    await user.type(screen.getByLabelText("密码"), "correct horse battery staple")
+    await user.click(screen.getByRole("button", { name: "登录" }))
+
+    const dialog = screen.getByRole("dialog", { name: "登录刀云" })
+    await waitFor(() => expect(dialog).toHaveAttribute("aria-busy", "true"))
+    expect(screen.getByRole("button", { name: "关闭身份窗口" })).toBeDisabled()
+    await user.keyboard("{Escape}")
+    fireEvent.mouseDown(dialog.parentElement as HTMLElement)
+    expect(onClose).not.toHaveBeenCalled()
+
+    resolveLogin(session)
+    await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith(session))
   })
 
   it("submits login credentials and reports a successful session", async () => {
