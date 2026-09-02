@@ -42,6 +42,19 @@ export function isPostgresTrue(value) {
   return value === "true" || value === "t"
 }
 
+export function buildLocalQuotaResetSql(accounts = LOCAL_TEST_ACCOUNTS) {
+  if (!Array.isArray(accounts) || accounts.length === 0) {
+    throw new Error("At least one local test account is required to reset quota usage.")
+  }
+  const usernames = accounts.map((account) => sqlLiteral(account.username)).join(", ")
+  return `
+    DELETE FROM community_quota_usage AS usage
+    USING users AS account
+    WHERE usage.user_id = account.id
+      AND account.username IN (${usernames});
+  `
+}
+
 export function buildLocalModerationFixtureSql(fixture = LOCAL_MODERATION_FIXTURE) {
   const sourceBoardSlug = sqlLiteral(fixture.sourceBoardSlug)
   const targetBoardSlug = sqlLiteral(fixture.targetBoardSlug)
@@ -449,9 +462,11 @@ export async function seedLocalTestAccounts(options = parseSeedArguments([])) {
     results.push({ username: account.username, role: account.role, status })
   }
 
+  await runPsql(psqlPath, options.databaseUrl, buildLocalQuotaResetSql())
   await runPsql(psqlPath, options.databaseUrl, buildLocalModerationFixtureSql())
 
   console.table(results)
+  console.log(`Quota usage reset for local test accounts: ${LOCAL_TEST_ACCOUNTS.map((account) => account.username).join(", ")}.`)
   console.log(`Moderation fixture ready: ${LOCAL_MODERATION_FIXTURE.sourceBoardSlug} -> ${LOCAL_MODERATION_FIXTURE.targetBoardSlug}, ${LOCAL_MODERATION_FIXTURE.targetTopicCount} paginated topics, ${LOCAL_MODERATION_FIXTURE.historyEntryCount} history entries.`)
   return results
 }

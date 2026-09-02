@@ -18,13 +18,13 @@
 10. DY-PLUGIN-ADMIN-001
 11. DY-WEB-POLISH-001
 
-## 当前总任务状态 — 2026-08-28
+## 当前总任务状态 — 2026-09-03
 
-当前完成 **11 / 11** 个任务，剩余 **0 / 11** 个任务。
+当前完成 **11 / 11** 个任务，剩余 **0 / 11** 个任务。原计划之后追加的 Phase 4-10 交互、冲突恢复、响应式/a11y 和最终交付收口也已完成实际门禁；这些 Phase 不改变本表原 11 项任务计数。
 
 | 顺序 | 任务编号 | 阶段 | 状态 | 当前说明 |
 |---:|---|---|---|---|
-| 1 | `DY-BASELINE-001` | 固定基线 | ✅ 已完成 | 基线结果、工作区事实和环境异常已记录 |
+| 1 | `DY-BASELINE-001` | 固定基线 | ✅ 已完成 | 基线结果、工作区事实和历史环境异常已记录；最终交付已重新验证 |
 | 2 | `DY-WEB-ROUTING-001` | 路由整理与 `App.tsx` 拆分 | ✅ 已完成 | 统一 `CommunityRoute`，页面状态改为 Hash 路由单一来源 |
 | 3 | `DY-BOARD-PUBLIC-001` | 真实版块体系 | ✅ 已完成 | 公开版块详情 API、层级、权限、版块页与分页已落地 |
 | 4 | `DY-DISCOVERY-001` | 搜索、Feed 分页和状态保持 | ✅ 已完成 | URL 搜索、主题/版块/用户搜索、cursor Feed 已落地 |
@@ -34,7 +34,7 @@
 | 8 | `DY-ADMIN-BOARD-001` | 版块后台交互优化 | ✅ 已完成 | 紧凑树行、键盘菜单、分区设置抽屉、精确反馈与 revision 恢复已落地 |
 | 9 | `DY-ADMIN-BOARD-002` | 访问策略与版块合并 | ✅ 已完成 | 访问策略编辑、合并影响预览、原子迁移、审计/Outbox 与 24 小时回滚已接通 |
 | 10 | `DY-PLUGIN-ADMIN-001` | 插件管理产品化 | ✅ 已完成 | 四步安装向导、manifest/wasm 预检、风险分级、运行状态与开发者工具分离已落地 |
-| 11 | `DY-WEB-POLISH-001` | 全局交互、样式与完整回归 | ✅ 已完成 | 页面级拆包、共享交互收口、前后端门禁与真实桌面/手机业务 E2E 已通过 |
+| 11 | `DY-WEB-POLISH-001` | 全局交互、样式与完整回归 | ✅ 已完成 | 页面级拆包、共享交互、WCAG AA 收口、前后端门禁与真实桌面/手机 E2E 已通过 |
 
 ### 已完成项
 
@@ -44,27 +44,30 @@
 - [x] `DY-DISCOVERY-001`
 - [x] `DY-MEMBER-CENTER-001`
 - [x] `DY-ADMIN-MEMBER-001`
-
-### 未完成项
-
 - [x] `DY-ADMIN-MEMBER-002`
 - [x] `DY-ADMIN-BOARD-001`
 - [x] `DY-ADMIN-BOARD-002`
 - [x] `DY-PLUGIN-ADMIN-001`
 - [x] `DY-WEB-POLISH-001`
 
-### 当前已知环境 / 基线异常
+### 未完成项
 
-这些不是当前业务阶段的“未完成任务”，但最终交付前仍需保留跟踪：
+无。当前表内 11 项全部完成。
 
-- `pnpm generate:api --check`：基线环境中拉取 OpenAPI schema 时出现 `fetch failed`；当前未手工修改 `src/api/generated.d.ts`。
-- `cargo test --workspace`：Windows MSVC 链接阶段出现 `LNK1102: out of memory`；属于本机链接资源问题，不是测试断言失败。
-- 部分 Rust 数据库 integration：本机未设置 `DATABASE_URL`，且本地测试 PostgreSQL 未监听时会被环境阻断。
-- Vite 主 JS chunk >500 kB 的基线问题已在 `DY-WEB-POLISH-001` 处理中解决：从 1,190.19 kB 降至 370.39 kB，当前构建已无 >500 kB chunk 告警。
+### 历史环境 / 基线异常的最终结论
+
+以下问题曾在初始基线出现，但 **Phase 10 已获得真实最终结果，不再属于当前交付阻塞**：
+
+- OpenAPI：基线 `pnpm generate:api --check` 曾因 schema 服务未启动出现 `fetch failed`；最终默认 runtime 在线时已重新执行并 **PASS / generated zero-diff**。服务停止时仍会合理地因无法取 schema 而失败，这属于运行前置条件，不是生成物漂移。
+- Rust workspace：基线 MSVC `link.exe` 曾出现 `LNK1102: out of memory`；最终使用 Windows GNU 1.94.1 toolchain、MSYS2 MinGW、`CARGO_BUILD_JOBS=1` 和 `-j 1 --test-threads=1` 完成全仓 `cargo test --workspace`，**exit 0**。同一 GNU 配置下 workspace/all-targets Clippy `-D warnings` 也 **exit 0**。
+- Rust DB integration：最终使用隔离 PostgreSQL `127.0.0.1:55433/daoyun_dev` 完成 workspace 数据库集成套件；数据库未启动时仍属于正常环境前置条件。
+- Vite 主 JS chunk >500 kB 的旧基线问题已解决；Phase 10 最终 build 为 1762 modules，main 约 `394.43 kB / 107.40 kB gzip`，当前无 >500 kB chunk 告警。
+
+Phase 10 的最终交付证据还包括：81 files / 608 Vitest PASS、Playwright **26 passed / 2 intentional skipped / 0 failed**、TypeScript/build/Rustfmt/E2E typecheck/membership assets 全部通过，默认 runtime 明确保持 `plugins_enabled=false`，真实插件生命周期则在显式 plugin-enabled 本地验收 runtime 中通过。
 
 ### 下一执行项
 
-当前规划内 11 个任务已全部完成；后续工作应作为新的独立任务定义范围与验收标准。
+当前 Web 优化规划及其后续 Phase 4-10 收口已经完成。后续新增需求应单独定义新的范围、验收标准和交接，不继续把新功能追加进本历史计划；独立原生移动客户端仍属于另一个项目。
 
 ## DY-BASELINE-001 — 2026-08-27
 

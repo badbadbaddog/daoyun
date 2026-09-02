@@ -10,15 +10,15 @@
   --surface-hover: #eef3f9;
   --text: #111827;
   --text-primary: var(--text);
-  --text-soft: #6b7280;
+  --text-soft: #626b78;
   --text-secondary: var(--text-soft);
   --text-muted: var(--text-soft);
-  --text-faint: #6b7280;
+  --text-faint: #626b78;
   --border: #e5e7eb;
   --border-strong: #d1d5db;
-  --brand: #2f7bff;
-  --brand-hover: #246beb;
-  --brand-active: #1d5ed8;
+  --brand: #2563eb;
+  --brand-hover: #1d4ed8;
+  --brand-active: #1e40af;
   --brand-strong: var(--brand-hover);
   --brand-soft: #eaf2ff;
   --brand-foreground: #ffffff;
@@ -63,9 +63,9 @@
   --text-faint: #94a3b8;
   --border: #334155;
   --border-strong: #475569;
-  --brand: #2f7bff;
-  --brand-hover: #246beb;
-  --brand-active: #1d5ed8;
+  --brand: #2563eb;
+  --brand-hover: #1d4ed8;
+  --brand-active: #1e40af;
   --brand-strong: #8ab4ff;
   --brand-soft: #172b4d;
   --brand-foreground: #ffffff;
@@ -97,7 +97,7 @@
   --border: #9ca3af;
   --border-strong: #6b7280;
   --text-soft: #4b5563;
-  --text-faint: #6b7280;
+  --text-faint: #4b5563;
 }
 
 :root[data-theme="dark"][data-brand-preset="high_contrast"] {

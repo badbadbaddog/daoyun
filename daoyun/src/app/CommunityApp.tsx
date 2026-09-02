@@ -943,11 +943,12 @@ function getInitialTheme(): Theme {
 
 function applyBrandingToDocument(branding: SiteBranding | null) {
   const root = document.documentElement
-  const usesClearCommunityBlue = branding?.primaryColor.toLowerCase() === "#2f7bff"
-  const customPrimaryColor = branding && !usesClearCommunityBlue ? branding.primaryColor : null
+  const normalizedPrimaryColor = branding?.primaryColor.toLowerCase()
+  const usesBuiltInCommunityBlue = normalizedPrimaryColor === "#2563eb" || normalizedPrimaryColor === "#2f7bff"
+  const customPrimaryColor = branding && !usesBuiltInCommunityBlue ? branding.primaryColor : null
   root.dataset.brandPreset = branding?.themePreset ?? "default"
   root.dataset.listDensity = branding?.listDensity ?? "comfortable"
-  setRootProperty(root, "--brand", branding?.primaryColor)
+  setRootProperty(root, "--brand", customPrimaryColor ?? undefined)
   setRootProperty(root, "--brand-hover", customPrimaryColor
     ? `color-mix(in srgb, ${customPrimaryColor} 88%, #000)`
     : undefined)

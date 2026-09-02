@@ -1,10 +1,10 @@
 # 刀云项目完成度
 
-更新时间：2026-08-21
+更新时间：2026-09-03
 
 当前分支：`codex/daoyun-home-foundation`
 
-当前基线：`f4d3131 feat:complete-community-permissions-and-plugin-platform`（工作区包含本状态文档所列的后续未提交实现）
+当前交付基线：Phase 10 最终交付收口；Phase 9 基线提交为 `d15a957fa46484fe8ad0182fecf9efb001c1b7e9`，Phase 10 的最终本地 closure commit 以同批 Git 记录为准。当前 Web / Mobile Web-PWA / Admin Web 主线已完成仓库级、真实浏览器与 GNU Rust 全量门禁。
 
 ### 已验证的修复
 
@@ -73,8 +73,8 @@ postgresql://daoyun@127.0.0.1:55433/daoyun_dev
 
 - 使用刀云独立品牌、Logo、图标、中文文案、组件结构和视觉样式，不制作“Rust 版 Rhex”或“Rust 版 phpwind9”。
 - 官方前端采用内容优先、低装饰、高信息密度的工作型界面。
-- 当前视觉基线为中性表面、绿色品牌色，并用蓝色、琥珀色和玫红色表达内容语义。
-- 面板圆角不超过 `8px`，避免页面区块全部卡片化，也不使用卡片嵌套卡片。
+- 当前视觉基线为中性浅色表面与可访问社区蓝；内置浅色主品牌蓝为 `#2563EB`，弱文本等共享 token 已在最终 axe 回归中收敛到 WCAG AA。
+- 页面保持低装饰、扁平信息层级和有限圆角，避免区块全部卡片化或卡片嵌套卡片；具体半径由共享设计令牌维护，不在状态文档重复硬编码旧值。
 - PC Web、Mobile Web/PWA 和 Admin Web 共享 API、契约、权限逻辑与设计令牌，但不强制共享页面布局。
 
 ### 主题扩展边界
@@ -921,3 +921,16 @@ cargo +1.94.1-x86_64-pc-windows-gnu build --manifest-path sdk/plugin-rust-exampl
 - 命令在解析校验后才预留稳定 `(plugin_key, idempotency_key)` 收据并扣减配额，卸载重装不会破坏幂等性，过期 pending 只能由新 owner token 接管。命令日配额耗尽时，事件与任务都会重置本轮尝试并延期到下一个 UTC 配额窗口，不因可恢复配额压力进入 dead。worker 取得进程执行槽后才领取队列项，租约覆盖单次合法调用最坏预算；公共 UI action 具有 16 KiB 正文、actor/plugin 速率、5 秒等待和权威主体边界。公共 UI 只枚举最多 8 个申请 `ui.panel` 的业务插件，取得执行槽后才加载 Component bytes，并具有忙碌跳过、总时限、贡献数/字节上限和 no-store 响应。
 - 真实 Component 已由自动化测试贯穿 Outbox、订阅 fanout、实际 Wasmtime guest、worker、命令收据/配额和 EXP 账本：同日两个主题只产生一条 `+10`，同日两个回复只产生一条 `+3`，下一 UTC 日主题可再次奖励，schema v2 被受控拒绝，配额耗尽后延期并在下一窗口恢复；CI 会构建两套 SDK 示例与官方 Wasm 后执行同一闭环，额外验证组件只能使用有界 CLI/IO 导入，并对主仓、官方插件及两套 SDK 锁文件执行 RustSec 审计。
 - 本轮门禁通过：官方插件 4 项原生测试与 doctest、Wasm Clippy、`wasm32-wasip2 --release` 构建、业务 SDK 示例 Component 构建、Rust workspace `--all-features` 全量测试、Rustfmt、全目标/全特性 Clippy `-D warnings`、真实 Component 集成、Vitest 45 个文件 294 项、TypeScript、生产构建、E2E 类型检查、OpenAPI 漂移和桌面/移动 Chromium 公开质量 4 项（未启动 API 的安全头 2 项按配置跳过）。主仓 456 个与官方插件 37 个 Cargo 依赖 RustSec 审计均为 0 漏洞；npm High 审计发现的 `nanoid 3.3.17` 已提升到修复版 `3.3.18`，复查为 0 漏洞。详细规则见 [官方成长奖励插件规格](specs/official-growth-rewards-plugin.md)。
+
+### 68. Web 主线 Phase 4-10 最终交付收口
+
+- Phase 4-9 已依次完成共享交互、确认框、tab 键盘语义、异步 mutation 防重复/最新请求优先、revision conflict 恢复，以及 1440/1024/768/390 全站交互、Accessibility、Responsive 终审；详细事实分别保存在 `docs/handoff-phase4-2026-09-02.md` 至 `docs/handoff-phase9-2026-09-03.md`。
+- Phase 10 最终 axe/Playwright 发现并修复浅色主题真实对比度缺口：历史内置 `#2F7BFF` 主蓝升级为 WCAG AA 安全的 `#2563EB`，弱文本改为 `#626B78`，并新增 `202609030001_set_accessible_community_blue_brand` 正反迁移，只迁移仍使用历史内置默认色的 singleton，不覆盖部署方自定义品牌色。前端同时兼容尚未迁移的旧默认值，避免再次以内联变量恢复低对比度颜色。
+- 本地真实 E2E 契约已同步当前产品 IA：body-first 发布器、发布后进入主题详情、移动端“写评论”入口、治理 ActionMenu menuitem 语义，以及新增 membership-summary mock。失败 E2E 遗留的 `e2e_moderator_*` / `e2e_operations_reader_*` 测试授权会被限定清理，避免旧测试角色污染 RBAC 结果。
+- `seed:local` 继续只允许 loopback API/PostgreSQL，并新增固定本地账号 `demo_admin` / `demo_member` 的社区 quota usage 重置；不 TRUNCATE、不影响其他用户，也不增加生产 API 测试后门。该机制解决多轮真实 E2E 累积耗尽 `topic.create.daily` 后返回 429 的可重复性问题。
+- 最终真实 Playwright（显式 plugin-enabled 验收 runtime）为 **26 passed / 2 intentional skipped / 0 failed**，覆盖 desktop/mobile、320/375/768/1024/1440、axe、首屏质量预算、发布/回复/私信、板块作用域 RBAC 与撤权后即时 403、运维、会员、治理、真实 Rust WASM 插件完整生命周期和 API 安全响应头。两个 skip 均是测试自身限定 desktop 的场景，不是失败。
+- 最终生产默认 runtime 使用 `pnpm local --no-browser`，日志明确 `plugins_enabled=false`。Fresh Chromium 验证匿名首页、未授权后台回退、固定本地管理员登录及 `#admin/plugins` 加载；插件后台打开后的 browser event cursor 无新增 console/page/network error，本次 sanity 不执行插件安装写入。
+- Web 最终门禁：**81 files / 608 Vitest PASS**、TypeScript PASS、Vite 6.4.3 production build **1762 modules PASS**、Playwright typecheck PASS、会员资源 **等级 20 / 勋章 17 PASS**，OpenAPI 在最终默认 runtime 在线时 `pnpm generate:api --check` **PASS / zero-diff**。main bundle 约 `394.43 kB / 107.40 kB gzip`，当前无 >500 kB chunk 告警。
+- Rust 最终不再受基线 MSVC `LNK1102` 阻断：使用 Rust 1.94.1 Windows GNU + MSYS2 MinGW、`CARGO_BUILD_JOBS=1`、`-j 1 --test-threads=1` 完整执行 `cargo test --workspace` 并 **exit 0**；所有实际执行测试 0 failed，仅 2 个按源码定义的官方 growth component 测试因要求预构建 `wasm32-wasip2` 产物而 expected ignored。GNU workspace/all-targets Clippy `-D warnings` 同样 **exit 0**，Rustfmt PASS。
+- Phase 10 因 schema 服务生命周期结束曾再次观察到 `pnpm generate:api --check` 的 `fetch failed`；恢复 API 后同一命令立即 zero-diff PASS，因此该现象确认是运行前置条件，不是 generated 漂移。第一次 GNU cold workspace run 也因 FastSpider 单 job 1800 秒上限在测试后段 expired，但其 20m38s 冷编译/链接已经成功；缓存重跑完整 exit 0，不能把外层 job expiry 记录为 Rust 测试失败。
+- 至此当前 Web / Mobile Web-PWA / Admin Web 主线已完成交付收口。独立原生移动客户端及原生管理端主题仍不在当前仓库，应按第 95 行既有边界另行立项并复用当前 API 契约、权限模型与共享设计令牌。

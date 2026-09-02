@@ -476,7 +476,7 @@ describe("DaoYun community home", () => {
     expect(document.querySelector('link[data-daoyun-favicon="true"]')).toHaveAttribute("href", "https://cdn.example.com/favicon.ico")
   })
 
-  it("keeps the clear community blue companion tokens theme-aware", async () => {
+  it("keeps legacy built-in community blue on the accessible shared tokens", async () => {
     vi.mocked(getPublicSiteBranding).mockResolvedValue({
       ...brandingFixture,
       primaryColor: "#2F7BFF",
@@ -485,7 +485,8 @@ describe("DaoYun community home", () => {
     render(<App />)
 
     await screen.findByRole("heading", { name: "社区发现" })
-    await waitFor(() => expect(document.documentElement.style.getPropertyValue("--brand")).toBe("#2F7BFF"))
+    await waitFor(() => expect(document.documentElement.style.getPropertyValue("--accent")).toBe("#c85516"))
+    expect(document.documentElement.style.getPropertyValue("--brand")).toBe("")
     expect(document.documentElement.style.getPropertyValue("--brand-hover")).toBe("")
     expect(document.documentElement.style.getPropertyValue("--brand-active")).toBe("")
     expect(document.documentElement.style.getPropertyValue("--brand-strong")).toBe("")

@@ -9,6 +9,7 @@ import {
 } from "./local-development.mjs"
 import {
   buildLocalModerationFixtureSql,
+  buildLocalQuotaResetSql,
   buildPsqlArguments,
   isPostgresTrue,
   parseSeedArguments,
@@ -34,6 +35,14 @@ describe("local development configuration", () => {
       expect.objectContaining({ username: "demo_member", role: "member" }),
     ])
     expect(new Set(LOCAL_TEST_ACCOUNTS.map((account) => account.username)).size).toBe(2)
+  })
+
+  it("resets persisted quota usage only for the dedicated local test accounts", () => {
+    const sql = buildLocalQuotaResetSql(LOCAL_TEST_ACCOUNTS)
+    expect(sql).toContain("DELETE FROM community_quota_usage")
+    expect(sql).toContain("account.username IN ('demo_admin', 'demo_member')")
+    expect(sql).not.toContain("TRUNCATE")
+    expect(() => buildLocalQuotaResetSql([])).toThrow("At least one local test account")
   })
 
   it("defines a repeatable moderation fixture with a move target and paginated data", () => {

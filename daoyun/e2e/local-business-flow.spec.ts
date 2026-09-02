@@ -66,17 +66,17 @@ test.describe("local real business flow", () => {
     const directMessage = `本地自动回归私信 ${suffix}`
 
     await page.getByRole("button", { name: /发布新主题/ }).first().click()
-    const composer = page.getByRole("dialog")
-    await composer.locator('input[placeholder*="清晰地概括"]').fill(topicTitle)
+    const composer = page.getByRole("dialog", { name: "发布内容" })
+    await composer.getByRole("button", { name: "添加标题" }).click()
+    await composer.getByRole("textbox", { name: "标题（可选）" }).fill(topicTitle)
     await composer.getByRole("textbox", { name: "正文", exact: true }).fill(`验证真实 API 的主题 ${suffix}`)
     await composer.locator('input[placeholder*="用逗号分隔"]').fill("回归,浏览器")
     const topicCreateResponse = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/v1/topics")
     await composer.locator('button[type="submit"]').click()
     expect((await topicCreateResponse).status()).toBe(201)
-    await expect(page.getByRole("link", { name: topicTitle, exact: true }).first()).toBeVisible()
-
-    await page.getByRole("link", { name: topicTitle, exact: true }).first().click()
-    await expect(page.getByText(topicTitle, { exact: true }).first()).toBeVisible()
+    await expect(page.getByRole("heading", { name: topicTitle, level: 1, exact: true })).toBeVisible()
+    const mobileCommentEntry = page.getByRole("button", { name: "写评论" })
+    if (await mobileCommentEntry.isVisible()) await mobileCommentEntry.click()
     await page.getByRole("textbox", { name: "参与讨论", exact: true }).fill(replyText)
     const replyCreateResponse = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/replies"))
     await page.getByRole("button", { name: "发布回复", exact: true }).click()
@@ -118,6 +118,7 @@ test.describe("local real business flow", () => {
     page.on("pageerror", (error) => consoleIssues.push(`pageerror: ${error.message}`))
 
     const adminCsrf = await loginThroughUi(page, "demo_admin")
+    await cleanupStaleAuthorizationFixtures(page, adminCsrf)
     let moderatorRoleId: string | null = null
     let moderatorAssignmentId: string | null = null
     let memberContext: import("@playwright/test").BrowserContext | null = null
@@ -157,8 +158,9 @@ test.describe("local real business flow", () => {
       const memberCsrf = await loginThroughUi(memberPage, "demo_member")
       const topicTitle = `E2E 授权主题 ${suffix}`
       await memberPage.getByRole("button", { name: /发布新主题/ }).first().click()
-      const composer = memberPage.getByRole("dialog")
-      await composer.locator('input[placeholder*="清晰地概括"]').fill(topicTitle)
+      const composer = memberPage.getByRole("dialog", { name: "发布内容" })
+      await composer.getByRole("button", { name: "添加标题" }).click()
+      await composer.getByRole("textbox", { name: "标题（可选）" }).fill(topicTitle)
       await composer.getByRole("textbox", { name: "正文", exact: true }).fill("验证板块 moderation capability")
       const boardSelect = composer.locator("select").first()
       if (await boardSelect.count()) {
@@ -167,7 +169,7 @@ test.describe("local real business flow", () => {
       const topicResponse = memberPage.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/v1/topics")
       await composer.locator('button[type="submit"]').click()
       const topicPayload = await (await topicResponse).json() as { data: { id: string } }
-      await expect(memberPage.getByRole("link", { name: topicTitle, exact: true }).first()).toBeVisible()
+      await expect(memberPage.getByRole("heading", { name: topicTitle, level: 1, exact: true })).toBeVisible()
 
       const internalNote = `E2E internal note ${suffix}`
       const reportReceipt = await browserJsonRequest(page, "POST", "/api/v1/reports", adminCsrf, {
@@ -185,9 +187,11 @@ test.describe("local real business flow", () => {
       const unrelated = await browserJsonRequest(memberPage, "GET", "/api/v1/admin/site-branding")
       expect(unrelated.status()).toBe(403)
 
-      page.once("dialog", (dialog) => void dialog.accept())
       const assignmentRow = page.locator(".authorization-assignment-row").filter({ hasText: "demo_member" }).filter({ hasText: roleName })
       await assignmentRow.getByRole("button", { name: "撤销" }).click()
+      const revokeDialog = page.getByRole("alertdialog", { name: "撤销角色分配" })
+      await expect(revokeDialog).toBeVisible()
+      await revokeDialog.getByRole("button", { name: "确认撤销角色" }).click()
       await expect(page.getByRole("status").filter({ hasText: "角色分配已撤销" })).toBeVisible()
       moderatorAssignmentId = null
 
@@ -423,12 +427,14 @@ test.describe("local real business flow", () => {
       expect(disabledInvocation.status()).toBe(409)
       expect(await disabledInvocation.json()).toMatchObject({ error: { code: "plugin.disabled" } })
 
-      page.once("dialog", (dialog) => void dialog.accept())
       const uninstallResponse = page.waitForResponse((response) => (
         response.request().method() === "DELETE"
         && new URL(response.url()).pathname === `/api/v1/admin/plugins/${pluginId}`
       ))
       await pluginRow.getByRole("button", { name: `卸载插件：${pluginName}` }).click()
+      const uninstallDialog = page.getByRole("alertdialog", { name: `卸载插件“${pluginName}”` })
+      await expect(uninstallDialog).toBeVisible()
+      await uninstallDialog.getByRole("button", { name: "确认卸载插件" }).click()
       expect((await uninstallResponse).status()).toBe(200)
       await expect(pluginRow).toHaveCount(0)
       pluginId = null
@@ -469,16 +475,16 @@ test.describe("local real business flow", () => {
       await assertNoHorizontalOverflow(page)
 
       await topicRow.getByRole("button", { name: `操作：${fixtureTitle}` }).click()
-      await topicRow.getByRole("button", { name: "处理记录", exact: true }).click()
+      await topicRow.getByRole("menuitem", { name: "处理记录", exact: true }).click()
       const history = topicRow.getByRole("region", { name: "主题处理记录" })
       await expect(history.getByRole("table", { name: "处理记录" })).toBeVisible()
       await expect(history.getByRole("button", { name: "加载更多记录" })).toBeVisible()
       await assertNoHorizontalOverflow(page)
       await topicRow.getByRole("button", { name: `操作：${fixtureTitle}` }).click()
-      await topicRow.getByRole("button", { name: "处理记录", exact: true }).click()
+      await topicRow.getByRole("menuitem", { name: "处理记录", exact: true }).click()
 
       await topicRow.getByRole("button", { name: `操作：${fixtureTitle}` }).click()
-      await topicRow.getByRole("button", { name: "移动", exact: true }).click()
+      await topicRow.getByRole("menuitem", { name: "移动", exact: true }).click()
       const moveDialog = page.getByRole("dialog", { name: "移动主题" })
       await expect(moveDialog.getByRole("combobox", { name: "目标板块" }).locator("option", { hasText: "产品反馈" })).toHaveCount(1)
       await expect(moveDialog.getByRole("textbox", { name: "处理备注" })).toBeFocused()
@@ -520,7 +526,7 @@ test.describe("local real business flow", () => {
       && new URL(response.url()).pathname.endsWith("/governance")
     ))
     await fixtureRow.getByRole("button", { name: `操作：${fixtureTitle}` }).click()
-    await fixtureRow.getByRole("button", { name: "移动", exact: true }).click()
+    await fixtureRow.getByRole("menuitem", { name: "移动", exact: true }).click()
     await page.getByRole("combobox", { name: "目标板块" }).selectOption({ label: "产品反馈" })
     await page.getByRole("textbox", { name: "处理备注" }).fill("E2E 移动到产品反馈")
     await page.getByRole("button", { name: "确认移动主题" }).click()
@@ -535,7 +541,7 @@ test.describe("local real business flow", () => {
       && new URL(response.url()).pathname.endsWith("/governance")
     ))
     await fixtureRow.getByRole("button", { name: `操作：${fixtureTitle}` }).click()
-    await fixtureRow.getByRole("button", { name: "移动", exact: true }).click()
+    await fixtureRow.getByRole("menuitem", { name: "移动", exact: true }).click()
     await expect(page.getByRole("combobox", { name: "目标板块" })).toHaveValue(
       await boardSelect.locator("option", { hasText: "社区广场" }).getAttribute("value") ?? "",
     )
@@ -551,7 +557,7 @@ test.describe("local real business flow", () => {
       && new URL(response.url()).pathname.endsWith("/governance")
     ))
     await fixtureRow.getByRole("button", { name: `操作：${fixtureTitle}` }).click()
-    await fixtureRow.getByRole("button", { name: "置顶", exact: true }).click()
+    await fixtureRow.getByRole("menuitem", { name: "置顶", exact: true }).click()
     await page.getByRole("button", { name: "确认置顶主题" }).click()
     expect((await pinResponse).status()).toBe(200)
     await expect(fixtureRow.getByText("已置顶", { exact: true })).toBeVisible()
@@ -561,11 +567,11 @@ test.describe("local real business flow", () => {
       && new URL(response.url()).pathname.endsWith("/governance")
     ))
     await fixtureRow.getByRole("button", { name: `操作：${fixtureTitle}` }).click()
-    await fixtureRow.getByRole("button", { name: "取消置顶", exact: true }).click()
+    await fixtureRow.getByRole("menuitem", { name: "取消置顶", exact: true }).click()
     await page.getByRole("button", { name: "确认取消置顶主题" }).click()
     expect((await unpinResponse).status()).toBe(200)
     await fixtureRow.getByRole("button", { name: `操作：${fixtureTitle}` }).click()
-    await expect(fixtureRow.getByRole("button", { name: "置顶", exact: true })).toBeVisible()
+    await expect(fixtureRow.getByRole("menuitem", { name: "置顶", exact: true })).toBeVisible()
 
     await assertNoHorizontalOverflow(page)
     expect(consoleIssues).toEqual([])
@@ -749,6 +755,39 @@ async function browserJsonRequest(
     return { status: response.status, body }
   }, { method, path, csrfToken, data })
   return { status: () => result.status, body: result.body }
+}
+
+async function cleanupStaleAuthorizationFixtures(
+  page: import("@playwright/test").Page,
+  csrfToken: string,
+): Promise<void> {
+  const rolesResponse = await browserJsonRequest(page, "GET", "/api/v1/admin/authorization/roles")
+  expect(rolesResponse.status()).toBe(200)
+  const roles = (rolesResponse.body as {
+    data: Array<{ id: string; key: string }>
+  }).data.filter((role) => role.key.startsWith("e2e_moderator_") || role.key.startsWith("e2e_operations_reader_"))
+
+  for (const role of roles) {
+    let cursor: string | null = null
+    do {
+      const query = new URLSearchParams({ role_id: role.id, limit: "50" })
+      if (cursor) query.set("cursor", cursor)
+      const assignmentsResponse = await browserJsonRequest(page, "GET", `/api/v1/admin/authorization/assignments?${query}`)
+      expect(assignmentsResponse.status()).toBe(200)
+      const payload = assignmentsResponse.body as {
+        data: Array<{ id: string }>
+        meta: { next_cursor?: string | null }
+      }
+      for (const assignment of payload.data) {
+        const deleteResponse = await browserJsonRequest(page, "DELETE", `/api/v1/admin/authorization/assignments/${assignment.id}`, csrfToken)
+        expect(deleteResponse.status()).toBe(200)
+      }
+      cursor = payload.meta.next_cursor ?? null
+    } while (cursor)
+
+    const deleteRoleResponse = await browserJsonRequest(page, "DELETE", `/api/v1/admin/authorization/roles/${role.id}`, csrfToken)
+    expect(deleteRoleResponse.status()).toBe(200)
+  }
 }
 
 async function removePluginIfPresent(

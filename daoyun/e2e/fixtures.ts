@@ -298,6 +298,24 @@ export async function mockPublicApi(page: Page) {
       })
       return
     }
+    if (path.startsWith("/api/v1/users/") && path.endsWith("/membership-summary")) {
+      await route.fulfill({
+        json: envelope({
+          current_level: {
+            id: "019fc700-0000-7000-8000-000000000051",
+            internal_key: "member",
+            level_order: 1,
+            display_name: "Lv1",
+            required_experience: 0,
+            color: null,
+            description: "",
+          },
+          medals: [],
+          public_groups: [],
+        }),
+      })
+      return
+    }
     if (path === "/api/v1/users/quality_author") {
       await route.fulfill({ json: envelope(profile) })
       return

@@ -5,10 +5,10 @@ import { assertNoHorizontalOverflow, mockPublicApi, topicId } from "./fixtures"
 
 const acceptanceWidths = [320, 375, 768, 1024, 1440] as const
 
-test("applies the clear community blue palette and button interaction states", async ({ page }) => {
+test("applies the accessible community blue palette and button interaction states", async ({ page }) => {
   await mockPublicApi(page)
   await page.goto("/")
-  await expect(page.getByRole("heading", { name: "社区动态" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "社区发现" })).toBeVisible()
   await expect(page.getByRole("link", { name: "质量回归社区首页" })).toBeVisible()
   await page.evaluate(() => {
     for (const property of [
@@ -44,28 +44,28 @@ test("applies the clear community blue palette and button interaction states", a
     background: "#f7f9fc",
     surface: "#ffffff",
     text: "#111827",
-    textSoft: "#6b7280",
+    textSoft: "#626b78",
     border: "#e5e7eb",
-    primary: "#2f7bff",
-    primaryHover: "#246beb",
-    primaryActive: "#1d5ed8",
+    primary: "#2563eb",
+    primaryHover: "#1d4ed8",
+    primaryActive: "#1e40af",
     primaryLight: "#eaf2ff",
   })
 
   if ((page.viewportSize()?.width ?? 0) <= 768) return
 
   const primaryButton = page.locator(".primary-button:visible").first()
-  await expect(primaryButton).toHaveCSS("background-color", "rgb(47, 123, 255)")
+  await expect(primaryButton).toHaveCSS("background-color", "rgb(37, 99, 235)")
   await expect(primaryButton).toHaveCSS("color", "rgb(255, 255, 255)")
   await primaryButton.hover()
-  await expect(primaryButton).toHaveCSS("background-color", "rgb(36, 107, 235)")
+  await expect(primaryButton).toHaveCSS("background-color", "rgb(29, 78, 216)")
   await expect(primaryButton).toHaveCSS("color", "rgb(255, 255, 255)")
 
   const bounds = await primaryButton.boundingBox()
   expect(bounds).not.toBeNull()
   await page.mouse.move(bounds!.x + bounds!.width / 2, bounds!.y + bounds!.height / 2)
   await page.mouse.down()
-  await expect(primaryButton).toHaveCSS("background-color", "rgb(29, 94, 216)")
+  await expect(primaryButton).toHaveCSS("background-color", "rgb(30, 64, 175)")
   await page.mouse.up()
 })
 
@@ -221,7 +221,7 @@ for (const width of acceptanceWidths) {
       await expect(page.locator(".site-header")).toHaveCSS("display", "none")
       await expect(page.getByRole("navigation", { name: "版块快捷操作" })).toBeVisible()
       await expect(page.locator(".board-page")).toHaveCSS("border-left-width", "0px")
-      await expect(page.locator(".board-header")).toHaveCSS("border-radius", "8px")
+      await expect(page.locator(".board-header")).toHaveCSS("border-radius", "0px")
       await expect(page.locator(".board-breadcrumb")).toHaveCSS("overflow-x", "hidden")
       await expect(boardMediaRow).toHaveCSS("min-height", "72px")
     } else {
