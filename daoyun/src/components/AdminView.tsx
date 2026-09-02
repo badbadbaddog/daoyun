@@ -373,7 +373,7 @@ function isAdminTab(value: string | null | undefined): value is AdminTab {
 }
 
 function BrandingPanel({ branding, csrfToken, onSaved }: { branding: SiteBranding; csrfToken: string; onSaved: (value: SiteBranding) => void }) {
-  const [form, setForm] = useState<SiteBrandingInput>(branding)
+  const [form, setForm] = useState<SiteBrandingInput>(() => ({ ...branding, homeMode: "hot" }))
   const receivedInitialBranding = useRef(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState("")
@@ -385,7 +385,7 @@ function BrandingPanel({ branding, csrfToken, onSaved }: { branding: SiteBrandin
       receivedInitialBranding.current = true
       return
     }
-    setForm(branding)
+    setForm({ ...branding, homeMode: "hot" })
   }, [branding])
 
   async function save(event: React.FormEvent) {
@@ -438,7 +438,7 @@ function BrandingPanel({ branding, csrfToken, onSaved }: { branding: SiteBrandin
           <label><span>官方预设</span><select value={form.themePreset} onChange={(event) => change("themePreset", event.target.value as SiteBrandingInput["themePreset"])}><option value="default">默认</option><option value="dark">深色</option><option value="compact">紧凑</option><option value="high_contrast">高对比度</option></select></label>
           <label><span>列表密度</span><select value={form.listDensity} onChange={(event) => change("listDensity", event.target.value as SiteBrandingInput["listDensity"])}><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></label>
         </div>
-        <label><span>首页模式</span><select value={form.homeMode} onChange={(event) => change("homeMode", event.target.value as SiteBrandingInput["homeMode"])}><option value="latest">最新</option><option value="hot">热门</option><option value="featured">精华</option></select></label>
+        <label><span>首页模式</span><select value="hot" aria-label="首页模式" disabled><option value="hot">推荐（固定）</option></select><small>首页统一使用推荐发现；历史配置仍兼容读取，但保存时会收敛为推荐。</small></label>
         <div className="admin-preview" style={{ "--admin-primary": form.primaryColor, "--admin-accent": form.accentColor } as React.CSSProperties}><strong>{form.siteName || "站点名称"}</strong><span>这是保存后的颜色预览</span><i /></div>
         {(error || message) && <p className={error ? "form-alert" : "admin-success"} role={error ? "alert" : "status"}>{error || message}</p>}
         <div className="admin-form__actions"><button className="primary-button" type="submit" disabled={saving}>{saving ? <LoaderCircle className="topic-loading__spinner" size={15} aria-hidden="true" /> : <Save size={15} aria-hidden="true" />}保存品牌配置</button></div>

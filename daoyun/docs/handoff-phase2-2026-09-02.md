@@ -1,6 +1,6 @@
 # DaoYun Phase 2 交接：2026-09-02
 
-> 当前状态：**IN PROGRESS**。Phase 1 已在 `34b7d1b92e057f47e06d2c65af9985ee35d4d84b` 收口。Phase 2 的 11.1 首页 canonical 导航统一、11.2 跨页面上下文 / 返回语义、11.3 首页高频交互一致性均已完成实现和验收；下一步只做 11.4 最终审计与收口，不再扩张本阶段范围。
+> 当前状态：**DONE**。Phase 1 已在 `34b7d1b92e057f47e06d2c65af9985ee35d4d84b` 收口。Phase 2 的 11.1 首页 canonical 导航统一、11.2 跨页面上下文 / 返回语义、11.3 首页高频交互一致性、11.4 最终审计与收口均已完成实现、自动化门禁和真实 production 验收。
 
 ## 1. 基线
 
@@ -54,11 +54,21 @@
 - feed 离开时保存 scroll；进入非 feed 页面置顶；首次进入另一个 feed 从顶部开始；返回原 feed 等待 ready 后恢复位置。
 - 移动端不增加第六个底部导航槽位；已登录个人菜单新增“收藏 -> `#bookmarks`”，与私信 / 通知保持功能入口对等。
 
-## 5. 最新门禁
+## 5. 11.4 最终审计已完成
 
-- 11.3 定向：**8 files / 103 tests PASS**
-- `src/App.test.tsx`：**59 / 59 PASS**
-- 前端全量：**77 files / 564 tests PASS**
+最终审计找到并修复了三个同类 canonical 残留：
+
+- 真实 production 无 hash 根地址此前会被历史 `branding.homeMode=latest` 覆盖到 `#feed`；现在空 hash 在 router 层直接 canonicalize 为 `#hot`，`CommunityApp` 不再用品牌 homeMode 覆盖根路由。
+- 独立后台“返回社区”从固定 `latest` 改为 canonical `hot`。
+- 后台品牌配置的“首页模式”不再提供最新 / 热门 / 精华三个看似可变的选择，而是显示禁用的“推荐（固定）”；旧 API / 数据枚举仍兼容读取，品牌保存会把历史值收敛为 `hot`。
+
+静态审计结果：production TypeScript 不再生成 literal `#top` / `#feed`；`feed: "latest"` 只保留 `FEED_BY_HASH.feed` 的旧链接解析用途。点赞 / 收藏高频实现也没有残留单一 pending ID。
+
+## 6. 最终门禁
+
+- 11.4 定向：**4 files / 146 tests PASS**
+- `src/App.test.tsx`：**60 / 60 PASS**
+- 前端全量：**77 files / 566 tests PASS**
 - `pnpm typecheck`：**PASS**
 - `pnpm build`：**PASS**
 - Vite：6.4.3
@@ -66,30 +76,19 @@
 
 真实 production：
 
-- 390x844：使用本地 `demo_admin` 登录成功；顶部真实出现个人菜单，底部从“登录”切换为“我的”。
-- 390x844：个人菜单真实包含“收藏”；点击后 URL 进入 `#bookmarks`，移动端收藏入口已实际可用。
-- 1440x1000：`#hot` 深滚动后打开靠后真实主题，再点击“返回主题列表”可回 `#hot`；scroll 数值保存 / 置顶 / ready 后恢复由独立 hook 契约测试锁定。
-- 浏览器事件只有登录前匿名 `/auth/session` 的预期 `401`，未发现新的业务 / JS 错误。
+- 390x844：无 hash 根地址真实规范化为 `#hot`；正式管理员登录后 `#admin/branding` 显示禁用的“首页模式 / 推荐（固定）”；点击“返回社区”真实回 `#hot`。
+- 1440x1000：无 hash 根地址同样进入 `#hot`；桌面后台品牌页显示同一固定推荐语义，点击“返回社区”回 `#hot`。
+- 两个视口浏览器事件都只有登录前匿名 `/auth/session` 的预期 `401`，未发现新的业务 / JS 错误。
 
-11.2 已提交：`4deaa7b fix: preserve community detail return context`。
+## 7. 11.4 收口改动文件
 
-## 6. 11.3 当前改动文件
-
+- `src/app/AdminApp.tsx`
 - `src/app/CommunityApp.tsx`
+- `src/router/communityRoute.ts`
+- `src/router/useHashRoute.test.tsx`
+- `src/components/AdminView.tsx`
+- `src/components/AdminView.test.tsx`
 - `src/App.test.tsx`
-- `src/components/TopicFeed.tsx`
-- `src/components/TopicFeed.test.tsx`
-- `src/features/boards/BoardPage.tsx`
-- `src/features/boards/BoardTopicFeed.tsx`
-- `src/features/feed/useFeedScrollRestoration.ts`
-- `src/features/feed/useFeedScrollRestoration.test.tsx`
-- `src/components/BookmarksView.tsx`
-- `src/components/BookmarksView.test.tsx`
-- `src/components/UserProfileView.tsx`
-- `src/components/UserProfileView.test.tsx`
-- `src/components/SiteHeader.tsx`
-- `src/components/SiteHeader.search.test.tsx`
-- `src/components/TopicRow.test.tsx`
 - `docs/specs/community-ui-phase-2.md`
 - `docs/handoff-phase2-2026-09-02.md`
 
@@ -97,16 +96,14 @@
 
 - 11.1：`22c006b fix: canonicalize community home navigation`
 - 11.2：`4deaa7b fix: preserve community detail return context`
+- 11.3：`92b6a90 fix: stabilize community feed interactions`
+- 11.4：本交接与最终代码一起收口提交；以本地 Git 最新提交事实为准，不在提交内自引用 SHA。
 
-## 7. 下一执行顺序
+## 8. 后续边界
 
-1. 对 11.3 做 `git diff --check`，只暂存本节列出的 `daoyun/...` 文件并单独提交。
-2. 进入 11.4 最终审计：搜索剩余 legacy / 固定 latest fallback、重复 pending 单 ID、桌面 / 移动明显入口断层。
-3. 只修复同类残留问题，不再新增 Phase 2 功能范围。
-4. 最终重新执行定向 / 全量 / typecheck / build / 390 / 1440 production 门禁。
-5. 只有 11.4 审计干净后，才把 Phase 2 标记 **DONE**。
+Phase 2 已经完成，不再继续追加功能。后续若继续优化，应新开阶段 / 独立任务，并以当前规则为基线：首页 canonical `#hot`、详情返回保留来源上下文、feed 滚动恢复、per-topic pending、桌面 / 移动关键入口一致。
 
-## 8. Git 约束
+## 9. Git 约束
 
 父级 `Playground` 仍有大量与 DaoYun 无关的未跟踪文件。只暂存明确 `daoyun/...` 路径，**禁止 `git add -A`**。
 

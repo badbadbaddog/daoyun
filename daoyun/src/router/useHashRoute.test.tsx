@@ -43,6 +43,7 @@ describe("useHashRoute", () => {
   })
 
   it.each([
+    ["", "#hot"],
     ["#top", "#hot"],
     ["#discover", "#search"],
     ["#board-engineering", "#board/engineering"],

@@ -57,9 +57,10 @@ vi.mock("./api/moderation", async () => {
 })
 
 vi.mock("./components/AdminView", () => ({
-  AdminView: ({ requestedTab, requestedQuery, onTabChange, onQueryChange }: { requestedTab?: string | null; requestedQuery?: string; onTabChange: (tab: string) => void; onQueryChange: (query: string) => void }) => (
+  AdminView: ({ requestedTab, requestedQuery, onTabChange, onQueryChange, onBack }: { requestedTab?: string | null; requestedQuery?: string; onTabChange: (tab: string) => void; onQueryChange: (query: string) => void; onBack: () => void }) => (
     <section data-testid="site-admin-view" data-requested-tab={requestedTab ?? ""} data-requested-query={requestedQuery ?? ""}>
       <h1>站点管理</h1>
+      <button type="button" onClick={onBack}>返回社区</button>
       <button type="button" onClick={() => { onTabChange("reports"); onQueryChange("status=open&report_id=019fc900-0000-7000-8000-000000000802") }}>打开举报待办</button>
     </section>
   ),
@@ -331,6 +332,14 @@ afterEach(() => {
 })
 
 describe("DaoYun community home", () => {
+  it("keeps an empty hash on the canonical recommended home even with a legacy branding home mode", async () => {
+    render(<App />)
+
+    expect(await screen.findByRole("heading", { name: "社区发现" })).toBeInTheDocument()
+    await waitFor(() => expect(window.location.hash).toBe("#hot"))
+    expect(screen.getByRole("tab", { name: "推荐" })).toHaveAttribute("aria-selected", "true")
+  })
+
   it("renders an admin module hash as a standalone site administration page", async () => {
     window.location.hash = "#admin/reports?status=open"
     vi.mocked(getCurrentSession).mockResolvedValue({
@@ -345,6 +354,9 @@ describe("DaoYun community home", () => {
     expect(screen.queryByRole("navigation", { name: "常用社区" })).not.toBeInTheDocument()
     expect(listBoards).not.toHaveBeenCalled()
     expect(listTopics).not.toHaveBeenCalled()
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "返回社区" }))
+    await waitFor(() => expect(window.location.hash).toBe("#hot"))
   })
 
   it("keeps a dashboard task query on the destination admin module", async () => {

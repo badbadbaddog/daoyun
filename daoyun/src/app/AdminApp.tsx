@@ -40,7 +40,7 @@ export function AdminApp({ route, navigate }: AdminAppProps) {
             query,
           })
         }}
-        onBack={() => navigate({ kind: "feed", feed: "latest" })}
+        onBack={() => navigate({ kind: "feed", feed: "hot" })}
       />
     </div>
   )

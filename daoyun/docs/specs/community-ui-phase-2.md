@@ -1,7 +1,7 @@
 # 刀云社区 UI/UX Phase 2
 
 日期：2026-09-02  
-状态：**IN PROGRESS**
+状态：**DONE**
 
 ## 1. 阶段目标
 
@@ -153,14 +153,49 @@ Phase 1 已把默认 `#top` 解析为推荐流 `#hot`，但桌面左侧“首页
 - 精确 scroll position 的保存 / 置顶 / ready 后恢复由 `useFeedScrollRestoration` 数值契约测试锁定；真实 production 流程未出现路由或渲染错误。
 - 浏览器事件除匿名 session 探测的预期 `401` 外，没有新的业务 / JS 错误。
 
-## 5. 11.4 Phase 2 最终审计与收口（NEXT）
+## 5. 11.4 Phase 2 最终审计与收口（DONE）
 
-在不再扩张 Phase 2 范围的前提下做一次最终回归审计：
+### 审计发现
 
-- 搜索剩余 legacy / 非 canonical 首页链接与固定 `latest` fallback。
-- 检查桌面 / 移动关键入口是否还有明显功能断层。
-- 检查详情返回、feed 滚动和 pending 状态是否存在未覆盖的同类实现。
-- 最终执行定向 / 全量 / typecheck / build / 390 / 1440 production 门禁；只有全部通过后才把 Phase 2 标记 DONE。
+最终回归没有继续扩张功能，而是找到并收口了三个仍会破坏“首页 = 推荐发现”的历史残留：
+
+- 无 hash 直接打开站点根地址时，`CommunityApp` 会读取历史品牌配置 `homeMode`；本地真实数据仍为 `latest`，因此 production 根地址实际被重定向到 `#feed`。
+- 独立后台的“返回社区”仍固定跳到 `latest`，离开管理后台后会进入“最新”而不是 canonical 首页。
+- 后台品牌配置仍把“首页模式：最新 / 热门 / 精华”暴露为可编辑项；在首页语义已经固定为推荐后，这会形成一个看似有效、实际不应继续控制前台落点的设置。
+
+### 实现
+
+- Router 把空 hash 与旧 `#top` 一样规范化到 `#hot`；`#feed` 仍明确保留为旧链接兼容的“最新”入口，不改变显式 URL 的历史语义。
+- `CommunityApp` 不再使用 `branding.homeMode` 覆盖根地址 canonical route；品牌配置继续负责站点名、主题、颜色、密度等展示设置。
+- `AdminApp` 的“返回社区”统一回 `#hot`。
+- 后台“首页模式”改为禁用的 `推荐（固定）`，并解释历史数据仍兼容读取；品牌表单保存时把旧值收敛为 `hot`，API DTO / validator 继续接受历史枚举，避免破坏既有后端数据和旧客户端契约。
+- 最终静态审计：production TypeScript 中没有继续生成 literal `#top` / `#feed`；`feed: "latest"` 只剩 `FEED_BY_HASH.feed` 的兼容解析入口。点赞 / 收藏高频路径也没有退回单一 pending ID。
+
+### 最终自动化门禁
+
+- 11.4 定向：**4 files / 146 tests PASS**。
+- `src/App.test.tsx`：**60 / 60 PASS**。
+- 前端全量：**77 files / 566 tests PASS**。
+- `pnpm typecheck`：**PASS**。
+- `pnpm build`：**PASS**，Vite 6.4.3，**1760 modules transformed**。
+
+### 最终 Production 浏览器证据
+
+390x844：
+
+- 从完全无 hash 的根地址打开，真实 URL 自动规范化为 `#hot`，推荐 Tab 保持选中；旧数据库中的 `homeMode=latest` 不再把入口改回 `#feed`。
+- 正式登录本地管理员后进入 `#admin/branding`，真实页面显示禁用的“首页模式 / 推荐（固定）”和兼容说明。
+- 点击后台“返回社区”真实回到 `#hot`。
+
+1440x1000：
+
+- 无 hash 根地址同样直接落 `#hot`，桌面“首页”和品牌 Logo 都指向 canonical 推荐首页。
+- 正式登录后 `#admin/branding` 同样展示固定推荐模式；点击“返回社区”回到 `#hot`。
+- 两个视口的浏览器事件都只有登录前匿名 `/auth/session` 的预期 `401`，没有新增业务 / JS 错误。
+
+### Phase 2 结论
+
+11.1–11.4 已全部完成。Phase 2 已把首页 canonical 语义、详情返回上下文、高频交互并发状态、滚动恢复以及桌面 / 移动关键入口统一到同一套规则；后续工作应作为新的阶段或独立任务开展，不再继续向 Phase 2 增加范围。
 
 ## 6. 提交约束
 

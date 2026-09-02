@@ -298,9 +298,6 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
     if (branding?.themePreset === "dark" && localStorage.getItem("daoyun-theme") === null) {
       setTheme("dark")
     }
-    if (branding && !window.location.hash) {
-      navigate({ kind: "feed", feed: branding.homeMode }, { replace: true })
-    }
   }, [branding, navigate])
 
   useEffect(() => {

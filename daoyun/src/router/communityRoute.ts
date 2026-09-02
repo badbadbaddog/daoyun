@@ -140,7 +140,7 @@ export function formatRoute(route: CommunityRoute): string {
 
 export function canonicalHashForLegacy(input: string): string | null {
   const hash = stripHash(input)
-  if (hash === "top") return "#hot"
+  if (!hash || hash === "top") return "#hot"
   if (hash === "discover") return "#search"
   if (/^board-/.test(hash)) {
     const route = parseHash(hash)
