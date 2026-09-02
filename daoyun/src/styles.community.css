@@ -667,6 +667,13 @@
   overflow: visible;
 }
 
+.topic-detail-state__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
 .topic-detail__toolbar {
   margin-bottom: 0;
   padding: 8px 2px 12px;
@@ -1848,7 +1855,12 @@
   }
 
   .topic-detail__toolbar > .secondary-button {
-    display: none;
+    display: inline-flex;
+    min-height: 36px;
+    padding: 0 10px;
+    border-color: transparent;
+    background: transparent;
+    color: var(--text-soft);
   }
 
   .topic-detail__article {

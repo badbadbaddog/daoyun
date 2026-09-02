@@ -717,7 +717,7 @@ describe("DaoYun community home", () => {
 
     expect(await screen.findByRole("tab", { name: "推荐" })).toHaveAttribute("aria-selected", "true")
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["推荐", "关注", "最新"])
-    expect(listFeed).toHaveBeenLastCalledWith("recommended", expect.objectContaining({ signal: expect.any(AbortSignal) }))
+    await waitFor(() => expect(listFeed).toHaveBeenLastCalledWith("recommended", expect.objectContaining({ signal: expect.any(AbortSignal) })))
   })
 
   it("keeps the legacy active-feed route available without adding a fourth home tab", async () => {

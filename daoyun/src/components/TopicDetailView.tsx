@@ -532,10 +532,16 @@ export function TopicDetailView({
         <FileSearch size={28} aria-hidden="true" />
         <h1>主题暂时无法加载</h1>
         <p>主题可能不存在，或网络连接暂时不可用。</p>
-        <button className="secondary-button" type="button" onClick={() => setRequestVersion((value) => value + 1)}>
-          <RefreshCw size={15} aria-hidden="true" />
-          重试加载主题
-        </button>
+        <div className="topic-detail-state__actions">
+          <button className="secondary-button" type="button" onClick={onBack}>
+            <ArrowLeft size={15} aria-hidden="true" />
+            返回主题列表
+          </button>
+          <button className="secondary-button" type="button" onClick={() => setRequestVersion((value) => value + 1)}>
+            <RefreshCw size={15} aria-hidden="true" />
+            重试加载主题
+          </button>
+        </div>
       </div>
     )
   }

@@ -59,13 +59,16 @@ describe("public community responsive layout", () => {
     expect(styles).not.toMatch(/\.board-breadcrumb\s*\{\s*display:\s*none;/)
   })
 
-  it("provides a fixed mobile comment entry and a one-level reply hierarchy", () => {
+  it("keeps a visible mobile detail return action alongside the fixed comment entry", () => {
     expect(styles).toMatch(/\.topic-mobile-comment-entry\s*\{[\s\S]*?display:\s*none;/)
     expect(styles).toMatch(
       /\.reply-list > li\[data-reply-level="1"\]\s*\{[\s\S]*?margin-left:/,
     )
     expect(styles).toMatch(
       /@media \(max-width: 768px\) \{[\s\S]*?\.topic-mobile-comment-entry\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?display:\s*flex;/,
+    )
+    expect(communityStyles).toMatch(
+      /@media \(max-width: 768px\) \{[\s\S]*?\.topic-detail__toolbar > \.secondary-button\s*\{[\s\S]*?display:\s*inline-flex;/,
     )
     expect(communityStyles).toMatch(
       /@media \(max-width: 768px\) \{[\s\S]*?\.reply-list > li\[data-reply-level="1"\]\s*\{[\s\S]*?margin-left:\s*18px;/,

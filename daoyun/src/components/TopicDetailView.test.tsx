@@ -164,12 +164,15 @@ describe("TopicDetailView", () => {
     expect(onLogin).toHaveBeenCalledTimes(2)
   })
 
-  it("retries a failed topic load", async () => {
+  it("offers source recovery and retry after a failed topic load", async () => {
     const user = userEvent.setup()
+    const onBack = vi.fn()
     vi.mocked(getTopic).mockRejectedValueOnce(new Error("unavailable")).mockResolvedValueOnce(topic)
-    render(<TopicDetailView topicId={topic.id} session={null} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+    render(<TopicDetailView topicId={topic.id} session={null} onBack={onBack} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
 
     expect(await screen.findByRole("alert")).toHaveTextContent("主题暂时无法加载")
+    await user.click(screen.getByRole("button", { name: "返回主题列表" }))
+    expect(onBack).toHaveBeenCalledTimes(1)
     await user.click(screen.getByRole("button", { name: "重试加载主题" }))
     expect(await screen.findByRole("heading", { name: topic.title })).toBeInTheDocument()
     expect(getTopic).toHaveBeenCalledTimes(2)
