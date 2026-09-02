@@ -630,6 +630,35 @@ describe("AdminView", () => {
     expect(screen.queryByLabelText("内部键")).not.toBeInTheDocument()
   })
 
+  it("refreshes a growth-level revision conflict without discarding the local edit", async () => {
+    const user = userEvent.setup()
+    const latest = { ...growthLevels[0], displayName: "服务器旅者", revision: 2 }
+    const saved = { ...latest, displayName: "本地旅者", revision: 3 }
+    vi.mocked(getAdminGrowthLevels).mockResolvedValueOnce(growthLevels).mockResolvedValueOnce([latest])
+    vi.mocked(updateAdminGrowthLevel)
+      .mockRejectedValueOnce(new AdminApiError(409, "membership.level_revision_conflict", "动态等级已被其他请求更新，请刷新后重试"))
+      .mockResolvedValueOnce(saved)
+    render(<AdminView session={session} onBack={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(screen.getByRole("button", { name: "编辑 traveler" }))
+    const dialog = screen.getByRole("dialog", { name: "编辑成长等级" })
+    const name = within(dialog).getByLabelText("展示名称")
+    await user.clear(name)
+    await user.type(name, "本地旅者")
+    await user.click(within(dialog).getByRole("button", { name: "保存更改" }))
+
+    expect(await within(dialog).findByText("数据已被其他管理员更新")).toBeInTheDocument()
+    await user.click(within(dialog).getByRole("button", { name: "刷新最新数据" }))
+    expect(name).toHaveValue("本地旅者")
+
+    await user.click(within(dialog).getByRole("button", { name: "保存更改" }))
+    expect(updateAdminGrowthLevel).toHaveBeenLastCalledWith(growthLevels[0].id, expect.objectContaining({
+      expectedRevision: 2,
+      displayName: "本地旅者",
+    }), session.csrfToken)
+  })
+
   it("closes the growth-level modal with Escape and restores focus", async () => {
     const user = userEvent.setup()
     render(<AdminView session={session} onBack={vi.fn()} />)

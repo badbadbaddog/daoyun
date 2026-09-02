@@ -2,6 +2,7 @@ import { CircleCheck, LoaderCircle, Plus, Save, Sparkles, X } from "lucide-react
 import { useEffect, useRef, type FormEvent, type KeyboardEvent, type MouseEvent } from "react"
 
 import type { AdminGrowthLevel } from "../api/admin"
+import { RevisionConflictNotice } from "./admin/RevisionConflictNotice"
 
 export interface GrowthLevelDraft {
   internalKey: string
@@ -15,6 +16,8 @@ export interface GrowthLevelDraft {
 interface SharedDialogProps {
   pending: boolean
   error: string
+  conflict?: boolean
+  onRefresh?: () => void
   onClose: () => void
 }
 
@@ -146,6 +149,7 @@ export function GrowthLevelFormDialog(props: GrowthLevelFormDialogProps) {
         </div>
 
         {props.error && <p className="form-alert" role="alert">{props.error}</p>}
+        {props.conflict && props.onRefresh && <RevisionConflictNotice onRefresh={props.onRefresh} />}
         <div className="membership-growth-form-actions">
           <p><CircleCheck size={16} aria-hidden="true" /><span><strong>{isCreate ? "创建后立即生效" : "保存后立即生效"}</strong><small>前台等级计算将使用最新设置</small></span></p>
           <div>

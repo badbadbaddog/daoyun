@@ -10,6 +10,7 @@ import {
   type AdminCommunityGroupMembership,
 } from "../api/admin"
 import { AdminUsersApiError, listAdminUsers, type AdminUserSummary } from "../api/adminUsers"
+import { RevisionConflictNotice } from "./admin/RevisionConflictNotice"
 
 interface CommunityGroupMembershipManagerProps {
   groups: AdminCommunityGroup[]
@@ -27,6 +28,7 @@ export function CommunityGroupMembershipManager({ groups, csrfToken, canWrite }:
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [message, setMessage] = useState("")
+  const [conflict, setConflict] = useState(false)
   const [groupId, setGroupId] = useState("")
   const [grantReason, setGrantReason] = useState("")
   const [removalTarget, setRemovalTarget] = useState<AdminCommunityGroupMembership | null>(null)
@@ -113,6 +115,30 @@ export function CommunityGroupMembershipManager({ groups, csrfToken, canWrite }:
     }
   }
 
+  async function refreshRemovalConflictBaseline() {
+    if (!selectedUser || !removalTarget) return
+    setLoading(true)
+    try {
+      const latestMemberships = await listAdminCommunityGroupMemberships(selectedUser.id)
+      setMemberships(latestMemberships)
+      const latest = latestMemberships.find((membership) => membership.id === removalTarget.id)
+      if (!latest) {
+        setRemovalTarget(null)
+        setConflict(false)
+        setError("")
+        setMessage("该成员关系已被其他操作移除，当前列表已刷新。")
+        return
+      }
+      setRemovalTarget(latest)
+      setConflict(false)
+      setError("")
+    } catch (reason) {
+      setError(apiMessage(reason, "最新成员关系暂时无法加载，请稍后重试。"))
+    } finally {
+      setLoading(false)
+    }
+  }
+
   async function revokeMembership(event: FormEvent) {
     event.preventDefault()
     if (!selectedUser || !removalTarget || busy || !canWrite) return
@@ -125,6 +151,7 @@ export function CommunityGroupMembershipManager({ groups, csrfToken, canWrite }:
     setBusy(true)
     setError("")
     setMessage("")
+    setConflict(false)
     try {
       await revokeAdminCommunityGroupMembership(target.id, target.revision, reason, newIdempotencyKey("community-group-revoke"), csrfToken)
       setMemberships((current) => current.filter((membership) => membership.id !== target.id))
@@ -132,6 +159,7 @@ export function CommunityGroupMembershipManager({ groups, csrfToken, canWrite }:
       setRemovalReason("")
       setMessage(`已将${selectedUser.displayName}移出${target.group.displayName}`)
     } catch (reason) {
+      setConflict(reason instanceof AdminApiError && reason.status === 409)
       setError(apiMessage(reason, "移出用户组失败，请稍后重试。"))
     } finally {
       setBusy(false)
@@ -169,6 +197,7 @@ export function CommunityGroupMembershipManager({ groups, csrfToken, canWrite }:
       <div><button className="secondary-button" type="button" disabled={busy} onClick={() => { setRemovalTarget(null); setRemovalReason("") }}>取消</button><button className="danger-button" type="submit" disabled={busy}>{busy ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" /> : <UserMinus size={14} aria-hidden="true" />}确认移出</button></div>
     </form>}
     {error && <p className="form-alert" role="alert">{error}</p>}
+    {conflict && removalTarget && <RevisionConflictNotice onRefresh={() => void refreshRemovalConflictBaseline()} />}
     {message && <p className="admin-success" role="status">{message}</p>}
     {!canWrite && selectedUser && <p className="community-group-readonly">当前账号仅可查看成员关系</p>}
   </section>

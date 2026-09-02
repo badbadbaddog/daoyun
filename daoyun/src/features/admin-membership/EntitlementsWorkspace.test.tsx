@@ -109,6 +109,38 @@ describe("EntitlementsWorkspace", () => {
     expect(screen.queryByRole("region", { name: "月度会员版本历史" })).not.toBeInTheDocument()
   })
 
+  it("refreshes an entitlement type revision conflict without discarding the publisher draft", async () => {
+    const user = userEvent.setup()
+    const latest = entitlementTypeDto({ display_name: "服务器会员", revision: 3 })
+    const saved = entitlementTypeDto({ display_name: "本地会员", current_version: 3, revision: 4 })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse([entitlementTypeDto()]))
+      .mockResolvedValueOnce(jsonError(409, "entitlement.conflict", "权益类型已被其他管理员更新"))
+      .mockResolvedValueOnce(jsonResponse([latest]))
+      .mockResolvedValueOnce(jsonResponse(saved))
+      .mockResolvedValueOnce(jsonResponse([entitlementVersionDto({ version: 3 })]))
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<EntitlementsWorkspace csrfToken="csrf" />)
+    await user.click(await screen.findByRole("button", { name: "发布下一版本" }))
+    const dialog = screen.getByRole("dialog", { name: "发布权益版本" })
+    const name = within(dialog).getByRole("textbox", { name: "显示名称" })
+    await user.clear(name)
+    await user.type(name, "本地会员")
+    await user.click(within(dialog).getByRole("button", { name: "确认发布" }))
+
+    expect(await within(dialog).findByText("数据已被其他管理员更新")).toBeInTheDocument()
+    await user.click(within(dialog).getByRole("button", { name: "刷新最新数据" }))
+    expect(name).toHaveValue("本地会员")
+
+    await user.click(within(dialog).getByRole("button", { name: "确认发布" }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5))
+    expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toMatchObject({
+      expected_revision: 3,
+      display_name: "本地会员",
+    })
+  })
+
   it("keeps the latest selected user when an older entitlement request finishes later", async () => {
     const user = userEvent.setup()
     const secondUserId = "019fc900-0000-7000-8000-000000000402"
@@ -166,6 +198,40 @@ describe("EntitlementsWorkspace", () => {
 
     resolveGrant(jsonResponse({ entitlement: entitlementDto({ id: "019fc900-0000-7000-8000-000000000813", reason: "防重复发放" }), replayed: false }))
     expect(await screen.findByRole("status")).toHaveTextContent("标准权益已安全发放")
+  })
+
+  it("refreshes a revoke target revision after a conflict and keeps the revoke reason", async () => {
+    const user = userEvent.setup()
+    const latestEntitlement = entitlementDto({ revision: 2 })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse([entitlementTypeDto()]))
+      .mockResolvedValueOnce(jsonPageResponse([userDto()]))
+      .mockResolvedValueOnce(jsonResponse([entitlementDto()]))
+      .mockResolvedValueOnce(jsonError(409, "entitlement.conflict", "标准权益已更新"))
+      .mockResolvedValueOnce(jsonResponse([latestEntitlement]))
+      .mockResolvedValueOnce(jsonResponse({ entitlement: entitlementDto({ revision: 3, revoked_at: "2026-08-28T10:00:00Z", revoked_by: "019fc900-0000-7000-8000-000000000004", revocation_reason: "资格变化" }), replayed: false }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<EntitlementsWorkspace csrfToken="csrf" />)
+    await user.click(screen.getByRole("tab", { name: "用户权益" }))
+    await user.type(screen.getByRole("searchbox", { name: "搜索权益用户" }), "demo_member")
+    await user.click(screen.getByRole("button", { name: "搜索用户" }))
+    await user.click(await screen.findByRole("button", { name: "选择演示成员 @demo_member" }))
+    await user.click(await screen.findByRole("button", { name: "撤销月度会员" }))
+    const reason = screen.getByRole("textbox", { name: "撤销原因" })
+    await user.type(reason, "资格变化")
+    await user.click(screen.getByRole("button", { name: "确认撤销" }))
+
+    expect(await screen.findByText("数据已被其他管理员更新")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "刷新最新数据" }))
+    expect(reason).toHaveValue("资格变化")
+
+    await user.click(screen.getByRole("button", { name: "确认撤销" }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6))
+    expect(JSON.parse(String((fetchMock.mock.calls[5][1] as RequestInit).body))).toMatchObject({
+      expected_revision: 2,
+      reason: "资格变化",
+    })
   })
 
   it("searches users, grants time-bounded entitlements, and revokes by revision", async () => {
@@ -234,4 +300,8 @@ function jsonResponse(data: unknown): Response {
 
 function jsonPageResponse(data: unknown[]): Response {
   return new Response(JSON.stringify({ data, meta: { request_id: requestId, next_cursor: null } }), { status: 200, headers: { "content-type": "application/json" } })
+}
+
+function jsonError(status: number, code: string, message: string): Response {
+  return new Response(JSON.stringify({ error: { code, message }, meta: { request_id: requestId } }), { status, headers: { "content-type": "application/json" } })
 }

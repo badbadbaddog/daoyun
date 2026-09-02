@@ -85,6 +85,7 @@ export function MembershipAdminPanel({
   const [growthLoading, setGrowthLoading] = useState(canReadLevelRules)
   const [growthError, setGrowthError] = useState("")
   const [growthMessage, setGrowthMessage] = useState("")
+  const [growthConflict, setGrowthConflict] = useState(false)
   const [savingGrowthId, setSavingGrowthId] = useState<string | null>(null)
   const [creatingGrowth, setCreatingGrowth] = useState(false)
   const [growthCreateOpen, setGrowthCreateOpen] = useState(false)
@@ -238,6 +239,7 @@ export function MembershipAdminPanel({
     setSavingGrowthId(level.id)
     setGrowthError("")
     setGrowthMessage("")
+    setGrowthConflict(false)
     try {
       const saved = await updateAdminGrowthLevel(level.id, {
         expectedRevision: level.revision,
@@ -253,6 +255,7 @@ export function MembershipAdminPanel({
       completeGrowthLevelForm()
       setGrowthMessage(`${saved.internalKey} 已保存`)
     } catch (reason) {
+      setGrowthConflict(reason instanceof AdminApiError && reason.code === "membership.level_revision_conflict")
       setGrowthError(reason instanceof AdminApiError ? reason.message : "成长等级保存失败，请稍后重试。")
     } finally {
       growthMutationRef.current = false
@@ -290,9 +293,10 @@ export function MembershipAdminPanel({
     setGrowthDraft(newGrowthLevelDraft())
     setEditingGrowth(null)
     setGrowthDeleteTarget(null)
-      setGrowthCreateOpen(true)
+    setGrowthCreateOpen(true)
     setGrowthError("")
     setGrowthMessage("")
+    setGrowthConflict(false)
   }
 
   function openGrowthEdit(level: AdminGrowthLevel, trigger: HTMLButtonElement) {
@@ -302,6 +306,25 @@ export function MembershipAdminPanel({
     setGrowthDeleteTarget(null)
     setGrowthError("")
     setGrowthMessage("")
+    setGrowthConflict(false)
+  }
+
+  async function refreshGrowthConflictBaseline() {
+    if (!editingGrowth || !canReadLevelRules) return
+    try {
+      const latestLevels = sortGrowthLevels(await getAdminGrowthLevels())
+      setGrowthLevels(latestLevels)
+      const latest = latestLevels.find((level) => level.id === editingGrowth.id)
+      if (!latest) {
+        setGrowthError("该成长等级已不存在，请关闭编辑器后刷新目录。")
+        return
+      }
+      setEditingGrowth((current) => current?.id === latest.id ? { ...current, revision: latest.revision } : current)
+      setGrowthConflict(false)
+      setGrowthError("")
+    } catch (reason) {
+      setGrowthError(reason instanceof AdminApiError ? reason.message : "最新成长等级暂时无法加载，请稍后重试。")
+    }
   }
 
   function closeGrowthLevelForm() {
@@ -311,6 +334,7 @@ export function MembershipAdminPanel({
     setEditingGrowth(null)
     setGrowthDraft(newGrowthLevelDraft())
     setGrowthError("")
+    setGrowthConflict(false)
     window.requestAnimationFrame(() => trigger?.focus())
   }
 
@@ -557,7 +581,7 @@ export function MembershipAdminPanel({
       </div>
     </div>
     {growthCreateOpen && <GrowthLevelFormDialog mode="create" value={growthDraft} pending={creatingGrowth} error={growthError} onChange={(patch) => { setGrowthDraft((current) => ({ ...current, ...patch })); setGrowthError("") }} onSubmit={(event) => void createGrowthLevel(event)} onClose={closeGrowthLevelForm} />}
-    {editingGrowth && <GrowthLevelFormDialog mode="edit" value={editingGrowth} pending={savingGrowthId === editingGrowth.id} error={growthError} onChange={(patch) => changeGrowthLevel(editingGrowth.id, patch)} onSubmit={submitGrowthEdit} onClose={closeGrowthLevelForm} />}
+    {editingGrowth && <GrowthLevelFormDialog mode="edit" value={editingGrowth} pending={savingGrowthId === editingGrowth.id} error={growthError} conflict={growthConflict} onRefresh={() => void refreshGrowthConflictBaseline()} onChange={(patch) => changeGrowthLevel(editingGrowth.id, patch)} onSubmit={submitGrowthEdit} onClose={closeGrowthLevelForm} />}
     {growthDeleteTarget && <div className="dialog-backdrop membership-growth-dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target && !deletingGrowth) cancelGrowthLevelDelete() }}><div ref={growthDeleteDialogRef} className="membership-growth-delete" role="dialog" aria-modal="true" aria-labelledby="membership-growth-delete-heading" aria-describedby="membership-growth-delete-description" onKeyDown={handleGrowthDeleteDialogKeyDown}>
       <div><strong id="membership-growth-delete-heading">删除成长等级</strong><p id="membership-growth-delete-description">确定删除“{growthDeleteTarget.displayName}（{growthDeleteTarget.internalKey}）”吗？正在被会员使用或会破坏等级起点时无法删除。</p></div>
       <div className="membership-growth-form-actions"><button className="secondary-button" type="button" disabled={deletingGrowth} autoFocus onClick={cancelGrowthLevelDelete}>取消</button><button className="danger-button" type="button" disabled={deletingGrowth} onClick={() => void confirmDeleteGrowthLevel()}>{deletingGrowth ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}确认删除</button></div>

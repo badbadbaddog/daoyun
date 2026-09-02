@@ -2,7 +2,7 @@ import { act, cleanup, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { getAdminReport, listAdminReports, moderateAdminReport, updateAdminReport } from "../api/reports"
+import { getAdminReport, listAdminReports, moderateAdminReport, ReportApiError, updateAdminReport } from "../api/reports"
 import { listAdminAudit } from "../api/admin"
 import { ReportAdminPanel } from "./ReportAdminPanel"
 
@@ -139,6 +139,44 @@ describe("ReportAdminPanel", () => {
       expectedRevision: 1,
     }, "csrf-token")
     expect(await screen.findByText("处置已完成：内容已隐藏，作者账号已限制，举报人通知已入队。" )).toBeInTheDocument()
+  })
+
+  it("refreshes a report revision conflict without discarding the moderation draft", async () => {
+    const user = userEvent.setup()
+    const latestDetail = { ...detail, report: { ...report, revision: 2 } }
+    vi.mocked(getAdminReport).mockResolvedValueOnce(detail).mockResolvedValueOnce(latestDetail)
+    vi.mocked(moderateAdminReport)
+      .mockRejectedValueOnce(new ReportApiError(409, "report.conflict", "举报已被其他管理员更新"))
+      .mockResolvedValueOnce({
+        report: { ...report, status: "resolved", resolution: "hide_topic", revision: 3 },
+        content: { action: "hide", targetId: report.targetId, changed: true },
+        user: { userId: report.targetAuthor.id, status: "restricted", reason: "广告账号", expiresAt: null, revision: 2 },
+        auditId: "019fc900-0000-7000-8000-000000000205",
+        notificationQueued: true,
+      })
+    render(<ReportAdminPanel requestedStatus="all" onStatusChange={vi.fn()} csrfToken="csrf-token" canResolve />)
+    await user.click(await screen.findByRole("button", { name: /查看举报：待审核主题/ }))
+
+    await user.click(screen.getByRole("checkbox", { name: "隐藏被举报内容" }))
+    await user.selectOptions(screen.getByLabelText("作者处置"), "restricted")
+    await user.type(screen.getByLabelText("作者处置原因"), "广告账号")
+    await user.type(screen.getByLabelText("内部处理备注"), "保留本地处置草稿")
+    await user.click(screen.getByRole("button", { name: "确认并完成处置" }))
+    await user.click(within(screen.getByRole("alertdialog", { name: "确认举报处置" })).getByRole("button", { name: "确认执行处置" }))
+
+    expect(await screen.findByText("数据已被其他管理员更新")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "刷新最新数据" }))
+    expect(screen.getByRole("checkbox", { name: "隐藏被举报内容" })).toBeChecked()
+    expect(screen.getByLabelText("作者处置")).toHaveValue("restricted")
+    expect(screen.getByLabelText("内部处理备注")).toHaveValue("保留本地处置草稿")
+
+    await user.click(screen.getByRole("button", { name: "确认并完成处置" }))
+    await user.click(within(screen.getByRole("alertdialog", { name: "确认举报处置" })).getByRole("button", { name: "确认执行处置" }))
+    expect(moderateAdminReport).toHaveBeenLastCalledWith(report.id, expect.objectContaining({
+      expectedRevision: 2,
+      note: "保留本地处置草稿",
+      contentAction: "hide",
+    }), "csrf-token")
   })
 
   it("keeps moderation controls hidden for a read-only reviewer", async () => {

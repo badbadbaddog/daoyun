@@ -53,6 +53,49 @@ describe("CommunityGroupAdminPanel", () => {
     expect(screen.getByText("注册默认")).toBeInTheDocument()
   })
 
+  it("refreshes the default-group revision conflict while keeping the intended selection", async () => {
+    const user = userEvent.setup()
+    const replacementGroup = groupDto({
+      id: "0198d874-e991-7b62-8b38-3986f55c8d4a",
+      internal_key: "new_member",
+      display_name: "新会员",
+      description: "新注册用户的基础组",
+      display_order: 20,
+      is_default: false,
+      revision: 1,
+    })
+    const latestDefault = groupDto({ revision: 4 })
+    const savedReplacement = { ...replacementGroup, is_default: true, revision: 2 }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse([groupDto(), replacementGroup]))
+      .mockResolvedValueOnce(jsonError(409, "community.default_group_revision_conflict", "默认用户组已被其他管理员更新"))
+      .mockResolvedValueOnce(jsonResponse([latestDefault, replacementGroup]))
+      .mockResolvedValueOnce(jsonResponse(savedReplacement))
+      .mockResolvedValueOnce(jsonResponse([
+        { ...latestDefault, is_default: false },
+        savedReplacement,
+      ]))
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<CommunityGroupAdminPanel csrfToken="csrf-token" canWrite />)
+    const setting = await screen.findByRole("region", { name: "新用户默认用户组" })
+    const select = within(setting).getByRole("combobox", { name: "默认用户组" })
+    await user.selectOptions(select, replacementGroup.id)
+    await user.click(within(setting).getByRole("button", { name: "保存默认组" }))
+
+    expect(await within(setting).findByText(/已刷新最新数据/)).toBeInTheDocument()
+    expect(select).toHaveValue(replacementGroup.id)
+    await user.click(within(setting).getByRole("button", { name: "保存默认组" }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5))
+    expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toEqual({
+      group_id: replacementGroup.id,
+      expected_default_group_id: groupId,
+      expected_default_revision: 4,
+    })
+    expect(await screen.findByText("新用户默认组已更新")).toBeInTheDocument()
+  })
+
   it("lists user groups and saves attachment quotas from a dialog", async () => {
     const user = userEvent.setup()
     const fetchMock = vi.fn()
@@ -110,6 +153,37 @@ describe("CommunityGroupAdminPanel", () => {
     expect(await screen.findByText("注册会员已保存")).toBeInTheDocument()
   })
 
+  it("refreshes an edited group revision after a conflict without discarding local fields", async () => {
+    const user = userEvent.setup()
+    const latest = groupDto({ display_name: "服务器会员", revision: 4 })
+    const saved = groupDto({ display_name: "本地草稿会员", revision: 5 })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse([groupDto()]))
+      .mockResolvedValueOnce(jsonError(409, "community.group_revision_conflict", "用户组已被其他管理员更新"))
+      .mockResolvedValueOnce(jsonResponse([latest]))
+      .mockResolvedValueOnce(jsonResponse(saved))
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<CommunityGroupAdminPanel csrfToken="csrf-token" canWrite />)
+    await user.click(await screen.findByRole("button", { name: "编辑注册会员" }))
+    const name = screen.getByRole("textbox", { name: "显示名称" })
+    await user.clear(name)
+    await user.type(name, "本地草稿会员")
+    await user.click(screen.getByRole("button", { name: "保存用户组" }))
+
+    expect(await screen.findByText("数据已被其他管理员更新")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "刷新最新数据" }))
+    expect(await screen.findByText(/revision 4/)).toBeInTheDocument()
+    expect(name).toHaveValue("本地草稿会员")
+
+    await user.click(screen.getByRole("button", { name: "保存用户组" }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+    expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toMatchObject({
+      expected_revision: 4,
+      display_name: "本地草稿会员",
+    })
+  })
+
   it("shows groups without edit controls for a read-only administrator", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse([groupDto()])))
 
@@ -165,6 +239,42 @@ describe("CommunityGroupAdminPanel", () => {
     expect(fetchMock.mock.calls[3][0]).toBe("/api/v1/admin/community/memberships")
     expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toMatchObject({ user_id: userId, group_id: candidateGroup.id, membership_kind: "additional", reason: "参与社区共建" })
     expect(fetchMock.mock.calls[4][0]).toBe(`/api/v1/admin/community/memberships/${additionalMembership.id}/revoke`)
+  })
+
+  it("refreshes a membership revision conflict without discarding the removal reason", async () => {
+    const user = userEvent.setup()
+    const userId = "0198d874-e991-7b62-8b38-3986f55c8d4c"
+    const additionalGroup = groupDto({ id: "0198d874-e991-7b62-8b38-3986f55c8d4a", internal_key: "event_member", display_name: "活动成员", is_base: false, display_order: 20 })
+    const membership = membershipDto({ id: "0198d874-e991-7b62-8b38-3986f55c8d4d", user_id: userId, group: groupSummary(additionalGroup), membership_kind: "additional", revision: 1 })
+    const latestMembership = { ...membership, revision: 2 }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse([groupDto(), additionalGroup]))
+      .mockResolvedValueOnce(jsonPageResponse([userDto(userId)]))
+      .mockResolvedValueOnce(jsonResponse([membership]))
+      .mockResolvedValueOnce(jsonError(409, "community.membership_revision_conflict", "成员关系已被其他请求更新"))
+      .mockResolvedValueOnce(jsonResponse([latestMembership]))
+      .mockResolvedValueOnce(jsonResponse({ membership: { ...latestMembership, revoked_at: "2026-08-26T11:00:00Z", revocation_reason: "活动结束", revision: 3 }, replayed: false }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<CommunityGroupAdminPanel csrfToken="csrf-token" canWrite canReadMemberships canWriteMemberships canReadUsers />)
+    await user.type(await screen.findByRole("searchbox", { name: "搜索需要绑定用户组的用户" }), "demo_member")
+    await user.click(screen.getByRole("button", { name: "搜索用户" }))
+    await user.click(await screen.findByRole("button", { name: "选择演示成员 @demo_member" }))
+    await user.click(await screen.findByRole("button", { name: "移出活动成员" }))
+    const reason = screen.getByRole("textbox", { name: "移出原因" })
+    await user.type(reason, "活动结束")
+    await user.click(screen.getByRole("button", { name: "确认移出" }))
+
+    expect(await screen.findByText("数据已被其他管理员更新")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "刷新最新数据" }))
+    expect(reason).toHaveValue("活动结束")
+
+    await user.click(screen.getByRole("button", { name: "确认移出" }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6))
+    expect(JSON.parse(String((fetchMock.mock.calls[5][1] as RequestInit).body))).toMatchObject({
+      expected_revision: 2,
+      reason: "活动结束",
+    })
   })
 
   it("shows memberships without mutation controls when membership write access is missing", async () => {
@@ -248,6 +358,28 @@ describe("DY-ADMIN-MEMBER-002 group safeguards", () => {
     await waitFor(() => expect(trigger).toHaveFocus())
   })
 
+  it("refreshes an archive target revision after a conflict before retrying", async () => {
+    const user = userEvent.setup()
+    const additional = groupDto({ id: "0198d874-e991-7b62-8b38-3986f55c8d71", internal_key: "event_member", display_name: "活动成员", is_base: false, is_default: false, member_count: 12, revision: 3 })
+    const latest = { ...additional, revision: 4 }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse([groupDto(), additional]))
+      .mockResolvedValueOnce(jsonError(409, "community.group_revision_conflict", "用户组已被其他管理员更新"))
+      .mockResolvedValueOnce(jsonResponse([groupDto(), latest]))
+      .mockResolvedValueOnce(jsonResponse({ ...latest, status: "archived", revision: 5 }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<CommunityGroupAdminPanel csrfToken="csrf-token" canWrite />)
+    await user.click(await screen.findByRole("button", { name: "归档活动成员" }))
+    await user.click(screen.getByRole("button", { name: "确认归档" }))
+    expect(await screen.findByText("数据已被其他管理员更新")).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "刷新最新数据" }))
+    await user.click(screen.getByRole("button", { name: "确认归档" }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+    expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toMatchObject({ expected_revision: 4, status: "archived" })
+  })
+
   it("confirms archive impact and writes the current revision", async () => {
     const user = userEvent.setup()
     const additional = groupDto({ id: "0198d874-e991-7b62-8b38-3986f55c8d71", internal_key: "event_member", display_name: "活动成员", is_base: false, is_default: false, member_count: 12, expiring_member_count: 3, access_policy_reference_count: 2 })
@@ -320,6 +452,13 @@ function userDto(id: string) {
 function jsonResponse(data: unknown): Response {
   return new Response(JSON.stringify({ data, meta: { request_id: requestId } }), {
     status: 200,
+    headers: { "content-type": "application/json" },
+  })
+}
+
+function jsonError(status: number, code: string, message: string): Response {
+  return new Response(JSON.stringify({ error: { code, message }, meta: { request_id: requestId } }), {
+    status,
     headers: { "content-type": "application/json" },
   })
 }

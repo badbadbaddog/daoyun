@@ -112,8 +112,17 @@ export function AuthorizationAdminPanel({ csrfToken, boards }: AuthorizationAdmi
       cancelRoleEdit()
     } catch (reason) {
       if (reason instanceof AdminApiError && reason.code === "authorization.role_conflict") {
-        setError("角色已被其他管理员更新，已刷新最新数据。")
-        await loadData()
+        try {
+          const latestRoles = await listAuthorizationRoles()
+          setRoles(latestRoles)
+          if (editingRoleId && !latestRoles.some((role) => role.id === editingRoleId)) {
+            setError("该角色已不存在，请取消编辑后刷新角色目录。")
+          } else {
+            setMessage("角色已被其他管理员更新，最新 revision 已刷新；本地草稿已保留，请确认后重新保存。")
+          }
+        } catch (refreshReason) {
+          setError(apiMessage(refreshReason, "角色已发生冲突，但最新角色数据暂时无法加载。"))
+        }
       } else {
         setError(apiMessage(reason, "角色保存失败，请稍后重试。"))
       }

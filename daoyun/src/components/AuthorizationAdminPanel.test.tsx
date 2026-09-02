@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
+  AdminApiError,
   createAuthorizationAssignment,
   createAuthorizationRole,
   deleteAuthorizationAssignment,
@@ -141,6 +142,32 @@ describe("AuthorizationAdminPanel", () => {
       permissionKeys: ["content.moderate"],
       expectedRevision: 1,
     }, csrfToken))
+  })
+
+  it("refreshes a role conflict revision while preserving the local role draft", async () => {
+    const user = userEvent.setup()
+    const latestRole = { ...customRole, name: "服务器版主", revision: 2 }
+    vi.mocked(listAuthorizationRoles).mockResolvedValueOnce([systemRole, customRole]).mockResolvedValueOnce([systemRole, latestRole])
+    vi.mocked(updateAuthorizationRole)
+      .mockRejectedValueOnce(new AdminApiError(409, "authorization.role_conflict", "角色已更新"))
+      .mockResolvedValueOnce({ ...latestRole, name: "本地版主", revision: 3 })
+    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} />)
+    await screen.findByRole("heading", { name: "角色与权限" })
+
+    await user.click(screen.getByRole("button", { name: "编辑角色：版主" }))
+    const name = screen.getByLabelText("角色名称")
+    await user.clear(name)
+    await user.type(name, "本地版主")
+    await user.click(screen.getByRole("button", { name: "保存角色" }))
+
+    expect(await screen.findByText(/本地草稿已保留/)).toBeInTheDocument()
+    expect(name).toHaveValue("本地版主")
+    await user.click(screen.getByRole("button", { name: "保存角色" }))
+    expect(updateAuthorizationRole).toHaveBeenLastCalledWith(customRole.id, {
+      name: "本地版主",
+      permissionKeys: ["content.moderate"],
+      expectedRevision: 2,
+    }, csrfToken)
   })
 
   it("cancels and confirms a destructive role deletion without using a browser prompt", async () => {

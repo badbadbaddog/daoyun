@@ -2,6 +2,7 @@ import { LoaderCircle, Save, ShieldCheck, X } from "lucide-react"
 import { useEffect, useRef, type FormEvent, type KeyboardEvent, type MouseEvent } from "react"
 
 import type { AdminCommunityGroup, CommunityGroupStatus } from "../api/admin"
+import { RevisionConflictNotice } from "./admin/RevisionConflictNotice"
 
 export interface CommunityGroupDraft {
   internalKey: string
@@ -19,6 +20,8 @@ interface CommunityGroupEditorDialogProps {
   value: CommunityGroupDraft
   pending: boolean
   error: string
+  conflict?: boolean
+  onRefresh?: () => void
   onChange: (patch: Partial<CommunityGroupDraft>) => void
   onClose: () => void
   onSubmit: (event: FormEvent) => void
@@ -26,7 +29,7 @@ interface CommunityGroupEditorDialogProps {
 
 const focusableSelector = "button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [href], [tabindex]:not([tabindex='-1'])"
 
-export function CommunityGroupEditorDialog({ group, value, pending, error, onChange, onClose, onSubmit }: CommunityGroupEditorDialogProps) {
+export function CommunityGroupEditorDialog({ group, value, pending, error, conflict = false, onRefresh, onChange, onClose, onSubmit }: CommunityGroupEditorDialogProps) {
   const dialogRef = useRef<HTMLFormElement | null>(null)
   const firstFieldRef = useRef<HTMLInputElement | null>(null)
   useEffect(() => { firstFieldRef.current?.focus() }, [])
@@ -61,6 +64,7 @@ export function CommunityGroupEditorDialog({ group, value, pending, error, onCha
       </div>
       <div className="community-group-quota-dialog__notice"><ShieldCheck size={17} aria-hidden="true" /><span>保存受 CSRF、RBAC、审计和 revision 保护；标准权益与用户组保持分离。</span></div>
       {error && <p className="form-alert" role="alert">{error}</p>}
+      {conflict && onRefresh && <RevisionConflictNotice onRefresh={onRefresh} />}
       <div className="membership-growth-form-actions"><button className="secondary-button" type="button" disabled={pending} onClick={onClose}>取消</button><button className="primary-button" type="submit" disabled={pending}>{pending ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" /> : <Save size={14} aria-hidden="true" />}{group ? "保存用户组" : "创建用户组"}</button></div>
     </form>
   </div>

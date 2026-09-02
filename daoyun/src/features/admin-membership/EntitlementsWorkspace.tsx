@@ -80,6 +80,26 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
     finally { if (!signal?.aborted) setTypesLoading(false) }
   }
 
+  async function refreshTypeConflictBaseline() {
+    try {
+      const result = await listStandardEntitlementTypes()
+      setTypes(result)
+      setGrantTypeId((current) => result.some((type) => type.id === current) ? current : result.find((type) => type.status === "active")?.id ?? "")
+      if (selectedType) {
+        const latest = result.find((type) => type.id === selectedType.id)
+        if (!latest) {
+          setError("该标准权益类型已不存在，请关闭发布窗口后刷新目录。")
+          return
+        }
+        setSelectedType(latest)
+      }
+      setConflict(false)
+      setError("")
+    } catch (reason) {
+      setError(apiMessage(reason, "最新标准权益类型暂时无法加载，请稍后重试。"))
+    }
+  }
+
   async function showVersions(type: StandardEntitlementType) {
     const requestId = ++versionsRequestRef.current
     setSelectedType(type); setVersions([]); setVersionsLoading(true); setError("")
@@ -173,6 +193,38 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
     document.getElementById(`entitlement-tab-${next}`)?.focus()
   }
 
+  async function refreshRevocationConflictBaseline() {
+    if (!selectedUser || !revokeTarget) return
+    const requestId = ++entitlementsRequestRef.current
+    setGrantsLoading(true)
+    try {
+      const loaded = canReadGrants ? await listAdminStandardEntitlements(selectedUser.id) : []
+      if (requestId !== entitlementsRequestRef.current) return
+      setEntitlements(loaded)
+      const latest = loaded.find((item) => item.id === revokeTarget.id)
+      if (!latest) {
+        setRevokeTarget(null)
+        setConflict(false)
+        setError("该权益记录已不存在，已刷新当前用户的最新权益。")
+        return
+      }
+      if (latest.revokedAt) {
+        setRevokeTarget(null)
+        setConflict(false)
+        setError("")
+        setMessage("该权益已被其他操作撤销，当前列表已刷新。")
+        return
+      }
+      setRevokeTarget(latest)
+      setConflict(false)
+      setError("")
+    } catch (reason) {
+      if (requestId === entitlementsRequestRef.current) setError(apiMessage(reason, "最新用户权益暂时无法加载，请稍后重试。"))
+    } finally {
+      if (requestId === entitlementsRequestRef.current) setGrantsLoading(false)
+    }
+  }
+
   async function revokeEntitlement(event: FormEvent) {
     event.preventDefault()
     if (!revokeTarget || revokeReason.trim().length < 2 || mutatingRef.current) return
@@ -201,9 +253,9 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
         {grantsLoading ? <p role="status">正在读取用户权益</p> : entitlements.length === 0 ? <p role="status">当前用户没有权益操作记录。</p> : <ul className="entitlement-operation-list" aria-label="权益操作记录">{entitlements.map((entitlement) => <li key={entitlement.id}><div><strong>{typeName(types, entitlement)}</strong><span>{entitlementState(entitlement)}</span></div><small>版本 {entitlement.typeVersion} · 来源 {entitlement.source}{entitlement.sourceReferenceId ? ` / ${entitlement.sourceReferenceId}` : ""}</small><p>{entitlement.reason}</p><time>{formatWindow(entitlement.startsAt, entitlement.endsAt)}</time><details><summary>权限与额度快照</summary><span>{entitlement.permissionSnapshot.join("、") || "无权限"}</span>{quotaLines(entitlement.quotaSnapshot).map((line) => <code key={line}>{line}</code>)}</details>{entitlement.revokedAt ? <p>撤销：{entitlement.revocationReason}</p> : canWriteGrants && <button className="danger-button" type="button" onClick={() => { setRevokeTarget(entitlement); setRevokeReason(""); setError("") }} aria-label={`撤销${typeName(types, entitlement)}`}>撤销</button>}</li>)}</ul>}
       </section>}
     </section>}
-    {publishOpen && <ModalDialog element="form" className="dialog-panel" titleId="publish-entitlement-heading" busy={publishing} initialFocusSelector="input:not(:disabled), textarea:not(:disabled), select:not(:disabled)" onClose={() => setPublishOpen(false)} onSubmit={(event) => void publishVersion(event)}><h3 id="publish-entitlement-heading">发布权益版本</h3><p>权限与额度快照发布后不可修改；变更必须创建新版本。</p><label>内部键<input value={internalKey} readOnly={Boolean(selectedType)} onChange={(event) => setInternalKey(event.target.value)} /></label><label>显示名称<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label><label>权限快照<textarea aria-label="权限快照" value={permissionSnapshot} onChange={(event) => setPermissionSnapshot(event.target.value)} placeholder="attachment.upload, topic.poll.create" /></label><label>额度快照<textarea aria-label="额度快照" value={quotaSnapshot} onChange={(event) => setQuotaSnapshot(event.target.value)} placeholder="attachment.upload.daily=20" /></label><p><ShieldCheck size={14} aria-hidden="true" />仅允许社区权益权限，不允许任何治理、后台或角色权限。</p>{error && <p className="form-alert" role="alert">{error}</p>}{conflict && <RevisionConflictNotice onRefresh={() => void loadTypes()} />}<div><button className="secondary-button" type="button" disabled={publishing} onClick={() => setPublishOpen(false)}>取消</button><button className="primary-button" type="submit" disabled={publishing || !internalKey.trim() || !displayName.trim() || !permissionSnapshot.trim() || !quotaSnapshot.trim()}>确认发布</button></div></ModalDialog>}
+    {publishOpen && <ModalDialog element="form" className="dialog-panel" titleId="publish-entitlement-heading" busy={publishing} initialFocusSelector="input:not(:disabled), textarea:not(:disabled), select:not(:disabled)" onClose={() => setPublishOpen(false)} onSubmit={(event) => void publishVersion(event)}><h3 id="publish-entitlement-heading">发布权益版本</h3><p>权限与额度快照发布后不可修改；变更必须创建新版本。</p><label>内部键<input value={internalKey} readOnly={Boolean(selectedType)} onChange={(event) => setInternalKey(event.target.value)} /></label><label>显示名称<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label><label>权限快照<textarea aria-label="权限快照" value={permissionSnapshot} onChange={(event) => setPermissionSnapshot(event.target.value)} placeholder="attachment.upload, topic.poll.create" /></label><label>额度快照<textarea aria-label="额度快照" value={quotaSnapshot} onChange={(event) => setQuotaSnapshot(event.target.value)} placeholder="attachment.upload.daily=20" /></label><p><ShieldCheck size={14} aria-hidden="true" />仅允许社区权益权限，不允许任何治理、后台或角色权限。</p>{error && <p className="form-alert" role="alert">{error}</p>}{conflict && <RevisionConflictNotice onRefresh={() => void refreshTypeConflictBaseline()} />}<div><button className="secondary-button" type="button" disabled={publishing} onClick={() => setPublishOpen(false)}>取消</button><button className="primary-button" type="submit" disabled={publishing || !internalKey.trim() || !displayName.trim() || !permissionSnapshot.trim() || !quotaSnapshot.trim()}>确认发布</button></div></ModalDialog>}
     {grantOpen && selectedUser && <ModalDialog element="form" className="dialog-panel" titleId="grant-entitlement-heading" busy={mutating} initialFocusSelector="select:not(:disabled), input:not(:disabled), textarea:not(:disabled)" onClose={() => setGrantOpen(false)} onSubmit={(event) => void grantEntitlement(event)}><h3 id="grant-entitlement-heading">发放标准权益</h3><p>发放给 {selectedUser.displayName}；写入时固定当前类型版本的权限与额度快照。</p><label>权益类型<select aria-label="权益类型" value={grantTypeId} onChange={(event) => setGrantTypeId(event.target.value)}>{activeTypes.map((type) => <option key={type.id} value={type.id}>{type.displayName} · v{type.currentVersion}</option>)}</select></label><label>发放来源<input aria-label="发放来源" value={grantSource} onChange={(event) => setGrantSource(event.target.value)} placeholder="operator" /></label><label>来源编号（可选）<input value={grantReference} onChange={(event) => setGrantReference(event.target.value)} /></label><label>发放原因<input aria-label="发放原因" value={grantReason} onChange={(event) => setGrantReason(event.target.value)} /></label><label>开始时间<input aria-label="开始时间" type="datetime-local" value={grantStartsAt} onChange={(event) => setGrantStartsAt(event.target.value)} /></label><label>结束时间（可选）<input aria-label="结束时间" type="datetime-local" value={grantEndsAt} onChange={(event) => setGrantEndsAt(event.target.value)} /></label>{error && <p className="form-alert" role="alert">{error}</p>}<div><button className="secondary-button" type="button" disabled={mutating} onClick={() => setGrantOpen(false)}>取消</button><button className="primary-button" type="submit" disabled={mutating}>确认发放</button></div></ModalDialog>}
-    {revokeTarget && <ModalDialog element="form" className="dialog-panel" titleId="revoke-entitlement-heading" busy={mutating} initialFocusSelector="input:not(:disabled), textarea:not(:disabled), select:not(:disabled)" onClose={() => setRevokeTarget(null)} onSubmit={(event) => void revokeEntitlement(event)}><h3 id="revoke-entitlement-heading">撤销{typeName(types, revokeTarget)}</h3><p>撤销立即生效，历史版本与发放记录仍会保留。</p><label>撤销原因<input aria-label="撤销原因" value={revokeReason} onChange={(event) => setRevokeReason(event.target.value)} /></label>{error && <p className="form-alert" role="alert">{error}</p>}{conflict && <RevisionConflictNotice onRefresh={() => selectedUser && void selectUser(selectedUser)} />}<div><button className="secondary-button" type="button" disabled={mutating} onClick={() => setRevokeTarget(null)}>取消</button><button className="danger-button" type="submit" disabled={mutating || revokeReason.trim().length < 2}>确认撤销</button></div></ModalDialog>}
+    {revokeTarget && <ModalDialog element="form" className="dialog-panel" titleId="revoke-entitlement-heading" busy={mutating} initialFocusSelector="input:not(:disabled), textarea:not(:disabled), select:not(:disabled)" onClose={() => setRevokeTarget(null)} onSubmit={(event) => void revokeEntitlement(event)}><h3 id="revoke-entitlement-heading">撤销{typeName(types, revokeTarget)}</h3><p>撤销立即生效，历史版本与发放记录仍会保留。</p><label>撤销原因<input aria-label="撤销原因" value={revokeReason} onChange={(event) => setRevokeReason(event.target.value)} /></label>{error && <p className="form-alert" role="alert">{error}</p>}{conflict && <RevisionConflictNotice onRefresh={() => void refreshRevocationConflictBaseline()} />}<div><button className="secondary-button" type="button" disabled={mutating} onClick={() => setRevokeTarget(null)}>取消</button><button className="danger-button" type="submit" disabled={mutating || revokeReason.trim().length < 2}>确认撤销</button></div></ModalDialog>}
     {error && !publishOpen && !grantOpen && !revokeTarget && <p className="form-alert" role="alert">{error}</p>}{message && <p className="admin-success" role="status">{message}</p>}
   </section>
 }

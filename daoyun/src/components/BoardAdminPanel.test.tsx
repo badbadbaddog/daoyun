@@ -141,20 +141,31 @@ describe("BoardAdminPanel", () => {
     expect(screen.getByRole("menuitem", { name: "合并版块" })).toBeInTheDocument()
   })
 
-  it("keeps the settings drawer open and offers a refresh after stale revision", async () => {
+  it("refreshes the editor revision after a conflict without discarding the local draft", async () => {
     const user = userEvent.setup()
+    const refreshedBoards = boards.map((item) => item.id === rootId ? { ...item, name: "服务器名称", revision: 2 } : item)
     vi.mocked(updateAdminBoard).mockRejectedValueOnce(new AdminApiError(409, "admin.board_conflict", "版块已被其他管理员修改，请刷新后重试"))
+    vi.mocked(listAdminBoards).mockResolvedValueOnce(refreshedBoards)
     renderPanel()
 
     await user.click(screen.getByRole("button", { name: "更多操作：社区交流" }))
     await user.click(screen.getByRole("menuitem", { name: "编辑设置" }))
     expect(screen.getByRole("dialog", { name: "编辑“社区交流”" })).toBeInTheDocument()
+    const name = screen.getByLabelText("版块名称")
+    await user.clear(name)
+    await user.type(name, "本地草稿名称")
     await user.click(screen.getByRole("button", { name: "保存版块" }))
 
     expect(await screen.findByText("数据已被其他管理员更新")).toBeInTheDocument()
-    expect(screen.getByRole("dialog", { name: "编辑“社区交流”" })).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "刷新最新数据" }))
-    expect(listAdminBoards).toHaveBeenCalled()
+    expect(await screen.findByText("当前 revision 2")).toBeInTheDocument()
+    expect(name).toHaveValue("本地草稿名称")
+
+    await user.click(screen.getByRole("button", { name: "保存版块" }))
+    expect(updateAdminBoard).toHaveBeenLastCalledWith(rootId, expect.objectContaining({
+      name: "本地草稿名称",
+      expectedRevision: 2,
+    }), "csrf")
   })
 
   it("renders an accessible tree and keeps ancestors visible while searching", async () => {

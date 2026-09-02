@@ -215,6 +215,33 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
     }
   }
 
+  async function refreshEditorConflict() {
+    if (!editor) return
+    if (editor.section === "access" && editor.board) {
+      await loadAccessPolicy(editor.board)
+      return
+    }
+    if (!editor.board) {
+      await refreshBoards()
+      return
+    }
+    try {
+      const refreshed = await listAdminBoards()
+      onChange(refreshed)
+      setSyncRequired(false)
+      const latest = refreshed.find((board) => board.id === editor.board?.id)
+      if (!latest) {
+        setMessage("该版块已不存在，请关闭编辑器后刷新页面。")
+        return
+      }
+      setEditor((current) => current?.board?.id === latest.id ? { ...current, board: latest, parentId: latest.parentId } : current)
+      setRevisionConflict(false)
+      setMessage("")
+    } catch {
+      setMessage("最新版块数据暂时无法加载，请稍后重试。")
+    }
+  }
+
   async function openDeletion(board: AdminBoard) {
     deletionReturnFocusRef.current = currentDialogReturnFocus()
     setDeleting(board)
@@ -336,7 +363,7 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
       ) : <p className="admin-empty" role="status">{query ? "没有匹配的版块" : "尚未创建版块"}</p>}
       {syncRequired && <p className="form-alert" role="alert">服务端已完成操作，但无法同步最新顺序。请刷新页面后再继续编辑。</p>}
       {message && <p className={message.includes("失败") ? "form-alert" : "admin-success"} role={message.includes("失败") ? "alert" : "status"}>{message}</p>}
-      {editor && <BoardEditor editor={editor} draft={draft} accessPolicy={accessPolicy} accessDraft={accessDraft} accessLoading={accessLoading} saving={pendingId !== null} conflict={revisionConflict} error={message} onDraft={setDraft} onAccessDraft={setAccessDraft} onCancel={() => { setEditor(null); setRevisionConflict(false) }} onRefresh={() => { if (editor.section === "access" && editor.board) void loadAccessPolicy(editor.board); else void refreshBoards() }} onSubmit={saveEditor} parentName={boards.find((board) => board.id === editor.parentId)?.name ?? null} />}
+      {editor && <BoardEditor editor={editor} draft={draft} accessPolicy={accessPolicy} accessDraft={accessDraft} accessLoading={accessLoading} saving={pendingId !== null} conflict={revisionConflict} error={message} onDraft={setDraft} onAccessDraft={setAccessDraft} onCancel={() => { setEditor(null); setRevisionConflict(false) }} onRefresh={() => void refreshEditorConflict()} onSubmit={saveEditor} parentName={boards.find((board) => board.id === editor.parentId)?.name ?? null} />}
       {merging && (
         <ModalDialog titleId="board-merge-heading" className="admin-confirm-panel" backdropClassName="dialog-backdrop admin-confirm-backdrop" busy={mergeLoading || pendingId === merging.id} returnFocus={mergeReturnFocusRef.current} onClose={() => setMerging(null)}>
           <div><h3 id="board-merge-heading">合并“{merging.name}”</h3><button className="icon-button" type="button" onClick={() => setMerging(null)} disabled={mergeLoading || pendingId === merging.id} aria-label="关闭合并确认" title="关闭"><X size={15} /></button></div>

@@ -15,6 +15,7 @@ import {
   type ReportUserActionKind,
 } from "../api/reports"
 import { RelatedAuditLog } from "./RelatedAuditLog"
+import { RevisionConflictNotice } from "./admin/RevisionConflictNotice"
 import { ConfirmDialog } from "./ui/ConfirmDialog"
 
 export type ReportStatusFilter = ReportStatus | "all"
@@ -168,18 +169,34 @@ function ReportDetailWorkspace({ detail, csrfToken, canResolve, canReadAudit, on
   const [marking, setMarking] = useState(false)
   const [message, setMessage] = useState("")
   const [error, setError] = useState("")
+  const [conflict, setConflict] = useState(false)
   const [pendingDecision, setPendingDecision] = useState<{ effects: string; input: ReportModerationInput } | null>(null)
   const confirmationReturnFocusRef = useRef<HTMLElement | null>(null)
   const report = detail.report
   const actionable = report.status === "open" || report.status === "in_review"
 
   async function markInReview() {
-    setMarking(true); setError(""); setMessage("")
+    setMarking(true); setError(""); setMessage(""); setConflict(false)
     try {
       const updated = await updateAdminReport(report.id, { status: "in_review", resolution: "none", expectedRevision: report.revision }, csrfToken)
       onUpdated(updated); onDetailChange({ ...detail, report: updated }); setMessage("已标记为处理中。")
-    } catch (reason) { setError(messageFor(reason, "状态更新失败，请稍后重试。")) }
+    } catch (reason) {
+      setConflict(reason instanceof ReportApiError && reason.status === 409)
+      setError(messageFor(reason, "状态更新失败，请稍后重试。"))
+    }
     finally { setMarking(false) }
+  }
+
+  async function refreshConflictBaseline() {
+    try {
+      const latest = await getAdminReport(report.id)
+      onUpdated(latest.report)
+      onDetailChange(latest)
+      setConflict(false)
+      setError("")
+    } catch (reason) {
+      setError(messageFor(reason, "最新举报详情暂时无法加载，请稍后重试。"))
+    }
   }
 
   async function submit(event: React.FormEvent) {
@@ -203,14 +220,18 @@ function ReportDetailWorkspace({ detail, csrfToken, canResolve, canReadAudit, on
   async function confirmDecision() {
     if (!pendingDecision) return
     setPending(true)
-    setError(""); setMessage("")
+    setError(""); setMessage(""); setConflict(false)
     try {
       const result = await moderateAdminReport(report.id, pendingDecision.input, csrfToken)
       onUpdated(result.report)
       onDetailChange({ ...detail, report: result.report, author: detail.author && result.user ? { ...detail.author, status: result.user.status, revision: result.user.revision } : detail.author })
       setMessage(`处置已完成：${result.content.changed ? "内容已隐藏，" : ""}${result.user ? `作者账号已${result.user.status === "restricted" ? "限制" : "暂停"}，` : ""}${result.notificationQueued ? "举报人通知已入队。" : "举报已更新。"}`)
       setPendingDecision(null)
-    } catch (reason) { setPendingDecision(null); setError(messageFor(reason, "举报处置失败，请刷新后重试。")) }
+    } catch (reason) {
+      setPendingDecision(null)
+      setConflict(reason instanceof ReportApiError && reason.status === 409)
+      setError(messageFor(reason, "举报处置失败，请刷新后重试。"))
+    }
     finally { setPending(false) }
   }
 
@@ -223,6 +244,7 @@ function ReportDetailWorkspace({ detail, csrfToken, canResolve, canReadAudit, on
     <section className="report-detail__section"><h4>处理记录</h4>{detail.handlingHistory.length === 0 ? <p>尚无管理员处理记录。</p> : <ul className="report-history">{detail.handlingHistory.map((item) => <li key={item.id}><span>{item.actor.displayName} · {actionLabel(item.action)}</span><time>{formatDate(item.createdAt)}</time></li>)}</ul>}</section>
     {canReadAudit ? <RelatedAuditLog filter={{ reportId: report.id }} /> : null}
     {(error || message) && <p className={error ? "form-alert" : "admin-success"} role={error ? "alert" : "status"}>{error || message}</p>}
+    {conflict && <RevisionConflictNotice onRefresh={() => void refreshConflictBaseline()} />}
     {!canResolve ? <p className="report-readonly-note">当前权限仅允许查看举报详情。</p> : actionable ? <form className="report-moderation-form" onSubmit={(event) => void submit(event)}>
       <div className="report-moderation-form__heading"><div><h4>处置方案</h4><p>内容、作者账号和举报结论会在一次确认后同时生效。</p></div>{report.status === "open" && <button className="secondary-button" type="button" disabled={marking} onClick={() => void markInReview()}><Check size={14} aria-hidden="true" />标记处理中</button>}</div>
       <label><span>举报结论</span><select value={disposition} onChange={(event) => setDisposition(event.target.value as ReportDisposition)}><option value="resolved">举报成立</option><option value="dismissed">驳回举报</option></select></label>

@@ -34,12 +34,53 @@ export function CommunityGroupAdminPanel({ csrfToken, canWrite, canReadMembershi
     finally { if (!signal?.aborted) setLoading(false) }
   }
 
+  async function refreshGroupConflictBaseline() {
+    try {
+      const result = sortGroups(await listAdminCommunityGroups())
+      setGroups(result)
+      setDefaultGroupId(result.find((group) => group.isDefault)?.id ?? "")
+      const latestEditing = editing ? result.find((group) => group.id === editing.id) : null
+      const latestArchiveTarget = archiveTarget ? result.find((group) => group.id === archiveTarget.id) : null
+      if (editing && !latestEditing) {
+        setConflict(false)
+        setError("该用户组已不存在，请关闭编辑器后刷新目录。")
+        return
+      }
+      if (archiveTarget && !latestArchiveTarget) {
+        setArchiveTarget(null)
+        setConflict(false)
+        setError("该用户组已不存在，当前目录已刷新。")
+        return
+      }
+      if (latestEditing) setEditing(latestEditing)
+      if (latestArchiveTarget) setArchiveTarget(latestArchiveTarget)
+      setConflict(false)
+      setError("")
+    } catch (reason) {
+      setError(apiMessage(reason, "最新用户组数据读取失败，请稍后重试。"))
+    }
+  }
+
+  async function refreshDefaultGroupBaseline(desiredGroupId: string) {
+    try {
+      const result = sortGroups(await listAdminCommunityGroups())
+      setGroups(result)
+      setDefaultGroupId(result.some((group) => group.id === desiredGroupId) ? desiredGroupId : result.find((group) => group.isDefault)?.id ?? "")
+      setDefaultError("默认用户组已被其他管理员更新，已刷新最新数据，请确认后重试。")
+    } catch (reason) {
+      setDefaultError(apiMessage(reason, "默认用户组已变化，但最新数据暂时无法加载。"))
+    }
+  }
+
   async function saveDefaultGroup(event: FormEvent) {
     event.preventDefault(); const currentDefault = groups.find((group) => group.isDefault)
     if (!canWrite || !currentDefault || !defaultGroupId || defaultGroupId === currentDefault.id || defaultSaving) return
     setDefaultSaving(true); setDefaultError(""); setMessage("")
     try { await setAdminDefaultCommunityGroup(defaultGroupId, currentDefault.id, currentDefault.revision, csrfToken); await loadGroups(); setMessage("新用户默认组已更新") }
-    catch (reason) { setDefaultError(apiMessage(reason, "默认用户组保存失败，请稍后重试。")) }
+    catch (reason) {
+      if (reason instanceof AdminApiError && reason.status === 409) await refreshDefaultGroupBaseline(defaultGroupId)
+      else setDefaultError(apiMessage(reason, "默认用户组保存失败，请稍后重试。"))
+    }
     finally { setDefaultSaving(false) }
   }
 
@@ -85,8 +126,8 @@ export function CommunityGroupAdminPanel({ csrfToken, canWrite, canReadMembershi
       {!canWrite && !loading && <p className="community-group-readonly">仅可查看用户组、权限与额度</p>}{message && <p className="admin-success" role="status">{message}</p>}
       {canReadMemberships && canReadUsers && !loading && !error && <CommunityGroupMembershipManager groups={groups} csrfToken={csrfToken} canWrite={canWriteMemberships} />}
     </div>
-    {editorOpen && <CommunityGroupEditorDialog group={editing} value={draft} pending={saving} error={error} onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))} onClose={closeOverlay} onSubmit={(event) => void saveGroup(event)} />}
-    {archiveTarget && <ModalDialog className="dialog-panel" titleId="archive-group-heading" busy={saving} returnFocus={triggerRef.current} onClose={closeOverlay}><h3 id="archive-group-heading">归档{archiveTarget.displayName}</h3><p>将影响 {archiveTarget.memberCount ?? 0} 位有效成员、{archiveTarget.expiringMemberCount ?? 0} 位即将到期成员，并保留 {archiveTarget.accessPolicyReferenceCount ?? 0} 个访问策略引用供后续调整。</p><p>归档后该组不再参与有效权限与额度计算；历史成员关系、审计记录和策略引用不会删除。</p>{error && <p className="form-alert" role="alert">{error}</p>}{conflict && <RevisionConflictNotice onRefresh={() => void loadGroups()} />}<div><button className="secondary-button" type="button" disabled={saving} onClick={closeOverlay}>取消</button><button className="danger-button" type="button" disabled={saving} onClick={() => void archiveGroup()}>确认归档</button></div></ModalDialog>}
+    {editorOpen && <CommunityGroupEditorDialog group={editing} value={draft} pending={saving} error={error} conflict={conflict} onRefresh={() => void refreshGroupConflictBaseline()} onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))} onClose={closeOverlay} onSubmit={(event) => void saveGroup(event)} />}
+    {archiveTarget && <ModalDialog className="dialog-panel" titleId="archive-group-heading" busy={saving} returnFocus={triggerRef.current} onClose={closeOverlay}><h3 id="archive-group-heading">归档{archiveTarget.displayName}</h3><p>将影响 {archiveTarget.memberCount ?? 0} 位有效成员、{archiveTarget.expiringMemberCount ?? 0} 位即将到期成员，并保留 {archiveTarget.accessPolicyReferenceCount ?? 0} 个访问策略引用供后续调整。</p><p>归档后该组不再参与有效权限与额度计算；历史成员关系、审计记录和策略引用不会删除。</p>{error && <p className="form-alert" role="alert">{error}</p>}{conflict && <RevisionConflictNotice onRefresh={() => void refreshGroupConflictBaseline()} />}<div><button className="secondary-button" type="button" disabled={saving} onClick={closeOverlay}>取消</button><button className="danger-button" type="button" disabled={saving} onClick={() => void archiveGroup()}>确认归档</button></div></ModalDialog>}
   </>
 }
 
