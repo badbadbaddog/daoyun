@@ -20,9 +20,9 @@ interface BoardTopicFeedProps {
   onRetry: () => void
   onOpenTopic?: (topicId: string) => void
   onToggleBookmark?: (topicId: string) => void
-  bookmarkPendingId?: string | null
+  bookmarkPendingIds?: ReadonlySet<string>
   onToggleLike?: (topicId: string) => void
-  likePendingId?: string | null
+  likePendingIds?: ReadonlySet<string>
   interactionError?: string
 }
 
@@ -89,9 +89,9 @@ export function BoardTopicFeed(props: BoardTopicFeedProps) {
                 variant="board"
                 onOpen={props.onOpenTopic}
                 onToggleBookmark={props.onToggleBookmark}
-                bookmarkPending={props.bookmarkPendingId === topic.id}
+                bookmarkPending={props.bookmarkPendingIds?.has(topic.id) === true}
                 onToggleLike={props.onToggleLike}
-                likePending={props.likePendingId === topic.id}
+                likePending={props.likePendingIds?.has(topic.id) === true}
               />
             ))}
           </div>

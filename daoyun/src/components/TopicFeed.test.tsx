@@ -25,9 +25,9 @@ describe("TopicFeed", () => {
         authenticated
         onLogin={vi.fn()}
         onToggleBookmark={vi.fn()}
-        bookmarkPendingId={null}
+        bookmarkPendingIds={new Set()}
         onToggleLike={vi.fn()}
-        likePendingId={null}
+        likePendingIds={new Set()}
         interactionError=""
       />,
     )

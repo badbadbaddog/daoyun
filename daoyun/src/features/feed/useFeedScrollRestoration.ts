@@ -13,6 +13,7 @@ export function useFeedScrollRestoration(route: CommunityRoute, ready = true) {
     const previousKey = previousKeyRef.current
     if (previousKey && previousKey !== activeKey) {
       sessionStorage.setItem(previousKey, String(Math.max(0, window.scrollY)))
+      if (!activeKey && window.scrollY > 0) window.scrollTo({ top: 0, behavior: "auto" })
     }
     if (previousKey !== activeKey) restoredKeyRef.current = null
     previousKeyRef.current = activeKey
@@ -21,10 +22,10 @@ export function useFeedScrollRestoration(route: CommunityRoute, ready = true) {
   useEffect(() => {
     if (activeKey && ready && restoredKeyRef.current !== activeKey) {
       restoredKeyRef.current = activeKey
-      const savedPosition = Number(sessionStorage.getItem(activeKey))
-      if (Number.isFinite(savedPosition) && savedPosition > 0) {
-        window.scrollTo({ top: savedPosition, behavior: "auto" })
-      }
+      const storedPosition = sessionStorage.getItem(activeKey)
+      const savedPosition = storedPosition === null ? 0 : Number(storedPosition)
+      const targetPosition = Number.isFinite(savedPosition) && savedPosition >= 0 ? savedPosition : 0
+      if (window.scrollY !== targetPosition) window.scrollTo({ top: targetPosition, behavior: "auto" })
     }
   }, [activeKey, ready])
 

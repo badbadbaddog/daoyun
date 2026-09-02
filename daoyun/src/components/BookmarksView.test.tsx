@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -45,6 +45,12 @@ const topic: Topic = {
   tags: [],
 }
 
+const secondTopic: Topic = {
+  ...topic,
+  id: "019fc800-0000-7000-8000-000000000102",
+  title: "第二个收藏主题",
+}
+
 beforeEach(() => {
   vi.mocked(listBookmarks).mockReset().mockResolvedValue({ topics: [topic], nextCursor: null })
   vi.mocked(setTopicBookmark).mockReset().mockResolvedValue({
@@ -76,6 +82,32 @@ describe("BookmarksView", () => {
     expect(await screen.findByRole("heading", { name: "我的收藏" })).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: `取消收藏主题：${topic.title}` }))
     expect(setTopicBookmark).toHaveBeenCalledWith(topic.id, false, session.csrfToken)
+    expect(await screen.findByText("还没有收藏主题")).toBeInTheDocument()
+  })
+
+  it("keeps each bookmark row pending until its own request finishes", async () => {
+    vi.mocked(listBookmarks).mockResolvedValue({ topics: [topic, secondTopic], nextCursor: null })
+    let resolveFirst!: (value: { topicId: string; bookmarked: boolean }) => void
+    let resolveSecond!: (value: { topicId: string; bookmarked: boolean }) => void
+    vi.mocked(setTopicBookmark)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve }))
+    const user = userEvent.setup()
+    render(<BookmarksView session={session} onBack={vi.fn()} onLogin={vi.fn()} onOpenTopic={vi.fn()} />)
+
+    const first = await screen.findByRole("button", { name: `取消收藏主题：${topic.title}` })
+    const second = await screen.findByRole("button", { name: `取消收藏主题：${secondTopic.title}` })
+    await user.click(first)
+    await user.click(second)
+
+    expect(first).toBeDisabled()
+    expect(second).toBeDisabled()
+
+    resolveFirst({ topicId: topic.id, bookmarked: false })
+    await waitFor(() => expect(screen.queryByText(topic.title)).not.toBeInTheDocument())
+    expect(second).toBeDisabled()
+
+    resolveSecond({ topicId: secondTopic.id, bookmarked: false })
     expect(await screen.findByText("还没有收藏主题")).toBeInTheDocument()
   })
 

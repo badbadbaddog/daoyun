@@ -179,6 +179,31 @@ describe("TopicRow", () => {
     expect(onToggleLike).toHaveBeenCalledWith(topic.id)
   })
 
+  it("keeps row actions from accidentally opening the topic", async () => {
+    const user = userEvent.setup()
+    const onOpen = vi.fn()
+    const onToggleBookmark = vi.fn()
+    const onToggleLike = vi.fn()
+    render(
+      <TopicRow
+        topic={topic}
+        onOpen={onOpen}
+        onToggleBookmark={onToggleBookmark}
+        onToggleLike={onToggleLike}
+        bookmarkPending={false}
+        likePending={false}
+      />,
+    )
+
+    await user.click(screen.getByRole("button", { name: `取消收藏主题：${topic.title}` }))
+    await user.click(screen.getByRole("button", { name: `点赞主题：${topic.title}` }))
+    expect(onOpen).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole("heading", { name: topic.title }))
+    expect(onOpen).toHaveBeenCalledTimes(1)
+    expect(onOpen).toHaveBeenCalledWith(topic.id)
+  })
+
   it("keeps the control stable and disabled while a mutation is pending", () => {
     render(
       <TopicRow

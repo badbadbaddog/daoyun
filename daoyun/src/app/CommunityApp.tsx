@@ -110,8 +110,8 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   const [managementAccess, setManagementAccess] = useState<AdminAccess>("unknown")
   const [notificationsUnread, setNotificationsUnread] = useState(0)
   const [initialConversation, setInitialConversation] = useState<ConversationSummary | null>(null)
-  const [bookmarkPendingId, setBookmarkPendingId] = useState<string | null>(null)
-  const [likePendingId, setLikePendingId] = useState<string | null>(null)
+  const [bookmarkPendingIds, setBookmarkPendingIds] = useState<ReadonlySet<string>>(() => new Set())
+  const [likePendingIds, setLikePendingIds] = useState<ReadonlySet<string>>(() => new Set())
   const [interactionError, setInteractionError] = useState("")
   const [openIdentitySettingsFor, setOpenIdentitySettingsFor] = useState<string | null>(null)
   const [searchUsers, setSearchUsers] = useState<UserSummary[]>([])
@@ -530,11 +530,12 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
       setAuthPanelOpen(true)
       return
     }
+    if (bookmarkPendingIds.has(topicId)) return
     const topic = topics.find((item) => item.id === topicId)
       ?? boardTopics.find((item) => item.id === topicId)
     if (!topic) return
     const bookmarked = topic.bookmarked !== true
-    setBookmarkPendingId(topicId)
+    setBookmarkPendingIds((current) => new Set(current).add(topicId))
     setInteractionError("")
     try {
       const state = await setTopicBookmark(topicId, bookmarked, authSession.csrfToken)
@@ -542,7 +543,11 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
     } catch {
       setInteractionError("收藏状态暂时无法更新。")
     } finally {
-      setBookmarkPendingId(null)
+      setBookmarkPendingIds((current) => {
+        const next = new Set(current)
+        next.delete(topicId)
+        return next
+      })
     }
   }
 
@@ -551,11 +556,12 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
       setAuthPanelOpen(true)
       return
     }
+    if (likePendingIds.has(topicId)) return
     const topic = topics.find((item) => item.id === topicId)
       ?? boardTopics.find((item) => item.id === topicId)
     if (!topic) return
     const liked = topic.liked !== true
-    setLikePendingId(topicId)
+    setLikePendingIds((current) => new Set(current).add(topicId))
     setInteractionError("")
     try {
       const state = await setPostLike(topicId, liked, authSession.csrfToken)
@@ -572,7 +578,11 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
     } catch {
       setInteractionError("点赞状态暂时无法更新。")
     } finally {
-      setLikePendingId(null)
+      setLikePendingIds((current) => {
+        const next = new Set(current)
+        next.delete(topicId)
+        return next
+      })
     }
   }
 
@@ -753,9 +763,9 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
       onRetryBoard={() => setBoardPageRequestVersion((version) => version + 1)}
       onOpenTopic={openTopic}
       onToggleBookmark={handleTopicBookmark}
-      bookmarkPendingId={bookmarkPendingId}
+      bookmarkPendingIds={bookmarkPendingIds}
       onToggleLike={handleTopicLike}
-      likePendingId={likePendingId}
+      likePendingIds={likePendingIds}
       interactionError={interactionError}
     />
   ) : (
@@ -774,9 +784,9 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
         authenticated={Boolean(authSession)}
         onLogin={() => setAuthPanelOpen(true)}
         onToggleBookmark={handleTopicBookmark}
-        bookmarkPendingId={bookmarkPendingId}
+        bookmarkPendingIds={bookmarkPendingIds}
         onToggleLike={handleTopicLike}
-        likePendingId={likePendingId}
+        likePendingIds={likePendingIds}
         interactionError={interactionError}
         nextCursor={topicFeed.nextCursor}
         loadingMore={topicFeed.loadingMore}

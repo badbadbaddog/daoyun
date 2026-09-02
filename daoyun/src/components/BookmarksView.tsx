@@ -27,7 +27,7 @@ export function BookmarksView({
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [status, setStatus] = useState<LoadStatus>(session ? "loading" : "ready")
   const [requestVersion, setRequestVersion] = useState(0)
-  const [bookmarkPendingId, setBookmarkPendingId] = useState<string | null>(null)
+  const [bookmarkPendingIds, setBookmarkPendingIds] = useState<ReadonlySet<string>>(() => new Set())
   const [loadingMore, setLoadingMore] = useState(false)
   const [interactionError, setInteractionError] = useState("")
 
@@ -59,7 +59,8 @@ export function BookmarksView({
       onLogin()
       return
     }
-    setBookmarkPendingId(topicId)
+    if (bookmarkPendingIds.has(topicId)) return
+    setBookmarkPendingIds((current) => new Set(current).add(topicId))
     setInteractionError("")
     try {
       const state = await setTopicBookmark(topicId, false, session.csrfToken)
@@ -70,7 +71,11 @@ export function BookmarksView({
     } catch {
       setInteractionError("收藏状态暂时无法更新。")
     } finally {
-      setBookmarkPendingId(null)
+      setBookmarkPendingIds((current) => {
+        const next = new Set(current)
+        next.delete(topicId)
+        return next
+      })
     }
   }
 
@@ -141,7 +146,7 @@ export function BookmarksView({
                   topic={topic}
                   onOpen={onOpenTopic}
                   onToggleBookmark={handleToggleBookmark}
-                  bookmarkPending={bookmarkPendingId === topic.id}
+                  bookmarkPending={bookmarkPendingIds.has(topic.id)}
                 />
               ))}
             </div>

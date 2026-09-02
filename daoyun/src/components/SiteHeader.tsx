@@ -1,4 +1,4 @@
-import { Award, Bell, LoaderCircle, LogIn, LogOut, MessageCircle, Moon, Plus, Search, ShieldCheck, Sun, UserRound, X } from "lucide-react"
+import { Award, Bell, Bookmark, LoaderCircle, LogIn, LogOut, MessageCircle, Moon, Plus, Search, ShieldCheck, Sun, UserRound, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
 import type { AuthSession } from "../api/auth"
@@ -189,6 +189,10 @@ export function SiteHeader({
                   <a className="account-menu__action" href="#member" role="menuitem" onClick={() => setAccountMenuOpen(false)}>
                     <Award size={15} aria-hidden="true" />
                     会员中心
+                  </a>
+                  <a className="account-menu__action" href="#bookmarks" role="menuitem" onClick={() => setAccountMenuOpen(false)}>
+                    <Bookmark size={15} aria-hidden="true" />
+                    收藏
                   </a>
                   <a className="account-menu__action" href="#messages" role="menuitem" onClick={() => setAccountMenuOpen(false)}>
                     <MessageCircle size={15} aria-hidden="true" />

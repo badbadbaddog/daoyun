@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react"
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -136,6 +136,12 @@ const topic = {
   tags: [],
 }
 
+const secondTopic = {
+  ...topic,
+  id: "019fc800-0000-7000-8000-000000000102",
+  title: "第二个公开主题",
+}
+
 beforeEach(() => {
   vi.mocked(usePublicMembershipSummary).mockReset().mockReturnValue(membershipSummary)
   vi.mocked(getUserProfile).mockReset().mockResolvedValue(profile)
@@ -201,6 +207,40 @@ describe("UserProfileView", () => {
       id: "019fc900-0000-7000-8000-000000000101",
       otherUser: expect.objectContaining({ username: profile.username }),
     }))
+  })
+
+  it("keeps simultaneous profile bookmark requests isolated per topic", async () => {
+    vi.mocked(listTopics).mockResolvedValue({ topics: [topic, secondTopic], nextCursor: null })
+    let resolveFirst!: (value: { topicId: string; bookmarked: boolean }) => void
+    let resolveSecond!: (value: { topicId: string; bookmarked: boolean }) => void
+    vi.mocked(setTopicBookmark)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve }))
+    const user = userEvent.setup()
+    render(
+      <UserProfileView
+        username="member"
+        session={session}
+        onBack={vi.fn()}
+        onLogin={vi.fn()}
+        onOpenTopic={vi.fn()}
+      />,
+    )
+
+    const first = await screen.findByRole("button", { name: `收藏主题：${topic.title}` })
+    const second = await screen.findByRole("button", { name: `收藏主题：${secondTopic.title}` })
+    await user.click(first)
+    await user.click(second)
+
+    expect(first).toBeDisabled()
+    expect(second).toBeDisabled()
+
+    resolveFirst({ topicId: topic.id, bookmarked: true })
+    await waitFor(() => expect(screen.getByRole("button", { name: `取消收藏主题：${topic.title}` })).not.toBeDisabled())
+    expect(second).toBeDisabled()
+
+    resolveSecond({ topicId: secondTopic.id, bookmarked: true })
+    await waitFor(() => expect(screen.getByRole("button", { name: `取消收藏主题：${secondTopic.title}` })).not.toBeDisabled())
   })
 
   it("opens login instead of creating a conversation for a visitor", async () => {

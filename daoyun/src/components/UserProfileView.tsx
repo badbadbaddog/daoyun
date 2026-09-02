@@ -85,7 +85,7 @@ export function UserProfileView({
   const [followError, setFollowError] = useState("")
   const [messagePending, setMessagePending] = useState(false)
   const [messageError, setMessageError] = useState("")
-  const [bookmarkPendingId, setBookmarkPendingId] = useState<string | null>(null)
+  const [bookmarkPendingIds, setBookmarkPendingIds] = useState<ReadonlySet<string>>(() => new Set())
   const [bookmarkError, setBookmarkError] = useState("")
 
   useEffect(() => {
@@ -190,10 +190,11 @@ export function UserProfileView({
       onLogin()
       return
     }
+    if (bookmarkPendingIds.has(topicId)) return
     const topic = topics.topics.find((item) => item.id === topicId)
     if (!topic) return
     const bookmarked = topic.bookmarked !== true
-    setBookmarkPendingId(topicId)
+    setBookmarkPendingIds((current) => new Set(current).add(topicId))
     setBookmarkError("")
     try {
       const state = await setTopicBookmark(topicId, bookmarked, session.csrfToken)
@@ -207,7 +208,11 @@ export function UserProfileView({
     } catch {
       setBookmarkError("收藏状态暂时无法更新。")
     } finally {
-      setBookmarkPendingId(null)
+      setBookmarkPendingIds((current) => {
+        const next = new Set(current)
+        next.delete(topicId)
+        return next
+      })
     }
   }
 
@@ -398,7 +403,7 @@ export function UserProfileView({
                 topic={topic}
                 onOpen={onOpenTopic}
                 onToggleBookmark={handleTopicBookmark}
-                bookmarkPending={bookmarkPendingId === topic.id}
+                bookmarkPending={bookmarkPendingIds.has(topic.id)}
               />
             ))}</div>
           ) : <EmptyProfilePanel message="还没有公开主题" />

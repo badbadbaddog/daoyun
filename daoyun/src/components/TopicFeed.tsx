@@ -17,9 +17,9 @@ interface TopicFeedProps {
   authenticated: boolean
   onLogin: () => void
   onToggleBookmark: (topicId: string) => void
-  bookmarkPendingId: string | null
+  bookmarkPendingIds: ReadonlySet<string>
   onToggleLike: (topicId: string) => void
-  likePendingId: string | null
+  likePendingIds: ReadonlySet<string>
   interactionError: string
   nextCursor?: string | null
   loadingMore?: boolean
@@ -41,9 +41,9 @@ export function TopicFeed({
   authenticated,
   onLogin,
   onToggleBookmark,
-  bookmarkPendingId,
+  bookmarkPendingIds,
   onToggleLike,
-  likePendingId,
+  likePendingIds,
   interactionError,
   nextCursor = null,
   loadingMore = false,
@@ -129,9 +129,9 @@ export function TopicFeed({
               key={topic.id}
               onOpen={onOpenTopic}
               onToggleBookmark={onToggleBookmark}
-              bookmarkPending={bookmarkPendingId === topic.id}
+              bookmarkPending={bookmarkPendingIds.has(topic.id)}
               onToggleLike={onToggleLike}
-              likePending={likePendingId === topic.id}
+              likePending={likePendingIds.has(topic.id)}
             />
           ))}
           {errorMore && <p className="interaction-alert" role="alert">{errorMore}</p>}

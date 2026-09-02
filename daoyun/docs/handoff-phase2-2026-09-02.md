@@ -1,6 +1,6 @@
 # DaoYun Phase 2 交接：2026-09-02
 
-> 当前状态：**IN PROGRESS**。Phase 1 已在 `34b7d1b92e057f47e06d2c65af9985ee35d4d84b` 收口。Phase 2 的 11.1 首页 canonical 导航统一与 11.2 跨页面上下文 / 返回语义均已完成实现和验收，下一步进入 11.3 首页高频交互一致性。
+> 当前状态：**IN PROGRESS**。Phase 1 已在 `34b7d1b92e057f47e06d2c65af9985ee35d4d84b` 收口。Phase 2 的 11.1 首页 canonical 导航统一、11.2 跨页面上下文 / 返回语义、11.3 首页高频交互一致性均已完成实现和验收；下一步只做 11.4 最终审计与收口，不再扩张本阶段范围。
 
 ## 1. 基线
 
@@ -44,10 +44,21 @@
 - 同一 topic 的 reply 定位、同一 messages 内 conversation 变化不会重复压栈。
 - OIDC claim 完成默认落点改为 `#hot`。
 
-## 4. 最新门禁
+## 4. 11.3 已完成
 
-- `src/App.test.tsx`：**58 / 58 PASS**
-- 前端全量：**77 files / 558 tests PASS**
+本轮继续针对高频真实交互收口，没有改变 Post 数据模型或主视觉结构：
+
+- 首页 / 版块的点赞、收藏从单一 `pendingId` 改为 per-topic `ReadonlySet`，不同主题同时操作不会互相清 spinner / disabled。
+- 收藏页与个人主页的主题收藏同步使用 per-topic pending Set，并阻止同一主题重复提交。
+- TopicRow 的点赞 / 收藏操作与主题打开边界由契约测试锁定，操作按钮不会误触详情。
+- feed 离开时保存 scroll；进入非 feed 页面置顶；首次进入另一个 feed 从顶部开始；返回原 feed 等待 ready 后恢复位置。
+- 移动端不增加第六个底部导航槽位；已登录个人菜单新增“收藏 -> `#bookmarks`”，与私信 / 通知保持功能入口对等。
+
+## 5. 最新门禁
+
+- 11.3 定向：**8 files / 103 tests PASS**
+- `src/App.test.tsx`：**59 / 59 PASS**
+- 前端全量：**77 files / 564 tests PASS**
 - `pnpm typecheck`：**PASS**
 - `pnpm build`：**PASS**
 - Vite：6.4.3
@@ -55,30 +66,47 @@
 
 真实 production：
 
-- 1440px：搜索 -> 主题 -> 返回，恢复原 `q + type` 搜索 URL。
-- 1440px：`#board/general` -> 主题 -> 返回，恢复 `#board/general`。
-- 390x844：推荐首页和真实主题详情均正常；当前移动主题详情本身没有桌面“返回主题列表”按钮，未人为新增第二套返回入口；底部首页继续指向 `#hot`。
+- 390x844：使用本地 `demo_admin` 登录成功；顶部真实出现个人菜单，底部从“登录”切换为“我的”。
+- 390x844：个人菜单真实包含“收藏”；点击后 URL 进入 `#bookmarks`，移动端收藏入口已实际可用。
+- 1440x1000：`#hot` 深滚动后打开靠后真实主题，再点击“返回主题列表”可回 `#hot`；scroll 数值保存 / 置顶 / ready 后恢复由独立 hook 契约测试锁定。
+- 浏览器事件只有登录前匿名 `/auth/session` 的预期 `401`，未发现新的业务 / JS 错误。
 
-全量测试首次并发运行曾出现 3 个偶发超时 / 加载等待失败；同一代码随后立即重跑为 **77 / 77 files、558 / 558 tests PASS**，定向 App 测试也独立连续通过，属于测试资源竞争而非可复现功能回归。
+11.2 已提交：`4deaa7b fix: preserve community detail return context`。
 
-## 5. 11.2 当前改动文件
+## 6. 11.3 当前改动文件
 
 - `src/app/CommunityApp.tsx`
 - `src/App.test.tsx`
+- `src/components/TopicFeed.tsx`
+- `src/components/TopicFeed.test.tsx`
+- `src/features/boards/BoardPage.tsx`
+- `src/features/boards/BoardTopicFeed.tsx`
+- `src/features/feed/useFeedScrollRestoration.ts`
+- `src/features/feed/useFeedScrollRestoration.test.tsx`
+- `src/components/BookmarksView.tsx`
+- `src/components/BookmarksView.test.tsx`
+- `src/components/UserProfileView.tsx`
+- `src/components/UserProfileView.test.tsx`
+- `src/components/SiteHeader.tsx`
+- `src/components/SiteHeader.search.test.tsx`
+- `src/components/TopicRow.test.tsx`
 - `docs/specs/community-ui-phase-2.md`
 - `docs/handoff-phase2-2026-09-02.md`
 
-11.1 已单独提交：`22c006b fix: canonicalize community home navigation`。
+已完成提交链：
 
-## 6. 下一执行顺序
+- 11.1：`22c006b fix: canonicalize community home navigation`
+- 11.2：`4deaa7b fix: preserve community detail return context`
 
-1. 先收口并提交 11.2，只暂存上面四个 `daoyun/...` 文件。
-2. 进入 11.3：首页高频交互一致性。
-3. 优先审计 TopicRow 点击边界、点赞 / 收藏 pending 互锁、桌面 / 移动入口对等、feed 切换滚动恢复。
-4. 仍采用“定向测试 -> 全量 -> typecheck -> build -> production 浏览器”的门禁顺序。
-5. Phase 2 仍是 **IN PROGRESS**，不要提前标记 DONE。
+## 7. 下一执行顺序
 
-## 7. Git 约束
+1. 对 11.3 做 `git diff --check`，只暂存本节列出的 `daoyun/...` 文件并单独提交。
+2. 进入 11.4 最终审计：搜索剩余 legacy / 固定 latest fallback、重复 pending 单 ID、桌面 / 移动明显入口断层。
+3. 只修复同类残留问题，不再新增 Phase 2 功能范围。
+4. 最终重新执行定向 / 全量 / typecheck / build / 390 / 1440 production 门禁。
+5. 只有 11.4 审计干净后，才把 Phase 2 标记 **DONE**。
+
+## 8. Git 约束
 
 父级 `Playground` 仍有大量与 DaoYun 无关的未跟踪文件。只暂存明确 `daoyun/...` 路径，**禁止 `git add -A`**。
 

@@ -585,6 +585,40 @@ describe("DaoYun community home", () => {
       .toHaveAttribute("aria-pressed", "true")
   })
 
+  it("tracks simultaneous likes per topic without clearing another pending row", async () => {
+    vi.mocked(getCurrentSession).mockResolvedValue({
+      user: {
+        id: topicFixtures[0].authorId,
+        username: topicFixtures[0].authorUsername,
+        email: "member@example.com",
+        displayName: topicFixtures[0].author,
+      },
+      csrfToken: "a".repeat(64),
+    })
+    let resolveFirst!: (value: { postId: string; liked: boolean; likeCount: number }) => void
+    let resolveSecond!: (value: { postId: string; liked: boolean; likeCount: number }) => void
+    vi.mocked(setPostLike)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve }))
+    const user = userEvent.setup()
+    render(<App />)
+
+    const firstLike = await screen.findByRole("button", { name: `点赞主题：${topicFixtures[0].title}` })
+    const secondLike = await screen.findByRole("button", { name: `点赞主题：${topicFixtures[1].title}` })
+    await user.click(firstLike)
+    await user.click(secondLike)
+
+    expect(firstLike).toBeDisabled()
+    expect(secondLike).toBeDisabled()
+
+    resolveFirst({ postId: topicFixtures[0].id, liked: true, likeCount: 97 })
+    await waitFor(() => expect(firstLike).not.toBeDisabled())
+    expect(secondLike).toBeDisabled()
+
+    resolveSecond({ postId: topicFixtures[1].id, liked: true, likeCount: 53 })
+    await waitFor(() => expect(secondLike).not.toBeDisabled())
+  })
+
   it("clears the active header search and restores the feed", async () => {
     const user = userEvent.setup()
     render(<App />)

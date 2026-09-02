@@ -34,9 +34,9 @@ interface BoardPageProps {
   onRetryBoard?: () => void
   onOpenTopic?: (topicId: string) => void
   onToggleBookmark?: (topicId: string) => void
-  bookmarkPendingId?: string | null
+  bookmarkPendingIds?: ReadonlySet<string>
   onToggleLike?: (topicId: string) => void
-  likePendingId?: string | null
+  likePendingIds?: ReadonlySet<string>
   interactionError?: string
 }
 
@@ -72,9 +72,9 @@ export function BoardPage({ state, ...props }: BoardPageProps) {
         onRetry={props.onRetryTopics ?? (() => undefined)}
         onOpenTopic={props.onOpenTopic}
         onToggleBookmark={props.onToggleBookmark}
-        bookmarkPendingId={props.bookmarkPendingId}
+        bookmarkPendingIds={props.bookmarkPendingIds}
         onToggleLike={props.onToggleLike}
-        likePendingId={props.likePendingId}
+        likePendingIds={props.likePendingIds}
         interactionError={props.interactionError}
       />
     </article>
