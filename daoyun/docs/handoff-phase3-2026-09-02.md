@@ -1,6 +1,6 @@
 # DaoYun Phase 3 交接：2026-09-02
 
-> 当前状态：**DONE / 12.3 READY TO COMMIT**。Phase 2 已在 `c71f412` 收口。Phase 3 的 12.1 移动主题详情返回入口对等、12.2 主题详情失败态可恢复、12.3 加载中可退出与同类失败态审计均已完成实现和门禁；12.1 / 12.2 已提交，12.3 等待按明确路径提交。
+> 当前状态：**DONE / COMMITTED**。Phase 2 已在 `c71f412` 收口。Phase 3 的 12.1 移动主题详情返回入口对等、12.2 主题详情失败态可恢复、12.3 加载中可退出与同类失败态审计均已完成实现、门禁和本地提交。
 
 ## 1. 基线
 
@@ -32,7 +32,10 @@
 
 唯一剩余缺口是主题详情 loading state：请求未完成前整页只有 spinner。现在 loading state 同样显示“返回主题列表”，继续复用 Phase 2 的 source-aware `onBack`。新增测试把 `getTopic()` 保持永久 pending，确认等待期间仍能离开。
 
-12.1 / 12.2 已提交：`fa03626 fix: restore mobile topic detail recovery`。
+Phase 3 实现提交链：
+
+- 12.1 / 12.2：`fa03626 fix: restore mobile topic detail recovery`
+- 12.3：`974a489 fix: keep topic loading state escapable`
 
 ## 5. Phase 3 最终门禁
 
@@ -55,12 +58,12 @@
 - 12.3 最新 production build 又重新打开真实主题并确认返回入口无回归；loading 瞬态由永久 pending 的组件契约精确锁定。
 - 正常流程只有匿名 `/auth/session` 预期 401；404 验收额外产生预期 topic/replies 404；主动路由切换可能取消 feed 请求产生 `ERR_ABORTED`。
 
-## 6. 12.3 当前待提交文件
+## 6. Git 收口事实
 
-- `src/components/TopicDetailView.tsx`
-- `src/components/TopicDetailView.test.tsx`
-- `docs/specs/community-ui-phase-3.md`
-- `docs/handoff-phase3-2026-09-02.md`
+- 12.1 / 12.2 已提交：`fa03626`。
+- 12.3 已提交：`974a489`。
+- 本文件当前修改仅用于补记最终 12.3 提交 SHA，随后以 docs-only 提交收口。
+- DaoYun 子树提交时始终使用明确路径，未使用 `git add -A`；父级仓库无关未跟踪文件保持不动。
 
 ## 7. 阶段结论
 
