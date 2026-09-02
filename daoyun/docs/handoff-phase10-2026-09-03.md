@@ -175,11 +175,17 @@ OpenAPI check 曾在验收服务 job 生命周期结束、API 不在线时返回
 
 ## 7. 最终 Git 收口
 
-当前状态在创建本地 closure commit 前保持 `READY TO COMMIT`。最终动作必须：
+Phase 10 已完成本地 closure commit，并在提交后重新执行只读核对：
 
-1. `git diff --check -- daoyun`
-2. 只精确暂存上述 DaoYun Phase 10 路径；禁止 `git add -A`
-3. cached diff / whitespace check
-4. 创建 Phase 10 本地提交
-5. 回写并核对最终 SHA、ahead、DaoYun 工作树
-6. 不 push，除非用户另行明确要求
+- Phase 10 closure commit：`4f6da0a38bb6bff9d798b98c271bddd51b771443`
+- commit message：`fix: complete phase 10 delivery closure`
+- 提交边界：14 files / 365 insertions / 65 deletions
+- `git diff --check -- daoyun`：PASS
+- cached whitespace check：PASS
+- 当前分支：`codex/daoyun-home-foundation`
+- 相对 `origin/codex/daoyun-home-foundation`：**ahead 17**
+- `daoyun` 工作树：**clean**；`git status` 仅剩父仓库原有未跟踪杂项
+- 默认本地 runtime：**running**，API / Admin 请求持续返回 200；启动配置确认 `plugins_enabled=false`
+- 未执行 push
+
+至此 Phase 10 的代码、测试、浏览器、Rust、generated、文档与 Git 状态全部闭环。
