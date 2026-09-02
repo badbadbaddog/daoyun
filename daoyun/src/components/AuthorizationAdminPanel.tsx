@@ -49,6 +49,7 @@ export function AuthorizationAdminPanel({ csrfToken, boards }: AuthorizationAdmi
   const [assignmentScopeId, setAssignmentScopeId] = useState("")
   const [confirmation, setConfirmation] = useState<AuthorizationConfirmation | null>(null)
   const confirmationReturnFocusRef = useRef<HTMLElement | null>(null)
+  const busyRef = useRef(false)
 
   const loadData = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
@@ -80,9 +81,22 @@ export function AuthorizationAdminPanel({ csrfToken, boards }: AuthorizationAdmi
   const customRoles = useMemo(() => roles.filter((role) => !role.isSystem), [roles])
   const selectedAssignmentRole = customRoles.find((role) => role.id === assignmentRoleId)
 
+  function beginBusy() {
+    if (busyRef.current) return false
+    busyRef.current = true
+    setBusy(true)
+    return true
+  }
+
+  function endBusy() {
+    busyRef.current = false
+    setBusy(false)
+  }
+
   async function saveRole(event: React.FormEvent) {
     event.preventDefault()
-    setBusy(true); setError(""); setMessage("")
+    if (!beginBusy()) return
+    setError(""); setMessage("")
     try {
       if (editingRoleId) {
         const current = roles.find((role) => role.id === editingRoleId)
@@ -103,7 +117,7 @@ export function AuthorizationAdminPanel({ csrfToken, boards }: AuthorizationAdmi
       } else {
         setError(apiMessage(reason, "角色保存失败，请稍后重试。"))
       }
-    } finally { setBusy(false) }
+    } finally { endBusy() }
   }
 
   function editRole(role: AuthorizationRole) {
@@ -118,48 +132,50 @@ export function AuthorizationAdminPanel({ csrfToken, boards }: AuthorizationAdmi
   }
 
   async function removeRole(role: AuthorizationRole) {
-    setBusy(true); setError(""); setMessage("")
+    if (!beginBusy()) return
+    setError(""); setMessage("")
     try {
       await deleteAuthorizationRole(role.id, csrfToken)
       setRoles((values) => values.filter((value) => value.id !== role.id))
       if (assignmentRoleId === role.id) setAssignmentRoleId("")
       setMessage("角色已删除")
       setConfirmation(null)
-    } catch (reason) { setError(apiMessage(reason, "角色删除失败，请稍后重试。")) } finally { setBusy(false) }
+    } catch (reason) { setError(apiMessage(reason, "角色删除失败，请稍后重试。")) } finally { endBusy() }
   }
 
   async function assignRole(event: React.FormEvent) {
     event.preventDefault()
-    if (!selectedAssignmentRole) return
-    setBusy(true); setError(""); setMessage("")
+    if (!selectedAssignmentRole || !beginBusy()) return
+    setError(""); setMessage("")
     try {
       const saved = await createAuthorizationAssignment({ username: username.trim(), roleId: selectedAssignmentRole.id, scopeId: selectedAssignmentRole.scope === "board" ? assignmentScopeId : null }, csrfToken)
       setAssignments((values) => [saved, ...values])
       setRoles((values) => values.map((role) => role.id === saved.role.id ? { ...role, assignmentCount: role.assignmentCount + 1 } : role))
       setUsername(""); setAssignmentRoleId(""); setAssignmentScopeId("")
       setMessage("角色已分配")
-    } catch (reason) { setError(apiMessage(reason, "角色分配失败，请核对用户名与作用域。")) } finally { setBusy(false) }
+    } catch (reason) { setError(apiMessage(reason, "角色分配失败，请核对用户名与作用域。")) } finally { endBusy() }
   }
 
   async function revokeAssignment(assignment: AuthorizationRoleAssignment) {
-    setBusy(true); setError(""); setMessage("")
+    if (!beginBusy()) return
+    setError(""); setMessage("")
     try {
       await deleteAuthorizationAssignment(assignment.id, csrfToken)
       setAssignments((values) => values.filter((value) => value.id !== assignment.id))
       setRoles((values) => values.map((role) => role.id === assignment.role.id ? { ...role, assignmentCount: Math.max(0, role.assignmentCount - 1) } : role))
       setMessage("角色分配已撤销")
       setConfirmation(null)
-    } catch (reason) { setError(apiMessage(reason, "撤销失败，请稍后重试。")) } finally { setBusy(false) }
+    } catch (reason) { setError(apiMessage(reason, "撤销失败，请稍后重试。")) } finally { endBusy() }
   }
 
   async function loadMore() {
-    if (!nextCursor) return
-    setBusy(true); setError("")
+    if (!nextCursor || !beginBusy()) return
+    setError("")
     try {
       const page = await listAuthorizationAssignments({ cursor: nextCursor, limit: 50 })
       setAssignments((values) => [...values, ...page.assignments])
       setNextCursor(page.nextCursor)
-    } catch (reason) { setError(apiMessage(reason, "更多角色分配加载失败。")) } finally { setBusy(false) }
+    } catch (reason) { setError(apiMessage(reason, "更多角色分配加载失败。")) } finally { endBusy() }
   }
 
   if (loading) return <div className="admin-state" role="status"><LoaderCircle className="topic-loading__spinner" size={22} aria-hidden="true" /><span>正在读取角色与权限</span></div>

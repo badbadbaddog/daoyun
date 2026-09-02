@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -86,6 +86,29 @@ describe("AuthorizationAdminPanel", () => {
       scope: "instance",
       permissionKeys: ["content.moderate"],
     }, csrfToken)
+  })
+
+  it("synchronously blocks duplicate role creation while the first request is pending", async () => {
+    const user = userEvent.setup()
+    let resolveCreate!: (role: typeof customRole) => void
+    vi.mocked(createAuthorizationRole).mockImplementationOnce(() => new Promise((resolve) => { resolveCreate = resolve }))
+    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} />)
+    await screen.findByRole("heading", { name: "角色与权限" })
+
+    await user.type(screen.getByLabelText("角色键"), "topic_reviewer")
+    await user.type(screen.getByLabelText("角色名称"), "主题审核员")
+    await user.click(screen.getByLabelText("内容管理 content.moderate"))
+    const submit = screen.getByRole("button", { name: "创建角色" })
+    const form = submit.closest("form") as HTMLFormElement
+    act(() => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+    })
+
+    expect(createAuthorizationRole).toHaveBeenCalledTimes(1)
+    expect(submit).toBeDisabled()
+    resolveCreate({ ...customRole, id: "019fc900-0000-7000-8000-000000000503", key: "topic_reviewer", name: "主题审核员" })
+    expect(await screen.findByText("角色已创建")).toBeInTheDocument()
   })
 
   it("assigns a board-scoped custom role by exact username", async () => {

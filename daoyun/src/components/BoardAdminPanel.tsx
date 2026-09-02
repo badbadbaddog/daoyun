@@ -72,6 +72,7 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
   const [mergeMessage, setMergeMessage] = useState("")
   const mergeReturnFocusRef = useRef<HTMLElement | null>(null)
   const deletionReturnFocusRef = useRef<HTMLElement | null>(null)
+  const mutationRef = useRef(false)
   const visibleTree = useMemo(() => filterBoardTree(tree, query), [query, tree])
 
   function startCreate(parentId: string | null) {
@@ -115,10 +116,21 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
     }
   }
 
+  function beginMutation(id: string) {
+    if (mutationRef.current) return false
+    mutationRef.current = true
+    setPendingId(id)
+    return true
+  }
+
+  function endMutation() {
+    mutationRef.current = false
+    setPendingId(null)
+  }
+
   async function saveEditor(event: React.FormEvent) {
     event.preventDefault()
-    if (!editor) return
-    setPendingId(editor.board?.id ?? "create")
+    if (!editor || !beginMutation(editor.board?.id ?? "create")) return
     setMessage("")
     try {
       if (editor.mode === "edit" && editor.section === "access" && editor.board && accessPolicy && accessDraft) {
@@ -144,12 +156,12 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
       setRevisionConflict(reason instanceof AdminApiError && reason.status === 409)
       setMessage(apiMessage(reason, "保存失败，请稍后重试。"))
     } finally {
-      setPendingId(null)
+      endMutation()
     }
   }
 
   async function mutate(board: AdminBoard, changes: Partial<AdminBoardInput>, action: string) {
-    setPendingId(board.id)
+    if (!beginMutation(board.id)) return
     setFeedback(null)
     try {
       const saved = await updateAdminBoard(board.id, toUpdateInput(board, changes), csrfToken)
@@ -158,7 +170,7 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
     } catch (reason) {
       setFeedback({ boardId: board.id, message: apiMessage(reason, "保存失败，请重试。"), kind: "error" })
     } finally {
-      setPendingId(null)
+      endMutation()
     }
   }
 
@@ -178,8 +190,7 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
   }
 
   async function confirmDelete() {
-    if (!deleting) return
-    setPendingId(deleting.id)
+    if (!deleting || !beginMutation(deleting.id)) return
     setMessage("")
     try {
       await deleteAdminBoard(deleting.id, csrfToken)
@@ -189,7 +200,7 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
     } catch (reason) {
       setMessage(apiMessage(reason, "删除失败，请稍后重试。"))
     } finally {
-      setPendingId(null)
+      endMutation()
     }
   }
 
@@ -246,8 +257,7 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
   }
 
   async function confirmMerge() {
-    if (!merging || !mergeImpact?.canMerge) return
-    setPendingId(merging.id)
+    if (!merging || !mergeImpact?.canMerge || !beginMutation(merging.id)) return
     setMergeLoading(true)
     setMergeMessage("")
     try {
@@ -264,13 +274,12 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
       setMergeMessage(apiMessage(reason, "版块合并失败，请稍后重试。"))
     } finally {
       setMergeLoading(false)
-      setPendingId(null)
+      endMutation()
     }
   }
 
   async function rollbackMerge() {
-    if (!merging || !mergeMutation || mergeMutation.rolledBack) return
-    setPendingId(merging.id)
+    if (!merging || !mergeMutation || mergeMutation.rolledBack || !beginMutation(merging.id)) return
     setMergeLoading(true)
     setMergeMessage("")
     try {
@@ -287,7 +296,7 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
       setMergeMessage(apiMessage(reason, "合并回滚失败，请稍后重试。"))
     } finally {
       setMergeLoading(false)
-      setPendingId(null)
+      endMutation()
     }
   }
 

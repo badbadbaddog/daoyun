@@ -370,6 +370,39 @@ describe("BoardAdminPanel", () => {
     expect(await screen.findByText("合并已回滚")).toBeInTheDocument()
   })
 
+  it("synchronously blocks duplicate merge execution while the first request is pending", async () => {
+    const user = userEvent.setup()
+    let resolveMerge!: (value: Awaited<ReturnType<typeof mergeAdminBoard>>) => void
+    vi.mocked(mergeAdminBoard).mockImplementationOnce(() => new Promise((resolve) => { resolveMerge = resolve }))
+    renderPanel()
+
+    await user.click(screen.getByRole("button", { name: "更多操作：社区交流" }))
+    await user.click(screen.getByRole("menuitem", { name: "合并版块" }))
+    await user.selectOptions(screen.getByLabelText("目标版块"), secondRootId)
+    await screen.findByText("34 条回复")
+    const confirm = screen.getByRole("button", { name: "确认合并版块" })
+
+    act(() => {
+      confirm.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))
+      confirm.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))
+    })
+
+    expect(mergeAdminBoard).toHaveBeenCalledTimes(1)
+    expect(confirm).toBeDisabled()
+    resolveMerge({
+      auditId,
+      sourceBoardId: rootId,
+      targetBoardId: secondRootId,
+      movedTopicCount: 12,
+      sourceRevision: 2,
+      targetRevision: 4,
+      rollbackDeadline: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      rolledBack: false,
+      replayed: false,
+    })
+    expect(await screen.findByText(auditId)).toBeInTheDocument()
+  })
+
   it("shows the merge blocked reason and prevents execution", async () => {
     const user = userEvent.setup()
     vi.mocked(getAdminBoardMergeImpact).mockResolvedValueOnce({

@@ -1,5 +1,5 @@
 import { LoaderCircle, RefreshCw, Search, ShieldCheck } from "lucide-react"
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react"
 
 import {
   AdminApiError, grantStandardEntitlement, listAdminStandardEntitlements, listStandardEntitlementTypes,
@@ -55,6 +55,11 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
   const [mutating, setMutating] = useState(false)
   const [revokeTarget, setRevokeTarget] = useState<AdminStandardEntitlement | null>(null)
   const [revokeReason, setRevokeReason] = useState("")
+  const publishingRef = useRef(false)
+  const searchingRef = useRef(false)
+  const mutatingRef = useRef(false)
+  const versionsRequestRef = useRef(0)
+  const entitlementsRequestRef = useRef(0)
 
   useEffect(() => {
     if (!canReadTypes) { setTypesLoading(false); return }
@@ -76,10 +81,16 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
   }
 
   async function showVersions(type: StandardEntitlementType) {
+    const requestId = ++versionsRequestRef.current
     setSelectedType(type); setVersions([]); setVersionsLoading(true); setError("")
-    try { setVersions(await listStandardEntitlementVersions(type.internalKey)) }
-    catch (reason) { setError(apiMessage(reason, "权益版本历史读取失败，请稍后重试。")) }
-    finally { setVersionsLoading(false) }
+    try {
+      const loaded = await listStandardEntitlementVersions(type.internalKey)
+      if (requestId === versionsRequestRef.current) setVersions(loaded)
+    } catch (reason) {
+      if (requestId === versionsRequestRef.current) setError(apiMessage(reason, "权益版本历史读取失败，请稍后重试。"))
+    } finally {
+      if (requestId === versionsRequestRef.current) setVersionsLoading(false)
+    }
   }
 
   function openPublisher(type?: StandardEntitlementType) {
@@ -91,10 +102,12 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
 
   async function publishVersion(event: FormEvent) {
     event.preventDefault()
+    if (publishingRef.current) return
     const permissions = permissionSnapshot.split(/\s*,\s*/).filter(Boolean)
     const quotas = parseQuotaSnapshot(quotaSnapshot)
     if (!validInternalKey(internalKey) || !displayName.trim() || permissions.length === 0 || !quotas) { setError("请填写有效内部键、显示名称、权限快照和 key=value 额度快照。"); return }
     if (permissions.some((permission) => !communityPermissions.has(permission))) { setError("标准权益只能授予社区权限，不能授予治理权限。"); return }
+    publishingRef.current = true
     setPublishing(true); setError(""); setConflict(false)
     try {
       if (onPublishVersion) onPublishVersion({ internalKey: internalKey.trim(), displayName: displayName.trim(), permissionKeys: permissions, quotas })
@@ -105,37 +118,45 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
       }
       setPublishOpen(false); setMessage(`${displayName.trim()}的新版本已发布，历史版本保持不变`)
     } catch (reason) { setConflict(reason instanceof AdminApiError && reason.status === 409); setError(apiMessage(reason, "权益版本发布失败，请稍后重试。")) }
-    finally { setPublishing(false) }
+    finally { publishingRef.current = false; setPublishing(false) }
   }
 
   async function searchUsers(event: FormEvent) {
     event.preventDefault(); const normalized = query.trim()
-    if (!normalized || !canReadUsers) return
+    if (!normalized || !canReadUsers || searchingRef.current) return
+    searchingRef.current = true
     setSearching(true); setError(""); setMessage("")
     try { const result = await listAdminUsers({ query: normalized, limit: 10 }); setUsers(result.users); if (result.users.length === 0) setError("没有找到匹配的用户。") }
     catch (reason) { setError(apiMessage(reason, "用户搜索失败，请稍后重试。")) }
-    finally { setSearching(false) }
+    finally { searchingRef.current = false; setSearching(false) }
   }
 
   async function selectUser(user: AdminUserSummary) {
+    const requestId = ++entitlementsRequestRef.current
     setSelectedUser(user); setGrantsLoading(true); setEntitlements([]); setError(""); setMessage("")
-    try { setEntitlements(canReadGrants ? await listAdminStandardEntitlements(user.id) : []) }
-    catch (reason) { setError(apiMessage(reason, "用户权益记录读取失败，请稍后重试。")) }
-    finally { setGrantsLoading(false) }
+    try {
+      const loaded = canReadGrants ? await listAdminStandardEntitlements(user.id) : []
+      if (requestId === entitlementsRequestRef.current) setEntitlements(loaded)
+    } catch (reason) {
+      if (requestId === entitlementsRequestRef.current) setError(apiMessage(reason, "用户权益记录读取失败，请稍后重试。"))
+    } finally {
+      if (requestId === entitlementsRequestRef.current) setGrantsLoading(false)
+    }
   }
 
   async function grantEntitlement(event: FormEvent) {
     event.preventDefault()
-    if (!selectedUser || !grantTypeId || !grantSource.trim() || !grantReason.trim() || !grantStartsAt || mutating) return
+    if (!selectedUser || !grantTypeId || !grantSource.trim() || !grantReason.trim() || !grantStartsAt || mutatingRef.current) return
     const startsAt = toIso(grantStartsAt); const endsAt = grantEndsAt ? toIso(grantEndsAt) : null
     if (!startsAt || (grantEndsAt && !endsAt) || (endsAt && endsAt <= startsAt)) { setError("结束时间必须晚于开始时间。"); return }
+    mutatingRef.current = true
     setMutating(true); setError("")
     try {
       const result = await grantStandardEntitlement({ userId: selectedUser.id, entitlementTypeId: grantTypeId, source: grantSource.trim(), sourceReferenceId: grantReference.trim() || null, reason: grantReason.trim(), startsAt, endsAt, idempotencyKey: newIdempotencyKey("entitlement-grant") }, csrfToken)
       setEntitlements((current) => [result.entitlement, ...current.filter((item) => item.id !== result.entitlement.id)])
       setGrantOpen(false); setMessage(result.replayed ? "权益发放已幂等重放" : "标准权益已安全发放")
     } catch (reason) { setError(apiMessage(reason, "标准权益发放失败，请稍后重试。")) }
-    finally { setMutating(false) }
+    finally { mutatingRef.current = false; setMutating(false) }
   }
 
   function handleWorkspaceTabKey(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
@@ -154,14 +175,16 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
 
   async function revokeEntitlement(event: FormEvent) {
     event.preventDefault()
-    if (!revokeTarget || revokeReason.trim().length < 2 || mutating) return
-    const target = revokeTarget; setMutating(true); setError(""); setConflict(false)
+    if (!revokeTarget || revokeReason.trim().length < 2 || mutatingRef.current) return
+    const target = revokeTarget
+    mutatingRef.current = true
+    setMutating(true); setError(""); setConflict(false)
     try {
       const result = await revokeStandardEntitlement(target.id, target.revision, revokeReason.trim(), newIdempotencyKey("entitlement-revoke"), csrfToken)
       setEntitlements((current) => current.map((item) => item.id === result.entitlement.id ? result.entitlement : item))
       setRevokeTarget(null); setRevokeReason(""); setMessage(result.replayed ? "权益撤销已幂等重放" : "标准权益已撤销")
     } catch (reason) { setConflict(reason instanceof AdminApiError && reason.status === 409); setError(apiMessage(reason, "标准权益撤销失败，请稍后重试。")) }
-    finally { setMutating(false) }
+    finally { mutatingRef.current = false; setMutating(false) }
   }
 
   return <section className="membership-rule-section entitlement-admin" aria-labelledby="entitlement-workspace-heading">
@@ -174,7 +197,7 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
       <form className="entitlement-user-search" role="search" onSubmit={(event) => void searchUsers(event)}><label>搜索权益用户<input type="search" aria-label="搜索权益用户" placeholder="用户名或显示名称" value={query} onChange={(event) => setQuery(event.target.value)} /></label><button className="secondary-button" type="submit" disabled={searching || !canReadUsers}>{searching ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" /> : <Search size={14} aria-hidden="true" />}搜索用户</button></form>
       {canWriteGrants && <button className="primary-button" type="button" disabled={!selectedUser || activeTypes.length === 0} onClick={() => { setGrantOpen(true); setError(""); setGrantTypeId(activeTypes[0]?.id ?? "") }}>发放标准权益</button>}
       {users.length > 0 && <ul aria-label="权益用户搜索结果">{users.map((user) => <li key={user.id}><button type="button" aria-label={`选择${user.displayName} @${user.username}`} aria-pressed={selectedUser?.id === user.id} onClick={() => void selectUser(user)}>{user.displayName} <small>@{user.username}</small></button></li>)}</ul>}
-      {selectedUser && <section className="entitlement-user-detail" aria-label={`${selectedUser.displayName}的标准权益`}><header><div><h3>{selectedUser.displayName}</h3><small>@{selectedUser.username}</small></div><button className="icon-button" type="button" aria-label="刷新用户权益" title="刷新用户权益" onClick={() => void selectUser(selectedUser)}><RefreshCw size={14} aria-hidden="true" /></button></header>
+      {selectedUser && <section className="entitlement-user-detail" aria-label={`${selectedUser.displayName}的标准权益`} aria-busy={grantsLoading}><header><div><h3>{selectedUser.displayName}</h3><small>@{selectedUser.username}</small></div><button className="icon-button" type="button" aria-label="刷新用户权益" title="刷新用户权益" disabled={grantsLoading} onClick={() => void selectUser(selectedUser)}><RefreshCw size={14} aria-hidden="true" /></button></header>
         {grantsLoading ? <p role="status">正在读取用户权益</p> : entitlements.length === 0 ? <p role="status">当前用户没有权益操作记录。</p> : <ul className="entitlement-operation-list" aria-label="权益操作记录">{entitlements.map((entitlement) => <li key={entitlement.id}><div><strong>{typeName(types, entitlement)}</strong><span>{entitlementState(entitlement)}</span></div><small>版本 {entitlement.typeVersion} · 来源 {entitlement.source}{entitlement.sourceReferenceId ? ` / ${entitlement.sourceReferenceId}` : ""}</small><p>{entitlement.reason}</p><time>{formatWindow(entitlement.startsAt, entitlement.endsAt)}</time><details><summary>权限与额度快照</summary><span>{entitlement.permissionSnapshot.join("、") || "无权限"}</span>{quotaLines(entitlement.quotaSnapshot).map((line) => <code key={line}>{line}</code>)}</details>{entitlement.revokedAt ? <p>撤销：{entitlement.revocationReason}</p> : canWriteGrants && <button className="danger-button" type="button" onClick={() => { setRevokeTarget(entitlement); setRevokeReason(""); setError("") }} aria-label={`撤销${typeName(types, entitlement)}`}>撤销</button>}</li>)}</ul>}
       </section>}
     </section>}

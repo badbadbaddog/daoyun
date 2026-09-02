@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -87,6 +87,87 @@ describe("EntitlementsWorkspace", () => {
     expect(fetchMock.mock.calls[1][0]).toBe("/api/v1/admin/entitlements/types/vip_monthly/versions")
   })
 
+  it("keeps the latest entitlement version request when an older one finishes later", async () => {
+    const user = userEvent.setup()
+    const yearlyTypeId = "019fc900-0000-7000-8000-000000000804"
+    const yearlyType = entitlementTypeDto({ id: yearlyTypeId, internal_key: "vip_yearly", display_name: "年度会员" })
+    let resolveMonthly!: (response: Response) => void
+    const monthlyPending = new Promise<Response>((resolve) => { resolveMonthly = resolve })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse([entitlementTypeDto(), yearlyType]))
+      .mockImplementationOnce(() => monthlyPending)
+      .mockResolvedValueOnce(jsonResponse([entitlementVersionDto({ id: "019fc900-0000-7000-8000-000000000805", entitlement_type_id: yearlyTypeId, version: 7 })]))
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<EntitlementsWorkspace csrfToken="csrf" />)
+    await user.click(await screen.findByRole("button", { name: "查看月度会员版本历史" }))
+    await user.click(screen.getByRole("button", { name: "查看年度会员版本历史" }))
+    expect(await screen.findByRole("region", { name: "年度会员版本历史" })).toHaveTextContent("版本 7")
+
+    resolveMonthly(jsonResponse([entitlementVersionDto({ version: 3 })]))
+    await waitFor(() => expect(screen.getByRole("region", { name: "年度会员版本历史" })).toHaveTextContent("版本 7"))
+    expect(screen.queryByRole("region", { name: "月度会员版本历史" })).not.toBeInTheDocument()
+  })
+
+  it("keeps the latest selected user when an older entitlement request finishes later", async () => {
+    const user = userEvent.setup()
+    const secondUserId = "019fc900-0000-7000-8000-000000000402"
+    const secondUser = { ...userDto(), id: secondUserId, username: "second_member", display_name: "第二成员" }
+    let resolveFirstUser!: (response: Response) => void
+    const firstUserPending = new Promise<Response>((resolve) => { resolveFirstUser = resolve })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse([entitlementTypeDto()]))
+      .mockResolvedValueOnce(jsonPageResponse([userDto(), secondUser]))
+      .mockImplementationOnce(() => firstUserPending)
+      .mockResolvedValueOnce(jsonResponse([entitlementDto({ id: "019fc900-0000-7000-8000-000000000812", user_id: secondUserId, reason: "第二用户奖励" })]))
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<EntitlementsWorkspace csrfToken="csrf" />)
+    await user.click(screen.getByRole("tab", { name: "用户权益" }))
+    await user.type(screen.getByRole("searchbox", { name: "搜索权益用户" }), "member")
+    await user.click(screen.getByRole("button", { name: "搜索用户" }))
+    await user.click(await screen.findByRole("button", { name: "选择演示成员 @demo_member" }))
+    await user.click(screen.getByRole("button", { name: "选择第二成员 @second_member" }))
+
+    expect(await screen.findByRole("region", { name: "第二成员的标准权益" })).toHaveTextContent("第二用户奖励")
+    resolveFirstUser(jsonResponse([entitlementDto({ reason: "第一用户迟到奖励" })]))
+    await waitFor(() => expect(screen.getByRole("region", { name: "第二成员的标准权益" })).not.toHaveTextContent("第一用户迟到奖励"))
+  })
+
+  it("blocks a duplicate entitlement grant while the first request is pending", async () => {
+    const user = userEvent.setup()
+    let resolveGrant!: (response: Response) => void
+    const grantPending = new Promise<Response>((resolve) => { resolveGrant = resolve })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse([entitlementTypeDto()]))
+      .mockResolvedValueOnce(jsonPageResponse([userDto()]))
+      .mockResolvedValueOnce(jsonResponse([entitlementDto()]))
+      .mockImplementationOnce(() => grantPending)
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<EntitlementsWorkspace csrfToken="csrf" />)
+    await user.click(screen.getByRole("tab", { name: "用户权益" }))
+    await user.type(screen.getByRole("searchbox", { name: "搜索权益用户" }), "demo_member")
+    await user.click(screen.getByRole("button", { name: "搜索用户" }))
+    await user.click(await screen.findByRole("button", { name: "选择演示成员 @demo_member" }))
+    await screen.findByText("活动奖励")
+    await user.click(screen.getByRole("button", { name: "发放标准权益" }))
+    await user.type(screen.getByRole("textbox", { name: "发放来源" }), "operator")
+    await user.type(screen.getByRole("textbox", { name: "发放原因" }), "防重复发放")
+    await user.type(screen.getByLabelText("开始时间"), "2026-08-28T10:00")
+    const dialog = screen.getByRole("dialog", { name: "发放标准权益" }) as HTMLFormElement
+
+    act(() => {
+      dialog.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+      dialog.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(screen.getByRole("button", { name: "确认发放" })).toBeDisabled()
+
+    resolveGrant(jsonResponse({ entitlement: entitlementDto({ id: "019fc900-0000-7000-8000-000000000813", reason: "防重复发放" }), replayed: false }))
+    expect(await screen.findByRole("status")).toHaveTextContent("标准权益已安全发放")
+  })
+
   it("searches users, grants time-bounded entitlements, and revokes by revision", async () => {
     const user = userEvent.setup()
     const fetchMock = vi.fn()
@@ -131,12 +212,12 @@ describe("EntitlementsWorkspace", () => {
   })
 })
 
-function entitlementTypeDto() {
-  return { id: typeId, internal_key: "vip_monthly", display_name: "月度会员", status: "active", current_version: 2, permission_keys: ["attachment.upload"], quotas: { "attachment.upload.daily": 20 }, revision: 2, created_at: "2026-08-20T10:00:00Z", updated_at: "2026-08-27T10:00:00Z" }
+function entitlementTypeDto(overrides: Record<string, unknown> = {}) {
+  return { id: typeId, internal_key: "vip_monthly", display_name: "月度会员", status: "active", current_version: 2, permission_keys: ["attachment.upload"], quotas: { "attachment.upload.daily": 20 }, revision: 2, created_at: "2026-08-20T10:00:00Z", updated_at: "2026-08-27T10:00:00Z", ...overrides }
 }
 
-function entitlementVersionDto() {
-  return { id: "019fc900-0000-7000-8000-000000000803", entitlement_type_id: typeId, version: 2, permission_keys: ["attachment.upload"], quotas: { "attachment.upload.daily": 20 }, created_by: "019fc900-0000-7000-8000-000000000004", created_at: "2026-08-27T10:00:00Z" }
+function entitlementVersionDto(overrides: Record<string, unknown> = {}) {
+  return { id: "019fc900-0000-7000-8000-000000000803", entitlement_type_id: typeId, version: 2, permission_keys: ["attachment.upload"], quotas: { "attachment.upload.daily": 20 }, created_by: "019fc900-0000-7000-8000-000000000004", created_at: "2026-08-27T10:00:00Z", ...overrides }
 }
 
 function entitlementDto(overrides: Record<string, unknown> = {}) {

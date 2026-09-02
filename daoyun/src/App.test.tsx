@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -1390,10 +1390,14 @@ describe("DaoYun installation gate", () => {
     render(<App />)
     await fillValidInstallationForm(user)
     const submit = screen.getByRole("button", { name: "完成初始化" })
-    await user.click(submit)
+    const form = submit.closest("form") as HTMLFormElement
+    act(() => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+    })
 
+    expect(form).toHaveAttribute("aria-busy", "true")
     expect(screen.getByRole("button", { name: "正在初始化" })).toBeDisabled()
-    await user.click(submit)
     expect(initializeInstallation).toHaveBeenCalledTimes(1)
   })
 

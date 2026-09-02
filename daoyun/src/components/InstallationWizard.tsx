@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import type { FormEvent } from "react"
 import { AlertCircle, ArrowRight, LoaderCircle, RefreshCw, ShieldCheck } from "lucide-react"
 
@@ -27,14 +27,15 @@ export function InstallationWizard({ onConfirmInstallation }: InstallationWizard
   const [formError, setFormError] = useState<string | null>(null)
   const [phase, setPhase] = useState<SubmissionPhase>("idle")
   const [awaitingConfirmation, setAwaitingConfirmation] = useState(false)
+  const submissionRef = useRef(false)
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (phase === "submitting") {
-      return
-    }
+    if (submissionRef.current || phase === "submitting") return
     if (awaitingConfirmation) {
-      await confirmCompletion()
+      submissionRef.current = true
+      try { await confirmCompletion() }
+      finally { submissionRef.current = false }
       return
     }
 
@@ -47,6 +48,7 @@ export function InstallationWizard({ onConfirmInstallation }: InstallationWizard
       return
     }
 
+    submissionRef.current = true
     setFieldErrors({})
     setFormError(null)
     setPhase("submitting")
@@ -74,6 +76,8 @@ export function InstallationWizard({ onConfirmInstallation }: InstallationWizard
         ? "安装服务暂时不可用，请稍后重试"
         : "初始化请求失败，请稍后重试")
       setPhase("retryable")
+    } finally {
+      submissionRef.current = false
     }
   }
 
@@ -135,7 +139,7 @@ export function InstallationWizard({ onConfirmInstallation }: InstallationWizard
             </div>
           </div>
 
-          <form className="installation-form" noValidate onSubmit={handleSubmit}>
+          <form className="installation-form" noValidate aria-busy={phase === "submitting"} onSubmit={handleSubmit}>
             {formError && (
               <div className="installation-form-error" role="alert">
                 <AlertCircle size={17} aria-hidden="true" />
