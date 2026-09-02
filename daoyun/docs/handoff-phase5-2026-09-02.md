@@ -1,6 +1,6 @@
 # DaoYun Phase 5 交接：2026-09-02
 
-> 当前状态：**DONE / LOCAL CLOSURE COMMIT**。Phase 5 以 `1015f8c6f375d047268c80eba3d85ff14c784d2c`（`feat: complete phase 4 interaction hardening`）为基线，完成浏览器原生阻塞确认框的收敛：后台高风险写操作与前台发布器未保存退出均迁移到站内可访问确认层。本文档与 Phase 5 源码位于同一个本地独立收口提交；提交 SHA 不在提交内容中自引用，最终以父仓库 `git log -1` 为准。远端仍未确认更新。
+> 当前状态：**DONE / LOCAL CLOSURE COMMIT**。Phase 5 以 `1015f8c6f375d047268c80eba3d85ff14c784d2c`（`feat: complete phase 4 interaction hardening`）为基线，完成浏览器原生阻塞确认框的收敛：后台高风险写操作与前台发布器未保存退出均迁移到站内可访问确认层。Phase 5 主体收口提交：`9aa66d6 feat: complete phase 5 confirmation hardening`。本文档随后用纯文档提交补录该 SHA；远端仍未确认更新。
 
 ## 1. 基线与强约束
 
@@ -8,7 +8,7 @@
 - 父级 Git 根：`C:\Users\111\Documents\Playground`
 - 当前分支：`codex/daoyun-home-foundation`
 - Phase 5 起点：`1015f8c6f375d047268c80eba3d85ff14c784d2c feat: complete phase 4 interaction hardening`
-- Phase 5 开始时本地分支相对 origin：**ahead 10**；本阶段本地收口提交完成后将再增加 1 个本地提交。除非后续真实 push 成功，否则不要写成“已 push”。
+- Phase 5 开始时本地分支相对 origin：**ahead 10**；主体收口提交 `9aa66d6` 完成后为 **ahead 11**，本次纯文档补录提交完成后将为 **ahead 12**。除非后续真实 push 成功，否则不要写成“已 push”。
 - 用户硬约束：**不要创建或使用 Codex 会话，全程只使用 FastSpider_FS 直接完成代码、审计、测试、浏览器验收和本机操作。**
 - 父级 `Playground` 存在大量与 DaoYun 无关的未跟踪项目 / 文件；本阶段只修改并暂存明确的 `daoyun/...` 路径，**禁止 `git add -A`**。
 
