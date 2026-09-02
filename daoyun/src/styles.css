@@ -8992,3 +8992,41 @@ body:has(.membership-growth-dialog-backdrop) { overflow: hidden; }
     height: 36px;
   }
 }
+
+.confirm-dialog {
+  display: grid;
+  width: min(480px, 100%);
+  max-height: calc(100dvh - 40px);
+  gap: 12px;
+  overflow: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  outline: 0;
+  background: var(--surface);
+  padding: 18px;
+  box-shadow: 0 28px 70px rgb(0 0 0 / 28%);
+}
+
+.confirm-dialog h3,
+.confirm-dialog__content p {
+  margin: 0;
+}
+
+.confirm-dialog h3 {
+  font-size: 16px;
+}
+
+.confirm-dialog__content {
+  display: grid;
+  gap: 8px;
+  color: var(--text-soft);
+  line-height: 1.65;
+}
+
+.confirm-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}

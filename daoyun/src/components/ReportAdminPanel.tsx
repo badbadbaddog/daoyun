@@ -10,10 +10,12 @@ import {
   type ContentReport,
   type ReportDetail,
   type ReportDisposition,
+  type ReportModerationInput,
   type ReportStatus,
   type ReportUserActionKind,
 } from "../api/reports"
 import { RelatedAuditLog } from "./RelatedAuditLog"
+import { ConfirmDialog } from "./ui/ConfirmDialog"
 
 export type ReportStatusFilter = ReportStatus | "all"
 
@@ -166,6 +168,8 @@ function ReportDetailWorkspace({ detail, csrfToken, canResolve, canReadAudit, on
   const [marking, setMarking] = useState(false)
   const [message, setMessage] = useState("")
   const [error, setError] = useState("")
+  const [pendingDecision, setPendingDecision] = useState<{ effects: string; input: ReportModerationInput } | null>(null)
+  const confirmationReturnFocusRef = useRef<HTMLElement | null>(null)
   const report = detail.report
   const actionable = report.status === "open" || report.status === "in_review"
 
@@ -184,21 +188,29 @@ function ReportDetailWorkspace({ detail, csrfToken, canResolve, canReadAudit, on
     if (note.trim().length < 2) { setError("请填写至少 2 个字符的内部处理备注。"); return }
     if (userAction !== "none" && userReason.trim().length < 2) { setError("请填写至少 2 个字符的作者处置原因。"); return }
     const effects = [hideContent ? "隐藏内容" : null, userAction === "restricted" ? "限制作者账号" : userAction === "suspended" ? "暂停作者账号" : null, disposition === "resolved" ? "解决举报" : "驳回举报"].filter(Boolean).join("、")
-    if (!window.confirm(`确认执行：${effects}？此操作会写入审计记录。`)) return
+    const input: ReportModerationInput = {
+      disposition,
+      contentAction: hideContent ? "hide" : "none",
+      userAction: userAction === "none" ? null : { kind: userAction, reason: userReason.trim(), expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null },
+      publicReason: publicReason.trim() || null,
+      note: note.trim(),
+      expectedRevision: report.revision,
+    }
+    confirmationReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setPendingDecision({ effects, input })
+  }
+
+  async function confirmDecision() {
+    if (!pendingDecision) return
     setPending(true)
+    setError(""); setMessage("")
     try {
-      const result = await moderateAdminReport(report.id, {
-        disposition,
-        contentAction: hideContent ? "hide" : "none",
-        userAction: userAction === "none" ? null : { kind: userAction, reason: userReason.trim(), expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null },
-        publicReason: publicReason.trim() || null,
-        note: note.trim(),
-        expectedRevision: report.revision,
-      }, csrfToken)
+      const result = await moderateAdminReport(report.id, pendingDecision.input, csrfToken)
       onUpdated(result.report)
       onDetailChange({ ...detail, report: result.report, author: detail.author && result.user ? { ...detail.author, status: result.user.status, revision: result.user.revision } : detail.author })
       setMessage(`处置已完成：${result.content.changed ? "内容已隐藏，" : ""}${result.user ? `作者账号已${result.user.status === "restricted" ? "限制" : "暂停"}，` : ""}${result.notificationQueued ? "举报人通知已入队。" : "举报已更新。"}`)
-    } catch (reason) { setError(messageFor(reason, "举报处置失败，请刷新后重试。")) }
+      setPendingDecision(null)
+    } catch (reason) { setPendingDecision(null); setError(messageFor(reason, "举报处置失败，请刷新后重试。")) }
     finally { setPending(false) }
   }
 
@@ -222,6 +234,17 @@ function ReportDetailWorkspace({ detail, csrfToken, canResolve, canReadAudit, on
       <div className="report-impact"><strong>即将执行</strong><span>{hideContent ? "隐藏内容；" : "保留内容；"}{userAction === "none" ? "不处理作者；" : `${userAction === "restricted" ? "限制" : "暂停"}作者账号；`}{disposition === "resolved" ? "举报成立" : "驳回举报"}</span></div>
       <button className="primary-button" type="submit" disabled={pending}>{pending && <LoaderCircle className="topic-loading__spinner" size={15} aria-hidden="true" />}确认并完成处置</button>
     </form> : <p className="report-readonly-note">该举报已完成处理，仅保留查看权限。</p>}
+    {pendingDecision ? <ConfirmDialog
+      title="确认举报处置"
+      confirmLabel="确认执行处置"
+      busy={pending}
+      returnFocus={confirmationReturnFocusRef.current}
+      onCancel={() => setPendingDecision(null)}
+      onConfirm={() => void confirmDecision()}
+    >
+      <p>即将执行：{pendingDecision.effects}。</p>
+      <p>内容、作者账号与举报结论会在一次写入中生效，并记录审计信息。</p>
+    </ConfirmDialog> : null}
   </div>
 }
 

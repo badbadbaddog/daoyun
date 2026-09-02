@@ -113,7 +113,6 @@ describe("ReportAdminPanel", () => {
 
   it("confirms and submits content plus user actions as one moderation decision", async () => {
     const user = userEvent.setup()
-    vi.spyOn(window, "confirm").mockReturnValue(true)
     render(<ReportAdminPanel requestedStatus="all" onStatusChange={vi.fn()} csrfToken="csrf-token" canResolve />)
     await user.click(await screen.findByRole("button", { name: /查看举报：待审核主题/ }))
 
@@ -122,9 +121,15 @@ describe("ReportAdminPanel", () => {
     await user.type(screen.getByLabelText("作者处置原因"), "广告账号")
     await user.type(screen.getByLabelText("对举报人的说明"), "内容违反社区规则")
     await user.type(screen.getByLabelText("内部处理备注"), "已核对上下文并处置")
-    await user.click(screen.getByRole("button", { name: "确认并完成处置" }))
+    const submit = screen.getByRole("button", { name: "确认并完成处置" })
+    await user.click(submit)
 
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("隐藏内容、限制作者账号、解决举报"))
+    const dialog = screen.getByRole("alertdialog", { name: "确认举报处置" })
+    expect(within(dialog).getByText(/隐藏内容、限制作者账号、解决举报/)).toBeInTheDocument()
+    expect(within(dialog).getByRole("button", { name: "取消" })).toHaveFocus()
+    expect(moderateAdminReport).not.toHaveBeenCalled()
+    await user.click(within(dialog).getByRole("button", { name: "确认执行处置" }))
+
     expect(moderateAdminReport).toHaveBeenCalledWith(report.id, {
       disposition: "resolved",
       contentAction: "hide",

@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, LoaderCircle, Settings2 } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import {
   AdminUsersApiError,
@@ -8,6 +8,7 @@ import {
   type AdminUserStatus,
   type AdminUserStatusUpdate,
 } from "../api/adminUsers"
+import { ConfirmDialog } from "./ui/ConfirmDialog"
 
 interface UserStatusActionProps {
   detail: AdminUserDetail
@@ -17,6 +18,13 @@ interface UserStatusActionProps {
 }
 
 type DurationOption = "7d" | "30d" | "permanent"
+
+type PendingStatusChange = {
+  status: AdminUserStatus
+  reason: string
+  expiresAt: string | null
+  impact: string
+}
 
 const actionLabels: Record<AdminUserStatus, string> = {
   active: "恢复正常",
@@ -32,6 +40,8 @@ export function UserStatusAction({ detail, csrfToken, onUpdated, onReload }: Use
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState("")
   const [result, setResult] = useState<AdminUserStatusUpdate | null>(null)
+  const [pendingChange, setPendingChange] = useState<PendingStatusChange | null>(null)
+  const confirmationReturnFocusRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     setStatus(nextAction(detail.status))
@@ -39,6 +49,7 @@ export function UserStatusAction({ detail, csrfToken, onUpdated, onReload }: Use
     setDuration("permanent")
     setError("")
     setResult(null)
+    setPendingChange(null)
   }, [detail.id])
 
   async function submit(event: React.FormEvent) {
@@ -60,19 +71,24 @@ export function UserStatusAction({ detail, csrfToken, onUpdated, onReload }: Use
       : status === "restricted"
         ? `确认限制 ${detail.displayName} 发布主题、回复、私信和上传附件？期限：${expiryLabel}。`
         : `确认暂停 ${detail.displayName} 的账号并使现有会话失效？期限：${expiryLabel}。`
-    if (!window.confirm(impact)) return
+    confirmationReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setPendingChange({ status, reason: status === "active" ? "" : normalizedReason, expiresAt, impact })
+  }
 
+  async function confirmStatusChange() {
+    if (!pendingChange) return
     setSubmitting(true)
     setError("")
     setResult(null)
     try {
       const update = await updateAdminUserStatus(detail.id, {
-        status,
-        reason: status === "active" ? "" : normalizedReason,
-        expiresAt,
+        status: pendingChange.status,
+        reason: pendingChange.reason,
+        expiresAt: pendingChange.expiresAt,
         expectedRevision: detail.revision,
       }, csrfToken)
       setResult(update)
+      setPendingChange(null)
       setOpen(false)
       onUpdated(update)
     } catch (reasonValue) {
@@ -109,6 +125,18 @@ export function UserStatusAction({ detail, csrfToken, onUpdated, onReload }: Use
         <button className="primary-button" type="submit" disabled={submitting}>{submitting ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" /> : null}确认提交</button>
       </div>
     </form> : null}
+    {pendingChange ? <ConfirmDialog
+      title="确认账号状态变更"
+      confirmLabel={pendingChange.status === "active" ? "确认恢复账号" : pendingChange.status === "restricted" ? "确认限制账号" : "确认暂停账号"}
+      danger={pendingChange.status !== "active"}
+      busy={submitting}
+      returnFocus={confirmationReturnFocusRef.current}
+      onCancel={() => setPendingChange(null)}
+      onConfirm={() => void confirmStatusChange()}
+    >
+      <p>{pendingChange.impact}</p>
+      <p>该操作会进入审计日志。</p>
+    </ConfirmDialog> : null}
     {result ? <p className="admin-success user-admin-action-result" role="status"><CheckCircle2 size={14} aria-hidden="true" />{result.actor.displayName} 已执行“{actionLabels[result.status]}” · {result.status === "active" ? "立即生效" : result.expiresAt ? `到期 ${formatExpiry(result.expiresAt)}` : "永久有效"} · {formatChangedAt(result.changedAt)} <span>审计编号</span> {result.auditId}</p> : null}
   </section>
 }

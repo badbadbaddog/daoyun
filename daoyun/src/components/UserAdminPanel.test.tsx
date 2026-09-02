@@ -1,8 +1,8 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { createAuthorizationAssignment, listAdminAudit, listAuthorizationAssignments, listAuthorizationRoles } from "../api/admin"
+import { createAuthorizationAssignment, deleteAuthorizationAssignment, listAdminAudit, listAuthorizationAssignments, listAuthorizationRoles } from "../api/admin"
 import { AdminUsersApiError, getAdminUser, listAdminUserContent, listAdminUsers, updateAdminUserStatus } from "../api/adminUsers"
 import { listAdminUserReports } from "../api/reports"
 import { UserAdminPanel } from "./UserAdminPanel"
@@ -14,7 +14,7 @@ vi.mock("../api/adminUsers", async () => {
 
 vi.mock("../api/admin", async () => {
   const actual = await vi.importActual<typeof import("../api/admin")>("../api/admin")
-  return { ...actual, createAuthorizationAssignment: vi.fn(), listAdminAudit: vi.fn(), listAuthorizationAssignments: vi.fn(), listAuthorizationRoles: vi.fn() }
+  return { ...actual, createAuthorizationAssignment: vi.fn(), deleteAuthorizationAssignment: vi.fn(), listAdminAudit: vi.fn(), listAuthorizationAssignments: vi.fn(), listAuthorizationRoles: vi.fn() }
 })
 
 vi.mock("../api/reports", async () => {
@@ -47,6 +47,7 @@ beforeEach(() => {
   vi.mocked(listAuthorizationRoles).mockReset().mockResolvedValue([])
   vi.mocked(listAuthorizationAssignments).mockReset().mockResolvedValue({ assignments: [], nextCursor: null })
   vi.mocked(createAuthorizationAssignment).mockReset()
+  vi.mocked(deleteAuthorizationAssignment).mockReset().mockResolvedValue(true)
   vi.mocked(listAdminAudit).mockReset().mockResolvedValue({ entries: [{
     id: secondUserId,
     actor: { id: secondUserId, username: "owner", displayName: "站长", avatarUrl: null },
@@ -137,7 +138,6 @@ describe("UserAdminPanel", () => {
 
   it("hides write actions without capabilities and confirms a status change when allowed", async () => {
     const user = userEvent.setup()
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true)
     const { rerender } = render(<UserAdminPanel />)
     await user.click(await screen.findByRole("button", { name: /社区成员/ }))
     expect(await screen.findByRole("heading", { name: "社区成员" })).toBeInTheDocument()
@@ -149,13 +149,18 @@ describe("UserAdminPanel", () => {
     await user.clear(screen.getByLabelText("操作原因"))
     await user.type(screen.getByLabelText("操作原因"), "严重违规")
     await user.selectOptions(screen.getByLabelText("限制期限"), "permanent")
-    await user.click(screen.getByRole("button", { name: "确认提交" }))
+    const submit = screen.getByRole("button", { name: "确认提交" })
+    await user.click(submit)
+
+    const dialog = screen.getByRole("alertdialog", { name: "确认账号状态变更" })
+    expect(dialog).toHaveTextContent("永久，直到手动恢复")
+    expect(within(dialog).getByRole("button", { name: "取消" })).toHaveFocus()
+    expect(updateAdminUserStatus).not.toHaveBeenCalled()
+    await user.click(within(dialog).getByRole("button", { name: "确认暂停账号" }))
 
     await waitFor(() => expect(updateAdminUserStatus).toHaveBeenCalledWith(userId, {
       status: "suspended", reason: "严重违规", expiresAt: null, expectedRevision: 2,
     }, "csrf-token"))
-    expect(confirm).toHaveBeenCalled()
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("永久，直到手动恢复"))
     expect(await screen.findByRole("status")).toHaveTextContent("站长")
     expect(screen.getByRole("status")).toHaveTextContent("永久有效")
     expect(screen.getByRole("status")).toHaveTextContent("操作于")
@@ -202,6 +207,31 @@ describe("UserAdminPanel", () => {
     }, "csrf-token"))
     expect(screen.queryByRole("textbox", { name: /用户名/ })).not.toBeInTheDocument()
     expect(await screen.findByText("角色已分配给社区成员")).toBeInTheDocument()
+  })
+
+  it("requires confirmation before removing a user's custom role", async () => {
+    const assignmentId = "019fc800-0000-7000-8000-000000000099"
+    vi.mocked(listAuthorizationAssignments).mockResolvedValue({ assignments: [{
+      id: assignmentId,
+      user: { id: userId, username: "member", displayName: "社区成员", avatarUrl: null },
+      role: { id: userId, key: "moderator", name: "版主", scope: "site", isSystem: false, revision: 1 },
+      scopeId: null,
+      assignedBy: { id: secondUserId, username: "owner", displayName: "站长", avatarUrl: null },
+      createdAt: "2026-08-12T08:00:00Z",
+    }], nextCursor: null })
+    const user = userEvent.setup()
+    render(<UserAdminPanel canAssignRoles csrfToken="csrf-token" />)
+    await user.click(await screen.findByRole("button", { name: /社区成员/ }))
+
+    const trigger = await screen.findByRole("button", { name: "移除版主角色" })
+    await user.click(trigger)
+    const dialog = screen.getByRole("alertdialog", { name: "移除“版主”角色" })
+    expect(within(dialog).getByRole("button", { name: "取消" })).toHaveFocus()
+    expect(deleteAuthorizationAssignment).not.toHaveBeenCalled()
+
+    await user.click(within(dialog).getByRole("button", { name: "确认移除角色" }))
+    await waitFor(() => expect(deleteAuthorizationAssignment).toHaveBeenCalledWith(assignmentId, "csrf-token"))
+    expect(await screen.findByText("已移除社区成员的“版主”角色")).toBeInTheDocument()
   })
 
   it("shows capability-protected management records without rendering internal summaries", async () => {

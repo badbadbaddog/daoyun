@@ -1,5 +1,5 @@
 import { Box, LoaderCircle, Play, Power, PowerOff, Trash2, Upload } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import {
   PluginApiError,
@@ -20,6 +20,7 @@ import {
   type PluginUiContribution,
   type PluginUiSchema,
 } from "../api/plugins"
+import { ConfirmDialog } from "./ui/ConfirmDialog"
 
 const MAX_COMPONENT_BYTES = 8 * 1024 * 1024
 const DEFAULT_UI_INPUT = JSON.stringify({
@@ -85,6 +86,8 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
   const [schemas, setSchemas] = useState<Record<string, PluginUiSchema>>({})
   const [contributions, setContributions] = useState<Record<string, PluginUiContribution[]>>({})
   const [contributionErrors, setContributionErrors] = useState<Record<string, string>>({})
+  const [pendingRemoval, setPendingRemoval] = useState<Plugin | null>(null)
+  const confirmationReturnFocusRef = useRef<HTMLElement | null>(null)
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const loaded = await listPlugins(signal)
@@ -211,13 +214,14 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
   }
 
   async function remove(plugin: Plugin) {
-    if (!window.confirm(`确定卸载插件“${plugin.name}”吗？`)) return
     setBusyId(plugin.id); setError(""); setNotice("")
     try {
       await deletePlugin(plugin.id, csrfToken)
       setPlugins((current) => current.filter((item) => item.id !== plugin.id))
+      setPendingRemoval(null)
       setNotice("插件已卸载")
     } catch (reason) {
+      setPendingRemoval(null)
       setError(apiMessage(reason, "插件卸载失败，请稍后重试。"))
     } finally {
       setBusyId(null)
@@ -306,7 +310,7 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
                   {plugin.status === "enabled" ? <PowerOff size={14} aria-hidden="true" /> : <Power size={14} aria-hidden="true" />}
                   {plugin.status === "enabled" ? "停用" : "启用"}
                 </button>
-                {plugin.status === "disabled" && <button className="secondary-button" type="button" disabled={busyId === plugin.id} onClick={() => void remove(plugin)} aria-label={`卸载插件：${plugin.name}`}><Trash2 size={14} aria-hidden="true" />卸载</button>}
+                {plugin.status === "disabled" && <button className="secondary-button" type="button" disabled={busyId === plugin.id} onClick={(event) => { confirmationReturnFocusRef.current = event.currentTarget; setPendingRemoval(plugin) }} aria-label={`卸载插件：${plugin.name}`}><Trash2 size={14} aria-hidden="true" />卸载</button>}
               </div>}
               {canInvoke && plugin.status === "enabled" && <details className="plugin-runner">
                 <summary>开发者工具</summary>
@@ -347,6 +351,18 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
           ))}
         </div>
       )}
+
+      {pendingRemoval && <ConfirmDialog
+        title={`卸载插件“${pendingRemoval.name}”`}
+        confirmLabel="确认卸载插件"
+        busy={busyId === pendingRemoval.id}
+        returnFocus={confirmationReturnFocusRef.current}
+        onCancel={() => setPendingRemoval(null)}
+        onConfirm={() => void remove(pendingRemoval)}
+      >
+        <p>卸载后该插件将从当前站点移除。已停用插件不会继续执行任何扩展逻辑。</p>
+        <p>Manifest、WIT / ABI 与 capability 安全边界不会因此放宽。</p>
+      </ConfirmDialog>}
 
       {canInstall && <form className="admin-form plugin-install" onSubmit={submitInstall}>
         <div className="admin-form__heading"><h3>安装插件</h3><span className="admin-badge">默认停用</span></div>

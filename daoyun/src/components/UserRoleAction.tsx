@@ -1,5 +1,5 @@
 import { LoaderCircle, ShieldCheck, Trash2 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import {
   AdminApiError,
@@ -12,6 +12,7 @@ import {
   type AuthorizationRoleAssignment,
 } from "../api/admin"
 import type { AdminUserDetail, AdminUserRole } from "../api/adminUsers"
+import { ConfirmDialog } from "./ui/ConfirmDialog"
 
 interface UserRoleActionProps {
   detail: AdminUserDetail
@@ -30,11 +31,14 @@ export function UserRoleAction({ detail, csrfToken, boards, onRoleAssigned, onRo
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState("")
   const [message, setMessage] = useState("")
+  const [pendingRemoval, setPendingRemoval] = useState<AuthorizationRoleAssignment | null>(null)
+  const confirmationReturnFocusRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
     setLoading(true)
     setError("")
+    setPendingRemoval(null)
     Promise.all([
       listAuthorizationRoles(controller.signal),
       listAuthorizationAssignments({ username: detail.username, limit: 50, signal: controller.signal }),
@@ -80,7 +84,6 @@ export function UserRoleAction({ detail, csrfToken, boards, onRoleAssigned, onRo
   }
 
   async function remove(assignment: AuthorizationRoleAssignment) {
-    if (!window.confirm(`确认移除“${assignment.role.name}”角色？`)) return
     setSubmitting(true)
     setError("")
     setMessage("")
@@ -88,6 +91,7 @@ export function UserRoleAction({ detail, csrfToken, boards, onRoleAssigned, onRo
       await deleteAuthorizationAssignment(assignment.id, csrfToken)
       setAssignments((current) => current.filter((item) => item.id !== assignment.id))
       setMessage(`已移除${detail.displayName}的“${assignment.role.name}”角色`)
+      setPendingRemoval(null)
       onRoleRemoved(assignment.role.id)
     } catch (reason) {
       setError(reason instanceof AdminApiError ? reason.message : "角色暂时无法移除")
@@ -110,9 +114,19 @@ export function UserRoleAction({ detail, csrfToken, boards, onRoleAssigned, onRo
       </form>
       {assignments.filter((assignment) => !assignment.role.isSystem).map((assignment) => <div className="user-admin-role-assignment" key={assignment.id}>
         <span>{assignment.role.name}<small>{scopeLabel(assignment.role.scope)}</small></span>
-        <button className="icon-button" type="button" aria-label={`移除${assignment.role.name}角色`} title={`移除${assignment.role.name}角色`} disabled={submitting} onClick={() => void remove(assignment)}><Trash2 size={14} aria-hidden="true" /></button>
+        <button className="icon-button" type="button" aria-label={`移除${assignment.role.name}角色`} title={`移除${assignment.role.name}角色`} disabled={submitting} onClick={(event) => { confirmationReturnFocusRef.current = event.currentTarget; setPendingRemoval(assignment) }}><Trash2 size={14} aria-hidden="true" /></button>
       </div>)}
     </>}
+    {pendingRemoval ? <ConfirmDialog
+      title={`移除“${pendingRemoval.role.name}”角色`}
+      confirmLabel="确认移除角色"
+      busy={submitting}
+      returnFocus={confirmationReturnFocusRef.current}
+      onCancel={() => setPendingRemoval(null)}
+      onConfirm={() => void remove(pendingRemoval)}
+    >
+      <p>将从 {detail.displayName} 移除此角色分配，相关权限会立即失效。</p>
+    </ConfirmDialog> : null}
     {error ? <p role="alert">{error}</p> : null}
     {message ? <p className="admin-success" role="status">{message}</p> : null}
   </div>

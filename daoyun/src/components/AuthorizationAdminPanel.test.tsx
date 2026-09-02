@@ -119,4 +119,26 @@ describe("AuthorizationAdminPanel", () => {
       expectedRevision: 1,
     }, csrfToken))
   })
+
+  it("cancels and confirms a destructive role deletion without using a browser prompt", async () => {
+    const user = userEvent.setup()
+    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} />)
+    await screen.findByRole("heading", { name: "角色与权限" })
+
+    const trigger = screen.getByRole("button", { name: "删除角色：版主" })
+    await user.click(trigger)
+    const dialog = screen.getByRole("alertdialog", { name: "删除角色“版主”" })
+    expect(screen.getByRole("button", { name: "取消" })).toHaveFocus()
+    expect(deleteAuthorizationRole).not.toHaveBeenCalled()
+
+    await user.keyboard("{Escape}")
+    expect(screen.queryByRole("alertdialog", { name: "删除角色“版主”" })).not.toBeInTheDocument()
+    await waitFor(() => expect(trigger).toHaveFocus())
+
+    await user.click(trigger)
+    await user.click(screen.getByRole("button", { name: "确认删除角色" }))
+    await waitFor(() => expect(deleteAuthorizationRole).toHaveBeenCalledWith(customRole.id, csrfToken))
+    expect(await screen.findByText("角色已删除")).toBeInTheDocument()
+    expect(dialog).not.toBeInTheDocument()
+  })
 })

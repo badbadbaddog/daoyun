@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -186,6 +186,43 @@ describe("TopicComposer", () => {
     expect(createTopic).toHaveBeenCalledTimes(2)
     expect(vi.mocked(createTopic).mock.calls[1][1].idempotencyKey)
       .toBe(vi.mocked(createTopic).mock.calls[0][1].idempotencyKey)
+  })
+
+  it("uses an in-app confirmation before discarding unsaved edits", async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(
+      <TopicComposer
+        open
+        boards={boards}
+        session={session}
+        onClose={onClose}
+        onPublished={vi.fn()}
+      />,
+    )
+
+    await user.click(screen.getByRole("button", { name: "添加标题" }))
+    const title = screen.getByRole("textbox", { name: "标题（可选）" })
+    fireEvent.change(title, { target: { value: "尚未保存的新修改" } })
+    const close = screen.getByRole("button", { name: "关闭发布窗口" })
+    close.focus()
+    fireEvent.click(close)
+
+    const dialog = screen.getByRole("alertdialog", { name: "关闭发布窗口？" })
+    expect(onClose).not.toHaveBeenCalled()
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "取消" })).toHaveFocus())
+    expect(screen.getByRole("dialog", { name: "发布内容" })).toBeInTheDocument()
+
+    await user.keyboard("{Escape}")
+    expect(screen.queryByRole("alertdialog", { name: "关闭发布窗口？" })).not.toBeInTheDocument()
+    await waitFor(() => expect(close).toHaveFocus())
+    expect(onClose).not.toHaveBeenCalled()
+
+    fireEvent.change(title, { target: { value: "第二次未保存修改" } })
+    fireEvent.click(close)
+    const reopened = screen.getByRole("alertdialog", { name: "关闭发布窗口？" })
+    await user.click(within(reopened).getByRole("button", { name: "确认关闭" }))
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it("traps focus, locks background scrolling and restores the opener", async () => {

@@ -95,6 +95,27 @@ describe("PluginAdminPanel", () => {
     expect(screen.queryByLabelText("调用输入：Identity plugin")).not.toBeInTheDocument()
   })
 
+  it("requires an accessible confirmation before uninstalling a disabled plugin", async () => {
+    const user = userEvent.setup()
+    render(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle canInvoke={false} />)
+    await screen.findByText("identity_plugin · 1.0.0")
+
+    const trigger = screen.getByRole("button", { name: "卸载插件：Identity plugin" })
+    await user.click(trigger)
+    const dialog = screen.getByRole("alertdialog", { name: "卸载插件“Identity plugin”" })
+    expect(within(dialog).getByRole("button", { name: "取消" })).toHaveFocus()
+    expect(deletePlugin).not.toHaveBeenCalled()
+
+    await user.keyboard("{Escape}")
+    expect(screen.queryByRole("alertdialog", { name: "卸载插件“Identity plugin”" })).not.toBeInTheDocument()
+    await waitFor(() => expect(trigger).toHaveFocus())
+
+    await user.click(trigger)
+    await user.click(screen.getByRole("button", { name: "确认卸载插件" }))
+    await waitFor(() => expect(deletePlugin).toHaveBeenCalledWith(plugin.id, "csrf"))
+    expect(await screen.findByText("插件已卸载")).toBeInTheDocument()
+  })
+
   it("rejects an oversized component before reading or uploading it", async () => {
     const user = userEvent.setup()
     render(<PluginAdminPanel csrfToken="csrf" canInstall canLifecycle canInvoke />)

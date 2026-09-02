@@ -10,6 +10,7 @@ import type { Board, TopicTag } from "../types/community"
 import { parseTopicTags } from "../utils/tags"
 import { plainTextDocument, sanitizeRichContent, toPlainText, type RichTextDocument } from "../editor/richContent"
 import { RichTextEditor } from "./RichTextEditor"
+import { ConfirmDialog } from "./ui/ConfirmDialog"
 
 interface TopicComposerProps {
   open: boolean
@@ -22,6 +23,7 @@ interface TopicComposerProps {
 }
 
 type FieldErrors = Record<string, string[]>
+type ComposerCloseOptions = { skipConfirm?: boolean; clearDraft?: boolean }
 
 interface ComposerDraft {
   version: 1
@@ -36,6 +38,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
   const titleRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const submittingRef = useRef(false)
+  const closeConfirmationOpenRef = useRef(false)
   const idempotencyKeyRef = useRef<string | null>(null)
   const savedDraftSnapshotRef = useRef("")
   const restoredDraftKeyRef = useRef<string | null>(null)
@@ -48,7 +51,9 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [formError, setFormError] = useState("")
   const [submitting, setSubmitting] = useState(false)
+  const [closeConfirmation, setCloseConfirmation] = useState<{ options: ComposerCloseOptions; returnFocus: HTMLElement | null } | null>(null)
   submittingRef.current = submitting
+  closeConfirmationOpenRef.current = closeConfirmation !== null
 
   const draftKey = useMemo(
     () => composerDraftKey(session?.user.id ?? "guest", defaultBoardId),
@@ -76,6 +81,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
 
   useEffect(() => {
     if (!open) {
+      setCloseConfirmation(null)
       restoredDraftKeyRef.current = null
       return
     }
@@ -129,10 +135,10 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
     document.body.style.overflow = "hidden"
     /* body editor owns initial focus */
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !submittingRef.current) close()
+      if (event.key === "Escape" && !submittingRef.current && !closeConfirmationOpenRef.current) requestClose()
     }
     const handleTab = (event: KeyboardEvent) => {
-      if (event.key !== "Tab") return
+      if (event.key !== "Tab" || closeConfirmationOpenRef.current) return
       const focusable = dialogRef.current
         ? Array.from(dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
           .filter((element) => !element.hasAttribute("disabled") && element.tabIndex >= 0)
@@ -161,11 +167,21 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
     }
   }, [open])
 
-  function close(options: { skipConfirm?: boolean; clearDraft?: boolean } = {}) {
+  function requestClose(options: ComposerCloseOptions = {}) {
     const snapshot = composerDraftSnapshot(title, richContent, boardId, tagInput)
     const hasUnsavedChanges = hasComposerDraftContent(title, content, tagInput)
       && snapshot !== savedDraftSnapshotRef.current
-    if (!options.skipConfirm && hasUnsavedChanges && !window.confirm("还有尚未保存的编辑内容，确定关闭吗？")) return
+    if (!options.skipConfirm && hasUnsavedChanges) {
+      setCloseConfirmation({
+        options,
+        returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+      })
+      return
+    }
+    performClose(options)
+  }
+
+  function performClose(options: ComposerCloseOptions = {}) {
     if (options.clearDraft) removeComposerDraft(draftKey)
     setTitle("")
     setTitleVisible(false)
@@ -223,7 +239,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
           idempotencyKey,
         },
       )
-      close({ skipConfirm: true, clearDraft: true })
+      performClose({ clearDraft: true })
       onPublished(topic)
     } catch (error) {
       if (error instanceof TopicApiError) {
@@ -243,7 +259,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
 
   return (
     <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.currentTarget === event.target && !submitting) close()
+      if (event.currentTarget === event.target && !submitting && !closeConfirmation) requestClose()
     }}>
       <div ref={dialogRef} className="composer-dialog" role="dialog" aria-modal="true" aria-labelledby="composer-title">
         <div className="dialog-header">
@@ -251,7 +267,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
             <p>{selectedBoard?.name ?? "社区广场"}</p>
             <h2 id="composer-title">发布内容</h2>
           </div>
-          <button className="icon-button" type="button" onClick={() => close()} disabled={submitting} aria-label="关闭发布窗口" title="关闭">
+          <button className="icon-button" type="button" onClick={() => requestClose()} disabled={submitting} aria-label="关闭发布窗口" title="关闭">
             <X size={19} aria-hidden="true" />
           </button>
         </div>
@@ -352,6 +368,21 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
           </div>
         </form>
       </div>
+      {closeConfirmation && <ConfirmDialog
+        title="关闭发布窗口？"
+        confirmLabel="确认关闭"
+        busy={submitting}
+        returnFocus={closeConfirmation.returnFocus}
+        onCancel={() => setCloseConfirmation(null)}
+        onConfirm={() => {
+          const options = closeConfirmation.options
+          setCloseConfirmation(null)
+          performClose(options)
+        }}
+      >
+        <p>还有尚未保存到本地草稿的编辑内容。现在关闭可能丢失最近的修改。</p>
+        <p>建议取消后等待“本地草稿自动保存”，或确认关闭并放弃这些未保存修改。</p>
+      </ConfirmDialog>}
     </div>
   )
 }

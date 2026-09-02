@@ -1,5 +1,5 @@
 import { KeyRound, LoaderCircle, Pencil, Plus, RefreshCw, Save, ShieldCheck, Trash2, UserPlus, X } from "lucide-react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import {
   AdminApiError,
@@ -13,6 +13,7 @@ import {
   updateAuthorizationRole,
 } from "../api/admin"
 import type { AdminBoard, AuthorizationPermission, AuthorizationRole, AuthorizationRoleAssignment, AuthorizationRoleScope } from "../api/admin"
+import { ConfirmDialog } from "./ui/ConfirmDialog"
 
 interface AuthorizationAdminPanelProps {
   csrfToken: string
@@ -25,6 +26,10 @@ interface RoleDraft {
   scope: AuthorizationRoleScope
   permissionKeys: string[]
 }
+
+type AuthorizationConfirmation =
+  | { kind: "role"; role: AuthorizationRole }
+  | { kind: "assignment"; assignment: AuthorizationRoleAssignment }
 
 const emptyRole: RoleDraft = { key: "", name: "", scope: "instance", permissionKeys: [] }
 
@@ -42,6 +47,8 @@ export function AuthorizationAdminPanel({ csrfToken, boards }: AuthorizationAdmi
   const [username, setUsername] = useState("")
   const [assignmentRoleId, setAssignmentRoleId] = useState("")
   const [assignmentScopeId, setAssignmentScopeId] = useState("")
+  const [confirmation, setConfirmation] = useState<AuthorizationConfirmation | null>(null)
+  const confirmationReturnFocusRef = useRef<HTMLElement | null>(null)
 
   const loadData = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
@@ -111,13 +118,13 @@ export function AuthorizationAdminPanel({ csrfToken, boards }: AuthorizationAdmi
   }
 
   async function removeRole(role: AuthorizationRole) {
-    if (!window.confirm(`确定删除角色“${role.name}”吗？`)) return
     setBusy(true); setError(""); setMessage("")
     try {
       await deleteAuthorizationRole(role.id, csrfToken)
       setRoles((values) => values.filter((value) => value.id !== role.id))
       if (assignmentRoleId === role.id) setAssignmentRoleId("")
       setMessage("角色已删除")
+      setConfirmation(null)
     } catch (reason) { setError(apiMessage(reason, "角色删除失败，请稍后重试。")) } finally { setBusy(false) }
   }
 
@@ -135,13 +142,13 @@ export function AuthorizationAdminPanel({ csrfToken, boards }: AuthorizationAdmi
   }
 
   async function revokeAssignment(assignment: AuthorizationRoleAssignment) {
-    if (!window.confirm(`确定撤销 ${assignment.user.username} 的“${assignment.role.name}”角色吗？`)) return
     setBusy(true); setError(""); setMessage("")
     try {
       await deleteAuthorizationAssignment(assignment.id, csrfToken)
       setAssignments((values) => values.filter((value) => value.id !== assignment.id))
       setRoles((values) => values.map((role) => role.id === assignment.role.id ? { ...role, assignmentCount: Math.max(0, role.assignmentCount - 1) } : role))
       setMessage("角色分配已撤销")
+      setConfirmation(null)
     } catch (reason) { setError(apiMessage(reason, "撤销失败，请稍后重试。")) } finally { setBusy(false) }
   }
 
@@ -175,7 +182,7 @@ export function AuthorizationAdminPanel({ csrfToken, boards }: AuthorizationAdmi
               <div>
                 {role.isSystem ? <span className="admin-badge"><ShieldCheck size={13} aria-hidden="true" />系统只读</span> : <>
                   <button className="icon-button" type="button" onClick={() => editRole(role)} aria-label={`编辑角色：${role.name}`} title="编辑"><Pencil size={15} /></button>
-                  <button className="icon-button" type="button" onClick={() => void removeRole(role)} disabled={role.assignmentCount > 0 || busy} aria-label={`删除角色：${role.name}`} title={role.assignmentCount > 0 ? "请先撤销全部分配" : "删除"}><Trash2 size={15} /></button>
+                  <button className="icon-button" type="button" onClick={(event) => { confirmationReturnFocusRef.current = event.currentTarget; setConfirmation({ kind: "role", role }) }} disabled={role.assignmentCount > 0 || busy} aria-label={`删除角色：${role.name}`} title={role.assignmentCount > 0 ? "请先撤销全部分配" : "删除"}><Trash2 size={15} /></button>
                 </>}
               </div>
             </article>
@@ -206,9 +213,24 @@ export function AuthorizationAdminPanel({ csrfToken, boards }: AuthorizationAdmi
             : <input value={assignmentScopeId} onChange={(event) => setAssignmentScopeId(event.target.value)} placeholder="板块 UUID" pattern="[0-9a-fA-F-]{36}" required />}</label>}
           <button className="primary-button" type="submit" disabled={busy || !selectedAssignmentRole || (selectedAssignmentRole.scope === "board" && !assignmentScopeId)}><UserPlus size={15} aria-hidden="true" />分配角色</button>
         </form>
-        {assignments.length === 0 ? <div className="admin-empty" role="status"><KeyRound size={21} aria-hidden="true" /><span>暂无自定义角色分配</span></div> : <div className="authorization-assignment-list">{assignments.map((assignment) => <article className="authorization-assignment-row" key={assignment.id}><div><strong>{assignment.user.username}</strong><span>{assignment.user.displayName} · {assignment.role.name} · {assignment.scopeId ? boardName(boards, assignment.scopeId) : scopeLabel(assignment.role.scope)}</span></div><button className="secondary-button" type="button" onClick={() => void revokeAssignment(assignment)} disabled={busy}><Trash2 size={14} aria-hidden="true" />撤销</button></article>)}</div>}
+        {assignments.length === 0 ? <div className="admin-empty" role="status"><KeyRound size={21} aria-hidden="true" /><span>暂无自定义角色分配</span></div> : <div className="authorization-assignment-list">{assignments.map((assignment) => <article className="authorization-assignment-row" key={assignment.id}><div><strong>{assignment.user.username}</strong><span>{assignment.user.displayName} · {assignment.role.name} · {assignment.scopeId ? boardName(boards, assignment.scopeId) : scopeLabel(assignment.role.scope)}</span></div><button className="secondary-button" type="button" onClick={(event) => { confirmationReturnFocusRef.current = event.currentTarget; setConfirmation({ kind: "assignment", assignment }) }} disabled={busy}><Trash2 size={14} aria-hidden="true" />撤销</button></article>)}</div>}
         {nextCursor && <button className="secondary-button authorization-load-more" type="button" onClick={() => void loadMore()} disabled={busy}>加载更多分配</button>}
       </section>
+      {confirmation && <ConfirmDialog
+        title={confirmation.kind === "role" ? `删除角色“${confirmation.role.name}”` : "撤销角色分配"}
+        confirmLabel={confirmation.kind === "role" ? "确认删除角色" : "确认撤销角色"}
+        busy={busy}
+        returnFocus={confirmationReturnFocusRef.current}
+        onCancel={() => setConfirmation(null)}
+        onConfirm={() => {
+          if (confirmation.kind === "role") void removeRole(confirmation.role)
+          else void revokeAssignment(confirmation.assignment)
+        }}
+      >
+        <p>{confirmation.kind === "role"
+          ? "删除后该自定义角色将无法继续分配；已有分配必须先撤销。"
+          : `将撤销 ${confirmation.assignment.user.username} 的“${confirmation.assignment.role.name}”角色分配。`}</p>
+      </ConfirmDialog>}
     </div>
   )
 }
