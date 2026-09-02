@@ -123,10 +123,10 @@ async fn topic_filters_use_full_text_search_and_support_each_sort(pool: PgPool) 
     insert_user(&pool, author, "author", "active").await;
     insert_board(&pool, board, "general", "public").await;
 
-    for (id, title, published_at, hot_score, featured) in [
-        (101, "100% Rust", "2026-08-01T10:00:00Z", 10, true),
-        (102, "1000 Rust", "2026-08-01T11:00:00Z", 100, false),
-        (103, "quiet topic", "2026-08-01T12:00:00Z", 1, true),
+    for (id, title, published_at, like_count, featured) in [
+        (101, "100% Rust", "2026-08-01T10:00:00Z", 1, true),
+        (102, "1000 Rust", "2026-08-01T11:00:00Z", 5, false),
+        (103, "quiet topic", "2026-08-01T12:00:00Z", 0, true),
     ] {
         insert_topic(
             &pool,
@@ -135,13 +135,19 @@ async fn topic_filters_use_full_text_search_and_support_each_sort(pool: PgPool) 
             author,
             title,
             published_at,
-            hot_score,
+            0,
             false,
             featured,
             "published",
             false,
         )
         .await;
+        sqlx::query("UPDATE topics SET like_count = $2 WHERE id = $1")
+            .bind(fixture_id(id))
+            .bind(like_count)
+            .execute(&pool)
+            .await
+            .expect("popularity fixture must update engagement");
     }
     sqlx::query("UPDATE topics SET last_activity_at = $2::timestamptz WHERE id = $1")
         .bind(fixture_id(101))
@@ -221,6 +227,74 @@ async fn topic_filters_use_full_text_search_and_support_each_sort(pool: PgPool) 
         .await
         .expect("active topics must load");
     assert_eq!(active[0].title, "100% Rust");
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn topic_hot_score_is_derived_from_engagement_counts(pool: PgPool) {
+    let author = fixture_id(1);
+    let board = fixture_id(11);
+    let topic = fixture_id(101);
+    insert_user(&pool, author, "author", "active").await;
+    insert_board(&pool, board, "general", "public").await;
+    insert_topic(
+        &pool,
+        topic,
+        board,
+        author,
+        "derived popularity",
+        "2026-08-03T10:00:00Z",
+        999,
+        false,
+        false,
+        "published",
+        false,
+    )
+    .await;
+
+    let inserted_score = sqlx::query_scalar::<_, i64>("SELECT hot_score FROM topics WHERE id = $1")
+        .bind(topic)
+        .fetch_one(&pool)
+        .await
+        .expect("inserted score must load");
+    assert_eq!(inserted_score, 0);
+
+    sqlx::query("UPDATE topics SET like_count = 2 WHERE id = $1")
+        .bind(topic)
+        .execute(&pool)
+        .await
+        .expect("like count must update");
+    let liked_score = sqlx::query_scalar::<_, i64>("SELECT hot_score FROM topics WHERE id = $1")
+        .bind(topic)
+        .fetch_one(&pool)
+        .await
+        .expect("liked score must load");
+    assert_eq!(liked_score, 16);
+
+    sqlx::query("UPDATE topics SET reply_count = 3 WHERE id = $1")
+        .bind(topic)
+        .execute(&pool)
+        .await
+        .expect("reply count must update");
+    let replied_score = sqlx::query_scalar::<_, i64>("SELECT hot_score FROM topics WHERE id = $1")
+        .bind(topic)
+        .fetch_one(&pool)
+        .await
+        .expect("replied score must load");
+    assert_eq!(replied_score, 52);
+
+    sqlx::query("UPDATE topics SET like_count = $2 WHERE id = $1")
+        .bind(topic)
+        .bind(i64::MAX)
+        .execute(&pool)
+        .await
+        .expect("large engagement counts must not overflow score derivation");
+    let saturated_score =
+        sqlx::query_scalar::<_, i64>("SELECT hot_score FROM topics WHERE id = $1")
+            .bind(topic)
+            .fetch_one(&pool)
+            .await
+            .expect("saturated score must load");
+    assert_eq!(saturated_score, i64::MAX);
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]

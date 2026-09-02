@@ -27,8 +27,9 @@ import {
   setUserFollowing,
   updateUserProfile,
 } from "../api/users"
-import { listUserMedals } from "../api/users"
-import type { MembershipMedal, UserProfile, UserRelation, UserRelationPage } from "../api/users"
+import type { UserProfile, UserRelation, UserRelationPage } from "../api/users"
+import { usePublicMembershipSummary } from "../features/membership/usePublicMembershipSummary"
+import { MemberIdentityBadges } from "./PublicMemberIdentity"
 import { ProfileEditForm } from "./ProfileEditForm"
 import { DeviceSessionsPanel } from "./DeviceSessionsPanel"
 import { ExternalIdentitiesPanel } from "./ExternalIdentitiesPanel"
@@ -66,7 +67,7 @@ export function UserProfileView({
   openExternalIdentities = false,
 }: UserProfileViewProps) {
   const [profile, setProfile] = useState<UserProfile | null>(null)
-  const [medals, setMedals] = useState<MembershipMedal[]>([])
+  const membershipSummary = usePublicMembershipSummary(username)
   const [topics, setTopics] = useState<TopicPage>({ topics: [], nextCursor: null })
   const [status, setStatus] = useState<LoadStatus>("loading")
   const [requestVersion, setRequestVersion] = useState(0)
@@ -111,15 +112,6 @@ export function UserProfileView({
     })
     return () => controller.abort()
   }, [username, requestVersion, session?.user.id, openExternalIdentities])
-
-  useEffect(() => {
-    const controller = new AbortController()
-    setMedals([])
-    listUserMedals(username, controller.signal)
-      .then((loaded) => { if (!controller.signal.aborted) setMedals(loaded) })
-      .catch(() => { if (!controller.signal.aborted) setMedals([]) })
-    return () => controller.abort()
-  }, [username, requestVersion])
 
   useEffect(() => {
     if (activeTab === "topics") return
@@ -231,33 +223,14 @@ export function UserProfileView({
         <div className="profile-header__identity">
           <h1 id="profile-heading">{profile.displayName}</h1>
           <p>@{profile.username}</p>
+          <MemberIdentityBadges summary={membershipSummary} variant="profile" maxMedals={0} />
         </div>
         <div className="profile-header__actions">
           {profile.viewer?.isSelf ? (
-            <>
-              <button className="secondary-button" type="button" onClick={() => setEditing((value) => !value)}>
-                <Pencil size={15} aria-hidden="true" />
-                编辑资料
-              </button>
-              <button className="secondary-button" type="button" onClick={() => setShowDeviceSessions((value) => !value)}>
-                管理设备会话
-              </button>
-              <button className="secondary-button" type="button" onClick={() => setShowPasswordChange((value) => !value)}>
-                <KeyRound size={15} aria-hidden="true" />
-                修改密码
-              </button>
-              <button className="secondary-button" type="button" onClick={() => setShowExternalIdentities((value) => !value)}>
-                <Fingerprint size={15} aria-hidden="true" />
-                登录方式
-              </button>
-              <button className="secondary-button" type="button" onClick={() => setShowPasskeys((value) => !value)}>
-                <Fingerprint size={15} aria-hidden="true" />
-                通行密钥
-              </button>
-              <button className="secondary-button" type="button" onClick={() => setShowMfa((value) => !value)}>
-                多因素认证
-              </button>
-            </>
+            <button className="secondary-button" type="button" onClick={() => setEditing((value) => !value)}>
+              <Pencil size={15} aria-hidden="true" />
+              编辑资料
+            </button>
           ) : (
             <>
               <button className={profile.viewer?.isFollowing ? "secondary-button" : "primary-button"} type="button" onClick={handleFollow} disabled={followPending}>
@@ -286,19 +259,54 @@ export function UserProfileView({
           <button type="button" onClick={() => setActiveTab("followers")}><strong>{profile.followerCount}</strong> 位关注者</button>
           <button type="button" onClick={() => setActiveTab("following")}><strong>{profile.followingCount}</strong> 个正在关注</button>
         </div>
-        {medals.length > 0 && (
-          <div className="profile-medals" aria-label="用户勋章">
-            <strong>勋章</strong>
-            <div className="profile-medals__list">
-              {medals.map((medal) => (
-                <img key={medal.key} src={medal.assetUrl} alt={medal.displayName} title={medal.displayName} loading="lazy" />
-              ))}
-            </div>
-          </div>
-        )}
         {followError && <p className="form-alert" role="alert">{followError}</p>}
         {messageError && <p className="form-alert" role="alert">{messageError}</p>}
       </header>
+
+      {membershipSummary && (
+        <section className="profile-identity-showcase" aria-label="社区身份">
+          <div className="profile-identity-showcase__level">
+            {membershipSummary.currentLevel.iconAssetUrl && (
+              <img
+                className="profile-identity-showcase__level-icon"
+                src={membershipSummary.currentLevel.iconAssetUrl}
+                alt=""
+                loading="lazy"
+              />
+            )}
+            <div>
+              <span className="profile-identity-showcase__eyebrow">成长等级</span>
+              <h2>{membershipSummary.currentLevel.displayName}</h2>
+              {membershipSummary.currentLevel.description && <p>{membershipSummary.currentLevel.description}</p>}
+            </div>
+          </div>
+
+          {membershipSummary.publicGroups.length > 0 && (
+            <div className="profile-identity-showcase__groups">
+              <strong>公开身份</strong>
+              <div>
+                {membershipSummary.publicGroups.map((group) => (
+                  <span key={group.id}>{group.displayName}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="profile-identity-showcase__medals">
+            <strong>公开勋章</strong>
+            {membershipSummary.medals.length > 0 ? (
+              <ul>
+                {membershipSummary.medals.map((medal) => (
+                  <li key={medal.key}>
+                    <img src={medal.assetUrl} alt="" loading="lazy" />
+                    <span>{medal.displayName}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : <p>还没有公开勋章</p>}
+          </div>
+        </section>
+      )}
 
       <PluginUiSurface
         slot="user_profile"
@@ -310,6 +318,38 @@ export function UserProfileView({
         subjectId={profile.id}
         csrfToken={session.csrfToken}
       /> : null}
+
+      {profile.viewer?.isSelf && session && (
+        <section className="profile-owner-tools" aria-label="仅自己可见的账号管理">
+          <div className="profile-owner-tools__heading">
+            <div>
+              <span>仅自己可见</span>
+              <h2>账号与安全</h2>
+            </div>
+            <p>管理登录凭据、设备与额外验证方式，不会展示在公开主页。</p>
+          </div>
+          <div className="profile-owner-tools__actions">
+            <button className="secondary-button" type="button" onClick={() => setShowDeviceSessions((value) => !value)}>
+              管理设备会话
+            </button>
+            <button className="secondary-button" type="button" onClick={() => setShowPasswordChange((value) => !value)}>
+              <KeyRound size={15} aria-hidden="true" />
+              修改密码
+            </button>
+            <button className="secondary-button" type="button" onClick={() => setShowExternalIdentities((value) => !value)}>
+              <Fingerprint size={15} aria-hidden="true" />
+              登录方式
+            </button>
+            <button className="secondary-button" type="button" onClick={() => setShowPasskeys((value) => !value)}>
+              <Fingerprint size={15} aria-hidden="true" />
+              通行密钥
+            </button>
+            <button className="secondary-button" type="button" onClick={() => setShowMfa((value) => !value)}>
+              多因素认证
+            </button>
+          </div>
+        </section>
+      )}
 
       {editing && <ProfileEditForm profile={profile} onSave={handleSave} onCancel={() => setEditing(false)} />}
       {showDeviceSessions && session && <DeviceSessionsPanel session={session} onClose={() => setShowDeviceSessions(false)} />}

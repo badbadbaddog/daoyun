@@ -1,0 +1,345 @@
+/* DaoYun administration experience layer.
+   Loaded after the public community layer so administration can share tokens
+   without leaking table/form shell decisions back into the public product. */
+
+.admin-view--system {
+  --admin-sidebar-width: 208px;
+  min-height: 100vh;
+  background: var(--background);
+}
+
+.admin-view--system .system-admin-header,
+.admin-view--system.admin-view--moderation .system-admin-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  grid-template-columns: var(--admin-sidebar-width) auto auto minmax(0, 1fr);
+  min-height: 58px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  color: var(--text);
+  box-shadow: none;
+}
+
+.admin-view--system .system-admin-brand {
+  min-width: 0;
+  gap: 9px;
+  border-right: 1px solid var(--border);
+  padding-inline: 16px;
+}
+
+.admin-view--system .system-admin-brand > span {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background: var(--brand);
+  color: var(--on-brand, white);
+  font-size: 15px;
+}
+
+.admin-view--system .system-admin-brand strong {
+  color: var(--text);
+  font-size: 13px;
+  letter-spacing: -.01em;
+}
+
+.admin-view--system .system-admin-brand small {
+  margin-top: 1px;
+  color: var(--text-faint);
+  font-size: 10px;
+  letter-spacing: .03em;
+}
+
+.admin-view--system .system-admin-back,
+.admin-view--system .system-admin-theme {
+  color: var(--text-soft);
+}
+
+.admin-view--system .system-admin-back:hover,
+.admin-view--system .system-admin-theme:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.admin-view--system .system-admin-account {
+  justify-self: end;
+  min-width: 132px;
+  margin-right: 16px;
+  padding-left: 16px;
+  border-left: 1px solid var(--border);
+  text-align: right;
+}
+
+.admin-view--system .system-admin-account span {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.admin-view--system .system-admin-account small {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.admin-view--system .system-admin-sidebar-account[hidden] {
+  display: none !important;
+}
+
+.admin-view--system .system-admin-page-heading {
+  min-height: 94px;
+  align-items: end;
+  padding: 22px 32px 18px;
+  border-bottom: 0;
+  background: var(--background);
+}
+
+.admin-view--system .system-admin-page-heading h1 {
+  font-size: clamp(22px, 2.5vw, 28px);
+  letter-spacing: -.035em;
+}
+
+.admin-view--system .system-admin-page-heading p {
+  max-width: 70ch;
+  margin-top: 4px;
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.admin-view--system .system-admin-content,
+.admin-view--system.admin-view--moderation .system-admin-content {
+  padding: 0 32px 48px;
+}
+
+.admin-view--system .system-admin-nav > p {
+  margin-bottom: 8px;
+  color: var(--text-faint);
+  font-size: 10px;
+  letter-spacing: .05em;
+}
+
+.admin-view--system .system-admin-nav button {
+  min-height: 38px;
+  border-radius: 6px;
+  color: var(--text-soft);
+}
+
+.admin-view--system .system-admin-nav button:hover {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.admin-view--system .system-admin-nav button[aria-current="page"],
+.admin-view--system.admin-view--moderation .system-admin-nav button[aria-current="page"] {
+  background: var(--brand-soft);
+  color: var(--brand-strong);
+}
+
+.admin-view--system.admin-view--moderation .system-admin-nav__children {
+  border-left-color: color-mix(in srgb, var(--brand) 42%, var(--border));
+}
+
+.admin-view--system.admin-view--moderation .system-admin-nav__children span[aria-current="page"] {
+  color: var(--brand-strong);
+}
+
+.admin-view--system .system-admin-main {
+  min-width: 0;
+  background: var(--background);
+}
+
+.admin-view--system .admin-panel,
+.admin-view--system .operations-admin,
+.admin-view--system .admin-state {
+  box-shadow: none;
+}
+
+.admin-view--system.admin-view--moderation .moderation-admin-panel {
+  max-width: none;
+}
+
+/* Shared task-panel language: keep business modules visually related without
+   coupling their API, permission or mutation semantics. */
+.admin-view--system .admin-panel__heading {
+  min-height: 48px;
+  align-items: center;
+  gap: 14px;
+  margin: -2px 0 16px;
+  border-bottom: 1px solid var(--border);
+  padding: 0 0 12px;
+}
+
+.admin-view--system .admin-panel__heading h2,
+.admin-view--system .operations-admin__heading h2 {
+  color: var(--text);
+  font-size: 18px;
+  letter-spacing: -.02em;
+}
+
+.admin-view--system .admin-panel__heading p,
+.admin-view--system .operations-admin__heading p,
+.admin-view--system .plugin-admin__intro {
+  color: var(--text-faint);
+}
+
+.admin-view--system .admin-badge {
+  min-height: 26px;
+  border-color: var(--border);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  padding: 3px 8px;
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.admin-view--system :is(.user-admin-filters, .admin-report-filters) {
+  gap: 8px;
+}
+
+.admin-view--system :is(.user-admin-filters, .admin-report-filters) :is(input, select, button) {
+  min-height: 38px;
+}
+
+.admin-view--system .user-admin-workspace,
+.admin-view--system .report-workspace {
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+.admin-view--system .admin-form__heading {
+  min-height: 36px;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  padding: 0 0 9px;
+}
+
+.admin-view--system .admin-form__heading h3 {
+  color: var(--text);
+  font-size: 14px;
+  letter-spacing: -.01em;
+}
+
+.admin-view--system .admin-form__heading p {
+  color: var(--text-faint);
+}
+
+.admin-view--system :is(.authorization-section, .operations-section, .plugin-row) {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: none;
+}
+
+@media (min-width: 901px) {
+  .admin-view--system .system-admin-layout,
+  .admin-view--system.admin-view--moderation .system-admin-layout {
+    display: grid;
+    grid-template-columns: var(--admin-sidebar-width) minmax(0, 1fr);
+    min-height: calc(100vh - 58px);
+  }
+
+  .admin-view--system .system-admin-sidebar,
+  .admin-view--system.admin-view--moderation .system-admin-sidebar {
+    position: sticky;
+    top: 58px;
+    display: block;
+    align-self: start;
+    height: calc(100vh - 58px);
+    min-height: 0;
+    overflow-y: auto;
+    border-right: 1px solid var(--border);
+    border-bottom: 0;
+    background: var(--surface);
+  }
+
+  .admin-view--system.admin-view--moderation .system-admin-nav {
+    display: grid;
+  }
+
+  .admin-view--system.admin-view--moderation .system-admin-mobile-nav {
+    display: none;
+  }
+
+  .admin-view--system.admin-view--moderation .moderation-admin-panel {
+    padding: 0;
+    border-radius: 6px;
+  }
+}
+
+@media (max-width: 900px) {
+  .admin-view--system .system-admin-header,
+  .admin-view--system.admin-view--moderation .system-admin-header {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    min-height: 56px;
+  }
+
+  .admin-view--system .system-admin-page-heading {
+    min-height: 78px;
+    padding: 14px 18px 12px;
+  }
+
+  .admin-view--system .system-admin-content,
+  .admin-view--system.admin-view--moderation .system-admin-content {
+    padding: 12px 18px 32px;
+  }
+
+  .admin-view--system.admin-view--moderation .system-admin-mobile-nav select:focus {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 13%, transparent);
+  }
+}
+
+@media (max-width: 560px) {
+  .admin-view--system .system-admin-brand {
+    padding-inline: 12px;
+  }
+
+  .admin-view--system .system-admin-page-heading {
+    min-height: 70px;
+    padding: 12px 14px 10px;
+  }
+
+  .admin-view--system .system-admin-page-heading h1 {
+    font-size: 20px;
+  }
+
+  .admin-view--system .system-admin-page-heading p {
+    font-size: 11px;
+  }
+
+  .admin-view--system .system-admin-content,
+  .admin-view--system.admin-view--moderation .system-admin-content {
+    padding: 10px 12px 26px;
+  }
+
+  .admin-view--system .admin-panel__heading {
+    min-height: 0;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+  }
+
+  .admin-view--system .admin-panel__heading .admin-badge {
+    align-self: flex-start;
+  }
+
+  .admin-view--system .user-admin-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-view--system .user-admin-filters > * {
+    grid-column: auto;
+  }
+
+  .admin-view--system.admin-view--moderation .moderation-admin-panel {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+  }
+}

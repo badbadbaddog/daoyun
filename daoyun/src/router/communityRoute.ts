@@ -7,7 +7,7 @@ export type CommunityRoute =
   | { kind: "boardIndex" }
   | { kind: "board"; slug: string }
   | { kind: "search"; query: string; scope: SearchScope }
-  | { kind: "topic"; topicId: string }
+  | { kind: "topic"; topicId: string; replyId?: string }
   | { kind: "user"; username: string }
   | { kind: "bookmarks" }
   | { kind: "messages"; conversationId: string | null }
@@ -40,7 +40,7 @@ const HASH_BY_FEED: Record<CommunityFeed, string> = {
 
 const SEARCH_SCOPES = new Set<SearchScope>(["all", "topics", "boards", "users", "tags"])
 const MEMBER_TABS = new Set<MemberTab>(["growth", "points", "benefits", "medals"])
-const DEFAULT_ROUTE: CommunityRoute = { kind: "feed", feed: "latest" }
+const DEFAULT_ROUTE: CommunityRoute = { kind: "feed", feed: "hot" }
 
 export function parseHash(input: string): CommunityRoute {
   const hash = stripHash(input)
@@ -69,11 +69,7 @@ export function parseHash(input: string): CommunityRoute {
   const board = hash.match(/^board\/([^/?#]+)$/)
   if (board) return boardRoute(board[1])
 
-  const topic = hash.match(/^topic\/([^/?#]+)$/)
-  if (topic) {
-    const topicId = decodeSegment(topic[1])
-    return UUID_PATTERN.test(topicId) ? { kind: "topic", topicId } : DEFAULT_ROUTE
-  }
+  if (hash.startsWith("topic/")) return parseTopic(hash)
 
   const user = hash.match(/^user\/([^/?#]+)$/)
   if (user) {
@@ -114,8 +110,13 @@ export function formatRoute(route: CommunityRoute): string {
       if (scope !== "all") params.set("type", scope)
       return `#search?${params.toString()}`
     }
-    case "topic":
-      return UUID_PATTERN.test(route.topicId) ? `#topic/${route.topicId}` : "#feed"
+    case "topic": {
+      if (!UUID_PATTERN.test(route.topicId)) return "#feed"
+      const base = `#topic/${route.topicId}`
+      return route.replyId && UUID_PATTERN.test(route.replyId)
+        ? `${base}?reply=${route.replyId}`
+        : base
+    }
     case "user":
       return USERNAME_PATTERN.test(route.username) ? `#user/${route.username}` : "#feed"
     case "bookmarks":
@@ -139,7 +140,7 @@ export function formatRoute(route: CommunityRoute): string {
 
 export function canonicalHashForLegacy(input: string): string | null {
   const hash = stripHash(input)
-  if (hash === "top") return "#feed"
+  if (hash === "top") return "#hot"
   if (hash === "discover") return "#search"
   if (/^board-/.test(hash)) {
     const route = parseHash(hash)
@@ -151,6 +152,21 @@ export function canonicalHashForLegacy(input: string): string | null {
 function boardRoute(rawSlug: string): CommunityRoute {
   const slug = decodeSegment(rawSlug)
   return BOARD_SLUG_PATTERN.test(slug) ? { kind: "board", slug } : DEFAULT_ROUTE
+}
+
+function parseTopic(hash: string): CommunityRoute {
+  const [path, queryString = ""] = hash.split("?", 2)
+  const match = path.match(/^topic\/([^/?#]+)$/)
+  if (!match) return DEFAULT_ROUTE
+  const topicId = decodeSegment(match[1])
+  if (!UUID_PATTERN.test(topicId)) return DEFAULT_ROUTE
+
+  const rawReplyId = new URLSearchParams(queryString).get("reply")
+  if (!rawReplyId) return { kind: "topic", topicId }
+  const replyId = decodeSegment(rawReplyId)
+  return UUID_PATTERN.test(replyId)
+    ? { kind: "topic", topicId, replyId }
+    : { kind: "topic", topicId }
 }
 
 function parseSearch(hash: string): CommunityRoute {

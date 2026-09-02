@@ -292,6 +292,7 @@ function ModerationTopicRow({ topic, capabilities, canMove, canReadAudit, histor
   const menuRef = useRef<HTMLDivElement | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const hasActions = capabilities.has("moderation.topic") || capabilities.has("moderation.topic.pin") || capabilities.has("moderation.topic.feature") || capabilities.has("moderation.topic.lock") || canMove || canReadAudit
+  const displayTitle = moderationTopicDisplayTitle(topic)
 
   useEffect(() => {
     if (!menuOpen) return
@@ -319,7 +320,7 @@ function ModerationTopicRow({ topic, capabilities, canMove, canReadAudit, histor
       <div className="moderation-topic-row__board" data-label="所属板块" role="cell">{topic.board.name}</div>
       <time className="moderation-topic-row__published" data-label="发布时间" dateTime={topic.publishedAt} role="cell">{formatDate(topic.publishedAt)}</time>
       <div className="moderation-topic-row__body" data-label="主题" role="cell">
-        <h3><a href={`#topic/${topic.id}`}>{topic.title}</a></h3>
+        <h3><a href={`#topic/${topic.id}`}>{displayTitle}</a></h3>
         <p>{topic.excerpt || "暂无摘要"}</p>
       </div>
       <div className="moderation-topic-row__author" data-label="作者" role="cell"><span className="moderation-author-avatar" aria-hidden="true">{avatarInitial(topic.author.displayName)}</span><span className="moderation-author-identity"><strong>{topic.author.displayName}</strong><span>@{topic.author.username}</span></span></div>
@@ -329,8 +330,8 @@ function ModerationTopicRow({ topic, capabilities, canMove, canReadAudit, histor
       <div className="moderation-topic-row__audit" data-label="审核状态" role="cell"><span className={`moderation-status moderation-status--${topic.moderationStatus}`}>{moderationStatusLabel(topic.moderationStatus)}</span></div>
       <div className="moderation-topic-row__state" data-label="治理状态" role="cell">{topic.pinned && <span className="moderation-state moderation-state--pinned">已置顶</span>}{topic.featured && <span className="moderation-state moderation-state--featured">已精选</span>}{topic.locked && <span className="moderation-state moderation-state--locked">已锁定</span>}{!topic.pinned && !topic.featured && !topic.locked && <span className="moderation-state--empty">—</span>}</div>
       <div ref={menuRef} className="moderation-topic-row__actions" data-label="操作" role="cell">
-        {hasActions ? <><button className="secondary-button moderation-action-trigger" type="button" aria-label={`操作：${topic.title}`} aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={menuId} onClick={() => setMenuOpen((open) => !open)}>操作<ChevronDown size={12} aria-hidden="true" /></button>
-          {menuOpen && <div id={menuId} className="moderation-action-menu" role="menu" aria-label={`主题操作：${topic.title}`}>
+        {hasActions ? <><button className="secondary-button moderation-action-trigger" type="button" aria-label={`操作：${displayTitle}`} aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={menuId} onClick={() => setMenuOpen((open) => !open)}>操作<ChevronDown size={12} aria-hidden="true" /></button>
+          {menuOpen && <div id={menuId} className="moderation-action-menu" role="menu" aria-label={`主题操作：${displayTitle}`}>
             {capabilities.has("moderation.topic") && <><button className="moderation-action--danger" type="button" onClick={() => runAction(() => onModerate(topic, "hidden"))}>隐藏</button><button className="moderation-action--danger" type="button" onClick={() => runAction(() => onModerate(topic, "rejected"))}>驳回</button></>}
             {capabilities.has("moderation.topic.pin") && <button className={topic.pinned ? "moderation-action--active" : ""} type="button" onClick={() => runAction(() => onGovern(topic, topic.pinned ? "unpin" : "pin"))}>{topic.pinned ? "取消置顶" : "置顶"}</button>}
             {capabilities.has("moderation.topic.feature") && <button className={topic.featured ? "moderation-action--active" : ""} type="button" onClick={() => runAction(() => onGovern(topic, topic.featured ? "unfeature" : "feature"))}>{topic.featured ? "取消精选" : "精选"}</button>}
@@ -394,7 +395,7 @@ function ModerationIntentForm({ intent, boards, reason, error, submitting, onRea
         <div><h3 id="moderation-intent-title">{title}</h3><p id="moderation-intent-description" className="moderation-intent__description">{consequence}</p></div>
         <button className="icon-button" type="button" aria-label={`关闭${title}`} title={`关闭${title}`} onClick={onCancel} disabled={submitting}><X size={17} aria-hidden="true" /></button>
       </div>
-      <div className="moderation-intent__topic"><span>当前主题标题</span><strong>{intent.topic.title}</strong></div>
+      <div className="moderation-intent__topic"><span>当前主题</span><strong>{moderationTopicDisplayTitle(intent.topic)}</strong></div>
       {moving && <label><span>目标板块</span><select value={intent.targetBoardId} onChange={(event) => onChangeTargetBoard(event.target.value)} disabled={submitting}>{boards.filter((board) => board.id !== intent.topic.board.id && board.capabilityKeys.includes("moderation.topic.move")).map((board) => <option key={board.id} value={board.id}>{board.name}</option>)}</select></label>}
       <label><span>{requiresReason ? "处理备注" : "处理备注（可选）"}</span><textarea ref={reasonRef} value={reason} onChange={(event) => onReasonChange(event.target.value)} maxLength={1000} placeholder="记录本次操作原因，便于审计追溯" required={requiresReason} disabled={submitting} aria-invalid={Boolean(error)} aria-describedby="moderation-intent-note-help" /></label>
       <div id="moderation-intent-note-help" className="moderation-intent__note-help"><span>{requiresReason ? "必填，至少 2 个字符" : "可选"}</span><span aria-live="polite">{reason.length} / 1000</span></div>
@@ -406,6 +407,7 @@ function ModerationIntentForm({ intent, boards, reason, error, submitting, onRea
 
 function ModerationLoading() { return <div className="admin-state" role="status"><LoaderCircle className="topic-loading__spinner" size={20} aria-hidden="true" /><span>正在读取主题治理队列</span></div> }
 function ModerationLoadError({ message, onRetry }: { message: string; onRetry: () => void }) { return <div className="admin-state moderation-load-error" role="alert"><AlertCircle size={20} aria-hidden="true" /><span>{message}</span><button className="secondary-button" type="button" onClick={onRetry}>重试加载</button></div> }
+function moderationTopicDisplayTitle(topic: ModerationTopic) { return topic.title.trim() || topic.excerpt.trim() || "无标题主题" }
 function messageFor(reason: unknown, fallback: string) { return reason instanceof ModerationApiError && reason.status === 409 ? "主题已被其他操作更新，请刷新列表后重试" : reason instanceof ModerationApiError ? reason.message : fallback }
 function moderationStatusLabel(status: ModerationStatus) { return status === "approved" ? "已公开" : status === "hidden" ? "已隐藏" : "已驳回" }
 function governanceLabel(action: ModerationAction) { return ({ pin: "置顶", unpin: "取消置顶", feature: "精选", unfeature: "取消精选", lock: "锁定", unlock: "解锁", move: "移动" } as Record<ModerationAction, string>)[action] }

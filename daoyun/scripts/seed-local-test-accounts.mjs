@@ -88,9 +88,9 @@ export function buildLocalModerationFixtureSql(fixture = LOCAL_MODERATION_FIXTUR
       'published',
       TIMESTAMPTZ '2026-08-26 09:30:00+08',
       TIMESTAMPTZ '2026-08-26 09:30:00+08',
-      3,
-      12,
-      256,
+      0,
+      0,
+      0,
       'approved'
     FROM boards AS board
     CROSS JOIN users AS author
@@ -138,9 +138,9 @@ export function buildLocalModerationFixtureSql(fixture = LOCAL_MODERATION_FIXTUR
       'published',
       TIMESTAMPTZ '2026-08-26 09:00:00+08' - make_interval(hours => fixture.fixture_index),
       TIMESTAMPTZ '2026-08-26 09:00:00+08' - make_interval(hours => fixture.fixture_index),
-      fixture.fixture_index % 6,
-      fixture.fixture_index * 2,
-      fixture.fixture_index * 37,
+      0,
+      0,
+      0,
       'approved'
     FROM fixture_topics AS fixture
     CROSS JOIN boards AS board

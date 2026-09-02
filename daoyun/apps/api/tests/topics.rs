@@ -228,18 +228,21 @@ async fn feed_facade_maps_recommended_following_and_latest_modes(pool: PgPool) {
         member_id,
         "newest member post",
         "2026-08-03T11:00:00Z",
-        false,
+        true,
         false,
     )
     .await;
-    sqlx::query(
-        "UPDATE topics SET hot_score = CASE WHEN id = $1 THEN 100 ELSE 1 END WHERE id IN ($1, $2)",
-    )
-    .bind(owner_topic)
-    .bind(member_topic)
-    .execute(&pool)
-    .await
-    .expect("feed popularity fixtures must update");
+    let liked_owner_topic = app
+        .clone()
+        .oneshot(state_change_request(
+            Method::PUT,
+            &format!("/api/v1/posts/{owner_topic}/like"),
+            &member_cookies,
+            &member_csrf,
+        ))
+        .await
+        .expect("topic like request must respond");
+    assert_eq!(liked_owner_topic.status(), StatusCode::OK);
 
     let latest = app
         .clone()

@@ -64,8 +64,8 @@ export function TopicFeed({
     >
       <div className="feed-heading-row">
         <div className="feed-heading-copy">
-          <p>正在发生</p>
-          <h1 id="feed-heading">社区动态</h1>
+          <p>为你发现</p>
+          <h1 id="feed-heading">社区发现</h1>
         </div>
         <button className="secondary-button mobile-compose" type="button" onClick={onCompose}>
           <PenLine size={16} />

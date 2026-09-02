@@ -219,6 +219,26 @@ describe("AdminView", () => {
     expect(screen.queryByRole("region", { name: "站点管理" })).not.toBeInTheDocument()
   })
 
+  it("keeps one administration shell when entering content moderation", async () => {
+    vi.mocked(listModerationBoards).mockResolvedValueOnce([{
+      id: "019fc900-0000-7000-8000-000000000102",
+      slug: "general",
+      name: "社区广场",
+      tone: "green",
+      capabilityKeys: ["moderation.topic"],
+    }])
+
+    render(<AdminView session={session} requestedTab="moderation" onBack={vi.fn()} />)
+
+    expect(await screen.findByRole("heading", { name: "内容治理", level: 1 })).toBeInTheDocument()
+    expect(screen.getByText("刀云站点管理")).toBeInTheDocument()
+    expect(screen.getByText("管理后台")).toBeInTheDocument()
+    expect(screen.queryByText("Site Administration")).not.toBeInTheDocument()
+    const adminHeader = document.querySelector<HTMLElement>(".system-admin-header")!
+    expect(within(adminHeader).getByText("@admin")).toBeInTheDocument()
+    expect(screen.queryByRole("group", { name: "当前管理员" })).not.toBeInTheDocument()
+  })
+
   it("switches the standalone administration shell between light and dark themes", async () => {
     const user = userEvent.setup()
     document.documentElement.dataset.theme = "light"
@@ -824,9 +844,10 @@ describe("AdminView", () => {
     expect(screen.getByRole("button", { name: "内容治理" })).toHaveAttribute("aria-current", "page")
     const contentGovernanceNavigation = screen.getByRole("group", { name: "内容治理子导航" })
     expect(within(contentGovernanceNavigation).getByText("主题治理工作台")).toHaveAttribute("aria-current", "page")
-    const sidebarAccount = screen.getByRole("group", { name: "当前管理员" })
-    expect(within(sidebarAccount).getByText(session.user.displayName)).toBeInTheDocument()
-    expect(within(sidebarAccount).getByText(`@${session.user.username}`)).toBeInTheDocument()
+    const adminHeader = document.querySelector<HTMLElement>(".system-admin-header")!
+    expect(within(adminHeader).getByText(session.user.displayName)).toBeInTheDocument()
+    expect(within(adminHeader).getByText(`@${session.user.username}`)).toBeInTheDocument()
+    expect(screen.queryByRole("group", { name: "当前管理员" })).not.toBeInTheDocument()
     expect(screen.getByText("社区广场")).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "品牌配置" })).not.toBeInTheDocument()
   })

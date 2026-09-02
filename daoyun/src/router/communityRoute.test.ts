@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import { formatRoute, parseHash } from "./communityRoute"
 
 const topicId = "019fc800-0000-7000-8000-000000000101"
+const replyId = "019fc800-0000-7000-8000-000000000201"
 const conversationId = "019fc900-0000-7000-8000-000000000101"
 
 describe("communityRoute", () => {
@@ -31,6 +32,16 @@ describe("communityRoute", () => {
     expect(parseHash(hash)).toEqual(route)
   })
 
+  it("keeps a reply deep link inside its topic route", () => {
+    const route = parseHash(`#topic/${topicId}?reply=${replyId}`)
+    expect(route).toEqual({ kind: "topic", topicId, replyId })
+    expect(formatRoute(route)).toBe(`#topic/${topicId}?reply=${replyId}`)
+  })
+
+  it("ignores an invalid reply anchor without losing the topic route", () => {
+    expect(parseHash(`#topic/${topicId}?reply=not-a-uuid`)).toEqual({ kind: "topic", topicId })
+  })
+
   it("parses and formats search parameters", () => {
     const route = parseHash("#search?q=rust%20wasm&type=topics")
     expect(route).toEqual({ kind: "search", query: "rust wasm", scope: "topics" })
@@ -44,7 +55,7 @@ describe("communityRoute", () => {
   })
 
   it.each([
-    ["#top", { kind: "feed", feed: "latest" }, "#feed"],
+    ["#top", { kind: "feed", feed: "hot" }, "#hot"],
     ["#discover", { kind: "search", query: "", scope: "all" }, "#search"],
     ["#board-engineering", { kind: "board", slug: "engineering" }, "#board/engineering"],
   ] as const)("keeps legacy %s compatible and formats canonically", (hash, route, canonical) => {
@@ -64,7 +75,7 @@ describe("communityRoute", () => {
     "#board/Engineering",
     "#board-../admin",
   ])("rejects invalid route input: %s", (hash) => {
-    expect(parseHash(hash)).toEqual({ kind: "feed", feed: "latest" })
+    expect(parseHash(hash)).toEqual({ kind: "feed", feed: "hot" })
   })
 
   it("falls back to all for an unsupported search scope", () => {
@@ -83,6 +94,7 @@ describe("communityRoute", () => {
       { kind: "board", slug: "engineering" },
       { kind: "search", query: "rust", scope: "users" },
       { kind: "topic", topicId },
+      { kind: "topic", topicId, replyId },
       { kind: "user", username: "member" },
       { kind: "bookmarks" },
       { kind: "messages", conversationId: null },

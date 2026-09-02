@@ -49,6 +49,9 @@ describe("local development configuration", () => {
     expect(sql).toContain("generate_series(1, 23)")
     expect(sql).toContain("topic_moderation_actions")
     expect(sql).toContain("ON CONFLICT (id) DO UPDATE")
+    expect(sql).not.toContain("fixture.fixture_index % 6")
+    expect(sql).not.toContain("fixture.fixture_index * 2")
+    expect(sql).not.toContain("fixture.fixture_index * 37")
   })
 
   it("sends UTF-8 seed SQL through psql standard input instead of a Windows command argument", () => {

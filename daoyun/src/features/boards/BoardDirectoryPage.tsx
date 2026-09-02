@@ -1,8 +1,9 @@
-import { CheckCircle2, FileSearch, LoaderCircle, RefreshCw, Search, ShieldCheck, X } from "lucide-react"
+import { CheckCircle2, ChevronRight, FileSearch, Flame, LoaderCircle, RefreshCw, Search, ShieldCheck, X } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import type { BoardSummary } from "../../api/boards"
 import { BoardNavigationTree } from "./BoardNavigationTree"
+import { formatBoardMeasure } from "./boardCounts"
 import { buildBoardTree, type BoardTreeNode } from "./boardTree"
 
 interface BoardDirectoryPageProps {
@@ -16,6 +17,10 @@ export function BoardDirectoryPage({ boards, status, error, onRetry }: BoardDire
   const [searchQuery, setSearchQuery] = useState("")
   const normalizedQuery = searchQuery.trim().toLocaleLowerCase()
   const boardTree = useMemo(() => buildBoardTree(boards), [boards])
+  const activeBoards = useMemo(() => boards
+    .filter((board) => board.parentId === null)
+    .sort((left, right) => right.topicCount - left.topicCount || left.position - right.position)
+    .slice(0, 3), [boards])
   const matchingBoardIds = useMemo(() => new Set(boards
     .filter((board) => boardMatchesQuery(board, normalizedQuery))
     .map((board) => board.id)), [boards, normalizedQuery])
@@ -73,6 +78,38 @@ export function BoardDirectoryPage({ boards, status, error, onRetry }: BoardDire
               )}
             </label>
           </div>
+          {!normalizedQuery && activeBoards.length > 0 && (
+            <section className="board-directory-active" aria-labelledby="active-boards-title">
+              <div className="board-directory-active__heading">
+                <div>
+                  <span><Flame size={14} aria-hidden="true" />从这里开始</span>
+                  <h2 id="active-boards-title">活跃版块</h2>
+                </div>
+                <p>按公开主题数量排序</p>
+              </div>
+              <div className="board-directory-active__list">
+                {activeBoards.map((board, index) => (
+                  <a
+                    className="board-directory-active__item"
+                    href={`#board/${board.slug}`}
+                    data-testid="active-board-link"
+                    key={board.id}
+                  >
+                    <span className="board-directory-active__rank" aria-hidden="true">{index + 1}</span>
+                    <span className="board-directory-active__copy">
+                      <strong>{board.name}</strong>
+                      {board.description && <small>{board.description}</small>}
+                    </span>
+                    <span className="board-directory-active__meta">
+                      <strong>{formatBoardMeasure(board.topicCount, "主题")}</strong>
+                      {board.childCount > 0 && <small>{formatBoardMeasure(board.childCount, "子版块")}</small>}
+                    </span>
+                    <ChevronRight size={16} aria-hidden="true" />
+                  </a>
+                ))}
+              </div>
+            </section>
+          )}
           <section className="board-directory-section" aria-label="版块目录">
             <div className="board-directory-section__heading">
               <span aria-live="polite">

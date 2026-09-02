@@ -219,13 +219,17 @@ describe("TopicDetailView", () => {
     vi.mocked(listReplies).mockResolvedValue({ replies: [quotedReply], nextCursor: null })
     vi.mocked(createReply).mockResolvedValue({ ...reply, floorNumber: 9, replyTo: null })
 
-    render(<TopicDetailView topicId={topic.id} session={session} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+    render(<TopicDetailView topicId={topic.id} focusReplyId={quotedReply.id} session={session} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
 
-    expect(await screen.findByText("#8")).toBeInTheDocument()
+    const eighthFloor = await screen.findByRole("article", { name: "第 8 楼回复" })
+    await waitFor(() => expect(eighthFloor).toHaveFocus())
+    expect(within(eighthFloor).getByRole("link", { name: "定位到第 8 楼" }))
+      .toHaveAttribute("href", `#topic/${topic.id}?reply=${quotedReply.id}`)
+    expect(within(eighthFloor).getByRole("link", { name: "引用第 3 楼：被引用用户" }))
+      .toHaveAttribute("href", `#topic/${topic.id}?reply=${quotedReply.replyTo.id}`)
     expect(screen.getByText("引用 #3")).toBeInTheDocument()
     expect(screen.getByText("被引用的回复摘要")).toBeInTheDocument()
     expect(screen.getByText("回复正文").closest("li")).toHaveAttribute("data-reply-level", "1")
-    expect(screen.getByRole("article", { name: "第 8 楼回复" })).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "回复 8 楼" }))
     expect(screen.getByText("回复 #8 @member")).toBeInTheDocument()
     await user.type(screen.getByRole("textbox", { name: "参与讨论" }), "继续讨论")
@@ -233,6 +237,27 @@ describe("TopicDetailView", () => {
 
     await waitFor(() => expect(createReply).toHaveBeenCalled())
     expect(vi.mocked(createReply).mock.calls[0][2].replyToId).toBe(reply.id)
+  })
+
+  it("loads additional reply pages until a deep-linked floor is available", async () => {
+    const laterReply = {
+      ...reply,
+      id: "019fc800-0000-7000-8000-000000000299",
+      floorNumber: 30,
+      content: "分页后的目标楼层",
+    }
+    const cursor = "019fc800-0000-7000-8000-000000000250"
+    vi.mocked(getTopic).mockResolvedValue({ ...topic, replies: 30 })
+    vi.mocked(listReplies)
+      .mockResolvedValueOnce({ replies: [reply], nextCursor: cursor })
+      .mockResolvedValueOnce({ replies: [laterReply], nextCursor: null })
+
+    render(<TopicDetailView topicId={topic.id} focusReplyId={laterReply.id} session={null} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+
+    const targetFloor = await screen.findByRole("article", { name: "第 30 楼回复" })
+    await waitFor(() => expect(targetFloor).toHaveFocus())
+    expect(listReplies).toHaveBeenCalledTimes(2)
+    expect(listReplies).toHaveBeenLastCalledWith(topic.id, { cursor })
   })
 
   it("focuses the existing reply editor from the mobile comment entry", async () => {

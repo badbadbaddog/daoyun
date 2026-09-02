@@ -70,6 +70,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   const activeFeed = route.kind === "feed" ? route.feed : lastFeedRef.current
 
   const selectedTopicId = route.kind === "topic" ? route.topicId : null
+  const selectedReplyId = route.kind === "topic" ? route.replyId ?? null : null
   const selectedUsername = route.kind === "user" ? route.username : null
   const selectedConversationId = route.kind === "messages" ? route.conversationId : null
   const selectedBoardSlug = route.kind === "board" ? route.slug : null
@@ -618,6 +619,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   const mainContent = selectedTopicId ? (
     <TopicDetailView
       topicId={selectedTopicId}
+      focusReplyId={selectedReplyId}
       session={authSession}
       onBack={closeMainView}
       onLogin={() => setAuthPanelOpen(true)}

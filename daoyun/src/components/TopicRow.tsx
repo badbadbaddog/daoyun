@@ -2,6 +2,7 @@ import { Bookmark, Eye, Flame, Heart, LoaderCircle, MessageCircle, Pin, Sparkles
 
 import type { Topic } from "../types/community"
 import { topicDisplayTitle, topicHasTitle } from "../utils/topicPresentation"
+import { PublicMemberIdentity } from "./PublicMemberIdentity"
 import { UserAvatar } from "./UserAvatar"
 
 const boardSlugPattern = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/
@@ -29,6 +30,9 @@ export function TopicRow({
   const displayTitle = topicDisplayTitle(topic)
   const hasTitle = topicHasTitle(topic)
   const layout = coverUrl ? "media" : "discussion"
+  const rhythm = variant === "feed" && layout === "discussion" && topic.replies >= 2
+    ? "conversation"
+    : "standard"
   const boardMarker = topic.pinned
     ? { Icon: Pin, label: "置顶主题", tone: "pin" }
     : topic.hot
@@ -44,7 +48,12 @@ export function TopicRow({
   }
 
   return (
-    <article className={`topic-row topic-row--${layout}`} data-layout={layout}>
+    <article
+      className={`topic-row topic-row--${variant} topic-row--${layout}${rhythm === "conversation" ? " topic-row--conversation" : ""}`}
+      data-layout={layout}
+      data-rhythm={rhythm}
+      data-variant={variant}
+    >
       {variant === "board" ? (
         <span
           className={`board-topic-marker board-topic-marker--${boardMarker.tone}`}
@@ -91,6 +100,7 @@ export function TopicRow({
         <div className="topic-meta">
           <a className={`board-tag board-tag--${topic.boardTone}`} href={boardHref(topic.boardSlug)}>{topic.board}</a>
           <a href={`#user/${topic.authorUsername}`}>{topic.author}</a>
+          <PublicMemberIdentity username={topic.authorUsername} />
           <span aria-hidden="true">·</span>
           <time dateTime={topic.publishedAtIso}>{topic.publishedAt}</time>
           {topic.hot ? (

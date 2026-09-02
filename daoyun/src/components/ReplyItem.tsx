@@ -13,6 +13,7 @@ import {
 import { useEffect, useRef, useState } from "react"
 
 import type { AuthSession } from "../api/auth"
+import { formatRoute } from "../router/communityRoute"
 import { uploadDraftImage } from "../api/attachments"
 import { createReport, ReportApiError, type ReportReason } from "../api/reports"
 import { RelationApiError, setPostLike } from "../api/relations"
@@ -24,6 +25,7 @@ import {
 } from "../api/topics"
 import type { ReplyRevision, TopicReply } from "../api/topics"
 import { plainTextDocument, type RichTextDocument } from "../editor/richContent"
+import { PublicMemberIdentity } from "./PublicMemberIdentity"
 import { RichTextContent } from "./RichTextContent"
 import { RichTextEditor } from "./RichTextEditor"
 import { UserAvatar } from "./UserAvatar"
@@ -236,18 +238,36 @@ export function ReplyItem({
         />
       </a>
       <div className="reply-item__body">
-        <header>
-          <a href={`#user/${reply.author.username}`}><strong>{reply.author.displayName}</strong></a>
-          <span>@{reply.author.username}</span>
-          <time>{reply.createdAt}</time>
-          {reply.revisionCount > 1 && <span>已编辑</span>}
-          <span className="reply-floor">#{reply.floorNumber}</span>
+        <header className="reply-item__header" aria-label={`第 ${reply.floorNumber} 楼作者信息`}>
+          <div className="reply-item__identity">
+            <a href={`#user/${reply.author.username}`}><strong>{reply.author.displayName}</strong></a>
+            <span className="reply-item__username">@{reply.author.username}</span>
+            <PublicMemberIdentity username={reply.author.username} />
+          </div>
+          <div className="reply-item__context">
+            <time>{reply.createdAt}</time>
+            {reply.revisionCount > 1 && <span>已编辑</span>}
+            <a
+              className="reply-floor"
+              href={formatRoute({ kind: "topic", topicId: reply.topicId, replyId: reply.id })}
+              aria-label={`定位到第 ${reply.floorNumber} 楼`}
+            >
+              #{reply.floorNumber}
+            </a>
+          </div>
         </header>
 
         {reply.replyTo && (
-          <a className="reply-reference" href={`#reply-${reply.replyTo.id}`}>
-            <span>引用 #{reply.replyTo.floorNumber}</span>
-            <strong>@{reply.replyTo.author.username}</strong>
+          <a
+            className="reply-reference"
+            href={formatRoute({ kind: "topic", topicId: reply.topicId, replyId: reply.replyTo.id })}
+            aria-label={`引用第 ${reply.replyTo.floorNumber} 楼：${reply.replyTo.author.displayName}`}
+          >
+            <span className="reply-reference__label">引用 #{reply.replyTo.floorNumber}</span>
+            <span className="reply-reference__author">
+              <strong>{reply.replyTo.author.displayName}</strong>
+              <span>@{reply.replyTo.author.username}</span>
+            </span>
             <p>{reply.replyTo.isDeleted ? "该楼层已删除" : reply.replyTo.excerpt ?? "该楼层暂不可见"}</p>
           </a>
         )}

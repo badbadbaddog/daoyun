@@ -4,6 +4,7 @@ import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
 const styles = readFileSync(resolve(process.cwd(), "src/styles.css"), "utf8")
+const communityStyles = readFileSync(resolve(process.cwd(), "src/styles.community.css"), "utf8")
 
 describe("public community responsive layout", () => {
   it("defines the five required responsive acceptance widths without device-bound layout values", () => {
@@ -11,7 +12,7 @@ describe("public community responsive layout", () => {
     expect(styles).toMatch(/@media \(max-width: 768px\)/)
     expect(styles).toMatch(/@media \(min-width: 769px\) and \(max-width: 900px\)/)
     expect(styles).toMatch(/@media \(max-width: 1060px\)/)
-    expect(styles).toMatch(/\.page-shell\s*\{[\s\S]*?grid-template-columns:\s*220px minmax\(0, 1fr\) 280px;/)
+    expect(communityStyles).toMatch(/\.page-shell\s*\{[\s\S]*?grid-template-columns:\s*204px minmax\(0, 1fr\) 264px;/)
   })
 
   it("keeps the community navigation and mixed feed dense on tablet widths", () => {
@@ -33,8 +34,9 @@ describe("public community responsive layout", () => {
   })
 
   it("moves mobile feed content directly below its tabs", () => {
-    expect(styles).toMatch(
-      /@media \(max-width: 768px\) \{[\s\S]*?\.feed-heading-row\s*\{[\s\S]*?padding:\s*0;[\s\S]*?\.tag-filter,[\s\S]*?\.mobile-compose,[\s\S]*?\.composer-prompt\s*\{[\s\S]*?display:\s*none;/,
+    expect(styles).toMatch(/\.mobile-compose\s*\{[\s\S]*?display:\s*none;/)
+    expect(communityStyles).toMatch(
+      /@media \(max-width: 768px\) \{[\s\S]*?\.feed-heading-row\s*\{[\s\S]*?min-height:\s*64px;[\s\S]*?padding:\s*13px 14px 10px;[\s\S]*?\.feed-heading-copy p,[\s\S]*?\.tag-filter,[\s\S]*?\.composer-prompt\s*\{[\s\S]*?display:\s*none;/,
     )
   })
 
@@ -64,6 +66,9 @@ describe("public community responsive layout", () => {
     )
     expect(styles).toMatch(
       /@media \(max-width: 768px\) \{[\s\S]*?\.topic-mobile-comment-entry\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?display:\s*flex;/,
+    )
+    expect(communityStyles).toMatch(
+      /@media \(max-width: 768px\) \{[\s\S]*?\.reply-list > li\[data-reply-level="1"\]\s*\{[\s\S]*?margin-left:\s*18px;/,
     )
   })
 

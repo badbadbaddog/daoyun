@@ -1,7 +1,7 @@
 import type { MemberCommunityGroup } from "./membershipTypes"
 
 export function CommunityGroupsPanel({ base, additional }: { base: MemberCommunityGroup[]; additional: MemberCommunityGroup[] }) {
-  return <section className="member-panel" aria-label="社区用户组"><p className="member-panel__eyebrow">Community Group</p><h2>社区用户组</h2><GroupList label="基础组" groups={base} /><GroupList label="附加组" groups={additional} /></section>
+  return <section className="member-panel groups-panel" aria-label="社区用户组"><p className="member-panel__eyebrow">社区身份组</p><h2>社区用户组</h2><GroupList label="基础组" groups={base} /><GroupList label="附加组" groups={additional} /></section>
 }
 
 function GroupList({ label, groups }: { label: string; groups: MemberCommunityGroup[] }) {

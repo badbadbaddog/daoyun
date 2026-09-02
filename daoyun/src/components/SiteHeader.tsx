@@ -48,6 +48,7 @@ export function SiteHeader({
 }: SiteHeaderProps) {
   const searchInputRef = useRef<HTMLInputElement>(null)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
 
   useEffect(() => {
     function focusSearch(event: KeyboardEvent) {
@@ -56,7 +57,9 @@ export function SiteHeader({
       }
 
       event.preventDefault()
+      setMobileSearchOpen(true)
       searchInputRef.current?.focus()
+      queueMicrotask(() => searchInputRef.current?.focus())
     }
 
     window.addEventListener("keydown", focusSearch)
@@ -69,6 +72,15 @@ export function SiteHeader({
     }
   }, [session])
 
+  useEffect(() => {
+    if (!mobileSearchOpen) return
+    function closeSearch(event: KeyboardEvent) {
+      if (event.key === "Escape") setMobileSearchOpen(false)
+    }
+    window.addEventListener("keydown", closeSearch)
+    return () => window.removeEventListener("keydown", closeSearch)
+  }, [mobileSearchOpen])
+
   return (
     <header className="site-header">
       <div className="site-header__inner">
@@ -78,7 +90,20 @@ export function SiteHeader({
           <span className="wordmark__edition">社区</span>
         </a>
 
-        <label className="header-search">
+        <button
+          className="header-mobile-search-toggle"
+          type="button"
+          aria-label="打开搜索"
+          aria-expanded={mobileSearchOpen}
+          onClick={() => {
+            setMobileSearchOpen(true)
+            queueMicrotask(() => searchInputRef.current?.focus())
+          }}
+        >
+          <Search size={18} aria-hidden="true" />
+        </button>
+
+        <div className={`header-search${mobileSearchOpen ? " header-search--mobile-open" : ""}`} role="search">
           <Search size={17} aria-hidden="true" />
           <span className="sr-only">搜索社区内容</span>
           <input
@@ -93,6 +118,7 @@ export function SiteHeader({
               if (event.key === "Enter" && onSearch) {
                 event.preventDefault()
                 onSearch(query)
+                setMobileSearchOpen(false)
               }
             }}
           />
@@ -101,7 +127,15 @@ export function SiteHeader({
               <X size={15} aria-hidden="true" />
             </button>
           )}
-        </label>
+          <button
+            className="header-search__mobile-close"
+            type="button"
+            aria-label="关闭搜索"
+            onClick={() => setMobileSearchOpen(false)}
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
 
         <div className="header-actions">
           <button className="icon-button" type="button" onClick={onToggleTheme} aria-label={darkMode ? "切换浅色模式" : "切换深色模式"} title={darkMode ? "浅色模式" : "深色模式"}>

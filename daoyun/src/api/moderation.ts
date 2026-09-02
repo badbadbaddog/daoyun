@@ -266,7 +266,7 @@ function isModerationBoardDto(value: unknown): value is ModerationBoardDto {
 function isModerationTopicDto(value: unknown): value is ModerationTopicDto {
   return isRecord(value)
     && isUuid(value.id)
-    && isNonEmptyString(value.title)
+    && typeof value.title === "string"
     && typeof value.excerpt === "string"
     && isAuthorDto(value.author)
     && isBoardDto(value.board)

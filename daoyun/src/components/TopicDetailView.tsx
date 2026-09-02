@@ -35,6 +35,7 @@ import type { TopicDetail, TopicReply, TopicRevision } from "../api/topics"
 import { plainTextDocument, type RichTextDocument } from "../editor/richContent"
 import { parseTopicTags } from "../utils/tags"
 import { topicDisplayTitle } from "../utils/topicPresentation"
+import { PublicMemberIdentity } from "./PublicMemberIdentity"
 import { ReplyItem } from "./ReplyItem"
 import { RichTextContent } from "./RichTextContent"
 import { RichTextEditor } from "./RichTextEditor"
@@ -42,6 +43,7 @@ import { UserAvatar } from "./UserAvatar"
 
 interface TopicDetailViewProps {
   topicId: string
+  focusReplyId?: string | null
   session: AuthSession | null
   onBack: () => void
   onLogin: () => void
@@ -57,6 +59,7 @@ const ignoreLoadedTopic = () => undefined
 
 export function TopicDetailView({
   topicId,
+  focusReplyId = null,
   session,
   onBack,
   onLogin,
@@ -83,7 +86,7 @@ export function TopicDetailView({
   const [formError, setFormError] = useState("")
   const [replyListError, setReplyListError] = useState("")
   const [replyStatus, setReplyStatus] = useState("")
-  const [replyFocusId, setReplyFocusId] = useState<string | null>(null)
+  const [replyFocusId, setReplyFocusId] = useState<string | null>(focusReplyId)
   const [submitting, setSubmitting] = useState(false)
   const [editing, setEditing] = useState(false)
   const [draftTitle, setDraftTitle] = useState("")
@@ -118,12 +121,22 @@ export function TopicDetailView({
   }, [confirmingDelete])
 
   useEffect(() => {
+    if (focusReplyId) setReplyFocusId(focusReplyId)
+  }, [focusReplyId, topicId])
+
+  useEffect(() => {
     if (!replyFocusId) return
     const replyElement = document.getElementById(`reply-${replyFocusId}`)
     if (!replyElement) return
     replyElement.focus()
     setReplyFocusId(null)
   }, [replies, replyFocusId])
+
+  useEffect(() => {
+    if (!replyFocusId || loadingMore || !nextCursor) return
+    if (replies.some((reply) => reply.id === replyFocusId)) return
+    void loadMoreReplies()
+  }, [loadingMore, nextCursor, replies, replyFocusId])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -570,6 +583,7 @@ export function TopicDetailView({
             <span className="topic-detail__author-copy">
               <strong>{topic.author}</strong>
               <span>@{topic.authorUsername}</span>
+              <PublicMemberIdentity username={topic.authorUsername} variant="detail" maxMedals={3} />
             </span>
           </a>
           <div className="topic-detail__publication">

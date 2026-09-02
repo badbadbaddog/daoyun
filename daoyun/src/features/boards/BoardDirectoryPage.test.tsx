@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BoardDetail, BoardSummary } from "../../api/boards";
 import type { Topic } from "../../types/community";
@@ -95,22 +95,39 @@ describe("BoardDirectoryPage", () => {
     expect(screen.getByRole("heading", { name: "社区版块", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "全部版块" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("heading", { name: "版块指南", level: 2 })).toBeInTheDocument();
-    expect(screen.getByRole("list", { name: "全部版块列表" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "收起父版块" })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("link", { name: /父版块/ })).toHaveAttribute(
-      "href",
-      "#board/parent",
-    );
-    expect(screen.getByRole("link", { name: /父版块/ })).toHaveTextContent("1 个子版块");
-    expect(screen.getByRole("link", { name: /父版块/ })).toHaveTextContent("2 个主题");
-    expect(screen.getByRole("link", { name: /^子版块 子版块介绍/ })).toHaveAttribute(
+    const directory = screen.getByRole("region", { name: "版块目录" });
+    expect(within(directory).getByRole("list", { name: "全部版块列表" })).toBeInTheDocument();
+    expect(within(directory).getByRole("button", { name: "收起父版块" })).toHaveAttribute("aria-expanded", "true");
+    const parentLink = within(directory).getByRole("link", { name: /父版块/ });
+    expect(parentLink).toHaveAttribute("href", "#board/parent");
+    expect(parentLink).toHaveTextContent("1 个子版块");
+    expect(parentLink).toHaveTextContent("2 个主题");
+    expect(within(directory).getByRole("link", { name: /^子版块 子版块介绍/ })).toHaveAttribute(
       "href",
       "#board/child",
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "收起父版块" }));
-    expect(screen.getByRole("button", { name: "展开父版块" })).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByRole("link", { name: /^子版块 子版块介绍/ })).not.toBeInTheDocument();
+    fireEvent.click(within(directory).getByRole("button", { name: "收起父版块" }));
+    expect(within(directory).getByRole("button", { name: "展开父版块" })).toHaveAttribute("aria-expanded", "false");
+    expect(within(directory).queryByRole("link", { name: /^子版块 子版块介绍/ })).not.toBeInTheDocument();
+  });
+
+  it("highlights active root communities without promoting nested boards", () => {
+    render(
+      <BoardDirectoryPage
+        boards={[child, unrelated, parent]}
+        status="ready"
+        error={null}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    const active = screen.getByRole("region", { name: "活跃版块" });
+    expect(active).toHaveTextContent("产品设计");
+    expect(active).toHaveTextContent("父版块");
+    const links = within(active).getAllByTestId("active-board-link");
+    expect(links[0]).toHaveAttribute("href", "#board/design");
+    expect(links.map((link) => link.getAttribute("href"))).not.toContain("#board/child");
   });
 
   it("filters communities locally while preserving a matching child's parent context", () => {
@@ -128,17 +145,18 @@ describe("BoardDirectoryPage", () => {
     });
 
     expect(screen.getByText("1 个匹配版块")).toBeInTheDocument();
-    expect(screen.getByRole("list", { name: "版块搜索结果" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /父版块/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /^子版块 子版块介绍/ })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /产品设计/ })).not.toBeInTheDocument();
+    const results = screen.getByRole("list", { name: "版块搜索结果" });
+    expect(results).toBeInTheDocument();
+    expect(within(results).getByRole("link", { name: /父版块/ })).toBeInTheDocument();
+    expect(within(results).getByRole("link", { name: /^子版块 子版块介绍/ })).toBeInTheDocument();
+    expect(within(results).queryByRole("link", { name: /产品设计/ })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByRole("searchbox", { name: "搜索社区" }), {
       target: { value: "不存在的社区" },
     });
     expect(screen.getByText("没有找到相关社区")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "清除社区搜索" }));
-    expect(screen.getByRole("link", { name: /产品设计/ })).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "版块目录" })).getByRole("link", { name: /产品设计/ })).toBeInTheDocument();
   });
 
   it("opens the first expandable group when standalone boards come first", () => {
@@ -213,7 +231,7 @@ describe("BoardDirectoryPage", () => {
       />,
     );
 
-    const link = screen.getByRole("link", { name: /高密社区/ });
+    const link = within(screen.getByRole("region", { name: "版块目录" })).getByRole("link", { name: /高密社区/ });
     expect(link).toHaveTextContent("1.2万个子版块");
     expect(link).toHaveTextContent("98.8万个主题");
   });

@@ -31,7 +31,7 @@ describe("moderation API", () => {
       .mockResolvedValueOnce(jsonResponse({
         data: [{
           id: topicId,
-          title: "需要治理的主题",
+          title: "",
           excerpt: "主题摘要",
           author: { id: userId, username: "member", display_name: "成员", avatar_url: null },
           board: { id: boardId, slug: "general", name: "社区广场", tone: "green" },

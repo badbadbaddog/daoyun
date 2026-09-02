@@ -336,23 +336,23 @@ function AdminShell({ session, children, onBack, navigation, pageTitle = "站点
   return (
     <div className={`admin-view admin-view--system${variant === "moderation" ? " admin-view--moderation" : ""}`}>
       <header className="system-admin-header">
-        <div className="system-admin-brand"><span aria-hidden="true">刀</span><div><strong>{variant === "moderation" ? "刀云社区" : "刀云站点管理"}</strong><small>{variant === "moderation" ? "管理后台" : "Site Administration"}</small></div></div>
+        <div className="system-admin-brand"><span aria-hidden="true">刀</span><div><strong>刀云站点管理</strong><small>管理后台</small></div></div>
         <button className="system-admin-back" type="button" onClick={onBack}><ArrowLeft size={15} aria-hidden="true" />返回社区</button>
         <button className="system-admin-theme" type="button" onClick={() => setTheme((current) => current === "light" ? "dark" : "light")} aria-label={theme === "light" ? "切换为深色主题" : "切换为浅色主题"} title={theme === "light" ? "深色主题" : "浅色主题"}>{theme === "light" ? <Moon size={15} aria-hidden="true" /> : <Sun size={15} aria-hidden="true" />}</button>
-        {variant === "default" ? <div className="system-admin-account"><span>{session?.user.displayName ?? "未登录"}</span><small>{session ? `@${session.user.username}` : "需要管理员会话"}</small></div> : null}
+        <div className="system-admin-account"><span>{session?.user.displayName ?? "未登录"}</span><small>{session ? `@${session.user.username}` : "需要管理员会话"}</small></div>
       </header>
       <div className="system-admin-layout">
         <aside className="system-admin-sidebar">
           {navigation}
           {variant === "moderation" ? (
-            <div className="system-admin-sidebar-account" role="group" aria-label="当前管理员">
+            <div className="system-admin-sidebar-account" role="group" aria-label="当前管理员" hidden aria-hidden="true">
               <span className="system-admin-sidebar-account__avatar" aria-hidden="true">{(session?.user.displayName ?? "管").slice(0, 1)}</span>
               <div><strong>{session?.user.displayName ?? "未登录"}</strong><small>{session ? `@${session.user.username}` : "需要管理员会话"}</small></div>
             </div>
           ) : null}
         </aside>
         <main className="system-admin-main">
-          <header className={`system-admin-page-heading${variant === "moderation" ? " sr-only" : ""}`}>
+          <header className="system-admin-page-heading">
             <div><h1 id="admin-heading">{pageTitle}</h1><p>{pageDescription}</p></div>
           </header>
           <div className="system-admin-content">{children}</div>

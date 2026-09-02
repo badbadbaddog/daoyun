@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -21,6 +21,7 @@ import {
   updateUserProfile,
 } from "../api/users"
 import type { UserProfile } from "../api/users"
+import { usePublicMembershipSummary } from "../features/membership/usePublicMembershipSummary"
 import { UserProfileView } from "./UserProfileView"
 
 vi.mock("../api/topics", () => ({ listTopics: vi.fn() }))
@@ -54,6 +55,9 @@ vi.mock("../api/users", async () => {
     updateUserProfile: vi.fn(),
   }
 })
+vi.mock("../features/membership/usePublicMembershipSummary", () => ({
+  usePublicMembershipSummary: vi.fn(),
+}))
 
 const profile: UserProfile = {
   id: "019fc800-0000-7000-8000-000000000002",
@@ -86,6 +90,33 @@ const session: AuthSession = {
   csrfToken: "a".repeat(64),
 }
 
+const membershipSummary = {
+  currentLevel: {
+    id: "019fc800-0000-7000-8000-000000000501",
+    internalKey: "explorer",
+    levelOrder: 5,
+    displayName: "探索者",
+    requiredExperience: 600,
+    iconAssetUrl: null,
+    color: null,
+    description: "持续参与社区讨论与分享。",
+  },
+  publicGroups: [{
+    id: "019fc800-0000-7000-8000-000000000502",
+    internalKey: "creator",
+    displayName: "创作者",
+    isPublic: true,
+    expiresAt: null,
+  }],
+  medals: [{
+    key: "first_share",
+    displayName: "首发贡献",
+    assetUrl: "/assets/medals/first-share.png",
+    grantedAt: "2026-08-04T10:00:00Z",
+    isPublic: true,
+  }],
+}
+
 const topic = {
   id: "019fc800-0000-7000-8000-000000000101",
   title: "公开主题",
@@ -106,6 +137,7 @@ const topic = {
 }
 
 beforeEach(() => {
+  vi.mocked(usePublicMembershipSummary).mockReset().mockReturnValue(membershipSummary)
   vi.mocked(getUserProfile).mockReset().mockResolvedValue(profile)
   vi.mocked(listTopics).mockReset().mockResolvedValue({ topics: [topic], nextCursor: null })
   vi.mocked(listUserRelations).mockReset().mockResolvedValue({ users: [], nextCursor: null })
@@ -226,6 +258,50 @@ describe("UserProfileView", () => {
       signal: expect.any(AbortSignal),
     }))
     expect(screen.queryByText("owner@example.com")).not.toBeInTheDocument()
+    expect(screen.queryByRole("region", { name: "仅自己可见的账号管理" })).not.toBeInTheDocument()
+  })
+
+  it("presents public growth, groups, and medals as one community identity asset", async () => {
+    render(
+      <UserProfileView
+        username="member"
+        session={session}
+        onBack={vi.fn()}
+        onLogin={vi.fn()}
+        onOpenTopic={vi.fn()}
+      />,
+    )
+
+    const identity = await screen.findByRole("region", { name: "社区身份" })
+    expect(within(identity).getByRole("heading", { name: "探索者" })).toBeInTheDocument()
+    expect(identity).toHaveTextContent("持续参与社区讨论与分享。")
+    expect(identity).toHaveTextContent("创作者")
+    expect(identity).toHaveTextContent("首发贡献")
+    expect(identity).not.toHaveTextContent("explorer")
+    expect(identity).not.toHaveTextContent("creator")
+  })
+
+  it("keeps account security controls in a self-only profile region", async () => {
+    const ownProfile: UserProfile = {
+      ...profile,
+      viewer: { ...profile.viewer!, isSelf: true },
+    }
+    vi.mocked(getUserProfile).mockResolvedValue(ownProfile)
+    render(
+      <UserProfileView
+        username="member"
+        session={{ ...session, user: { ...session.user, id: profile.id, username: "member" } }}
+        onBack={vi.fn()}
+        onLogin={vi.fn()}
+        onOpenTopic={vi.fn()}
+      />,
+    )
+
+    const accountTools = await screen.findByRole("region", { name: "仅自己可见的账号管理" })
+    expect(within(accountTools).getByRole("heading", { name: "账号与安全" })).toBeInTheDocument()
+    for (const name of ["管理设备会话", "修改密码", "登录方式", "通行密钥", "多因素认证"]) {
+      expect(within(accountTools).getByRole("button", { name })).toBeInTheDocument()
+    }
   })
 
   it("follows the profile and updates the visible follower count", async () => {

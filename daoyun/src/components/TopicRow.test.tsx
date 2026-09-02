@@ -39,6 +39,8 @@ describe("TopicRow", () => {
     )
 
     expect(screen.getByRole("article")).toHaveAttribute("data-layout", "discussion")
+    expect(screen.getByRole("article")).toHaveAttribute("data-variant", "feed")
+    expect(screen.getByRole("article")).toHaveClass("topic-row--feed", "topic-row--discussion")
 
     rerender(
       <TopicRow
@@ -50,6 +52,44 @@ describe("TopicRow", () => {
     )
 
     expect(screen.getByRole("article")).toHaveAttribute("data-layout", "media")
+    expect(screen.getByRole("article")).toHaveClass("topic-row--feed", "topic-row--media")
+  })
+
+  it("gives active text discussions a feed-only conversation rhythm without changing media or board layouts", () => {
+    const { rerender } = render(
+      <TopicRow
+        topic={{ ...topic, replies: 2 }}
+        onOpen={vi.fn()}
+        onToggleBookmark={vi.fn()}
+        bookmarkPending={false}
+      />,
+    )
+
+    expect(screen.getByRole("article")).toHaveAttribute("data-rhythm", "conversation")
+    expect(screen.getByRole("article")).toHaveClass("topic-row--conversation")
+
+    rerender(
+      <TopicRow
+        topic={{ ...topic, replies: 2, imageUrl: "/cover.webp" }}
+        onOpen={vi.fn()}
+        onToggleBookmark={vi.fn()}
+        bookmarkPending={false}
+      />,
+    )
+    expect(screen.getByRole("article")).toHaveAttribute("data-rhythm", "standard")
+    expect(screen.getByRole("article")).not.toHaveClass("topic-row--conversation")
+
+    rerender(
+      <TopicRow
+        topic={{ ...topic, replies: 2 }}
+        variant="board"
+        onOpen={vi.fn()}
+        onToggleBookmark={vi.fn()}
+        bookmarkPending={false}
+      />,
+    )
+    expect(screen.getByRole("article")).toHaveAttribute("data-rhythm", "standard")
+    expect(screen.getByRole("article")).not.toHaveClass("topic-row--conversation")
   })
 
   it("uses a forum status marker instead of an author avatar in board lists", () => {
@@ -63,6 +103,8 @@ describe("TopicRow", () => {
       />,
     )
 
+    expect(screen.getByRole("article")).toHaveAttribute("data-variant", "board")
+    expect(screen.getByRole("article")).toHaveClass("topic-row--board", "topic-row--discussion")
     expect(container.querySelector(".board-topic-marker")).toHaveAttribute("aria-label", "置顶主题")
     expect(container.querySelector(".topic-avatar")).not.toBeInTheDocument()
     expect(screen.getByText("置顶")).toBeInTheDocument()

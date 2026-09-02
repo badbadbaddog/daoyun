@@ -113,6 +113,18 @@ describe("ModerationAdminPanel", () => {
     expect(within(columnHeaders).getByText("操作")).toBeInTheDocument()
   })
 
+  it("keeps body-only topics readable and actionable when the title is empty", async () => {
+    const user = userEvent.setup()
+    const bodyOnlyTopic = { ...topic, title: "", excerpt: "只有正文也应该能在治理列表中正常处理" }
+    vi.mocked(listModerationTopics).mockResolvedValue({ topics: [bodyOnlyTopic], nextCursor: null })
+
+    render(<ModerationAdminPanel boards={[board]} csrfToken="csrf-token" />)
+
+    expect(await screen.findByRole("heading", { name: bodyOnlyTopic.excerpt })).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: `操作：${bodyOnlyTopic.excerpt}` }))
+    expect(screen.getByRole("menu", { name: `主题操作：${bodyOnlyTopic.excerpt}` })).toBeInTheDocument()
+  })
+
   it("keeps the title, board switcher, search and scope note in one workbench toolbar", async () => {
     vi.mocked(listModerationTopics).mockResolvedValue({ topics: [topic], nextCursor: null })
 
@@ -290,7 +302,7 @@ describe("ModerationAdminPanel", () => {
 
     const dialog = screen.getByRole("dialog", { name: "隐藏主题" })
     expect(dialog).toBeInTheDocument()
-    expect(within(dialog).getByText("当前主题标题")).toBeInTheDocument()
+    expect(within(dialog).getByText("当前主题")).toBeInTheDocument()
     expect(within(dialog).getByText(topic.title)).toBeInTheDocument()
     expect(within(dialog).getByText("隐藏后，主题会从当前已发布队列中移除。")).toBeInTheDocument()
     expect(screen.getByRole("textbox", { name: "处理备注" })).toHaveFocus()

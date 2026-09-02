@@ -1,4 +1,5 @@
 import { cleanup, render, screen, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { MemberCenterPage } from "./MemberCenterPage"
@@ -23,7 +24,7 @@ const data: MembershipCenterData = {
 afterEach(cleanup)
 
 describe("MemberCenterPage", () => {
-  it("keeps growth, points, groups, entitlements and medals in separate panels", () => {
+  it("keeps growth, points, groups, entitlements and medals in one identity story", () => {
     render(<MemberCenterPage activeTab="overview" data={data} status="ready" onTabChange={vi.fn()} onRetry={vi.fn()} />)
 
     expect(screen.getByRole("heading", { name: "会员中心" })).toBeInTheDocument()
@@ -33,6 +34,27 @@ describe("MemberCenterPage", () => {
     expect(within(screen.getByLabelText("社区用户组")).getByText("正式会员")).toBeInTheDocument()
     expect(within(screen.getByLabelText("标准权益")).getByText("专业附件额度")).toBeInTheDocument()
     expect(within(screen.getByLabelText("公开勋章")).getByText("创作者")).toBeInTheDocument()
+    const summary = screen.getByRole("region", { name: "我的成长概览" })
+    expect(within(summary).getByRole("heading", { name: "开拓者" })).toBeInTheDocument()
+    expect(summary).toHaveTextContent("760 EXP")
+    expect(summary).toHaveTextContent("1,280 积分")
+    expect(summary).toHaveTextContent("1 项权益")
+    expect(summary).toHaveTextContent("1 枚公开勋章")
+    expect(summary).not.toHaveTextContent("pathfinder")
+    expect(summary).not.toHaveTextContent("pro_upload")
+  })
+
+  it("navigates from the overview assets into the corresponding member section", async () => {
+    const user = userEvent.setup()
+    const onTabChange = vi.fn()
+    render(<MemberCenterPage activeTab="overview" data={data} status="ready" onTabChange={onTabChange} onRetry={vi.fn()} />)
+
+    const summary = screen.getByRole("region", { name: "我的成长概览" })
+    await user.click(within(summary).getByRole("button", { name: "查看积分详情" }))
+    await user.click(within(summary).getByRole("button", { name: "查看权益详情" }))
+    await user.click(within(summary).getByRole("button", { name: "查看勋章详情" }))
+
+    expect(onTabChange.mock.calls).toEqual([["points"], ["benefits"], ["medals"]])
   })
 
   it("renders plugin panel failures without replacing core membership data", () => {

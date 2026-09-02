@@ -365,7 +365,7 @@ describe("DaoYun community home", () => {
     render(<App />)
 
     expect(screen.queryByTestId("site-admin-view")).not.toBeInTheDocument()
-    expect(await screen.findByRole("heading", { name: "社区动态" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "社区发现" })).toBeInTheDocument()
     expect(screen.getByRole("navigation", { name: "常用社区" })).toBeInTheDocument()
   })
 
@@ -472,7 +472,7 @@ describe("DaoYun community home", () => {
 
     render(<App />)
 
-    await screen.findByRole("heading", { name: "社区动态" })
+    await screen.findByRole("heading", { name: "社区发现" })
     await waitFor(() => expect(document.documentElement.style.getPropertyValue("--brand")).toBe("#2F7BFF"))
     expect(document.documentElement.style.getPropertyValue("--brand-hover")).toBe("")
     expect(document.documentElement.style.getPropertyValue("--brand-active")).toBe("")
@@ -544,7 +544,7 @@ describe("DaoYun community home", () => {
     render(<App />)
 
     expect(await screen.findByRole("link", { name: "刀云首页" })).toBeInTheDocument()
-    expect(screen.getByRole("heading", { name: "社区动态" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "社区发现" })).toBeInTheDocument()
     expect(await within(screen.getByRole("main")).findByText("用 Rust 构建社区平台，我们为什么选择模块化单体"))
       .toBeInTheDocument()
   })
@@ -608,15 +608,15 @@ describe("DaoYun community home", () => {
     expect(window.location.hash).toBe(`#topic/${topicFixtures[0].id}`)
     expect(getTopic).toHaveBeenCalledWith(topicFixtures[0].id, expect.any(AbortSignal))
     await user.click(screen.getByRole("button", { name: "返回主题列表" }))
-    expect(await screen.findByRole("heading", { name: "社区动态" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "社区发现" })).toBeInTheDocument()
   })
 
-  it("uses latest posts as the default topic ordering", async () => {
+  it("uses the discovery recommendation feed as the default home ordering", async () => {
     render(<App />)
 
-    expect(await screen.findByRole("tab", { name: "最新" })).toHaveAttribute("aria-selected", "true")
+    expect(await screen.findByRole("tab", { name: "推荐" })).toHaveAttribute("aria-selected", "true")
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["推荐", "关注", "最新"])
-    expect(listFeed).toHaveBeenLastCalledWith("latest", expect.objectContaining({ signal: expect.any(AbortSignal) }))
+    expect(listFeed).toHaveBeenLastCalledWith("recommended", expect.objectContaining({ signal: expect.any(AbortSignal) }))
   })
 
   it("keeps the legacy active-feed route available without adding a fourth home tab", async () => {
@@ -628,6 +628,7 @@ describe("DaoYun community home", () => {
   })
 
   it("requests topics ordered by popularity", async () => {
+    window.location.hash = "#feed"
     const user = userEvent.setup()
     render(<App />)
 
@@ -639,7 +640,7 @@ describe("DaoYun community home", () => {
   it("does not expose the legacy featured feed as a fourth home tab", async () => {
     render(<App />)
 
-    await screen.findByRole("heading", { name: "社区动态" })
+    await screen.findByRole("heading", { name: "社区发现" })
     expect(screen.queryByRole("tab", { name: "精华" })).not.toBeInTheDocument()
   })
 
@@ -1093,7 +1094,7 @@ describe("DaoYun installation gate", () => {
     render(<App />)
 
     expect(screen.getByRole("status")).toHaveTextContent("正在检查安装状态")
-    expect(screen.queryByRole("heading", { name: "社区动态" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("heading", { name: "社区发现" })).not.toBeInTheDocument()
     expect(listBoards).not.toHaveBeenCalled()
   })
 
@@ -1109,7 +1110,7 @@ describe("DaoYun installation gate", () => {
     expect(listBoards).not.toHaveBeenCalled()
     await user.click(screen.getByRole("button", { name: "重试检查" }))
 
-    expect(await screen.findByRole("heading", { name: "社区动态" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "社区发现" })).toBeInTheDocument()
     expect(getInstallationStatus).toHaveBeenCalledTimes(2)
   })
 
@@ -1224,7 +1225,7 @@ describe("DaoYun installation gate", () => {
     await fillValidInstallationForm(user)
     await user.click(screen.getByRole("button", { name: "完成初始化" }))
 
-    expect(await screen.findByRole("heading", { name: "社区动态" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "社区发现" })).toBeInTheDocument()
     expect(getInstallationStatus).toHaveBeenCalledTimes(2)
   })
 
@@ -1247,7 +1248,7 @@ describe("DaoYun installation gate", () => {
     await fillValidInstallationForm(user)
     await user.click(screen.getByRole("button", { name: "完成初始化" }))
 
-    expect(await screen.findByRole("heading", { name: "社区动态" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "社区发现" })).toBeInTheDocument()
     expect(initializeInstallation).toHaveBeenCalledWith({
       username: "owner",
       email: "owner@example.com",

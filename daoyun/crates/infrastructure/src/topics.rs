@@ -2201,13 +2201,13 @@ impl Database {
                        AND daoyun_can_access_content('topic', t.id, $9, CURRENT_TIMESTAMP)
                        AND (
                            $7::uuid IS NULL
-                           OR ((t.pinned_at IS NOT NULL), t.hot_score, t.published_at, t.id) < (
-                               SELECT (c.pinned_at IS NOT NULL), c.hot_score, c.published_at, c.id
+                           OR ((CASE WHEN $1::text IS NOT NULL THEN (t.pinned_at IS NOT NULL) ELSE FALSE END), t.hot_score, t.published_at, t.id) < (
+                               SELECT (CASE WHEN $1::text IS NOT NULL THEN (c.pinned_at IS NOT NULL) ELSE FALSE END), c.hot_score, c.published_at, c.id
                                FROM topics AS c WHERE c.id = $7
                            )
                        )
-                     ORDER BY (t.pinned_at IS NOT NULL) DESC, t.hot_score DESC,
-                              t.published_at DESC, t.id DESC
+                     ORDER BY (CASE WHEN $1::text IS NOT NULL THEN (t.pinned_at IS NOT NULL) ELSE FALSE END) DESC,
+                              t.hot_score DESC, t.published_at DESC, t.id DESC
                      LIMIT $8"#,
                 )
                 .bind(filters.board_slug.as_deref())

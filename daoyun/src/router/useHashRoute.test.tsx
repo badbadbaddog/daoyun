@@ -43,7 +43,7 @@ describe("useHashRoute", () => {
   })
 
   it.each([
-    ["#top", "#feed"],
+    ["#top", "#hot"],
     ["#discover", "#search"],
     ["#board-engineering", "#board/engineering"],
   ])("normalizes the legacy route %s without a second page-state model", (legacy, canonical) => {

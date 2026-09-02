@@ -5,7 +5,7 @@ export function GrowthPanel({ experience }: { experience: MembershipExperience }
   const remaining = experience.nextLevel ? Math.max(0, experience.nextLevel.requiredExperience - experience.experience) : 0
   return (
     <section className="member-panel growth-panel" aria-label="成长等级">
-      <p className="member-panel__eyebrow">Growth Level · EXP</p>
+      <p className="member-panel__eyebrow">成长进度</p>
       <h2>{experience.level.displayName}</h2>
       <strong>{experience.experience.toLocaleString()} EXP</strong>
       <GrowthProgress experience={experience.experience} currentThreshold={experience.level.requiredExperience} nextThreshold={experience.nextLevel?.requiredExperience ?? null} />
