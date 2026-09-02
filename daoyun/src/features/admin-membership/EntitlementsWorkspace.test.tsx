@@ -20,13 +20,25 @@ describe("EntitlementsWorkspace", () => {
     render(<EntitlementsWorkspace />)
 
     expect(screen.getByRole("heading", { name: "标准权益" })).toBeInTheDocument()
-    expect(screen.getByRole("tab", { name: "权益类型" })).toBeInTheDocument()
-    expect(screen.getByRole("tab", { name: "用户权益" })).toBeInTheDocument()
+    const typesTab = screen.getByRole("tab", { name: "权益类型" })
+    const usersTab = screen.getByRole("tab", { name: "用户权益" })
+    expect(typesTab).toHaveAttribute("tabindex", "0")
+    expect(usersTab).toHaveAttribute("tabindex", "-1")
     expect(screen.queryByText("治理角色")).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole("tab", { name: "用户权益" }))
+    typesTab.focus()
+    await user.keyboard("{ArrowRight}")
+    expect(usersTab).toHaveFocus()
+    expect(usersTab).toHaveAttribute("aria-selected", "true")
+    const usersPanel = screen.getByRole("tabpanel", { name: "用户权益" })
+    expect(usersTab).toHaveAttribute("aria-controls", usersPanel.id)
+    expect(usersPanel).toHaveAttribute("aria-labelledby", usersTab.id)
     expect(screen.getByRole("searchbox", { name: "搜索权益用户" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "发放标准权益" })).toBeInTheDocument()
+
+    await user.keyboard("{Home}")
+    expect(typesTab).toHaveFocus()
+    expect(typesTab).toHaveAttribute("aria-selected", "true")
   })
 
   it("requires a versioned permission and quota snapshot before publishing", async () => {

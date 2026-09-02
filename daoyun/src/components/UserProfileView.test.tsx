@@ -542,13 +542,28 @@ describe("UserProfileView", () => {
       />,
     )
 
-    await user.click(await screen.findByRole("tab", { name: "关注者" }))
+    const topicsTab = await screen.findByRole("tab", { name: "主题" })
+    const followersTab = screen.getByRole("tab", { name: "关注者" })
+    expect(topicsTab).toHaveAttribute("tabindex", "0")
+    expect(followersTab).toHaveAttribute("tabindex", "-1")
+
+    topicsTab.focus()
+    await user.keyboard("{ArrowRight}")
+    expect(followersTab).toHaveFocus()
+    expect(followersTab).toHaveAttribute("aria-selected", "true")
+    const panel = screen.getByRole("tabpanel", { name: "关注者" })
+    expect(followersTab).toHaveAttribute("aria-controls", panel.id)
+    expect(panel).toHaveAttribute("aria-labelledby", followersTab.id)
     expect(await screen.findByText("管理员")).toBeInTheDocument()
     expect(listUserRelations).toHaveBeenCalledWith(
       "member",
       "followers",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
+
+    await user.keyboard("{Home}")
+    expect(topicsTab).toHaveFocus()
+    expect(topicsTab).toHaveAttribute("aria-selected", "true")
   })
 
   it("reloads viewer-specific relationship state after authentication changes", async () => {

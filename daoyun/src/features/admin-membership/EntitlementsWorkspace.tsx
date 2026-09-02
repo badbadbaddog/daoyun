@@ -138,6 +138,20 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
     finally { setMutating(false) }
   }
 
+  function handleWorkspaceTabKey(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
+    const tabs: EntitlementTab[] = ["types", "users"]
+    let nextIndex: number | null = null
+    if (event.key === "ArrowRight") nextIndex = index + 1
+    else if (event.key === "ArrowLeft") nextIndex = index - 1
+    else if (event.key === "Home") nextIndex = 0
+    else if (event.key === "End") nextIndex = tabs.length - 1
+    if (nextIndex === null) return
+    event.preventDefault()
+    const next = tabs[(nextIndex + tabs.length) % tabs.length]
+    setTab(next)
+    document.getElementById(`entitlement-tab-${next}`)?.focus()
+  }
+
   async function revokeEntitlement(event: FormEvent) {
     event.preventDefault()
     if (!revokeTarget || revokeReason.trim().length < 2 || mutating) return
@@ -152,11 +166,11 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
 
   return <section className="membership-rule-section entitlement-admin" aria-labelledby="entitlement-workspace-heading">
     <header className="membership-section-heading"><div><h2 id="entitlement-workspace-heading">标准权益</h2><p>权益版本固定权限与额度快照，不包含或授予治理角色。</p></div>{canWriteTypes && <button className="primary-button" type="button" onClick={() => openPublisher()}>发布新版本</button>}</header>
-    <div role="tablist" aria-label="标准权益工作区"><button type="button" role="tab" aria-selected={tab === "types"} onClick={() => setTab("types")}>权益类型</button><button type="button" role="tab" aria-selected={tab === "users"} onClick={() => setTab("users")}>用户权益</button></div>
-    {tab === "types" ? <section role="tabpanel" aria-label="权益类型"><h3>类型与版本历史</h3>{children ?? <>
+    <div role="tablist" aria-label="标准权益工作区"><button id="entitlement-tab-types" type="button" role="tab" aria-controls="entitlement-panel-types" aria-selected={tab === "types"} tabIndex={tab === "types" ? 0 : -1} onClick={() => setTab("types")} onKeyDown={(event) => handleWorkspaceTabKey(event, 0)}>权益类型</button><button id="entitlement-tab-users" type="button" role="tab" aria-controls="entitlement-panel-users" aria-selected={tab === "users"} tabIndex={tab === "users" ? 0 : -1} onClick={() => setTab("users")} onKeyDown={(event) => handleWorkspaceTabKey(event, 1)}>用户权益</button></div>
+    {tab === "types" ? <section id="entitlement-panel-types" role="tabpanel" aria-labelledby="entitlement-tab-types"><h3>类型与版本历史</h3>{children ?? <>
       {typesLoading ? <p role="status">正在读取权益类型</p> : types.length === 0 ? <p role="status">尚未配置标准权益类型。</p> : <ul className="entitlement-type-list" aria-label="标准权益类型列表">{types.map((type) => <li key={type.id}><div><strong>{type.displayName}</strong><small>{type.internalKey} · 当前版本 {type.currentVersion} · revision {type.revision}</small></div><div><span>{type.permissionKeys.length} 项权限</span><span>{Object.keys(type.quotas).length} 项额度</span><button className="secondary-button" type="button" onClick={() => void showVersions(type)} aria-label={`查看${type.displayName}版本历史`}>版本历史</button>{canWriteTypes && <button className="secondary-button" type="button" onClick={() => openPublisher(type)}>发布下一版本</button>}</div></li>)}</ul>}
       {selectedType && <section className="entitlement-version-history" role="region" aria-label={`${selectedType.displayName}版本历史`}><h4>{selectedType.displayName}版本历史</h4>{versionsLoading ? <p role="status">正在读取版本历史</p> : <ol>{versions.map((version) => <li key={version.id}><strong>版本 {version.version}</strong><span>{version.permissionKeys.join("、") || "无权限"}</span>{quotaLines(version.quotas).map((line) => <code key={line}>{line}</code>)}</li>)}</ol>}</section>}
-    </>}</section> : <section role="tabpanel" aria-label="用户权益">
+    </>}</section> : <section id="entitlement-panel-users" role="tabpanel" aria-labelledby="entitlement-tab-users">
       <form className="entitlement-user-search" role="search" onSubmit={(event) => void searchUsers(event)}><label>搜索权益用户<input type="search" aria-label="搜索权益用户" placeholder="用户名或显示名称" value={query} onChange={(event) => setQuery(event.target.value)} /></label><button className="secondary-button" type="submit" disabled={searching || !canReadUsers}>{searching ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" /> : <Search size={14} aria-hidden="true" />}搜索用户</button></form>
       {canWriteGrants && <button className="primary-button" type="button" disabled={!selectedUser || activeTypes.length === 0} onClick={() => { setGrantOpen(true); setError(""); setGrantTypeId(activeTypes[0]?.id ?? "") }}>发放标准权益</button>}
       {users.length > 0 && <ul aria-label="权益用户搜索结果">{users.map((user) => <li key={user.id}><button type="button" aria-label={`选择${user.displayName} @${user.username}`} aria-pressed={selectedUser?.id === user.id} onClick={() => void selectUser(user)}>{user.displayName} <small>@{user.username}</small></button></li>)}</ul>}

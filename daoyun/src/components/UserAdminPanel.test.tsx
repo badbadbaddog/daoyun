@@ -76,13 +76,28 @@ describe("UserAdminPanel", () => {
     expect(screen.getByText("等待人工复核")).toBeInTheDocument()
     expect(screen.getByText("版主")).toBeInTheDocument()
     const overviewTab = screen.getByRole("tab", { name: "概览" })
+    const contentTab = screen.getByRole("tab", { name: "最近内容" })
+    const reportsTab = screen.getByRole("tab", { name: "相关举报" })
     const overviewPanel = screen.getByRole("tabpanel")
     expect(overviewTab).toHaveAttribute("aria-controls", overviewPanel.id)
     expect(overviewPanel).toHaveAttribute("aria-labelledby", overviewTab.id)
-    await user.click(screen.getByRole("tab", { name: "最近内容" }))
+    expect(overviewTab).toHaveAttribute("tabindex", "0")
+    expect(contentTab).toHaveAttribute("tabindex", "-1")
+
+    overviewTab.focus()
+    await user.keyboard("{ArrowRight}")
+    expect(contentTab).toHaveFocus()
+    expect(contentTab).toHaveAttribute("aria-selected", "true")
     expect(screen.getByRole("heading", { name: "社区主题" })).toBeInTheDocument()
-    await user.click(screen.getByRole("tab", { name: "相关举报" }))
+
+    await user.keyboard("{End}")
+    expect(reportsTab).toHaveFocus()
+    expect(reportsTab).toHaveAttribute("aria-selected", "true")
     expect(screen.getByText("暂无相关举报")).toBeInTheDocument()
+
+    await user.keyboard("{Home}")
+    expect(overviewTab).toHaveFocus()
+    expect(overviewTab).toHaveAttribute("aria-selected", "true")
   })
 
   it("renders an empty result and a retryable forbidden state", async () => {

@@ -265,6 +265,20 @@ function UserDetail({ detail, content, reports, tab, onTabChange, canModerate, c
     "aria-labelledby": `${tabSetId}-${name}-tab`,
     role: "tabpanel" as const,
   })
+  const visibleTabs: DetailTab[] = canReadAudit ? ["overview", "content", "reports", "audit"] : ["overview", "content", "reports"]
+  const handleTabKey = (event: React.KeyboardEvent<HTMLButtonElement>, name: DetailTab) => {
+    const index = visibleTabs.indexOf(name)
+    let nextIndex: number | null = null
+    if (event.key === "ArrowRight") nextIndex = index + 1
+    else if (event.key === "ArrowLeft") nextIndex = index - 1
+    else if (event.key === "Home") nextIndex = 0
+    else if (event.key === "End") nextIndex = visibleTabs.length - 1
+    if (nextIndex === null) return
+    event.preventDefault()
+    const next = visibleTabs[(nextIndex + visibleTabs.length) % visibleTabs.length]
+    onTabChange(next)
+    document.getElementById(`${tabSetId}-${next}-tab`)?.focus()
+  }
   return <div className="user-admin-detail__content">
     <header>
       <UserAvatar username={detail.username} displayName={detail.displayName} avatarUrl={detail.avatarUrl} size="large" />
@@ -276,10 +290,10 @@ function UserDetail({ detail, content, reports, tab, onTabChange, canModerate, c
       csrfToken={canModerate ? csrfToken : undefined}
     />
     <div className="user-admin-tabs" role="tablist" aria-label="用户详情分类">
-      <button type="button" role="tab" {...tabAttributes("overview")} onClick={() => onTabChange("overview")}>概览</button>
-      <button type="button" role="tab" {...tabAttributes("content")} onClick={() => onTabChange("content")}>最近内容</button>
-      <button type="button" role="tab" {...tabAttributes("reports")} onClick={() => onTabChange("reports")}>相关举报</button>
-      {canReadAudit ? <button type="button" role="tab" {...tabAttributes("audit")} onClick={() => onTabChange("audit")}>管理记录</button> : null}
+      <button type="button" role="tab" {...tabAttributes("overview")} onClick={() => onTabChange("overview")} onKeyDown={(event) => handleTabKey(event, "overview")}>概览</button>
+      <button type="button" role="tab" {...tabAttributes("content")} onClick={() => onTabChange("content")} onKeyDown={(event) => handleTabKey(event, "content")}>最近内容</button>
+      <button type="button" role="tab" {...tabAttributes("reports")} onClick={() => onTabChange("reports")} onKeyDown={(event) => handleTabKey(event, "reports")}>相关举报</button>
+      {canReadAudit ? <button type="button" role="tab" {...tabAttributes("audit")} onClick={() => onTabChange("audit")} onKeyDown={(event) => handleTabKey(event, "audit")}>管理记录</button> : null}
     </div>
     {tab === "overview" ? <div className="user-admin-overview" {...panelAttributes("overview")}>
       <dl>

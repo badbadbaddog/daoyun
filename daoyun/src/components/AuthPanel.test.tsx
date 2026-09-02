@@ -65,10 +65,23 @@ describe("AuthPanel", () => {
     expect(screen.getByRole("textbox", { name: "用户名或邮箱" })).toBeInTheDocument()
     expect(screen.queryByRole("textbox", { name: "显示名称" })).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole("tab", { name: "注册" }))
+    const loginTab = screen.getByRole("tab", { name: "登录" })
+    const registerTab = screen.getByRole("tab", { name: "注册" })
+    expect(loginTab).toHaveAttribute("tabindex", "0")
+    expect(registerTab).toHaveAttribute("tabindex", "-1")
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "用户名或邮箱" })).toHaveFocus())
+
+    loginTab.focus()
+    await user.keyboard("{ArrowRight}")
+    expect(registerTab).toHaveFocus()
+    expect(registerTab).toHaveAttribute("aria-selected", "true")
     expect(screen.getByRole("heading", { name: "注册刀云" })).toBeInTheDocument()
     expect(screen.getByRole("textbox", { name: "显示名称" })).toBeInTheDocument()
     expect(screen.getByRole("textbox", { name: "邮箱" })).toBeInTheDocument()
+
+    await user.keyboard("{Home}")
+    expect(loginTab).toHaveFocus()
+    expect(loginTab).toHaveAttribute("aria-selected", "true")
   })
 
   it("focuses the login field and blocks Escape or backdrop dismissal while login is pending", async () => {

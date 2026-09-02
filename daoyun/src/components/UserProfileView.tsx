@@ -136,6 +136,20 @@ export function UserProfileView({
     return <ProfileState kind="error" onBack={onBack} onRetry={() => setRequestVersion((value) => value + 1)} />
   }
 
+  function handleProfileTabKey(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
+    const tabs: ProfileTab[] = ["topics", "followers", "following"]
+    let nextIndex: number | null = null
+    if (event.key === "ArrowRight") nextIndex = index + 1
+    else if (event.key === "ArrowLeft") nextIndex = index - 1
+    else if (event.key === "Home") nextIndex = 0
+    else if (event.key === "End") nextIndex = tabs.length - 1
+    if (nextIndex === null) return
+    event.preventDefault()
+    const next = tabs[(nextIndex + tabs.length) % tabs.length]
+    setActiveTab(next)
+    document.getElementById(`profile-tab-${next}`)?.focus()
+  }
+
   async function handleFollow() {
     if (!profile) return
     if (!session) {
@@ -388,12 +402,12 @@ export function UserProfileView({
       )}
 
       <div className="profile-tabs" role="tablist" aria-label="用户内容">
-        <ProfileTabButton activeTab={activeTab} tab="topics" label="主题" onSelect={setActiveTab} />
-        <ProfileTabButton activeTab={activeTab} tab="followers" label="关注者" onSelect={setActiveTab} />
-        <ProfileTabButton activeTab={activeTab} tab="following" label="正在关注" onSelect={setActiveTab} />
+        <ProfileTabButton activeTab={activeTab} tab="topics" label="主题" index={0} onSelect={setActiveTab} onKeyDown={handleProfileTabKey} />
+        <ProfileTabButton activeTab={activeTab} tab="followers" label="关注者" index={1} onSelect={setActiveTab} onKeyDown={handleProfileTabKey} />
+        <ProfileTabButton activeTab={activeTab} tab="following" label="正在关注" index={2} onSelect={setActiveTab} onKeyDown={handleProfileTabKey} />
       </div>
 
-      <div className="profile-content" role="tabpanel">
+      <div id="profile-content" className="profile-content" role="tabpanel" aria-labelledby={`profile-tab-${activeTab}`}>
         {bookmarkError && <p className="interaction-alert" role="alert">{bookmarkError}</p>}
         {activeTab === "topics" ? (
           topics.topics.length ? (
@@ -435,13 +449,15 @@ export function UserProfileView({
   )
 }
 
-function ProfileTabButton({ activeTab, tab, label, onSelect }: {
+function ProfileTabButton({ activeTab, tab, label, index, onSelect, onKeyDown }: {
   activeTab: ProfileTab
   tab: ProfileTab
   label: string
+  index: number
   onSelect: (tab: ProfileTab) => void
+  onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => void
 }) {
-  return <button type="button" role="tab" aria-selected={activeTab === tab} onClick={() => onSelect(tab)}>{label}</button>
+  return <button id={`profile-tab-${tab}`} type="button" role="tab" aria-controls="profile-content" aria-selected={activeTab === tab} tabIndex={activeTab === tab ? 0 : -1} onClick={() => onSelect(tab)} onKeyDown={(event) => onKeyDown(event, index)}>{label}</button>
 }
 
 function ProfileState({ kind, onBack, onRetry }: { kind: LoadStatus; onBack: () => void; onRetry?: () => void }) {

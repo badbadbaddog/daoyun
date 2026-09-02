@@ -98,6 +98,20 @@ export function AuthPanel({ open, mode, onClose, onAuthenticated }: AuthPanelPro
     setCodeMessage("")
   }
 
+  function handleModeTabKey(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
+    const modes: AuthMode[] = ["login", "register"]
+    let nextIndex: number | null = null
+    if (event.key === "ArrowRight") nextIndex = index + 1
+    else if (event.key === "ArrowLeft") nextIndex = index - 1
+    else if (event.key === "Home") nextIndex = 0
+    else if (event.key === "End") nextIndex = modes.length - 1
+    if (nextIndex === null) return
+    event.preventDefault()
+    const next = modes[(nextIndex + modes.length) % modes.length]
+    switchMode(next)
+    document.getElementById(`auth-tab-${next}`)?.focus()
+  }
+
   function validate(): FieldErrors {
     const errors: FieldErrors = {}
     if (isRegister) {
@@ -253,21 +267,27 @@ export function AuthPanel({ open, mode, onClose, onAuthenticated }: AuthPanelPro
 
         <div className="auth-panel__tabs" role="tablist" aria-label="身份操作">
           <button
+            id="auth-tab-login"
             className={currentMode === "login" ? "auth-tab auth-tab--active" : "auth-tab"}
             type="button"
             role="tab"
             aria-selected={currentMode === "login"}
+            tabIndex={currentMode === "login" ? 0 : -1}
             onClick={() => switchMode("login")}
+            onKeyDown={(event) => handleModeTabKey(event, 0)}
           >
             <LogIn size={15} aria-hidden="true" />
             登录
           </button>
           <button
+            id="auth-tab-register"
             className={currentMode === "register" ? "auth-tab auth-tab--active" : "auth-tab"}
             type="button"
             role="tab"
             aria-selected={currentMode === "register"}
+            tabIndex={currentMode === "register" ? 0 : -1}
             onClick={() => switchMode("register")}
+            onKeyDown={(event) => handleModeTabKey(event, 1)}
           >
             <UserPlus size={15} aria-hidden="true" />
             注册
