@@ -29,6 +29,7 @@ describe("SiteHeader search", () => {
       />,
     )
 
+    expect(screen.getByRole("link", { name: "刀云首页" })).toHaveAttribute("href", "#hot")
     const open = screen.getByRole("button", { name: "打开搜索" })
     expect(open).toHaveAttribute("aria-expanded", "false")
     fireEvent.click(open)

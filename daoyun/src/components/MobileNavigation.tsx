@@ -19,7 +19,7 @@ export function MobileNavigation({
 }: MobileNavigationProps) {
   return (
     <nav className={`mobile-navigation${showCompose ? "" : " mobile-navigation--without-create"}`} aria-label="移动端导航">
-      <a className={linkClass(active === "home")} href="#top" aria-label="移动端首页" aria-current={active === "home" ? "page" : undefined}><Home size={20} /><span>首页</span></a>
+      <a className={linkClass(active === "home")} href="#hot" aria-label="移动端首页" aria-current={active === "home" ? "page" : undefined}><Home size={20} /><span>首页</span></a>
       <a className={linkClass(active === "community")} href="#boards" aria-label="移动端社区" aria-current={active === "community" ? "page" : undefined}><LayoutGrid size={20} /><span>社区</span></a>
       {showCompose && <button className="mobile-create" type="button" onClick={onCompose} aria-label="从移动导航发布新主题"><Plus size={23} /></button>}
       <a className={linkClass(active === "notifications")} href="#notifications" aria-label="移动端通知" aria-current={active === "notifications" ? "page" : undefined}><Bell size={20} /><span>通知</span></a>

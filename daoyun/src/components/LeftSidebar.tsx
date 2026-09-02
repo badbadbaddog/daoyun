@@ -22,7 +22,7 @@ export function LeftSidebar({ boards, loadStatus, onRetry, navigationLinks, acti
   return (
     <aside className="left-sidebar" aria-label="社区导航">
       <nav className="sidebar-nav">
-        <a className={sidebarLinkClass(active === "home")} href="#feed" aria-current={active === "home" ? "page" : undefined}>
+        <a className={sidebarLinkClass(active === "home")} href="#hot" aria-current={active === "home" ? "page" : undefined}>
           <Home size={18} />
           <span>首页</span>
         </a>

@@ -25,6 +25,8 @@ describe("LeftSidebar", () => {
     expect(within(primaryNavigation).getByRole("link", { name: "社区" }))
       .toHaveAttribute("aria-current", "page")
     expect(within(primaryNavigation).getByRole("link", { name: "首页" }))
+      .toHaveAttribute("href", "#hot")
+    expect(within(primaryNavigation).getByRole("link", { name: "首页" }))
       .not.toHaveAttribute("aria-current")
   })
 })

@@ -84,7 +84,7 @@ export function SiteHeader({
   return (
     <header className="site-header">
       <div className="site-header__inner">
-        <a className="wordmark" href="#top" aria-label={`${siteName}首页`}>
+        <a className="wordmark" href="#hot" aria-label={`${siteName}首页`}>
           <BrandMark logoUrl={logoUrl} />
           <span className="wordmark__text">{siteName}</span>
           <span className="wordmark__edition">社区</span>

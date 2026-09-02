@@ -78,6 +78,12 @@ describe("communityRoute", () => {
     expect(parseHash(hash)).toEqual({ kind: "feed", feed: "hot" })
   })
 
+  it("formats invalid internal destinations back to the recommended home", () => {
+    expect(formatRoute({ kind: "board", slug: "Invalid" })).toBe("#hot")
+    expect(formatRoute({ kind: "topic", topicId: "not-a-uuid" })).toBe("#hot")
+    expect(formatRoute({ kind: "user", username: "Admin" })).toBe("#hot")
+  })
+
   it("falls back to all for an unsupported search scope", () => {
     expect(parseHash("#search?q=rust&type=everything")).toEqual({
       kind: "search",

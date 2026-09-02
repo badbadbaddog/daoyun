@@ -18,6 +18,7 @@ describe("MobileNavigation", () => {
 
     expect(screen.getByRole("link", { name: "移动端社区" })).toHaveAttribute("href", "#boards")
     expect(screen.getByRole("link", { name: "移动端社区" })).toHaveAttribute("aria-current", "page")
+    expect(screen.getByRole("link", { name: "移动端首页" })).toHaveAttribute("href", "#hot")
     expect(screen.getByRole("link", { name: "移动端首页" })).not.toHaveAttribute("aria-current")
     expect(screen.getByRole("link", { name: "移动端通知" })).toHaveAttribute("href", "#notifications")
     expect(screen.queryByText("私信")).not.toBeInTheDocument()

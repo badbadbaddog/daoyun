@@ -100,7 +100,7 @@ export function formatRoute(route: CommunityRoute): string {
     case "boardIndex":
       return "#boards"
     case "board":
-      return BOARD_SLUG_PATTERN.test(route.slug) ? `#board/${route.slug}` : "#feed"
+      return BOARD_SLUG_PATTERN.test(route.slug) ? `#board/${route.slug}` : "#hot"
     case "search": {
       const query = normalizeSearchQuery(route.query)
       const scope = SEARCH_SCOPES.has(route.scope) ? route.scope : "all"
@@ -111,14 +111,14 @@ export function formatRoute(route: CommunityRoute): string {
       return `#search?${params.toString()}`
     }
     case "topic": {
-      if (!UUID_PATTERN.test(route.topicId)) return "#feed"
+      if (!UUID_PATTERN.test(route.topicId)) return "#hot"
       const base = `#topic/${route.topicId}`
       return route.replyId && UUID_PATTERN.test(route.replyId)
         ? `${base}?reply=${route.replyId}`
         : base
     }
     case "user":
-      return USERNAME_PATTERN.test(route.username) ? `#user/${route.username}` : "#feed"
+      return USERNAME_PATTERN.test(route.username) ? `#user/${route.username}` : "#hot"
     case "bookmarks":
       return "#bookmarks"
     case "messages":
