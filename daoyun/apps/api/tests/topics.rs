@@ -615,7 +615,7 @@ async fn post_facade_reuses_topic_storage_handlers_and_comment_chain(pool: PgPoo
         .expect("post facade update must respond");
     assert_eq!(updated.status(), StatusCode::OK);
     assert_eq!(
-        response_json(updated).await["data"]["title"],
+        response_json(updated).await["data"]["topic"]["title"],
         "兼容 Post 标题"
     );
 
@@ -1257,9 +1257,11 @@ async fn topic_routes_support_tags_editing_and_author_only_revisions(pool: PgPoo
         .expect("topic edit must respond");
     assert_eq!(edited.status(), StatusCode::OK);
     let edited_payload = response_json(edited).await;
-    assert_eq!(edited_payload["data"]["content"], "更新后的正文");
-    assert_eq!(edited_payload["data"]["content_revision"], 2);
-    assert_eq!(edited_payload["data"]["tags"][0]["slug"], "sqlx");
+    assert_eq!(edited_payload["data"]["disposition"], "published");
+    assert!(edited_payload["data"]["review_id"].is_null());
+    assert_eq!(edited_payload["data"]["topic"]["content"], "更新后的正文");
+    assert_eq!(edited_payload["data"]["topic"]["content_revision"], 2);
+    assert_eq!(edited_payload["data"]["topic"]["tags"][0]["slug"], "sqlx");
 
     let conflict = app
         .clone()
@@ -1294,6 +1296,57 @@ async fn topic_routes_support_tags_editing_and_author_only_revisions(pool: PgPoo
             .len(),
         2
     );
+
+    let admin_path = format!("/api/v1/admin/moderation/topics/{topic_id}/revisions");
+    let anonymous = app.clone().oneshot(get_request(&admin_path)).await.unwrap();
+    assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
+    let forbidden = app
+        .clone()
+        .oneshot(get_request_with_headers(&admin_path, &cookie_header))
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+    let (owner_cookies, owner_csrf) = login_owner(&app).await;
+    let hidden = app
+        .clone()
+        .oneshot(json_request_with_headers(
+            Method::PATCH,
+            &format!("/api/v1/topics/{topic_id}/moderation"),
+            serde_json::json!({"status": "hidden", "reason": "复核历史正文"}),
+            &owner_cookies,
+            Some(&owner_csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(hidden.status(), StatusCode::OK);
+    let history = app
+        .clone()
+        .oneshot(get_request_with_headers(&admin_path, &owner_cookies))
+        .await
+        .unwrap();
+    assert_eq!(history.status(), StatusCode::OK);
+    let request_id = history.headers()["x-request-id"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let history = response_json(history).await;
+    assert_eq!(history["meta"]["request_id"], request_id);
+    assert_eq!(history["data"].as_array().unwrap().len(), 2);
+    assert_eq!(history["data"][0]["content"], "更新后的正文");
+    assert_eq!(history["data"][0]["revision_number"], 2);
+    assert_eq!(history["data"][1]["content"], "初始正文");
+    assert_eq!(history["data"][1]["editor"]["username"], "member");
+    let missing = app
+        .oneshot(get_request_with_headers(
+            &format!(
+                "/api/v1/admin/moderation/topics/{}/revisions",
+                fixture_id(998)
+            ),
+            &owner_cookies,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
@@ -1397,8 +1450,10 @@ async fn reply_item_routes_support_author_edits_revisions_and_soft_delete(pool: 
         .expect("reply edit must respond");
     assert_eq!(edited.status(), StatusCode::OK);
     let edited_payload = response_json(edited).await;
-    assert_eq!(edited_payload["data"]["content"], "更新后的回复");
-    assert_eq!(edited_payload["data"]["revision_count"], 2);
+    assert_eq!(edited_payload["data"]["disposition"], "published");
+    assert!(edited_payload["data"]["review_id"].is_null());
+    assert_eq!(edited_payload["data"]["reply"]["content"], "更新后的回复");
+    assert_eq!(edited_payload["data"]["reply"]["revision_count"], 2);
 
     let conflict = app
         .clone()
@@ -1564,6 +1619,13 @@ async fn openapi_documents_public_topic_list_and_detail() {
             .is_object()
     );
     assert!(document["paths"]["/api/v1/topics/{topic_id}/revisions"]["get"].is_object());
+    let admin_revisions =
+        &document["paths"]["/api/v1/admin/moderation/topics/{topic_id}/revisions"];
+    assert!(admin_revisions["get"]["responses"]["200"]["headers"]["x-request-id"].is_object());
+    assert!(admin_revisions["get"]["responses"]["403"].is_object());
+    assert!(admin_revisions["post"].is_null());
+    assert!(admin_revisions["patch"].is_null());
+    assert!(admin_revisions["delete"].is_null());
     let reply_item_path = &document["paths"]["/api/v1/topics/{topic_id}/replies/{reply_id}"];
     assert!(reply_item_path["patch"].is_object());
     assert!(reply_item_path["delete"].is_object());
@@ -1612,9 +1674,12 @@ async fn openapi_documents_public_topic_list_and_detail() {
             "{property}"
         );
     }
-    assert!(
-        document["components"]["schemas"]["TopicSummary"]["properties"]["image_url"].is_object()
-    );
+    for property in ["image_url", "image_urls"] {
+        assert!(
+            document["components"]["schemas"]["TopicSummary"]["properties"][property].is_object(),
+            "{property}"
+        );
+    }
     assert!(
         document["components"]["schemas"]["CreateReplyRequest"]["properties"]["reply_to_id"]
             .is_object()

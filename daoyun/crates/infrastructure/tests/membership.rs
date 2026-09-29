@@ -246,6 +246,9 @@ async fn medals_are_idempotent_and_auto_awarded_by_points_rule(pool: PgPool) {
             actor_id,
             UpdateMembershipMedalRuleRecord {
                 medal_key: "medal_01".to_owned(),
+                display_name: "勋章 01".to_owned(),
+                asset_key: "medal_01".to_owned(),
+                expected_revision: 1,
                 enabled: true,
                 required_lifetime_points: Some(10),
             },
@@ -295,6 +298,94 @@ async fn medals_are_idempotent_and_auto_awarded_by_points_rule(pool: PgPool) {
         invalid,
         infrastructure::GrantMembershipMedalError::InvalidMedal
     ));
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn medal_catalog_crud_preserves_ownership_and_checks_revisions(pool: PgPool) {
+    let database = Database::from_pool(pool.clone());
+    let admin = insert_user(&pool, "catalog_admin", "catalog-admin@example.com").await;
+    grant_super_admin(&pool, admin).await;
+    let member = insert_user(&pool, "catalog_member", "catalog-member@example.com").await;
+    let input = |key: String, name: &str, revision| UpdateMembershipMedalRuleRecord {
+        medal_key: key,
+        display_name: name.to_owned(),
+        asset_key: "medal_02".to_owned(),
+        expected_revision: revision,
+        enabled: true,
+        required_lifetime_points: Some(10),
+    };
+    assert!(matches!(
+        database
+            .create_membership_medal_rule(member, input(String::new(), "贡献者", 1))
+            .await,
+        Err(infrastructure::UpdateMembershipMedalRuleError::Forbidden)
+    ));
+    let created = database
+        .create_membership_medal_rule(admin, input(String::new(), "贡献者", 1))
+        .await
+        .unwrap();
+    assert!(created.medal_key.len() > 9);
+    assert_eq!(created.revision, 1);
+    let saved = database
+        .update_membership_medal_rule(admin, input(created.medal_key.clone(), "年度贡献者", 1))
+        .await
+        .unwrap();
+    assert_eq!(saved.revision, 2);
+    assert!(matches!(
+        database
+            .update_membership_medal_rule(admin, input(created.medal_key.clone(), "过期编辑", 1))
+            .await,
+        Err(infrastructure::UpdateMembershipMedalRuleError::RevisionConflict)
+    ));
+    database
+        .grant_membership_medal(admin, member, &created.medal_key, "operator.award")
+        .await
+        .unwrap();
+    assert!(matches!(
+        database
+            .delete_membership_medal_rule(admin, &created.medal_key, 1)
+            .await,
+        Err(infrastructure::UpdateMembershipMedalRuleError::RevisionConflict)
+    ));
+    database
+        .delete_membership_medal_rule(admin, &created.medal_key, 2)
+        .await
+        .unwrap();
+    assert!(
+        !database
+            .list_membership_medal_rules()
+            .await
+            .unwrap()
+            .iter()
+            .any(|rule| rule.medal_key == created.medal_key)
+    );
+    let owned = database.list_membership_medals(member).await.unwrap();
+    assert_eq!(owned[0].display_name, "年度贡献者");
+    assert_eq!(owned[0].asset_key, "medal_02");
+    assert!(matches!(
+        database
+            .grant_membership_medal(admin, member, &created.medal_key, "operator.award")
+            .await,
+        Err(infrastructure::GrantMembershipMedalError::InvalidMedal)
+    ));
+    let fresh = insert_user(&pool, "catalog_new", "catalog-new@example.com").await;
+    database
+        .append_points_ledger(fresh, 20, "topic.publish", Some("deleted-medal"))
+        .await
+        .unwrap();
+    assert!(
+        database
+            .list_membership_medals(fresh)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let operations = database
+        .list_membership_medal_operations(Some(member), None, None, 25)
+        .await
+        .unwrap();
+    assert_eq!(operations[0].medal_display_name, "年度贡献者");
+    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM admin_audit_log WHERE actor_id = $1 AND resource_type = 'membership_medal_rule'").bind(admin).fetch_one(&pool).await.unwrap(), 3);
 }
 
 async fn grant_super_admin(pool: &PgPool, user_id: Uuid) {

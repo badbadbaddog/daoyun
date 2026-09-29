@@ -108,6 +108,15 @@ pub struct Medal {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct MembershipMedalAsset {
+    pub asset_key: String,
+    pub asset_url: String,
+    pub sha256: String,
+    pub mime_type: String,
+    pub size_bytes: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct MembershipMedal {
     pub key: String,
     pub display_name: String,
@@ -119,6 +128,9 @@ pub struct MembershipMedal {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct MembershipMedalRule {
+    pub asset_key: String,
+    pub asset_url: String,
+    pub revision: i64,
     pub key: String,
     pub display_name: String,
     pub enabled: bool,
@@ -129,8 +141,24 @@ pub struct MembershipMedalRule {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
 pub struct UpdateMembershipMedalRuleRequest {
+    pub display_name: String,
+    pub asset_key: String,
+    pub expected_revision: i64,
     pub enabled: bool,
     pub required_lifetime_points: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
+pub struct CreateMembershipMedalRuleRequest {
+    pub display_name: String,
+    pub asset_key: String,
+    pub enabled: bool,
+    pub required_lifetime_points: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
+pub struct DeleteMembershipMedalRuleRequest {
+    pub expected_revision: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]

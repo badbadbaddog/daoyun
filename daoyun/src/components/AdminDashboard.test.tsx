@@ -78,3 +78,27 @@ describe("AdminDashboard", () => {
     await waitFor(() => expect(listAdminReports).toHaveBeenCalledTimes(4))
   })
 })
+
+it("links summary metrics to filters and labels truncated and failed counts honestly", async () => {
+  vi.mocked(listAdminReports).mockImplementation(async (options) => {
+    if (options?.status === "in_review") throw new Error("offline")
+    return { reports: [report], nextCursor: "next" }
+  })
+  const onNavigate = vi.fn()
+  render(<AdminDashboard capabilityKeys={["governance.reports.read"]} boards={[]} onNavigate={onNavigate} />)
+  const summary = await screen.findByRole("region", { name: "待办概览" })
+  await waitFor(() => expect(summary).toHaveTextContent("1+"))
+  expect(summary).toHaveTextContent("暂不可用")
+  await userEvent.setup().click(screen.getByRole("button", { name: /查看待处理举报/ }))
+  expect(onNavigate).toHaveBeenCalledWith("reports", "status=open")
+})
+
+it("opens a task from its title and offers the complete report queue", async () => {
+  const user = userEvent.setup()
+  const onNavigate = vi.fn()
+  render(<AdminDashboard capabilityKeys={["governance.reports.read"]} boards={[]} onNavigate={onNavigate} />)
+  await user.click(await screen.findByText("待核查内容"))
+  expect(onNavigate).toHaveBeenLastCalledWith("reports", `status=open&report_id=${reportId}`)
+  await user.click(screen.getByRole("button", { name: "查看全部举报待办" }))
+  expect(onNavigate).toHaveBeenLastCalledWith("reports", "")
+})

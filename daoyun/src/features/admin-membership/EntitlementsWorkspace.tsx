@@ -9,6 +9,7 @@ import {
 import { AdminUsersApiError, listAdminUsers, type AdminUserSummary } from "../../api/adminUsers"
 import { RevisionConflictNotice } from "../../components/admin/RevisionConflictNotice"
 import { ModalDialog } from "../../components/ui/ModalDialog"
+import { communityPermissionKeys, communityQuotaKeys, permissionLabels } from "../../components/CommunityGroupQuotaDialog"
 
 interface EntitlementsWorkspaceProps {
   children?: ReactNode
@@ -27,6 +28,7 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
   const [tab, setTab] = useState<EntitlementTab>("types")
   const [types, setTypes] = useState<StandardEntitlementType[]>([])
   const [typesLoading, setTypesLoading] = useState(canReadTypes)
+  const [typesError, setTypesError] = useState("")
   const [versions, setVersions] = useState<StandardEntitlementVersion[]>([])
   const [selectedType, setSelectedType] = useState<StandardEntitlementType | null>(null)
   const [versionsLoading, setVersionsLoading] = useState(false)
@@ -37,8 +39,8 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
   const [publishing, setPublishing] = useState(false)
   const [internalKey, setInternalKey] = useState("")
   const [displayName, setDisplayName] = useState("")
-  const [permissionSnapshot, setPermissionSnapshot] = useState("")
-  const [quotaSnapshot, setQuotaSnapshot] = useState("")
+  const [permissions, setPermissions] = useState<string[]>([])
+  const [quotaDraft, setQuotaDraft] = useState<Record<string, string>>({})
   const [query, setQuery] = useState("")
   const [users, setUsers] = useState<AdminUserSummary[]>([])
   const [selectedUser, setSelectedUser] = useState<AdminUserSummary | null>(null)
@@ -71,12 +73,13 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
   const activeTypes = useMemo(() => types.filter((type) => type.status === "active"), [types])
 
   async function loadTypes(signal?: AbortSignal) {
-    setTypesLoading(true); setError("")
+    setTypesLoading(true); setTypesError("")
     try {
       const result = await listStandardEntitlementTypes(signal)
+      if (signal?.aborted) return
       setTypes(result)
       setGrantTypeId((current) => result.some((type) => type.id === current) ? current : result.find((type) => type.status === "active")?.id ?? "")
-    } catch (reason) { if (!signal?.aborted) setError(apiMessage(reason, "标准权益类型读取失败，请稍后重试。")) }
+    } catch (reason) { if (!signal?.aborted) setTypesError(apiMessage(reason, "标准权益类型读取失败，请稍后重试。")) }
     finally { if (!signal?.aborted) setTypesLoading(false) }
   }
 
@@ -115,17 +118,18 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
 
   function openPublisher(type?: StandardEntitlementType) {
     setInternalKey(type?.internalKey ?? ""); setDisplayName(type?.displayName ?? "")
-    setPermissionSnapshot(type?.permissionKeys.join(", ") ?? "")
-    setQuotaSnapshot(type ? quotaLines(type.quotas).join("\n") : "")
+    setPermissions(type?.permissionKeys ?? [])
+    setQuotaDraft(Object.fromEntries(Object.entries(type?.quotas ?? {}).map(([key, value]) => [key, String(value)])))
     setSelectedType(type ?? null); setError(""); setConflict(false); setPublishOpen(true)
   }
 
   async function publishVersion(event: FormEvent) {
     event.preventDefault()
     if (publishingRef.current) return
-    const permissions = permissionSnapshot.split(/\s*,\s*/).filter(Boolean)
-    const quotas = parseQuotaSnapshot(quotaSnapshot)
-    if (!validInternalKey(internalKey) || !displayName.trim() || permissions.length === 0 || !quotas) { setError("请填写有效内部键、显示名称、权限快照和 key=value 额度快照。"); return }
+    const entries = Object.entries(quotaDraft).filter(([, value]) => value.trim() !== "")
+    const quotas = Object.fromEntries(entries.map(([key, value]) => [key, Number(value)]))
+    if (!validInternalKey(internalKey) || !displayName.trim() || permissions.length === 0 || entries.length === 0) { setError("请填写内部键、显示名称，选择社区权限并设置至少一项额度。"); return }
+    if (entries.some(([key, value]) => !communityQuotaKeys.some(item => item.key === key) || !Number.isSafeInteger(Number(value)) || Number(value) < 0)) { setError("额度必须是非负整数。"); return }
     if (permissions.some((permission) => !communityPermissions.has(permission))) { setError("标准权益只能授予社区权限，不能授予治理权限。"); return }
     publishingRef.current = true
     setPublishing(true); setError(""); setConflict(false)
@@ -166,7 +170,9 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
 
   async function grantEntitlement(event: FormEvent) {
     event.preventDefault()
-    if (!selectedUser || !grantTypeId || !grantSource.trim() || !grantReason.trim() || !grantStartsAt || mutatingRef.current) return
+    if (mutatingRef.current) return
+    if (!selectedUser || !grantTypeId) { setError("请先选择用户和权益类型。"); return }
+    if (!grantSource.trim() || !grantReason.trim() || !grantStartsAt) { setError("请填写发放来源、发放原因和开始时间。"); return }
     const startsAt = toIso(grantStartsAt); const endsAt = grantEndsAt ? toIso(grantEndsAt) : null
     if (!startsAt || (grantEndsAt && !endsAt) || (endsAt && endsAt <= startsAt)) { setError("结束时间必须晚于开始时间。"); return }
     mutatingRef.current = true
@@ -240,10 +246,10 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
   }
 
   return <section className="membership-rule-section entitlement-admin" aria-labelledby="entitlement-workspace-heading">
-    <header className="membership-section-heading"><div><h2 id="entitlement-workspace-heading">标准权益</h2><p>权益版本固定权限与额度快照，不包含或授予治理角色。</p></div>{canWriteTypes && <button className="primary-button" type="button" onClick={() => openPublisher()}>发布新版本</button>}</header>
-    <div role="tablist" aria-label="标准权益工作区"><button id="entitlement-tab-types" type="button" role="tab" aria-controls="entitlement-panel-types" aria-selected={tab === "types"} tabIndex={tab === "types" ? 0 : -1} onClick={() => setTab("types")} onKeyDown={(event) => handleWorkspaceTabKey(event, 0)}>权益类型</button><button id="entitlement-tab-users" type="button" role="tab" aria-controls="entitlement-panel-users" aria-selected={tab === "users"} tabIndex={tab === "users" ? 0 : -1} onClick={() => setTab("users")} onKeyDown={(event) => handleWorkspaceTabKey(event, 1)}>用户权益</button></div>
+    <header className="membership-section-heading"><div><h2 id="entitlement-workspace-heading">标准权益</h2><p>配置会员可用的社区功能与使用额度；后台管理权限在“角色与权限”中设置。</p></div>{canWriteTypes && <button className="primary-button" type="button" onClick={() => openPublisher()}>创建权益类型</button>}</header>
+    <div className="membership-entitlement-tabs" role="tablist" aria-label="标准权益工作区"><button id="entitlement-tab-types" type="button" role="tab" aria-controls="entitlement-panel-types" aria-selected={tab === "types"} tabIndex={tab === "types" ? 0 : -1} onClick={() => setTab("types")} onKeyDown={(event) => handleWorkspaceTabKey(event, 0)}>权益类型</button><button id="entitlement-tab-users" type="button" role="tab" aria-controls="entitlement-panel-users" aria-selected={tab === "users"} tabIndex={tab === "users" ? 0 : -1} onClick={() => setTab("users")} onKeyDown={(event) => handleWorkspaceTabKey(event, 1)}>用户权益</button></div>
     {tab === "types" ? <section id="entitlement-panel-types" role="tabpanel" aria-labelledby="entitlement-tab-types"><h3>类型与版本历史</h3>{children ?? <>
-      {typesLoading ? <p role="status">正在读取权益类型</p> : types.length === 0 ? <p role="status">尚未配置标准权益类型。</p> : <ul className="entitlement-type-list" aria-label="标准权益类型列表">{types.map((type) => <li key={type.id}><div><strong>{type.displayName}</strong><small>{type.internalKey} · 当前版本 {type.currentVersion} · revision {type.revision}</small></div><div><span>{type.permissionKeys.length} 项权限</span><span>{Object.keys(type.quotas).length} 项额度</span><button className="secondary-button" type="button" onClick={() => void showVersions(type)} aria-label={`查看${type.displayName}版本历史`}>版本历史</button>{canWriteTypes && <button className="secondary-button" type="button" onClick={() => openPublisher(type)}>发布下一版本</button>}</div></li>)}</ul>}
+      {typesLoading ? <p role="status">正在读取权益类型</p> : typesError ? <div className="membership-feedback"><p className="form-alert" role="alert">{typesError}</p><button className="secondary-button" type="button" onClick={() => void loadTypes()}>重新加载权益类型</button></div> : types.length === 0 ? <p role="status">尚未配置标准权益类型。</p> : <ul className="entitlement-type-list" aria-label="标准权益类型列表">{types.map((type) => <li key={type.id}><div><strong>{type.displayName}</strong><small>{type.internalKey} · 当前版本 {type.currentVersion} · revision {type.revision}</small></div><div><span>{type.permissionKeys.length} 项权限</span><span>{Object.keys(type.quotas).length} 项额度</span><button className="secondary-button" type="button" onClick={() => void showVersions(type)} aria-label={`查看${type.displayName}版本历史`}>版本历史</button>{canWriteTypes && <button className="secondary-button" type="button" onClick={() => openPublisher(type)}>发布下一版本</button>}</div></li>)}</ul>}
       {selectedType && <section className="entitlement-version-history" role="region" aria-label={`${selectedType.displayName}版本历史`}><h4>{selectedType.displayName}版本历史</h4>{versionsLoading ? <p role="status">正在读取版本历史</p> : <ol>{versions.map((version) => <li key={version.id}><strong>版本 {version.version}</strong><span>{version.permissionKeys.join("、") || "无权限"}</span>{quotaLines(version.quotas).map((line) => <code key={line}>{line}</code>)}</li>)}</ol>}</section>}
     </>}</section> : <section id="entitlement-panel-users" role="tabpanel" aria-labelledby="entitlement-tab-users">
       <form className="entitlement-user-search" role="search" onSubmit={(event) => void searchUsers(event)}><label>搜索权益用户<input type="search" aria-label="搜索权益用户" placeholder="用户名或显示名称" value={query} onChange={(event) => setQuery(event.target.value)} /></label><button className="secondary-button" type="submit" disabled={searching || !canReadUsers}>{searching ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" /> : <Search size={14} aria-hidden="true" />}搜索用户</button></form>
@@ -253,14 +259,31 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
         {grantsLoading ? <p role="status">正在读取用户权益</p> : entitlements.length === 0 ? <p role="status">当前用户没有权益操作记录。</p> : <ul className="entitlement-operation-list" aria-label="权益操作记录">{entitlements.map((entitlement) => <li key={entitlement.id}><div><strong>{typeName(types, entitlement)}</strong><span>{entitlementState(entitlement)}</span></div><small>版本 {entitlement.typeVersion} · 来源 {entitlement.source}{entitlement.sourceReferenceId ? ` / ${entitlement.sourceReferenceId}` : ""}</small><p>{entitlement.reason}</p><time>{formatWindow(entitlement.startsAt, entitlement.endsAt)}</time><details><summary>权限与额度快照</summary><span>{entitlement.permissionSnapshot.join("、") || "无权限"}</span>{quotaLines(entitlement.quotaSnapshot).map((line) => <code key={line}>{line}</code>)}</details>{entitlement.revokedAt ? <p>撤销：{entitlement.revocationReason}</p> : canWriteGrants && <button className="danger-button" type="button" onClick={() => { setRevokeTarget(entitlement); setRevokeReason(""); setError("") }} aria-label={`撤销${typeName(types, entitlement)}`}>撤销</button>}</li>)}</ul>}
       </section>}
     </section>}
-    {publishOpen && <ModalDialog element="form" className="dialog-panel" titleId="publish-entitlement-heading" busy={publishing} initialFocusSelector="input:not(:disabled), textarea:not(:disabled), select:not(:disabled)" onClose={() => setPublishOpen(false)} onSubmit={(event) => void publishVersion(event)}><h3 id="publish-entitlement-heading">发布权益版本</h3><p>权限与额度快照发布后不可修改；变更必须创建新版本。</p><label>内部键<input value={internalKey} readOnly={Boolean(selectedType)} onChange={(event) => setInternalKey(event.target.value)} /></label><label>显示名称<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label><label>权限快照<textarea aria-label="权限快照" value={permissionSnapshot} onChange={(event) => setPermissionSnapshot(event.target.value)} placeholder="attachment.upload, topic.poll.create" /></label><label>额度快照<textarea aria-label="额度快照" value={quotaSnapshot} onChange={(event) => setQuotaSnapshot(event.target.value)} placeholder="attachment.upload.daily=20" /></label><p><ShieldCheck size={14} aria-hidden="true" />仅允许社区权益权限，不允许任何治理、后台或角色权限。</p>{error && <p className="form-alert" role="alert">{error}</p>}{conflict && <RevisionConflictNotice onRefresh={() => void refreshTypeConflictBaseline()} />}<div><button className="secondary-button" type="button" disabled={publishing} onClick={() => setPublishOpen(false)}>取消</button><button className="primary-button" type="submit" disabled={publishing || !internalKey.trim() || !displayName.trim() || !permissionSnapshot.trim() || !quotaSnapshot.trim()}>确认发布</button></div></ModalDialog>}
-    {grantOpen && selectedUser && <ModalDialog element="form" className="dialog-panel" titleId="grant-entitlement-heading" busy={mutating} initialFocusSelector="select:not(:disabled), input:not(:disabled), textarea:not(:disabled)" onClose={() => setGrantOpen(false)} onSubmit={(event) => void grantEntitlement(event)}><h3 id="grant-entitlement-heading">发放标准权益</h3><p>发放给 {selectedUser.displayName}；写入时固定当前类型版本的权限与额度快照。</p><label>权益类型<select aria-label="权益类型" value={grantTypeId} onChange={(event) => setGrantTypeId(event.target.value)}>{activeTypes.map((type) => <option key={type.id} value={type.id}>{type.displayName} · v{type.currentVersion}</option>)}</select></label><label>发放来源<input aria-label="发放来源" value={grantSource} onChange={(event) => setGrantSource(event.target.value)} placeholder="operator" /></label><label>来源编号（可选）<input value={grantReference} onChange={(event) => setGrantReference(event.target.value)} /></label><label>发放原因<input aria-label="发放原因" value={grantReason} onChange={(event) => setGrantReason(event.target.value)} /></label><label>开始时间<input aria-label="开始时间" type="datetime-local" value={grantStartsAt} onChange={(event) => setGrantStartsAt(event.target.value)} /></label><label>结束时间（可选）<input aria-label="结束时间" type="datetime-local" value={grantEndsAt} onChange={(event) => setGrantEndsAt(event.target.value)} /></label>{error && <p className="form-alert" role="alert">{error}</p>}<div><button className="secondary-button" type="button" disabled={mutating} onClick={() => setGrantOpen(false)}>取消</button><button className="primary-button" type="submit" disabled={mutating}>确认发放</button></div></ModalDialog>}
-    {revokeTarget && <ModalDialog element="form" className="dialog-panel" titleId="revoke-entitlement-heading" busy={mutating} initialFocusSelector="input:not(:disabled), textarea:not(:disabled), select:not(:disabled)" onClose={() => setRevokeTarget(null)} onSubmit={(event) => void revokeEntitlement(event)}><h3 id="revoke-entitlement-heading">撤销{typeName(types, revokeTarget)}</h3><p>撤销立即生效，历史版本与发放记录仍会保留。</p><label>撤销原因<input aria-label="撤销原因" value={revokeReason} onChange={(event) => setRevokeReason(event.target.value)} /></label>{error && <p className="form-alert" role="alert">{error}</p>}{conflict && <RevisionConflictNotice onRefresh={() => void refreshRevocationConflictBaseline()} />}<div><button className="secondary-button" type="button" disabled={mutating} onClick={() => setRevokeTarget(null)}>取消</button><button className="danger-button" type="submit" disabled={mutating || revokeReason.trim().length < 2}>确认撤销</button></div></ModalDialog>}
+    {publishOpen && <ModalDialog element="form" className="admin-action-dialog admin-form entitlement-dialog" titleId="publish-entitlement-heading" busy={publishing} initialFocusSelector="input:not(:disabled), textarea:not(:disabled), select:not(:disabled)" onClose={() => setPublishOpen(false)} onSubmit={event => void publishVersion(event)}>
+      <header><h3 id="publish-entitlement-heading">发布权益版本</h3><p>权限与额度快照发布后不可修改；变更必须创建新版本。</p></header>
+      <div className="membership-fields">
+        <label>内部键<input aria-label="内部键" required pattern="[a-z][a-z0-9_]{2,63}" value={internalKey} disabled={publishing} readOnly={Boolean(selectedType)} onChange={event => setInternalKey(event.target.value)} /><small>3–64 位小写字母、数字或下划线，以字母开头。</small></label>
+        <label>显示名称<input aria-label="显示名称" required maxLength={80} value={displayName} disabled={publishing} onChange={event => setDisplayName(event.target.value)} /></label>
+      </div>
+      <fieldset className="entitlement-permissions" disabled={publishing}>
+        <legend>社区权限 · 已选 {permissions.length} 项</legend>
+        <div>{communityPermissionKeys.map(key => <label key={key}><input type="checkbox" aria-label={permissionLabels[key]} checked={permissions.includes(key)} onChange={event => setPermissions(current => event.target.checked ? [...current, key] : current.filter(item => item !== key))} /><span>{permissionLabels[key]}</span></label>)}</div>
+        <p className="membership-hint"><ShieldCheck size={14} aria-hidden="true" />“内容须预审”是一项限制，勾选后发布内容需先审核。</p>
+      </fieldset>
+      <fieldset className="entitlement-quotas" disabled={publishing}>
+        <legend>使用额度</legend><p>留空表示不提供该项额度；填写 0 表示提供零额度。</p>
+        <div className="membership-fields">{communityQuotaKeys.map(({ key, label }) => <label key={key}>{label}<input aria-label={label} type="number" min={0} max={Number.MAX_SAFE_INTEGER} step={1} value={quotaDraft[key] ?? ""} placeholder="不提供" onChange={event => setQuotaDraft(current => ({ ...current, [key]: event.target.value }))} />{key.includes("bytes") && <small>单位：字节 · 1 MiB = 1,048,576 字节</small>}</label>)}</div>
+      </fieldset>
+      {error && <p className="form-alert" role="alert">{error}</p>}
+      {conflict && <RevisionConflictNotice onRefresh={() => void refreshTypeConflictBaseline()} />}
+      <footer className="admin-form__actions"><button className="secondary-button" type="button" disabled={publishing} onClick={() => setPublishOpen(false)}>取消</button><button className="primary-button" type="submit" disabled={publishing || !internalKey.trim() || !displayName.trim() || permissions.length === 0 || !Object.values(quotaDraft).some(value => value.trim() !== "")}>{publishing ? "正在发布" : "确认发布"}</button></footer>
+    </ModalDialog>}
+    {grantOpen && selectedUser && <ModalDialog element="form" className="admin-action-dialog admin-form entitlement-dialog" titleId="grant-entitlement-heading" busy={mutating} initialFocusSelector="select:not(:disabled), input:not(:disabled), textarea:not(:disabled)" onClose={() => setGrantOpen(false)} onSubmit={(event) => void grantEntitlement(event)}><h3 id="grant-entitlement-heading">发放标准权益</h3><p>发放给 {selectedUser.displayName}；写入时固定当前类型版本的权限与额度快照。</p><label>权益类型<select aria-label="权益类型" disabled={mutating} value={grantTypeId} onChange={(event) => setGrantTypeId(event.target.value)}>{activeTypes.map((type) => <option key={type.id} value={type.id}>{type.displayName} · v{type.currentVersion}</option>)}</select></label><label>发放来源<input aria-label="发放来源" required disabled={mutating} value={grantSource} onChange={(event) => setGrantSource(event.target.value)} placeholder="operator" /></label><label>来源编号（可选）<input disabled={mutating} value={grantReference} onChange={(event) => setGrantReference(event.target.value)} /></label><label>发放原因<input aria-label="发放原因" required disabled={mutating} value={grantReason} onChange={(event) => setGrantReason(event.target.value)} /></label><label>开始时间<input aria-label="开始时间" required disabled={mutating} type="datetime-local" value={grantStartsAt} onChange={(event) => setGrantStartsAt(event.target.value)} /></label><label>结束时间（可选）<input aria-label="结束时间" disabled={mutating} type="datetime-local" value={grantEndsAt} onChange={(event) => setGrantEndsAt(event.target.value)} /></label>{error && <p className="form-alert" role="alert">{error}</p>}<div><button className="secondary-button" type="button" disabled={mutating} onClick={() => setGrantOpen(false)}>取消</button><button className="primary-button" type="submit" disabled={mutating}>确认发放</button></div></ModalDialog>}
+    {revokeTarget && <ModalDialog element="form" className="admin-action-dialog admin-form entitlement-dialog" titleId="revoke-entitlement-heading" busy={mutating} initialFocusSelector="input:not(:disabled), textarea:not(:disabled), select:not(:disabled)" onClose={() => setRevokeTarget(null)} onSubmit={(event) => void revokeEntitlement(event)}><h3 id="revoke-entitlement-heading">撤销{typeName(types, revokeTarget)}</h3><p>撤销立即生效，历史版本与发放记录仍会保留。</p><label>撤销原因<input aria-label="撤销原因" value={revokeReason} onChange={(event) => setRevokeReason(event.target.value)} /></label>{error && <p className="form-alert" role="alert">{error}</p>}{conflict && <RevisionConflictNotice onRefresh={() => void refreshRevocationConflictBaseline()} />}<div><button className="secondary-button" type="button" disabled={mutating} onClick={() => setRevokeTarget(null)}>取消</button><button className="danger-button" type="submit" disabled={mutating || revokeReason.trim().length < 2}>确认撤销</button></div></ModalDialog>}
     {error && !publishOpen && !grantOpen && !revokeTarget && <p className="form-alert" role="alert">{error}</p>}{message && <p className="admin-success" role="status">{message}</p>}
   </section>
 }
 
-function parseQuotaSnapshot(value: string): Record<string, number> | null { const result: Record<string, number> = {}; for (const entry of value.split(/[\n,]+/).map((item) => item.trim()).filter(Boolean)) { const [key, raw, ...rest] = entry.split("=").map((item) => item.trim()); const quota = Number(raw); if (!key || rest.length > 0 || !Number.isSafeInteger(quota) || quota < 0) return null; result[key] = quota } return Object.keys(result).length > 0 ? result : null }
 function quotaLines(quotas: Record<string, number>): string[] { return Object.entries(quotas).sort(([left], [right]) => left.localeCompare(right)).map(([key, value]) => `${key} = ${value}`) }
 function typeName(types: StandardEntitlementType[], entitlement: AdminStandardEntitlement): string { return types.find((type) => type.id === entitlement.entitlementTypeId)?.displayName ?? entitlement.entitlementKey }
 function entitlementState(entitlement: AdminStandardEntitlement): string { if (entitlement.revokedAt) return "已撤销"; const now = Date.now(); if (Date.parse(entitlement.startsAt) > now) return "待生效"; if (entitlement.endsAt && Date.parse(entitlement.endsAt) <= now) return "已到期"; return entitlement.endsAt ? "有效期内" : "长期有效" }
@@ -269,4 +292,4 @@ function toIso(value: string): string | null { const date = new Date(value); ret
 function validInternalKey(value: string): boolean { return /^[a-z][a-z0-9_]{2,63}$/.test(value.trim()) }
 function apiMessage(reason: unknown, fallback: string): string { return reason instanceof AdminApiError || reason instanceof AdminUsersApiError ? reason.message : fallback }
 function newIdempotencyKey(prefix: string): string { return globalThis.crypto?.randomUUID?.() ?? `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}` }
-const communityPermissions = new Set(["board.read", "topic.read", "topic.create", "reply.create", "message.send", "attachment.upload", "attachment.download", "topic.poll.create", "topic.bounty.create", "topic.lottery.join", "content.external_link.use", "profile.signature.use", "content.pre_moderation.required"])
+const communityPermissions = new Set<string>(communityPermissionKeys)

@@ -56,6 +56,18 @@ const legacyPlugin: Plugin = {
   dataScopes: [],
 }
 
+
+async function openPluginPanel(user: ReturnType<typeof userEvent.setup>, name = "Identity plugin", tab?: "权限" | "详情") {
+  await user.click(await screen.findByRole("button", { name: "查看插件：" + name }))
+  if (tab) await user.click(screen.getByRole("tab", { name: tab }))
+}
+
+async function openDeveloperTools(user: ReturnType<typeof userEvent.setup>, name = "Identity plugin") {
+  await openPluginPanel(user, name)
+  await user.click(screen.getByText("高级与开发者工具"))
+  await user.click(screen.getByRole("button", { name: "开发者工具" }))
+}
+
 beforeEach(() => {
   vi.mocked(listPlugins).mockResolvedValue([plugin])
   vi.mocked(installPlugin).mockResolvedValue(plugin)
@@ -72,15 +84,105 @@ afterEach(() => {
 })
 
 describe("PluginAdminPanel", () => {
+  it("closes developer access when invoke permission is removed", async () => {
+    const user = userEvent.setup()
+    vi.mocked(listPlugins).mockResolvedValueOnce([{ ...legacyPlugin, status: "enabled" }])
+    const view = render(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle={false} canInvoke />)
+    await openDeveloperTools(user)
+    view.rerender(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle={false} canInvoke={false} />)
+    expect(screen.queryByRole("dialog", { name: "开发者工具：Identity plugin" })).not.toBeInTheDocument()
+  })
+
+  it("separates the official catalog and filters installed plugins", async () => {
+    const user = userEvent.setup()
+    vi.mocked(listPlugins).mockResolvedValueOnce([plugin, { ...legacyPlugin, id: "second", name: "Second plugin", key: "second_plugin", status: "enabled" }])
+    render(<PluginAdminPanel csrfToken="csrf" canInstall canLifecycle canInvoke={false} />)
+    await screen.findByText("Identity plugin")
+    expect(screen.queryByRole("article", { name: "官方插件：帖子补充" })).not.toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText("插件状态"), "enabled")
+    expect(screen.queryByText("Identity plugin")).not.toBeInTheDocument()
+    await user.type(screen.getByRole("searchbox", { name: "搜索插件" }), "missing")
+    expect(screen.getByText("没有符合条件的插件")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "清除筛选" }))
+    expect(screen.getByText("Identity plugin")).toBeInTheDocument()
+    await user.click(screen.getByRole("tab", { name: "官方插件" }))
+    expect(screen.getByRole("article", { name: "官方插件：帖子补充" })).toBeInTheDocument()
+    expect(screen.queryByText("Identity plugin")).not.toBeInTheDocument()
+  })
+
+  it("opens one plugin panel with permission and detail sections and restores focus", async () => {
+    const user = userEvent.setup()
+    render(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle={false} canInvoke />)
+    const trigger = await screen.findByRole("button", { name: "查看插件：Identity plugin" })
+    expect(screen.queryByText("高风险")).not.toBeInTheDocument()
+    await user.click(trigger)
+    const detail = screen.getByRole("region", { name: "插件：Identity plugin" })
+    await user.click(within(detail).getByRole("tab", { name: "权限" }))
+    expect(within(detail).getByText("高风险")).toBeInTheDocument()
+    await user.click(within(detail).getByRole("tab", { name: "详情" }))
+    expect(within(detail).getByText("业务 ABI 0.1.0")).toBeInTheDocument()
+    await user.click(trigger)
+    expect(detail).toHaveFocus()
+    await user.click(within(detail).getByRole("button", { name: "关闭插件面板" }))
+    expect(screen.queryByRole("region", { name: "插件：Identity plugin" })).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
+  it("classifies atomic redemption as high risk", async () => {
+    vi.mocked(listPlugins).mockResolvedValueOnce([{ ...plugin, capabilities: ["membership.redemption", "ui.panel"], dataScopes: [] }])
+    render(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle={false} canInvoke={false} />)
+    await openPluginPanel(userEvent.setup(), "Identity plugin", "权限")
+    expect(await screen.findByText("高风险")).toBeInTheDocument()
+  })
+
+  it("keeps supplement configuration separate from content review", async () => {
+    vi.mocked(listPlugins).mockResolvedValueOnce([{ ...plugin, capabilities: ["topic.supplements", "ui.panel"] }])
+    render(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle canInvoke={false} canConfigure />)
+
+    expect(await screen.findByRole("button", { name: "查看插件：Identity plugin" })).toHaveTextContent("设置")
+    expect(screen.queryByRole("button", { name: "审核补充" })).not.toBeInTheDocument()
+  })
+
+  it("does not show another plugin's invocation error in a newly opened tool dialog", async () => {
+    const user = userEvent.setup()
+    vi.mocked(listPlugins).mockResolvedValueOnce([
+      { ...legacyPlugin, status: "enabled" },
+      { ...legacyPlugin, id: "019fc900-0000-7000-8000-000000000803", name: "Second plugin", status: "enabled" },
+    ])
+    vi.mocked(invokePlugin).mockRejectedValueOnce(new PluginApiError(500, "plugin.failure", "第一个插件调用失败"))
+    render(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle canInvoke />)
+    await openDeveloperTools(user)
+    await user.click(screen.getByRole("button", { name: "转换内容：Identity plugin" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent("第一个插件调用失败")
+    await user.keyboard("{Escape}")
+    await openDeveloperTools(user, "Second plugin")
+    expect(within(screen.getByRole("dialog", { name: "开发者工具：Second plugin" })).queryByRole("alert")).not.toBeInTheDocument()
+  })
+
+  it("opens installation on demand and preserves the draft after closing", async () => {
+    const user = userEvent.setup()
+    render(<PluginAdminPanel csrfToken="csrf" canInstall canLifecycle={false} canInvoke={false} />)
+    await screen.findByText("identity_plugin · 1.0.0")
+    expect(screen.queryByLabelText("插件键")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "安装插件" }))
+    const dialog = screen.getByRole("dialog", { name: "安装插件" })
+    await user.type(within(dialog).getByLabelText("名称"), "新插件")
+    await user.keyboard("{Escape}")
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "安装插件" }))
+    expect(screen.getByLabelText("名称")).toHaveValue("新插件")
+  })
   it("loads metadata and applies lifecycle changes with revision and CSRF", async () => {
     const user = userEvent.setup()
     render(<PluginAdminPanel csrfToken="csrf" canInstall canLifecycle canInvoke />)
 
-    expect(await screen.findByRole("heading", { name: "插件平台" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "插件管理" })).toBeInTheDocument()
     expect(screen.getByText("identity_plugin · 1.0.0")).toBeInTheDocument()
+    await openPluginPanel(user, "Identity plugin", "详情")
     expect(screen.getByText("业务 ABI 0.1.0")).toBeInTheDocument()
+    await user.click(screen.getByRole("tab", { name: "权限" }))
     expect(screen.getByText("站点只读、定向用户操作")).toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "启用插件：Identity plugin" }))
+    await user.click(screen.getByRole("switch", { name: "启用插件：Identity plugin" }))
 
     expect(updatePluginStatus).toHaveBeenCalledWith(plugin.id, "enabled", 1, "csrf")
     expect(await screen.findByText("插件已启用")).toBeInTheDocument()
@@ -91,7 +193,7 @@ describe("PluginAdminPanel", () => {
 
     await screen.findByText("identity_plugin · 1.0.0")
     expect(screen.queryByRole("heading", { name: "安装插件" })).not.toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "启用插件：Identity plugin" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("switch", { name: "启用插件：Identity plugin" })).not.toBeInTheDocument()
     expect(screen.queryByLabelText("调用输入：Identity plugin")).not.toBeInTheDocument()
   })
 
@@ -100,8 +202,9 @@ describe("PluginAdminPanel", () => {
     render(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle canInvoke={false} />)
     await screen.findByText("identity_plugin · 1.0.0")
 
-    const trigger = screen.getByRole("button", { name: "卸载插件：Identity plugin" })
+    const trigger = screen.getByRole("button", { name: "更多操作：Identity plugin" })
     await user.click(trigger)
+    await user.click(screen.getByRole("menuitem", { name: "卸载插件：Identity plugin" }))
     const dialog = screen.getByRole("alertdialog", { name: "卸载插件“Identity plugin”" })
     expect(within(dialog).getByRole("button", { name: "取消" })).toHaveFocus()
     expect(deletePlugin).not.toHaveBeenCalled()
@@ -111,6 +214,7 @@ describe("PluginAdminPanel", () => {
     await waitFor(() => expect(trigger).toHaveFocus())
 
     await user.click(trigger)
+    await user.click(screen.getByRole("menuitem", { name: "卸载插件：Identity plugin" }))
     await user.click(screen.getByRole("button", { name: "确认卸载插件" }))
     await waitFor(() => expect(deletePlugin).toHaveBeenCalledWith(plugin.id, "csrf"))
     expect(await screen.findByText("插件已卸载")).toBeInTheDocument()
@@ -120,6 +224,7 @@ describe("PluginAdminPanel", () => {
     const user = userEvent.setup()
     render(<PluginAdminPanel csrfToken="csrf" canInstall canLifecycle canInvoke />)
     await screen.findByText("identity_plugin · 1.0.0")
+    await user.click(screen.getByRole("button", { name: "安装插件" }))
     await user.type(screen.getByLabelText("插件键"), "large_plugin")
     await user.type(screen.getByLabelText("名称"), "Large plugin")
     await user.click(screen.getByRole("button", { name: "下一步：能力审批" }))
@@ -147,7 +252,7 @@ describe("PluginAdminPanel", () => {
     })
     render(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle canInvoke />)
 
-    await user.click(await screen.findByText("开发者工具"))
+    await openDeveloperTools(user)
     await user.click(await screen.findByRole("button", { name: "渲染面板：Identity plugin" }))
     const frame = await screen.findByTitle("插件面板：Safe panel")
     expect(frame).toHaveAttribute("sandbox", "")
@@ -165,7 +270,7 @@ describe("PluginAdminPanel", () => {
     vi.mocked(listPlugins).mockResolvedValueOnce([plugin]).mockResolvedValueOnce([{ ...plugin, revision: 2 }])
     render(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle canInvoke={false} />)
 
-    await user.click(await screen.findByRole("button", { name: "启用插件：Identity plugin" }))
+    await user.click(await screen.findByRole("switch", { name: "启用插件：Identity plugin" }))
     expect(await screen.findByRole("alert")).toHaveTextContent("插件状态已变化，列表已刷新")
     await waitFor(() => expect(listPlugins).toHaveBeenCalledTimes(2))
   })
@@ -198,6 +303,7 @@ describe("PluginAdminPanel", () => {
 
     render(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle={false} canInvoke={false} />)
 
+    await openPluginPanel(userEvent.setup())
     expect(await screen.findByTitle("插件面板：业务扩展状态")).toHaveAttribute("sandbox", "")
     expect(screen.queryByTitle("插件面板：用户资料扩展")).not.toBeInTheDocument()
   })
@@ -219,6 +325,7 @@ describe("PluginAdminPanel", () => {
 
     render(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle={false} canInvoke />)
 
+    await openPluginPanel(user)
     const frame = await screen.findByTitle("插件面板：业务扩展状态")
     expect(frame.getAttribute("srcdoc")).not.toContain("notification.send_test")
     await user.click(screen.getByRole("button", { name: "发送测试通知" }))
@@ -237,16 +344,20 @@ describe("PluginAdminPanel", () => {
     render(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle={false} canInvoke />)
 
     await screen.findByText("identity_plugin · 1.0.0")
+    await openPluginPanel(user, "Identity plugin", "权限")
     expect(screen.getByText("高风险")).toBeInTheDocument()
+    await user.click(screen.getByRole("tab", { name: "详情" }))
     expect(screen.getByText("运行状态").nextElementSibling).toHaveTextContent("正在运行")
     expect(screen.getByText("WIT / ABI").nextElementSibling).toHaveTextContent("0.1.0")
     expect(screen.getByText("组件").nextElementSibling).toHaveTextContent("1.0 KiB")
     expect(screen.getByText("组件").nextElementSibling).toHaveTextContent("aaaaaaaaaaaa")
     expect(screen.getByText("Revision").nextElementSibling).toHaveTextContent("1")
-    const developerTools = screen.getByText("开发者工具").closest("details")
-    expect(developerTools).not.toBeNull()
-    await user.click(within(developerTools as HTMLElement).getByText("开发者工具"))
-    expect(within(developerTools as HTMLElement).getByLabelText("调用输入：Identity plugin")).toBeInTheDocument()
+    expect(screen.queryByLabelText("调用输入：Identity plugin")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("tab", { name: "设置" }))
+    await user.click(screen.getByText("高级与开发者工具"))
+    await user.click(screen.getByRole("button", { name: "开发者工具" }))
+    const developerTools = screen.getByRole("dialog", { name: "开发者工具：Identity plugin" })
+    expect(within(developerTools).getByLabelText("调用输入：Identity plugin")).toBeInTheDocument()
   })
 
   it("classifies read-only, event, user-write and notification capabilities as low through critical risk", async () => {
@@ -260,9 +371,8 @@ describe("PluginAdminPanel", () => {
     render(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle={false} canInvoke={false} />)
 
     for (const [name, risk] of [["Low plugin", "低风险"], ["Medium plugin", "中风险"], ["High plugin", "高风险"], ["Critical plugin", "严重风险"]] as const) {
-      const row = (await screen.findByText(name)).closest("article")
-      expect(row).not.toBeNull()
-      expect(within(row as HTMLElement).getByText(risk)).toBeInTheDocument()
+      await openPluginPanel(userEvent.setup(), name, "权限")
+      expect(within(screen.getByRole("region", { name: "插件：" + name })).getByText(risk)).toBeInTheDocument()
     }
   })
 
@@ -271,7 +381,7 @@ describe("PluginAdminPanel", () => {
     render(<PluginAdminPanel csrfToken="csrf" canInstall canLifecycle={false} canInvoke={false} />)
     await screen.findByText("identity_plugin · 1.0.0")
 
-    expect(screen.getByText("步骤 1 / 4 · 基本信息")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "安装插件" }))
     await user.type(screen.getByLabelText("插件键"), "demo_plugin")
     await user.type(screen.getByLabelText("名称"), "Demo plugin")
     await user.click(screen.getByRole("button", { name: "下一步：能力审批" }))
@@ -297,6 +407,7 @@ describe("PluginAdminPanel", () => {
     const user = userEvent.setup({ applyAccept: false })
     render(<PluginAdminPanel csrfToken="csrf" canInstall canLifecycle={false} canInvoke={false} />)
     await screen.findByText("identity_plugin · 1.0.0")
+    await user.click(screen.getByRole("button", { name: "安装插件" }))
     await user.type(screen.getByLabelText("插件键"), "demo_plugin")
     await user.type(screen.getByLabelText("名称"), "Demo plugin")
     await user.click(screen.getByRole("button", { name: "下一步：能力审批" }))
@@ -311,6 +422,7 @@ describe("PluginAdminPanel", () => {
     const user = userEvent.setup()
     render(<PluginAdminPanel csrfToken="csrf" canInstall canLifecycle={false} canInvoke={false} />)
     await screen.findByText("identity_plugin · 1.0.0")
+    await user.click(screen.getByRole("button", { name: "安装插件" }))
     await user.type(screen.getByLabelText("插件键"), "demo_plugin")
     await user.type(screen.getByLabelText("名称"), "Demo plugin")
     await user.click(screen.getByRole("button", { name: "下一步：能力审批" }))
@@ -332,6 +444,7 @@ describe("PluginAdminPanel", () => {
     ))
     render(<PluginAdminPanel csrfToken="csrf" canInstall canLifecycle={false} canInvoke={false} />)
     await screen.findByText("identity_plugin · 1.0.0")
+    await user.click(screen.getByRole("button", { name: "安装插件" }))
     await user.type(screen.getByLabelText("插件键"), "demo_plugin")
     await user.type(screen.getByLabelText("名称"), "Demo plugin")
     await user.click(screen.getByRole("button", { name: "下一步：能力审批" }))
@@ -351,6 +464,7 @@ describe("PluginAdminPanel", () => {
     vi.mocked(listPluginUiContributions).mockRejectedValueOnce(new PluginApiError(503, "plugin.runtime_unavailable", "组件实例化失败"))
     render(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle={false} canInvoke={false} />)
 
+    await openPluginPanel(userEvent.setup())
     expect(await screen.findByText("贡献加载故障")).toBeInTheDocument()
     expect(screen.getByText("组件实例化失败")).toBeInTheDocument()
   })

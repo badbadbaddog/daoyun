@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -62,6 +62,23 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
 describe("UserAdminPanel", () => {
+  it("opens details only in a drawer and keeps action forms behind dialogs", async () => {
+    const user = userEvent.setup()
+    render(<UserAdminPanel canModerate canAssignRoles csrfToken="csrf-token" />)
+    const opener = await screen.findByRole("button", { name: /社区成员/ })
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("添加角色")).not.toBeInTheDocument()
+    await user.click(opener)
+    expect(await screen.findByRole("dialog", { name: "用户详情" })).toBeInTheDocument()
+    await user.click(await screen.findByRole("button", { name: "管理账号状态" }))
+    expect(screen.getByRole("dialog", { name: "管理账号状态" })).toContainElement(screen.getByLabelText("账号动作"))
+    await user.keyboard("{Escape}")
+    expect(screen.queryByLabelText("账号动作")).not.toBeInTheDocument()
+    expect(screen.getByRole("dialog", { name: "用户详情" })).toBeInTheDocument()
+    await user.keyboard("{Escape}")
+    await waitFor(() => expect(opener).toHaveFocus())
+  })
+
   it("searches by plain-language identity and opens a complete user context", async () => {
     const user = userEvent.setup()
     render(<UserAdminPanel />)
@@ -74,7 +91,7 @@ describe("UserAdminPanel", () => {
     await user.click(screen.getByRole("button", { name: /社区成员/ }))
     expect(await screen.findByRole("heading", { name: "社区成员" })).toBeInTheDocument()
     expect(screen.getByText("等待人工复核")).toBeInTheDocument()
-    expect(screen.getByText("版主")).toBeInTheDocument()
+    expect(within(screen.getByRole("dialog", { name: "用户详情" })).getByText("版主")).toBeInTheDocument()
     const overviewTab = screen.getByRole("tab", { name: "概览" })
     const contentTab = screen.getByRole("tab", { name: "最近内容" })
     const reportsTab = screen.getByRole("tab", { name: "相关举报" })
@@ -214,14 +231,15 @@ describe("UserAdminPanel", () => {
     render(<UserAdminPanel canAssignRoles csrfToken="csrf-token" />)
     await user.click(await screen.findByRole("button", { name: /社区成员/ }))
     expect(await screen.findByRole("heading", { name: "社区成员" })).toBeInTheDocument()
-    await user.selectOptions(screen.getByLabelText("添加角色"), secondUserId)
-    await user.click(screen.getByRole("button", { name: "分配角色" }))
+    await user.click(await screen.findByRole("checkbox", { name: "内容版主" }))
+    await user.click(screen.getByRole("button", { name: "保存角色" }))
+    await user.click(screen.getByRole("button", { name: "确认保存角色" }))
 
     await waitFor(() => expect(createAuthorizationAssignment).toHaveBeenCalledWith({
       username: "member", roleId: secondUserId, scopeId: null,
     }, "csrf-token"))
     expect(screen.queryByRole("textbox", { name: /用户名/ })).not.toBeInTheDocument()
-    expect(await screen.findByText("角色已分配给社区成员")).toBeInTheDocument()
+    expect(await screen.findByText("角色已保存")).toBeInTheDocument()
   })
 
   it("requires confirmation before removing a user's custom role", async () => {
@@ -238,15 +256,17 @@ describe("UserAdminPanel", () => {
     render(<UserAdminPanel canAssignRoles csrfToken="csrf-token" />)
     await user.click(await screen.findByRole("button", { name: /社区成员/ }))
 
-    const trigger = await screen.findByRole("button", { name: "移除版主角色" })
-    await user.click(trigger)
-    const dialog = screen.getByRole("alertdialog", { name: "移除“版主”角色" })
+    await user.click(await screen.findByRole("checkbox", { name: "版主" }))
+    await user.click(screen.getByRole("button", { name: "保存角色" }))
+    const dialog = screen.getByRole("alertdialog", { name: "确认角色变更" })
     expect(within(dialog).getByRole("button", { name: "取消" })).toHaveFocus()
     expect(deleteAuthorizationAssignment).not.toHaveBeenCalled()
 
-    await user.click(within(dialog).getByRole("button", { name: "确认移除角色" }))
+    vi.mocked(listAdminUsers).mockResolvedValue({ users: [{ ...summary, primaryRole: null }], nextCursor: null })
+    await user.click(within(dialog).getByRole("button", { name: "确认保存角色" }))
     await waitFor(() => expect(deleteAuthorizationAssignment).toHaveBeenCalledWith(assignmentId, "csrf-token"))
-    expect(await screen.findByText("已移除社区成员的“版主”角色")).toBeInTheDocument()
+    expect(await screen.findByText("角色已保存")).toBeInTheDocument()
+    await waitFor(() => expect(within(screen.getByRole("table", { name: "用户列表" })).getByText("普通成员")).toBeInTheDocument())
   })
 
   it("shows capability-protected management records without rendering internal summaries", async () => {
@@ -270,3 +290,258 @@ function deferred<T>() {
   const promise = new Promise<T>((next) => { resolve = next })
   return { promise, resolve }
 }
+
+
+it("renders a selectable user table and keeps it visible behind the detail drawer", async () => {
+  const user = userEvent.setup()
+  render(<UserAdminPanel />)
+  const table = await screen.findByRole("table", { name: "用户列表" })
+  expect(within(table).getAllByRole("columnheader")).toHaveLength(10)
+  expect(screen.getByText("已加载用户")).toBeInTheDocument()
+  await user.click(screen.getByRole("checkbox", { name: "选择当前用户" }))
+  expect(screen.getByRole("button", { name: "导出选中 1 位" })).toBeEnabled()
+  await user.click(screen.getByRole("button", { name: /社区成员/ }))
+  const drawer = await screen.findByRole("dialog", { name: "用户详情" })
+  expect(drawer).toHaveAttribute("aria-modal", "true")
+  expect(table).toBeVisible()
+  expect(await within(drawer).findByText(userId)).toBeInTheDocument()
+})
+
+it("sends role and inclusive local registration dates to the server and resets filters", async () => {
+  const user = userEvent.setup()
+  const onQueryChange = vi.fn()
+  vi.mocked(listAuthorizationRoles).mockResolvedValue([{ id: userId, key: "moderator", name: "版主", scope: "site", isSystem: false, permissionKeys: [], assignmentCount: 1, revision: 1, createdAt: summary.createdAt, updatedAt: summary.createdAt }])
+  render(<UserAdminPanel canAssignRoles onQueryChange={onQueryChange} />)
+  await screen.findByRole("option", { name: "版主" })
+  await user.selectOptions(screen.getByLabelText("用户角色"), userId)
+  await user.type(screen.getByLabelText("注册开始日期"), "2026-09-01")
+  await user.type(screen.getByLabelText("注册结束日期"), "2026-09-02")
+  await user.click(screen.getByRole("button", { name: /^搜索$/ }))
+  await waitFor(() => expect(listAdminUsers).toHaveBeenLastCalledWith(expect.objectContaining({ roleId: userId, registeredAfter: new Date("2026-09-01T00:00:00").toISOString(), registeredBefore: new Date("2026-09-03T00:00:00").toISOString() })))
+  expect(onQueryChange).toHaveBeenLastCalledWith(expect.stringContaining("from=2026-09-01"))
+  await user.click(screen.getByRole("button", { name: "重置" }))
+  await waitFor(() => expect(listAdminUsers).toHaveBeenLastCalledWith(expect.objectContaining({ roleId: undefined, registeredAfter: undefined, registeredBefore: undefined })))
+  expect(screen.getByLabelText("注册开始日期")).toHaveValue("")
+  await user.selectOptions(screen.getByLabelText("每次加载用户数"), "50")
+  await waitFor(() => expect(listAdminUsers).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 50 })))
+})
+
+
+it("keeps user details usable when the recent preview fails and retries only that preview", async () => {
+  const user = userEvent.setup()
+  vi.mocked(listAdminUserContent).mockRejectedValueOnce(new AdminUsersApiError(503, "unavailable", "内容暂时不可用"))
+  render(<UserAdminPanel />)
+  await user.click(await screen.findByRole("button", { name: /社区成员/ }))
+  expect(await screen.findByRole("heading", { name: "社区成员" })).toBeInTheDocument()
+  expect(listAdminUserContent).toHaveBeenCalledTimes(1)
+  expect(listAdminUserReports).not.toHaveBeenCalled()
+  expect(await screen.findByRole("alert")).toHaveTextContent("内容暂时不可用")
+  await user.click(screen.getByRole("button", { name: "重试" }))
+  expect(await screen.findByRole("link", { name: "社区主题" })).toHaveAttribute("href", "#topic/" + userId)
+  expect(getAdminUser).toHaveBeenCalledTimes(1)
+})
+
+it("loads more activity without duplicating items and links replies to their original topic", async () => {
+  const user = userEvent.setup()
+  const first = { id: userId, kind: "topic" as const, topicId: userId, title: "第一页主题", excerpt: "摘要", status: "published", createdAt: summary.createdAt }
+  vi.mocked(listAdminUserContent).mockResolvedValueOnce({ items: [first], nextCursor: userId }).mockResolvedValueOnce({ items: [first], nextCursor: userId }).mockResolvedValueOnce({ items: [first, { ...first, id: secondUserId, kind: "reply", title: "第二页回复" }], nextCursor: null })
+  render(<UserAdminPanel />)
+  await user.click(await screen.findByRole("button", { name: /社区成员/ }))
+  await user.click(await screen.findByRole("tab", { name: "最近内容" }))
+  await user.click(await screen.findByRole("button", { name: "加载更多内容" }))
+  expect(await screen.findByRole("link", { name: "第二页回复" })).toHaveAttribute("href", "#topic/" + userId + "?reply=" + secondUserId)
+  expect(screen.getAllByRole("link", { name: "第一页主题" })).toHaveLength(1)
+  expect(listAdminUserContent).toHaveBeenLastCalledWith(userId, userId, expect.any(AbortSignal))
+  expect(screen.queryByRole("button", { name: "加载更多内容" })).not.toBeInTheDocument()
+})
+
+
+it("preserves loaded activity after a later page fails and retries that cursor", async () => {
+  const user = userEvent.setup()
+  const item = { id: userId, kind: "topic" as const, topicId: userId, title: "已加载主题", excerpt: "摘要", status: "published", createdAt: summary.createdAt }
+  vi.mocked(listAdminUserContent).mockResolvedValueOnce({ items: [item], nextCursor: userId }).mockResolvedValueOnce({ items: [item], nextCursor: userId }).mockRejectedValueOnce(new AdminUsersApiError(503, "unavailable", "后续内容暂时不可用")).mockResolvedValueOnce({ items: [{ ...item, id: secondUserId, title: "后续主题" }], nextCursor: null })
+  render(<UserAdminPanel />)
+  await user.click(await screen.findByRole("button", { name: /社区成员/ }))
+  await user.click(await screen.findByRole("tab", { name: "最近内容" }))
+  await user.click(await screen.findByRole("button", { name: "加载更多内容" }))
+  expect(await screen.findByRole("alert")).toHaveTextContent("后续内容暂时不可用")
+  expect(screen.getByRole("link", { name: "已加载主题" })).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "重试" }))
+  expect(await screen.findByRole("link", { name: "后续主题" })).toBeInTheDocument()
+  expect(listAdminUserContent).toHaveBeenLastCalledWith(userId, userId, expect.any(AbortSignal))
+})
+
+it("aborts activity requests when leaving their tab and loads reports only on demand", async () => {
+  const user = userEvent.setup()
+  const slow = deferred<{ items: []; nextCursor: null }>()
+  vi.mocked(listAdminUserContent).mockResolvedValueOnce({ items: [], nextCursor: null }).mockReturnValueOnce(slow.promise)
+  render(<UserAdminPanel />)
+  await user.click(await screen.findByRole("button", { name: /社区成员/ }))
+  await user.click(await screen.findByRole("tab", { name: "最近内容" }))
+  const signal = vi.mocked(listAdminUserContent).mock.calls[1][2]
+  await user.click(screen.getByRole("tab", { name: "相关举报" }))
+  expect(signal?.aborted).toBe(true)
+  expect(await screen.findByText("暂无相关举报")).toBeInTheDocument()
+  expect(listAdminUserReports).toHaveBeenCalledTimes(1)
+  slow.resolve({ items: [], nextCursor: null })
+  await Promise.resolve()
+  expect(screen.getByRole("tab", { name: "相关举报" })).toHaveAttribute("aria-selected", "true")
+})
+
+
+it("refreshes a status conflict without discarding the user's draft", async () => {
+  const user = userEvent.setup()
+  vi.mocked(updateAdminUserStatus).mockRejectedValueOnce(new AdminUsersApiError(409, "user.revision_conflict", "账号已被其他管理员更新"))
+  render(<UserAdminPanel canModerate csrfToken="csrf-token" />)
+  await user.click(await screen.findByRole("button", { name: /社区成员/ }))
+  await user.click(await screen.findByRole("button", { name: "管理账号状态" }))
+  await user.selectOptions(screen.getByLabelText("账号动作"), "suspended")
+  await user.clear(screen.getByLabelText("操作原因"))
+  await user.type(screen.getByLabelText("操作原因"), "保留这份处置原因")
+  await user.selectOptions(screen.getByLabelText("限制期限"), "30d")
+  await user.click(screen.getByRole("button", { name: "确认提交" }))
+  await user.click(screen.getByRole("button", { name: "确认暂停账号" }))
+  const refresh = await screen.findByRole("button", { name: "刷新最新数据" })
+  expect(screen.getByRole("button", { name: "确认提交" })).toBeDisabled()
+  vi.mocked(getAdminUser).mockRejectedValueOnce(new AdminUsersApiError(503, "unavailable", "刷新暂时失败")).mockResolvedValue({ ...detail, revision: 9 })
+  await user.click(refresh)
+  expect(await screen.findByText("刷新暂时失败")).toBeInTheDocument()
+  expect(screen.getByLabelText("操作原因")).toHaveValue("保留这份处置原因")
+  expect(screen.getByRole("button", { name: "确认提交" })).toBeDisabled()
+  await user.click(refresh)
+  await waitFor(() => expect(screen.getByRole("button", { name: "确认提交" })).toBeEnabled())
+  expect(screen.getByLabelText("操作原因")).toHaveValue("保留这份处置原因")
+  expect(screen.getByLabelText("限制期限")).toHaveValue("30d")
+  expect(screen.getByLabelText("账号动作")).toHaveValue("suspended")
+  await user.click(screen.getByRole("button", { name: "确认提交" }))
+  await user.click(screen.getByRole("button", { name: "确认暂停账号" }))
+  await waitFor(() => expect(updateAdminUserStatus).toHaveBeenLastCalledWith(userId, expect.objectContaining({ expectedRevision: 9, reason: "保留这份处置原因" }), "csrf-token"))
+})
+
+it("locks account fields and dismissal until the status mutation completes", async () => {
+  const user = userEvent.setup()
+  const pending = deferred<Awaited<ReturnType<typeof updateAdminUserStatus>>>()
+  vi.mocked(updateAdminUserStatus).mockReturnValue(pending.promise)
+  render(<UserAdminPanel canModerate csrfToken="csrf-token" />)
+  await user.click(await screen.findByRole("button", { name: /社区成员/ }))
+  await user.click(await screen.findByRole("button", { name: "管理账号状态" }))
+  await user.click(screen.getByRole("button", { name: "确认提交" }))
+  await user.dblClick(screen.getByRole("button", { name: "确认恢复账号" }))
+  expect(updateAdminUserStatus).toHaveBeenCalledTimes(1)
+  expect(screen.getByLabelText("账号动作")).toBeDisabled()
+  expect(screen.getByRole("button", { name: "关闭管理账号状态" })).toBeDisabled()
+  await user.keyboard("{Escape}")
+  expect(screen.getByRole("alertdialog")).toBeInTheDocument()
+  await act(async () => { pending.resolve({ userId, status: "active", reason: null, expiresAt: null, revision: 3, auditId: secondUserId, actor: { id: secondUserId, username: "owner", displayName: "站长", avatarUrl: null }, changedAt: summary.lastSeenAt }); await pending.promise })
+  expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+})
+
+it("retries role data failures within the detail drawer", async () => {
+  const user = userEvent.setup()
+  vi.mocked(listAuthorizationAssignments).mockRejectedValueOnce(new Error("offline"))
+  render(<UserAdminPanel canAssignRoles csrfToken="csrf-token" />)
+  await user.click(await screen.findByRole("button", { name: /社区成员/ }))
+  await user.click(await screen.findByRole("button", { name: "重试角色数据" }))
+  expect(await screen.findByText("暂无可分配的自定义角色")).toBeInTheDocument()
+  expect(listAuthorizationAssignments).toHaveBeenCalledTimes(2)
+})
+
+
+it("locks role assignment fields and rejects duplicate submissions until completion", async () => {
+  const user = userEvent.setup()
+  const role = { id: secondUserId, key: "helper", name: "协管员", scope: "site" as const, isSystem: false, permissionKeys: [], assignmentCount: 0, revision: 1, createdAt: summary.createdAt, updatedAt: summary.createdAt }
+  const pending = deferred<Awaited<ReturnType<typeof createAuthorizationAssignment>>>()
+  vi.mocked(listAuthorizationRoles).mockResolvedValue([role])
+  vi.mocked(createAuthorizationAssignment).mockReturnValue(pending.promise)
+  render(<UserAdminPanel canAssignRoles csrfToken="csrf-token" />)
+  await user.click(await screen.findByRole("button", { name: /社区成员/ }))
+  await user.click(await screen.findByRole("checkbox", { name: "协管员" }))
+  await user.click(screen.getByRole("button", { name: "保存角色" }))
+  await user.dblClick(screen.getByRole("button", { name: "确认保存角色" }))
+  expect(createAuthorizationAssignment).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole("checkbox", { name: "协管员" })).toBeDisabled()
+  expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: "取消" })).toBeDisabled()
+  await user.keyboard("{Escape}")
+  expect(screen.getByRole("alertdialog", { name: "确认角色变更" })).toBeInTheDocument()
+  await act(async () => { pending.resolve({ id: secondUserId, role, user: { id: userId, username: summary.username, displayName: summary.displayName, avatarUrl: null }, scopeId: null, assignedBy: { id: secondUserId, username: "owner", displayName: "站长", avatarUrl: null }, createdAt: summary.createdAt }); await pending.promise })
+  expect(await screen.findByText("角色已保存")).toBeInTheDocument()
+  expect(screen.getByRole("checkbox", { name: "协管员" })).toBeEnabled()
+})
+
+
+it("shows a compact recent activity preview and copies the user ID", async () => {
+  const user = userEvent.setup()
+  const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined)
+  const items = Array.from({ length: 4 }, (_, index) => ({ id: userId + index, kind: "topic" as const, topicId: userId, title: "最近动态 " + index, excerpt: "摘要", status: "published", createdAt: summary.createdAt }))
+  vi.mocked(listAdminUserContent).mockResolvedValue({ items, nextCursor: null })
+  render(<UserAdminPanel />)
+  await user.click(await screen.findByRole("button", { name: /社区成员/ }))
+  expect(await screen.findByRole("link", { name: "最近动态 0" })).toBeInTheDocument()
+  expect(screen.queryByRole("link", { name: "最近动态 3" })).not.toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "复制用户 ID" }))
+  expect(copy).toHaveBeenCalledWith(userId)
+  expect(await screen.findByText("用户 ID 已复制")).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "查看全部动态" }))
+  expect(await screen.findByRole("link", { name: "最近动态 3" })).toBeInTheDocument()
+  expect(screen.getByRole("tab", { name: "最近内容" })).toHaveFocus()
+})
+
+it("opens the requested quick account action without submitting it", async () => {
+  const user = userEvent.setup()
+  render(<UserAdminPanel canModerate csrfToken="csrf-token" />)
+  await user.click(await screen.findByRole("button", { name: /社区成员/ }))
+  await user.click(await screen.findByRole("button", { name: /^暂停账号$/ }))
+  expect(screen.getByLabelText("账号动作")).toHaveValue("suspended")
+  expect(updateAdminUserStatus).not.toHaveBeenCalled()
+})
+
+
+it("navigates loaded users within the drawer and locks navigation while details load", async () => {
+  const user = userEvent.setup()
+  const nextUser = { ...detail, id: secondUserId, username: "second", displayName: "第二位成员" }
+  const pending = deferred<typeof detail>()
+  vi.mocked(listAdminUsers).mockResolvedValue({ users: [summary, nextUser], nextCursor: null })
+  vi.mocked(getAdminUser).mockImplementation((id) => id === secondUserId ? pending.promise : Promise.resolve(detail))
+  render(<UserAdminPanel />)
+  const opener = await screen.findByRole("button", { name: /社区成员/ })
+  await user.click(opener)
+  await screen.findByRole("heading", { name: "社区成员" })
+  expect(screen.getByRole("button", { name: "上一位用户" })).toBeDisabled()
+  await user.click(screen.getByRole("button", { name: "下一位用户" }))
+  expect(screen.getByRole("button", { name: "上一位用户" })).toBeDisabled()
+  expect(screen.getByRole("button", { name: "下一位用户" })).toBeDisabled()
+  await act(async () => { pending.resolve(nextUser); await pending.promise })
+  expect(screen.getByRole("heading", { name: "第二位成员" })).toBeInTheDocument()
+  expect(screen.getByText("已加载用户 2 / 2")).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "下一位用户" })).toBeDisabled()
+  await user.click(screen.getByRole("button", { name: "上一位用户" }))
+  expect(await screen.findByRole("heading", { name: "社区成员" })).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "关闭抽屉" }))
+  await waitFor(() => expect(opener).toHaveFocus())
+})
+
+it("shows follow counts and a safe personal website without linking unsafe schemes", async () => {
+  const user = userEvent.setup()
+  vi.mocked(getAdminUser).mockResolvedValueOnce({ ...detail, websiteUrl: "https://example.com/profile" })
+  render(<UserAdminPanel />)
+  await user.click(await screen.findByRole("button", { name: /社区成员/ }))
+  expect(await screen.findByRole("link", { name: "https://example.com/profile" })).toHaveAttribute("rel", "noopener noreferrer")
+  expect(screen.getByText("已关注 4 人")).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "关闭抽屉" }))
+  vi.mocked(getAdminUser).mockResolvedValueOnce({ ...detail, websiteUrl: "javascript:alert(1)" })
+  await user.click(screen.getByRole("button", { name: /社区成员/ }))
+  expect(await screen.findByText("javascript:alert(1)")).toBeInTheDocument()
+  expect(screen.queryByRole("link", { name: "javascript:alert(1)" })).not.toBeInTheDocument()
+})
+
+it("shows loaded status counts beside the reference-style filters", async () => {
+  vi.mocked(listAdminUsers).mockResolvedValue({ users: [summary, { ...summary, id: secondUserId, username: "active", displayName: "正常成员", status: "active" }], nextCursor: null })
+  render(<UserAdminPanel />)
+  await screen.findByRole("button", { name: /社区成员/ })
+  expect(screen.getByRole("heading", { name: "用户管理", level: 1 })).toBeInTheDocument()
+  const filters = within(screen.getByRole("group", { name: "按用户状态筛选" }))
+  expect(within(filters.getByRole("button", { name: "全部" })).getByText("2")).toBeInTheDocument()
+  expect(within(filters.getByRole("button", { name: "正常" })).getByText("1")).toBeInTheDocument()
+  expect(within(filters.getByRole("button", { name: "已限制" })).getByText("1")).toBeInTheDocument()
+  expect(screen.getAllByText("占已加载 50.0%")).toHaveLength(2)
+})

@@ -1,6 +1,12 @@
 #![forbid(unsafe_code)]
 
 mod admin;
+mod admin_comments;
+pub use admin_comments::{AdminCommentError, AdminCommentFilters, AdminCommentRecord};
+mod analytics;
+pub use analytics::{
+    AnalyticsBoardRecord, AnalyticsDayRecord, AnalyticsError, AnalyticsReportRecord,
+};
 mod attachments;
 mod auth;
 mod authorization;
@@ -9,11 +15,13 @@ mod boards;
 mod community_groups;
 mod community_permissions;
 mod content_access_policies;
+mod edit_reviews;
 mod email;
 mod experience;
 mod governance;
 mod idempotency;
 mod installation;
+mod medal_assets;
 mod membership;
 mod messages;
 mod mfa;
@@ -23,10 +31,19 @@ mod outbox;
 mod passkeys;
 mod plugin_business_runtime;
 mod plugins;
+mod redemptions;
+pub use redemptions::{
+    PutRedemptionProduct, RedemptionError, RedemptionProductRecord, RedemptionRecord,
+};
 mod relations;
 mod standard_entitlements;
 mod storage;
+mod topic_supplements;
 mod topics;
+pub use topic_supplements::{
+    NewTopicSupplement, SupplementError, SupplementListRecord, SupplementRecord,
+    SupplementSettingsRecord,
+};
 mod users;
 
 use std::{error::Error, fmt, time::Duration};
@@ -81,6 +98,10 @@ pub use content_access_policies::{
     ContentAccessPolicyMutationError, ContentAccessPolicyRecord, ContentAccessPolicySubjectRecord,
     PutContentAccessPolicyRecord,
 };
+pub use edit_reviews::{
+    EditReviewDecisionRecord, EditReviewError, EditReviewPolicyRecord,
+    EditReviewPolicyUpdateRecord, EditReviewRecord,
+};
 pub use email::{
     NewRegistrationEmailChallenge, RegistrationEmailChallengeError,
     RegistrationEmailChallengeRecord, SmtpConfigurationError, SmtpConfigurationRecord,
@@ -101,6 +122,9 @@ pub use governance::{
     UpdateContentReportRecord,
 };
 pub use installation::{InitializeInstallationError, InstallationAdministrator};
+pub use medal_assets::{
+    MAX_MEDAL_ASSET_BYTES, MedalAssetError, MedalAssetRecord, uploaded_medal_sha256,
+};
 pub use membership::{
     AppendPointsLedgerError, GrantMembershipMedalError, GrantMembershipMedalResult,
     ListMembershipMedalOperationsError, MembershipAccountRecord, MembershipLedgerResult,
@@ -291,3 +315,9 @@ impl From<MigrateError> for DatabaseError {
         Self::Migration(error)
     }
 }
+
+mod drafts;
+pub use drafts::{DraftError, DraftRecord};
+
+mod polls;
+pub use polls::{NewPollRecord, PollError, PollOptionRecord, PollRecord};

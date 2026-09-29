@@ -164,13 +164,22 @@ const MEDAL_ASSETS: [(&str, &str); 17] = [
     ),
 ];
 
-pub(crate) fn medal_asset_metadata(key: &str) -> Option<(&'static str, &'static str)> {
+pub(crate) fn medal_asset_metadata(key: &str) -> Option<(String, String)> {
+    if let Some(hash) = infrastructure::uploaded_medal_sha256(key) {
+        return Some((
+            format!("/api/v1/membership/medal-assets/{key}"),
+            hash.to_owned(),
+        ));
+    }
     let number = key.strip_prefix("medal_")?.parse::<usize>().ok()?;
     if number == 0 || number > MEDAL_ASSETS.len() {
         return None;
     }
     let (filename, sha256) = MEDAL_ASSETS[number - 1];
-    Some((filename, sha256))
+    Some((
+        format!("/assets/membership/medals/{filename}"),
+        sha256.to_owned(),
+    ))
 }
 
 pub(crate) fn level_asset_metadata(number: i16) -> Option<(&'static str, &'static str)> {
@@ -241,11 +250,19 @@ pub(crate) async fn catalog(
             tracing::warn!(request_id = %request_id, error = %error, "Membership catalog query failed");
             catalog_unavailable(request_id)
         })?;
-    let catalog = build_catalog(&rules).ok_or_else(|| catalog_unavailable(request_id))?;
+    let medal_rules = database
+        .list_membership_medal_rules()
+        .await
+        .map_err(|_| catalog_unavailable(request_id))?;
+    let catalog =
+        build_catalog(&rules, &medal_rules).ok_or_else(|| catalog_unavailable(request_id))?;
     Ok(Json(ApiResponse::new(catalog, request_id)))
 }
 
-fn build_catalog(rules: &[MembershipLevelRuleRecord]) -> Option<MembershipCatalog> {
+fn build_catalog(
+    rules: &[MembershipLevelRuleRecord],
+    medal_rules: &[infrastructure::MembershipMedalRuleRecord],
+) -> Option<MembershipCatalog> {
     let levels = rules
         .iter()
         .map(|rule| {
@@ -274,16 +291,18 @@ fn build_catalog(rules: &[MembershipLevelRuleRecord]) -> Option<MembershipCatalo
         .into_iter()
         .map(|(_, level)| level)
         .collect::<Vec<_>>();
-    let medals = MEDAL_ASSETS
+    let medals = medal_rules
         .iter()
-        .enumerate()
-        .map(|(index, (filename, sha256))| Medal {
-            key: format!("medal_{:02}", index + 1),
-            display_name: format!("勋章 {:02}", index + 1),
-            asset_url: format!("/assets/membership/medals/{filename}"),
-            sha256: (*sha256).to_owned(),
+        .map(|rule| {
+            let (asset_url, sha256) = medal_asset_metadata(&rule.asset_key)?;
+            Some(Medal {
+                key: rule.medal_key.clone(),
+                display_name: rule.display_name.clone(),
+                asset_url,
+                sha256: sha256.to_owned(),
+            })
         })
-        .collect::<Vec<_>>();
+        .collect::<Option<Vec<_>>>()?;
     let (filename, sha256) = LEVEL_ASSETS[0];
     Some(MembershipCatalog {
         member_group: MembershipGroup {

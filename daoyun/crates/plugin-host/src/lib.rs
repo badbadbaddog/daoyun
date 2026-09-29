@@ -42,6 +42,16 @@ pub enum PluginCapability {
     StorageReadWrite,
     #[serde(rename = "tasks.schedule")]
     TasksSchedule,
+    #[serde(rename = "topic.supplements")]
+    TopicSupplements,
+    #[serde(rename = "topic.edit_review")]
+    TopicEditReview,
+    #[serde(rename = "membership.redemption")]
+    MembershipRedemption,
+    #[serde(rename = "community.analytics")]
+    CommunityAnalytics,
+    #[serde(rename = "topic.polls")]
+    TopicPolls,
 }
 
 impl PluginCapability {
@@ -56,7 +66,12 @@ impl PluginCapability {
             | Self::EntitlementsWrite
             | Self::NotificationsWrite
             | Self::StorageReadWrite
-            | Self::TasksSchedule => None,
+            | Self::TasksSchedule
+            | Self::TopicSupplements
+            | Self::TopicEditReview
+            | Self::MembershipRedemption
+            | Self::CommunityAnalytics
+            | Self::TopicPolls => None,
         }
     }
 

@@ -34,6 +34,8 @@ export function useTopicFeed(options: FeedOptions): TopicFeedState {
     query,
     tag,
     author,
+    from,
+    through,
     scope,
     featured,
     sort,
@@ -52,15 +54,16 @@ export function useTopicFeed(options: FeedOptions): TopicFeedState {
   const requestKeyRef = useRef(0)
   const sourceKeyRef = useRef("")
   const optionsRef = useRef<Omit<ListTopicsOptions, "cursor" | "signal">>({})
-  optionsRef.current = { board, query, tag, author, scope, featured, sort, limit }
+  optionsRef.current = { board, query, tag, author, from, through, scope, featured, sort, limit }
 
   useEffect(() => {
-    const sourceKey = JSON.stringify({ author, board, enabled, featured, limit, mode, query, scope, sort, tag })
+    const sourceKey = JSON.stringify({ author, board, enabled, featured, from, through, limit, mode, query, scope, sort, tag })
     const refreshingCurrentSource = sourceKeyRef.current === sourceKey && topicsRef.current.length > 0
     sourceKeyRef.current = sourceKey
     const requestKey = requestKeyRef.current + 1
     requestKeyRef.current = requestKey
     setNextCursor(null)
+    setLoadingMore(false)
     setErrorInitial(null)
     setErrorMore(null)
     if (!enabled) {
@@ -97,7 +100,7 @@ export function useTopicFeed(options: FeedOptions): TopicFeedState {
       setLoadingInitial(false)
     })
     return () => controller.abort()
-  }, [author, board, enabled, featured, limit, mode, query, requestVersion, retryVersion, scope, sort, tag])
+  }, [author, board, enabled, featured, from, through, limit, mode, query, requestVersion, retryVersion, scope, sort, tag])
 
   const revealNewTopics = useCallback(() => {
     if (!pendingPage) return

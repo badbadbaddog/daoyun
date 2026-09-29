@@ -396,6 +396,7 @@ impl BookmarkedTopicRow {
             is_featured: self.is_featured,
             is_pinned: self.is_pinned,
             image_attachment_id: None,
+            image_attachment_ids: Vec::new(),
             tags,
         }
     }

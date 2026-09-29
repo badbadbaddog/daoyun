@@ -1,5 +1,11 @@
 import type { TopicTag } from "../types/community"
 
+export interface TopicHashtag {
+  name: string
+  start: number
+  end: number
+}
+
 export function parseTopicTags(value: string, availableTags: TopicTag[] = []): TopicTag[] {
   const known = new Map(availableTags.flatMap((tag) => [
     [tag.slug.toLocaleLowerCase(), tag],
@@ -13,6 +19,18 @@ export function parseTopicTags(value: string, availableTags: TopicTag[] = []): T
     seen.add(slug)
     return [{ slug, name: knownTag?.name ?? item.slice(0, 40) }]
   }).slice(0, 5)
+}
+
+export function findTopicHashtags(value: string): TopicHashtag[] {
+  return Array.from(value.matchAll(/#([\p{L}\p{N}_-]+)/gu), (match) => ({
+    name: match[1],
+    start: match.index,
+    end: match.index + match[0].length,
+  }))
+}
+
+export function extractTopicTags(value: string, availableTags: TopicTag[] = []): TopicTag[] {
+  return parseTopicTags(findTopicHashtags(value).map((match) => match.name).join(","), availableTags)
 }
 
 function slugFromName(name: string): string {

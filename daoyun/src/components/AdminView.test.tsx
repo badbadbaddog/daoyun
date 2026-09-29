@@ -92,8 +92,11 @@ vi.mock("./ReportAdminPanel", () => ({
 }))
 
 vi.mock("./ModerationAdminPanel", () => ({
-  ModerationAdminPanel: ({ boards }: { boards: Array<{ name: string }> }) => <section><h2>主题治理工作台</h2><p>{boards.map((board) => board.name).join(",")}</p></section>,
+  ModerationAdminPanel: ({ boards }: { boards: Array<{ name: string }> }) => <section><h1>主题管理</h1><h2>主题治理工作台</h2><p>{boards.map((board) => board.name).join(",")}</p></section>,
 }))
+
+vi.mock("./CommentAdminPanel", () => ({ CommentAdminPanel: () => <section>评论管理工作区</section> }))
+vi.mock("./ContentReviewAdminPanel", () => ({ ContentReviewAdminPanel: () => <section>内容审核工作区</section> }))
 
 vi.mock("./AdminDashboard", () => ({
   AdminDashboard: ({ capabilityKeys }: { capabilityKeys: string[] }) => <section><h2>今天需要处理什么</h2><p>{capabilityKeys.join(",")}</p></section>,
@@ -127,7 +130,7 @@ const growthLevels = [{
 }]
 const memberId = "019fc900-0000-7000-8000-000000000401"
 const medalRules = [
-  { key: "medal_01", displayName: "勋章 01", enabled: true, requiredLifetimePoints: 0, updatedAt: "2026-08-20T01:00:00Z" },
+  { key: "medal_01", assetKey: "medal_01", assetUrl: "/assets/membership/medals/medal1.gif", revision: 1, displayName: "勋章 01", enabled: true, requiredLifetimePoints: 0, updatedAt: "2026-08-20T01:00:00Z" },
 ]
 const medalOperations = [{
   id: "019fc900-0000-7000-8000-000000000901",
@@ -145,6 +148,7 @@ const medalOperations = [{
 }]
 
 beforeEach(() => {
+  localStorage.removeItem("daoyun-admin-sidebar-collapsed")
   vi.mocked(getAdminAccess).mockResolvedValue({ capabilityKeys: [
     "admin.configuration.read",
     "admin.configuration.write",
@@ -154,6 +158,7 @@ beforeEach(() => {
     "membership.rules.read",
     "membership.rules.write",
     "membership.medals.read",
+    "membership.medals.rules.write",
     "membership.points.grant",
     "membership.medals.grant",
     "authorization.roles.read",
@@ -212,6 +217,21 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
 describe("AdminView", () => {
+  it("groups navigation and separates branding categories without losing edits", async () => {
+    const user = userEvent.setup()
+    render(<AdminView session={session} requestedTab="branding" onBack={vi.fn()} />)
+    await screen.findByLabelText("站点名称")
+    expect(screen.getByText("内容管理")).toBeInTheDocument()
+    expect(screen.getByText("社区运营")).toBeInTheDocument()
+    expect(screen.getByText("系统设置")).toBeInTheDocument()
+    expect(screen.queryByLabelText("主色")).not.toBeInTheDocument()
+    await user.type(screen.getByLabelText("站点名称"), "新名称")
+    await user.click(screen.getByRole("button", { name: "主题外观" }))
+    expect(screen.getByLabelText("主色")).toBeInTheDocument()
+    expect(screen.queryByLabelText("站点名称")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "基本信息" }))
+    expect(screen.getByLabelText("站点名称")).toHaveValue("刀云新名称")
+  })
   it("keeps the main landmark outside a wrapping region landmark", async () => {
     render(<AdminView session={session} onBack={vi.fn()} />)
 
@@ -230,7 +250,8 @@ describe("AdminView", () => {
 
     render(<AdminView session={session} requestedTab="moderation" onBack={vi.fn()} />)
 
-    expect(await screen.findByRole("heading", { name: "内容治理", level: 1 })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "主题管理", level: 1 })).toBeInTheDocument()
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1)
     expect(screen.getByText("刀云站点管理")).toBeInTheDocument()
     expect(screen.getByText("管理后台")).toBeInTheDocument()
     expect(screen.queryByText("Site Administration")).not.toBeInTheDocument()
@@ -265,8 +286,10 @@ describe("AdminView", () => {
     render(<AdminView session={session} onBack={vi.fn()} />)
     await user.click(await screen.findByRole("button", { name: "品牌配置" }))
     expect(await screen.findByRole("heading", { name: "站点品牌" })).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "主题外观" }))
     expect(screen.getByLabelText("首页模式")).toHaveValue("hot")
     expect(screen.getByLabelText("首页模式")).toBeDisabled()
+    await user.click(screen.getByRole("button", { name: "基本信息" }))
     const input = screen.getByLabelText("站点名称")
     await user.clear(input)
     await user.type(input, "新刀云")
@@ -437,10 +460,11 @@ describe("AdminView", () => {
       registrationEmailVerificationEnabled: true,
     }), session.csrfToken)
 
+    await user.click(screen.getByRole("button", { name: "测试发信" }))
     await user.type(screen.getByLabelText("测试收件邮箱"), "admin@example.com")
     await user.click(screen.getByRole("button", { name: "发送测试邮件" }))
     expect(testSmtpSettings).toHaveBeenCalledWith("admin@example.com", session.csrfToken)
-    expect(await screen.findByText("测试邮件已发送")).toBeInTheDocument()
+    expect(await within(screen.getByRole("dialog", { name: "测试发信" })).findByText("测试邮件已发送")).toBeInTheDocument()
   })
 
   it("presents the growth-level editor as a grouped form with a live summary", async () => {
@@ -499,7 +523,7 @@ describe("AdminView", () => {
 
     await user.click(await screen.findByRole("button", { name: "会员经济" }))
     expect(await screen.findByRole("heading", { name: "成长等级（EXP）" })).toBeInTheDocument()
-    expect(screen.queryByRole("heading", { name: "积分账本" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("heading", { name: "积分操作" })).not.toBeInTheDocument()
     expect(screen.queryByRole("heading", { name: "勋章" })).not.toBeInTheDocument()
     const growthTab = screen.getByRole("tab", { name: "成长运营" })
     expect(growthTab).toHaveAttribute("tabindex", "0")
@@ -511,7 +535,7 @@ describe("AdminView", () => {
     expect(screen.getByRole("tab", { name: "积分运营" })).toHaveAttribute("aria-selected", "true")
 
     await user.click(screen.getByRole("tab", { name: "积分运营" }))
-    expect(screen.getByRole("heading", { name: "积分账本" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "积分操作" })).toBeInTheDocument()
     expect(screen.queryByRole("heading", { name: "成长等级（EXP）" })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole("tab", { name: "勋章运营" }))
@@ -533,7 +557,7 @@ describe("AdminView", () => {
     expect(within(medalList).getAllByRole("listitem")).toHaveLength(medalRules.length)
   })
 
-  it("renders the fixed medal catalog with its visual identifier", async () => {
+  it("renders the editable medal catalog with its visual identifier", async () => {
     const user = userEvent.setup()
     render(<AdminView session={session} onBack={vi.fn()} />)
 
@@ -541,6 +565,8 @@ describe("AdminView", () => {
     await user.click(screen.getByRole("tab", { name: "勋章运营" }))
 
     expect(await screen.findByRole("img", { name: "勋章 01" })).toHaveAttribute("src", "/assets/membership/medals/medal1.gif")
+    expect(screen.getByRole("button", { name: "新增勋章" })).toBeInTheDocument()
+    expect(screen.queryByLabelText("累计积分阈值")).not.toBeInTheDocument()
   })
 
   it("loads medal operations and revokes an active medal with an audit reason", async () => {
@@ -549,6 +575,7 @@ describe("AdminView", () => {
 
     await user.click(await screen.findByRole("button", { name: "会员经济" }))
     await user.click(screen.getByRole("tab", { name: "勋章运营" }))
+    await user.click(screen.getByRole("button", { name: "操作记录" }))
     expect(await screen.findByText("勋章成员")).toBeInTheDocument()
     expect(listMembershipMedalOperations).toHaveBeenCalledWith(expect.objectContaining({ limit: 25, signal: expect.any(AbortSignal) }))
 
@@ -559,6 +586,38 @@ describe("AdminView", () => {
     expect(revokeMembershipMedal).toHaveBeenCalledWith({ userId: memberId, medalKey: "medal_01", reason: "运营调整" }, session.csrfToken)
     expect(await screen.findByText("勋章已撤销")).toBeInTheDocument()
     expect(listMembershipMedalOperations).toHaveBeenCalledTimes(2)
+  })
+
+  it("clears the previous medal recipient when reopening the grant dialog", async () => {
+    const user = userEvent.setup()
+    render(<AdminView session={session} onBack={vi.fn()} />)
+    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(screen.getByRole("tab", { name: "勋章运营" }))
+    await user.click(screen.getByRole("button", { name: "发放勋章" }))
+    await user.type(screen.getByRole("searchbox", { name: "搜索用户" }), "member")
+    await user.click(await screen.findByRole("button", { name: "选择会员 @member" }))
+    await user.keyboard("{Escape}")
+    await user.click(screen.getByRole("button", { name: "发放勋章" }))
+    expect(screen.getByRole("searchbox", { name: "搜索用户" })).toHaveValue("")
+    await user.click(screen.getByRole("button", { name: "手动发放勋章" }))
+    expect(await screen.findByText("请搜索并选择要发放勋章的成员。")).toBeInTheDocument()
+    expect(grantMembershipMedal).not.toHaveBeenCalled()
+  })
+
+  it("clears the previous revocation error when reopening its dialog", async () => {
+    const user = userEvent.setup()
+    vi.mocked(revokeMembershipMedal).mockRejectedValueOnce(new AdminApiError(500, "internal.error", "本次撤销失败"))
+    render(<AdminView session={session} onBack={vi.fn()} />)
+    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(screen.getByRole("tab", { name: "勋章运营" }))
+    await user.click(screen.getByRole("button", { name: "操作记录" }))
+    await user.click(await screen.findByRole("button", { name: "撤销 勋章 01" }))
+    await user.type(screen.getByLabelText("撤销原因"), "运营调整")
+    await user.click(screen.getByRole("button", { name: "确认撤销" }))
+    expect(await screen.findByText("本次撤销失败")).toBeInTheDocument()
+    await user.keyboard("{Escape}")
+    await user.click(screen.getByRole("button", { name: "撤销 勋章 01" }))
+    expect(within(screen.getByRole("dialog", { name: "撤销勋章" })).queryByRole("alert")).not.toBeInTheDocument()
   })
 
   it("keeps the newest medal operation response when an older request finishes later", async () => {
@@ -573,8 +632,12 @@ describe("AdminView", () => {
 
     await user.click(await screen.findByRole("button", { name: "会员经济" }))
     await user.click(screen.getByRole("tab", { name: "勋章运营" }))
+    await user.click(screen.getByRole("button", { name: "操作记录" }))
     await waitFor(() => expect(listMembershipMedalOperations).toHaveBeenCalledTimes(1))
-    await user.type(await screen.findByLabelText("勋章目标用户 UUID"), memberId)
+    await user.click(screen.getByRole("button", { name: "发放勋章" }))
+    await user.type(screen.getByRole("searchbox", { name: "搜索用户" }), "member")
+    await user.click(await screen.findByRole("button", { name: "选择会员 @member" }))
+    await user.clear(screen.getByLabelText("勋章授予理由"))
     await user.type(screen.getByLabelText("勋章授予理由"), "latest.award")
     await user.click(screen.getByRole("button", { name: "手动发放勋章" }))
 
@@ -819,7 +882,7 @@ describe("AdminView", () => {
     render(<AdminView session={session} onBack={vi.fn()} />)
 
     expect(await screen.findByRole("heading", { name: "工作台" })).toBeInTheDocument()
-    expect(screen.getByText("聚合待处理事项与站点状态。")).toBeInTheDocument()
+    expect(screen.getByText("查看社区近况，优先处理需要关注的事项。")).toBeInTheDocument()
     expect(screen.getByRole("navigation", { name: "站点管理导航" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "品牌配置" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "举报处理" })).toBeInTheDocument()
@@ -872,9 +935,9 @@ describe("AdminView", () => {
 
     expect(await screen.findByRole("heading", { name: "主题治理工作台" })).toBeInTheDocument()
     expect(document.querySelector(".admin-view--moderation")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "内容治理" })).toHaveAttribute("aria-current", "page")
-    const contentGovernanceNavigation = screen.getByRole("group", { name: "内容治理子导航" })
-    expect(within(contentGovernanceNavigation).getByText("主题治理工作台")).toHaveAttribute("aria-current", "page")
+    expect(screen.getByRole("button", { name: "主题管理" })).toHaveAttribute("aria-current", "page")
+    expect(screen.queryByRole("group", { name: "内容治理子导航" })).not.toBeInTheDocument()
+    expect(within(screen.getByRole("navigation", { name: "站点管理导航" })).queryByText("主题治理工作台")).not.toBeInTheDocument()
     const adminHeader = document.querySelector<HTMLElement>(".system-admin-header")!
     expect(within(adminHeader).getByText(session.user.displayName)).toBeInTheDocument()
     expect(within(adminHeader).getByText(`@${session.user.username}`)).toBeInTheDocument()
@@ -882,4 +945,92 @@ describe("AdminView", () => {
     expect(screen.getByText("社区广场")).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "品牌配置" })).not.toBeInTheDocument()
   })
+})
+
+it("searches only authorized modules and collapses the desktop navigation", async () => {
+  vi.mocked(getAdminAccess).mockResolvedValue({ capabilityKeys: ["operations.read"] })
+  const user = userEvent.setup()
+  const onTabChange = vi.fn()
+  render(<AdminView session={session} onBack={vi.fn()} onTabChange={onTabChange} />)
+  const search = await screen.findByRole("combobox", { name: "搜索管理模块" })
+  await user.type(search, "用户")
+  await user.keyboard("{Enter}")
+  expect(screen.getByRole("status")).toHaveTextContent("没有匹配的可用模块")
+  await user.clear(search)
+  await user.type(search, "运维{Enter}")
+  expect(onTabChange).toHaveBeenLastCalledWith("operations")
+  expect(screen.getByRole("heading", { name: "运营概览" })).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "收起菜单" }))
+  expect(screen.getByRole("button", { name: "展开菜单" })).toHaveAttribute("aria-expanded", "false")
+  expect(screen.getByRole("button", { name: "运维监控" })).toHaveAttribute("title", "运维监控")
+})
+
+it("remembers the desktop sidebar preference when the administration remounts", async () => {
+  const user = userEvent.setup()
+  const first = render(<AdminView session={session} onBack={vi.fn()} />)
+  await user.click(await screen.findByRole("button", { name: "收起菜单" }))
+  expect(localStorage.getItem("daoyun-admin-sidebar-collapsed")).toBe("true")
+  first.unmount()
+  render(<AdminView session={session} onBack={vi.fn()} />)
+  await user.click(await screen.findByRole("button", { name: "展开菜单" }))
+  expect(localStorage.getItem("daoyun-admin-sidebar-collapsed")).toBe("false")
+})
+
+it("keeps sidebar controls usable when preference storage is unavailable", async () => {
+  const getItem = Storage.prototype.getItem
+  const setItem = Storage.prototype.setItem
+  const readPreference = vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (this: Storage, key) {
+    if (key === "daoyun-admin-sidebar-collapsed") throw new Error("Storage blocked")
+    return getItem.call(this, key)
+  })
+  const writePreference = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {
+    if (key === "daoyun-admin-sidebar-collapsed") throw new Error("Storage blocked")
+    setItem.call(this, key, value)
+  })
+  try {
+    render(<AdminView session={session} onBack={vi.fn()} />)
+    await userEvent.setup().click(await screen.findByRole("button", { name: "收起菜单" }))
+    expect(screen.getByRole("button", { name: "展开菜单" })).toHaveAttribute("aria-expanded", "false")
+  } finally {
+    readPreference.mockRestore()
+    writePreference.mockRestore()
+  }
+})
+
+it("organizes available tasks into the same groups on desktop and mobile", async () => {
+  vi.mocked(getAdminAccess).mockResolvedValue({ capabilityKeys: ["admin.configuration.read", "admin.users.read", "governance.reports.read", "community.analytics.read", "operations.read", "plugins.read"] })
+  vi.mocked(listModerationBoards).mockResolvedValue([{ id: board.id, slug: board.slug, name: board.name, tone: board.tone, capabilityKeys: ["moderation.topic"] }])
+  render(<AdminView session={session} onBack={vi.fn()} />)
+  const navigation = await screen.findByRole("navigation", { name: "站点管理导航" })
+  const expected = [
+    ["工作台入口", ["工作台"]],
+    ["内容管理", ["主题管理", "评论管理", "举报处理", "内容审核"]],
+    ["社区运营", ["版块管理", "用户管理"]],
+    ["数据分析", ["数据总览"]],
+    ["系统设置", ["品牌配置", "插件管理", "邮件服务", "运维监控"]],
+  ] as const
+  for (const [name, labels] of expected) {
+    const group = within(navigation).getByRole("group", { name })
+    expect(within(group).getAllByRole("button").map((button) => button.textContent)).toEqual(labels)
+  }
+  const mobile = screen.getByRole("combobox", { name: "管理模块" })
+  expect(within(mobile).getAllByRole("option").map((option) => option.textContent)).toEqual(expected.flatMap(([, labels]) => [...labels]))
+  expect(within(mobile).getAllByRole("group").map((group) => group.getAttribute("label"))).toEqual(["内容管理", "社区运营", "数据分析", "系统设置"])
+})
+
+it("omits empty navigation groups for a restricted operator", async () => {
+  vi.mocked(getAdminAccess).mockResolvedValue({ capabilityKeys: ["operations.read"] })
+  render(<AdminView session={session} onBack={vi.fn()} />)
+  const navigation = await screen.findByRole("navigation", { name: "站点管理导航" })
+  expect(within(navigation).getAllByRole("group").map((group) => group.getAttribute("aria-label"))).toEqual(["工作台入口", "系统设置"])
+  expect(within(navigation).getAllByRole("button")).toHaveLength(2)
+})
+
+it.each([["comments", "评论管理"], ["reviews", "内容审核"]])("opens %s for a board moderator without site configuration permission", async (requestedTab, label) => {
+  vi.mocked(getAdminAccess).mockResolvedValue({ capabilityKeys: [] })
+  vi.mocked(listModerationBoards).mockResolvedValue([{ id: board.id, slug: board.slug, name: board.name, tone: board.tone, capabilityKeys: ["moderation.topic"] }])
+  render(<AdminView session={session} onBack={vi.fn()} requestedTab={requestedTab} />)
+  expect(await screen.findByRole("heading", { name: label, level: 1 })).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: label })).toHaveAttribute("aria-current", "page")
+  expect(getAdminSiteBranding).not.toHaveBeenCalled()
 })

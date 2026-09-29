@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Eye, EyeOff, Plus } from "lucide-react"
+import { ChevronDown, ChevronRight, Eye, EyeOff, Folder, Plus } from "lucide-react"
 
 import type { AdminBoard } from "../api/admin"
 import { ActionMenu, type ActionMenuItem } from "./ui/ActionMenu"
@@ -32,7 +32,7 @@ function BoardTreeItem({ node, siblingIndex, siblingCount, ...props }: BoardTree
     { label: "删除版块", onSelect: () => props.onDelete(board), danger: true },
   ]
   return <li role="treeitem" aria-expanded={hasChildren ? expanded : undefined}><div className="admin-board-tree__row" data-depth={depth}>
-    <div className="admin-board-tree__identity">{hasChildren ? <button className="icon-button admin-board-tree__toggle" type="button" onClick={() => props.onToggle(board.id)} aria-label={`${expanded ? "收起" : "展开"}版块：${board.name}`} title={expanded ? "收起" : "展开"}>{expanded ? <ChevronDown size={15} aria-hidden="true" /> : <ChevronRight size={15} aria-hidden="true" />}</button> : <span className="admin-board-tree__toggle-spacer" aria-hidden="true" />}<div><strong>{board.name}</strong><span>{board.slug} · {board.description || "无摘要"}</span></div></div>
+    <div className="admin-board-tree__identity">{hasChildren ? <button className="icon-button admin-board-tree__toggle" type="button" onClick={() => props.onToggle(board.id)} aria-label={`${expanded ? "收起" : "展开"}版块：${board.name}`} title={expanded ? "收起" : "展开"}>{expanded ? <ChevronDown size={15} aria-hidden="true" /> : <ChevronRight size={15} aria-hidden="true" />}</button> : <span className="admin-board-tree__toggle-spacer" aria-hidden="true" />}<span className={`admin-board-mark admin-board-mark--${board.tone}`} aria-hidden="true"><Folder size={19} /></span><div>{props.canWrite ? <button className="admin-board-name" type="button" disabled={locked} onClick={() => props.onEdit(board)} aria-label={`编辑设置：${board.name}`}>{board.name}</button> : <strong>{board.name}</strong>}<span>{board.description || `/${board.slug}`}</span></div></div>
     <span className={`admin-board-visibility admin-board-visibility--${board.visibility}`}>{board.visibility === "public" ? <Eye size={13} aria-hidden="true" /> : <EyeOff size={13} aria-hidden="true" />}{board.visibility === "public" ? "公开" : "隐藏"}</span>
     <span className="admin-board-tree__topics">{board.topicCount} 个主题</span>
     {props.canWrite && <div className="admin-board-tree__actions">{depth < 2 && <button className="icon-button" type="button" aria-label={`新增子版块：${board.name}`} title="新增子版块" disabled={locked} onClick={() => props.onAddChild(board)}><Plus size={14} aria-hidden="true" /></button>}<ActionMenu label={`更多操作：${board.name}`} items={items} disabled={locked} /></div>}

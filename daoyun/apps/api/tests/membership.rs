@@ -10,6 +10,219 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn medal_image_upload_validates_access_and_updates_public_assets(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    initialize(&app).await;
+    let (cookies, csrf) = login(&app, "owner", "correct horse battery staple").await;
+    let image = include_bytes!("../../../public/assets/membership/medals/medal1.gif").to_vec();
+    let upload = |cookie: &str, token: &str, mime: &str, bytes: Vec<u8>| {
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/admin/membership/medal-assets")
+            .header("cookie", cookie)
+            .header("x-csrf-token", token)
+            .header("content-type", mime)
+            .body(Body::from(bytes))
+            .unwrap()
+    };
+    for (cookie, token, mime, bytes, expected) in [
+        ("", "", "image/gif", image.clone(), StatusCode::UNAUTHORIZED),
+        (
+            cookies.as_str(),
+            "",
+            "image/gif",
+            image.clone(),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            cookies.as_str(),
+            csrf.as_str(),
+            "image/svg+xml",
+            b"<svg/>".to_vec(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            cookies.as_str(),
+            csrf.as_str(),
+            "image/png",
+            b"not an image".to_vec(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            cookies.as_str(),
+            csrf.as_str(),
+            "image/gif",
+            vec![],
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(upload(cookie, token, mime, bytes))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+    }
+    let response = app
+        .clone()
+        .oneshot(upload(&cookies, &csrf, "image/jpeg", image.clone()))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let request_id = response.headers()["x-request-id"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let asset = response_json(response).await;
+    assert_eq!(asset["meta"]["request_id"], request_id);
+    assert_eq!(
+        asset["data"]["sha256"],
+        format!("{:x}", Sha256::digest(&image))
+    );
+    let key = asset["data"]["asset_key"].as_str().unwrap();
+    let url = asset["data"]["asset_url"].as_str().unwrap();
+    let repeated = app
+        .clone()
+        .oneshot(upload(&cookies, &csrf, "image/gif", image.clone()))
+        .await
+        .unwrap();
+    assert_eq!(repeated.status(), StatusCode::OK);
+    assert_eq!(response_json(repeated).await["data"]["asset_key"], key);
+    let oversized = app
+        .clone()
+        .oneshot(upload(
+            &cookies,
+            &csrf,
+            "image/gif",
+            vec![0; 2 * 1024 * 1024 + 2],
+        ))
+        .await
+        .unwrap();
+    assert_eq!(oversized.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    let id = oversized.headers()["x-request-id"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(response_json(oversized).await["meta"]["request_id"], id);
+    let bytes = app.clone().oneshot(get_request(url, "")).await.unwrap();
+    assert_eq!(bytes.status(), StatusCode::OK);
+    assert_eq!(bytes.headers()["content-type"], "image/gif");
+    assert_eq!(bytes.headers()["x-content-type-options"], "nosniff");
+    assert!(bytes.headers().contains_key("x-request-id"));
+    assert_eq!(
+        to_bytes(bytes.into_body(), 3 * 1024 * 1024)
+            .await
+            .unwrap()
+            .as_ref(),
+        image.as_slice()
+    );
+    let path = "/api/v1/admin/membership/medal-rules";
+    let input = json!({"display_name":"自定义图标", "asset_key":key, "enabled":false,"required_lifetime_points":null});
+    let created = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            path,
+            input.clone(),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::OK);
+    let created = response_json(created).await;
+    assert_eq!(created["data"]["asset_url"], url);
+    let catalog = response_json(
+        app.clone()
+            .oneshot(get_request("/api/v1/membership/catalog", ""))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        catalog["data"]["medals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["asset_url"] == url && m["sha256"] == asset["data"]["sha256"])
+    );
+    let mut missing = input;
+    let owner = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username = 'owner'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let medal_key = created["data"]["key"].as_str().unwrap();
+    let grant = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/membership/medals",
+            json!({"user_id":owner,"medal_key":medal_key,"reason":"operator.award"}),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(grant.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(grant).await["data"]["medal"]["asset_url"],
+        url
+    );
+    let deleted = app
+        .clone()
+        .oneshot(json_request(
+            Method::DELETE,
+            &format!("{path}/{medal_key}"),
+            json!({"expected_revision":1}),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(deleted.status(), StatusCode::OK);
+    let owned = response_json(
+        app.clone()
+            .oneshot(get_request("/api/v1/users/owner/medals", ""))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        owned["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["key"] == medal_key && m["asset_url"] == url)
+    );
+    assert_eq!(
+        app.clone()
+            .oneshot(get_request(url, ""))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    missing["asset_key"] = json!(format!("upload_{}", "0".repeat(64)));
+    assert_eq!(
+        app.clone()
+            .oneshot(json_request(
+                Method::POST,
+                path,
+                missing,
+                &cookies,
+                Some(&csrf)
+            ))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
 async fn membership_catalog_returns_stable_keys_and_assets(pool: PgPool) {
     let response = daoyun_api::app(Database::from_pool(pool))
         .oneshot(
@@ -113,11 +326,22 @@ async fn openapi_documents_membership_catalog() {
         .await
         .expect("router must respond");
     let document = response_json(response).await;
+    let upload = &document["paths"]["/api/v1/admin/membership/medal-assets"]["post"];
+    assert!(upload.is_object());
+    for status in ["200", "401", "403", "413", "422", "503"] {
+        assert!(upload["responses"][status]["headers"]["x-request-id"].is_object());
+    }
+    assert!(document["paths"]["/api/v1/membership/medal-assets/{asset_key}"]["get"].is_object());
+    assert!(document["components"]["schemas"]["MembershipMedalAsset"].is_object());
     let operation = &document["paths"]["/api/v1/membership/catalog"]["get"];
     assert!(operation.is_object());
     assert!(document["components"]["schemas"]["MembershipCatalog"].is_object());
     assert!(document["components"]["schemas"]["MembershipLevel"].is_object());
     assert!(document["components"]["schemas"]["Medal"].is_object());
+    assert!(document["paths"]["/api/v1/admin/membership/medal-rules"]["post"].is_object());
+    assert!(
+        document["paths"]["/api/v1/admin/membership/medal-rules/{medal_key}"]["delete"].is_object()
+    );
     assert!(document["paths"]["/api/v1/users/me/membership"]["get"].is_object());
     assert!(document["components"]["schemas"]["MembershipAccount"].is_object());
     assert!(document["paths"]["/api/v1/membership/levels"]["get"].is_object());
@@ -1291,6 +1515,179 @@ async fn admin_medals_support_operations_and_revocation(pool: PgPool) {
     assert_eq!(operations["data"][0]["operation"], "revoke");
     assert_eq!(operations["data"][0]["reason"], "operator.revoke");
     assert_eq!(operations["data"][1]["operation"], "grant");
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn medal_catalog_crud_is_authorized_and_updates_public_metadata(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    initialize(&app).await;
+    let (cookies, csrf) = login(&app, "owner", "correct horse battery staple").await;
+    let owner = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username = 'owner'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let input = json!({"display_name": "热心贡献者", "asset_key": "medal_03", "enabled": false, "required_lifetime_points": null});
+    let path = "/api/v1/admin/membership/medal-rules";
+    for (cookie, token, expected) in [
+        ("", None, StatusCode::UNAUTHORIZED),
+        (cookies.as_str(), None, StatusCode::FORBIDDEN),
+    ] {
+        let denied = app
+            .clone()
+            .oneshot(json_request(
+                Method::POST,
+                path,
+                input.clone(),
+                cookie,
+                token,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(denied.status(), expected);
+    }
+    let created = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            path,
+            input.clone(),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::OK);
+    let request_id = created.headers()["x-request-id"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let created = response_json(created).await;
+    assert_eq!(created["meta"]["request_id"], request_id);
+    let key = created["data"]["key"].as_str().unwrap();
+    assert_eq!(
+        created["data"]["asset_url"],
+        "/assets/membership/medals/medal3.gif"
+    );
+    let detail = format!("{path}/{key}");
+    let updated_input = json!({"display_name": "年度贡献者", "asset_key": "medal_04", "enabled": true, "required_lifetime_points": 20, "expected_revision": 1});
+    let updated = app
+        .clone()
+        .oneshot(json_request(
+            Method::PATCH,
+            &detail,
+            updated_input.clone(),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(updated.status(), StatusCode::OK);
+    assert_eq!(response_json(updated).await["data"]["revision"], 2);
+    let stale = app
+        .clone()
+        .oneshot(json_request(
+            Method::PATCH,
+            &detail,
+            updated_input,
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(stale.status(), StatusCode::CONFLICT);
+    let grant = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/membership/medals",
+            json!({"user_id": owner, "medal_key": key, "reason": "operator.award"}),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(grant.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(grant).await["data"]["medal"]["display_name"],
+        "年度贡献者"
+    );
+    let catalog = response_json(
+        app.clone()
+            .oneshot(get_request("/api/v1/membership/catalog", ""))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        catalog["data"]["medals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|medal| medal["key"] == key && medal["display_name"] == "年度贡献者")
+    );
+    let deleted = app
+        .clone()
+        .oneshot(json_request(
+            Method::DELETE,
+            &detail,
+            json!({"expected_revision": 2}),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(deleted.status(), StatusCode::OK);
+    let request_id = deleted.headers()["x-request-id"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let deleted = response_json(deleted).await;
+    assert_eq!(deleted["data"], true);
+    assert_eq!(deleted["meta"]["request_id"], request_id);
+    let catalog = response_json(
+        app.clone()
+            .oneshot(get_request("/api/v1/membership/catalog", ""))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        !catalog["data"]["medals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|medal| medal["key"] == key)
+    );
+    let owned = response_json(
+        app.clone()
+            .oneshot(get_request("/api/v1/users/owner/medals", ""))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        owned["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|medal| medal["key"] == key
+                && medal["display_name"] == "年度贡献者"
+                && medal["asset_url"] == "/assets/membership/medals/medal4.gif")
+    );
+    let denied = app
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/membership/medals",
+            json!({"user_id": owner, "medal_key": key, "reason": "operator.award"}),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 fn hash_token(value: String) -> Vec<u8> {

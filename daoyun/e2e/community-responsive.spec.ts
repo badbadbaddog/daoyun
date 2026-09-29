@@ -8,7 +8,7 @@ const acceptanceWidths = [320, 375, 768, 1024, 1440] as const
 test("applies the accessible community blue palette and button interaction states", async ({ page }) => {
   await mockPublicApi(page)
   await page.goto("/")
-  await expect(page.getByRole("heading", { name: "社区发现" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "记录每一种热爱" })).toBeVisible()
   await expect(page.getByRole("link", { name: "质量回归社区首页" })).toBeVisible()
   await page.evaluate(() => {
     for (const property of [
@@ -141,7 +141,7 @@ for (const width of acceptanceWidths) {
 
     const composeButton = width <= 768
       ? page.getByRole("button", { name: "从移动导航发布新主题" })
-      : page.getByRole("button", { name: "分享此刻的想法" })
+      : page.getByRole("button", { name: "立即发布" })
     await composeButton.click()
     await expect(page.getByRole("dialog", { name: "发布内容" })).toBeVisible()
     await assertNoHorizontalOverflow(page)

@@ -30,6 +30,7 @@ export interface Topic {
   followed?: boolean
   pinned?: boolean
   imageUrl?: string
+  imageUrls?: string[]
   tags: TopicTag[]
 }
 export interface Board {

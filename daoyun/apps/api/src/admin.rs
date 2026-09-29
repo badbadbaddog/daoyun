@@ -1,3 +1,4 @@
+use api_contract::{CreateMembershipMedalRuleRequest, DeleteMembershipMedalRuleRequest};
 use std::collections::BTreeSet;
 
 use api_contract::{
@@ -174,6 +175,14 @@ pub(crate) struct ListAuthorizationAssignmentsQuery {
 pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
     let asset_routes = Router::new()
         .route(
+            "/api/v1/admin/membership/medal-assets",
+            post(upload_medal_asset),
+        )
+        .route(
+            "/api/v1/membership/medal-assets/{asset_key}",
+            get(get_medal_asset),
+        )
+        .route(
             "/api/v1/site-branding/assets/{kind}",
             get(get_public_brand_asset),
         )
@@ -322,11 +331,11 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
         )
         .route(
             "/api/v1/admin/membership/medal-rules",
-            get(list_membership_medal_rules),
+            get(list_membership_medal_rules).post(create_membership_medal_rule),
         )
         .route(
             "/api/v1/admin/membership/medal-rules/{medal_key}",
-            patch(update_membership_medal_rule),
+            patch(update_membership_medal_rule).delete(delete_membership_medal_rule),
         )
         .route(
             "/api/v1/admin/membership/medals",
@@ -2265,6 +2274,269 @@ pub(crate) async fn list_membership_medal_rules(
 }
 
 #[utoipa::path(
+    post, path = "/api/v1/admin/membership/medal-assets", operation_id = "uploadMembershipMedalAsset", tag = "admin",
+    params(("x-csrf-token" = String, Header, description = "Session-bound CSRF token")),
+    request_body(content = Vec<u8>, content_type = "application/octet-stream", description = "Raw PNG, JPEG, WebP or GIF bytes; set Content-Type to the image MIME; maximum 2 MiB and 1024 x 1024 pixels"),
+    responses(
+        (status = 200, description = "Uploaded medal artwork", body = ApiResponse<api_contract::MembershipMedalAsset>, headers(("x-request-id" = String))),
+        (status = 401, description = "Authentication required", body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 403, description = "Medal catalog write permission and CSRF required", body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 413, description = "Image exceeds 2 MiB", body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 422, description = "Invalid image format or dimensions", body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, description = "Image storage unavailable", body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn upload_medal_asset(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    body: Result<Bytes, axum::extract::rejection::BytesRejection>,
+) -> Result<Json<ApiResponse<api_contract::MembershipMedalAsset>>, ApiError> {
+    let session = authorize_capability_write(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::MEMBERSHIP_MEDAL_RULES_WRITE,
+    )
+    .await?;
+    let bytes = body.map_err(|_| {
+        admin_error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "membership.medal_asset_too_large",
+            "图标最大为 2 MB",
+            request_id,
+        )
+    })?;
+    if bytes.len() > infrastructure::MAX_MEDAL_ASSET_BYTES {
+        return Err(admin_error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "membership.medal_asset_too_large",
+            "图标最大为 2 MB",
+            request_id,
+        ));
+    }
+    let mime = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.split(';').next())
+        .unwrap_or("")
+        .trim();
+    let record = database
+        .upload_medal_asset(session.user.id, mime, bytes.to_vec())
+        .await
+        .map_err(|e| medal_asset_error(request_id, e))?;
+    let (asset_url, sha256) = crate::membership::medal_asset_metadata(&record.asset_key)
+        .ok_or_else(|| invalid_record(request_id))?;
+    Ok(Json(ApiResponse::new(
+        api_contract::MembershipMedalAsset {
+            asset_key: record.asset_key,
+            asset_url,
+            sha256,
+            mime_type: record.mime_type,
+            size_bytes: record.size_bytes,
+        },
+        request_id,
+    )))
+}
+
+#[utoipa::path(
+    get, path = "/api/v1/membership/medal-assets/{asset_key}", operation_id = "getMembershipMedalAsset", tag = "membership",
+    params(("asset_key" = String, Path, description = "Uploaded artwork key")),
+    responses(
+        (status = 200, description = "Immutable medal artwork", content_type = "application/octet-stream", headers(("x-request-id" = String), ("cache-control" = String), ("x-content-type-options" = String))),
+        (status = 404, description = "Artwork not found", body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, description = "Storage unavailable", body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn get_medal_asset(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Path(key): Path<String>,
+) -> Result<Response, ApiError> {
+    let (record, bytes) = database
+        .read_medal_asset(&key)
+        .await
+        .map_err(|e| medal_asset_error(request_id, e))?;
+    let mut response = Response::new(Body::from(bytes));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(&record.mime_type).expect("validated image MIME"),
+    );
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=31536000, immutable"),
+    );
+    response.headers_mut().insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    Ok(response)
+}
+
+fn medal_asset_error(request_id: RequestId, error: infrastructure::MedalAssetError) -> ApiError {
+    use infrastructure::MedalAssetError;
+    match error {
+        MedalAssetError::Invalid => validation_error(
+            request_id,
+            "file",
+            "请选择有效的 PNG、JPEG、WebP 或 GIF 图片，最大 2 MB、宽高不超过 1024 像素",
+        ),
+        MedalAssetError::Forbidden => admin_error(
+            StatusCode::FORBIDDEN,
+            error_codes::ADMIN_FORBIDDEN,
+            "没有勋章目录写入权限",
+            request_id,
+        ),
+        MedalAssetError::NotFound => admin_error(
+            StatusCode::NOT_FOUND,
+            "membership.medal_asset_not_found",
+            "勋章图标不存在",
+            request_id,
+        ),
+        MedalAssetError::Database(error) => {
+            database_error(request_id, error, "Medal image operation failed")
+        }
+        MedalAssetError::Storage(error) => {
+            tracing::warn!(%request_id, %error, "Medal image storage failed");
+            admin_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "membership.medal_asset_unavailable",
+                "图片存储暂不可用，请重试",
+                request_id,
+            )
+        }
+    }
+}
+
+fn validate_medal_definition(
+    name: &str,
+    asset_key: &str,
+) -> Result<(), (&'static str, &'static str)> {
+    if !(1..=80).contains(&name.trim().chars().count()) || name.chars().any(char::is_control) {
+        return Err(("display_name", "名称必须为 1 到 80 个有效字符"));
+    }
+    if crate::membership::medal_asset_metadata(asset_key).is_none() {
+        return Err(("asset_key", "请选择可用的勋章图标"));
+    }
+    Ok(())
+}
+
+fn medal_catalog_error(request_id: RequestId, error: UpdateMembershipMedalRuleError) -> ApiError {
+    match error {
+        UpdateMembershipMedalRuleError::Forbidden => admin_error(
+            StatusCode::FORBIDDEN,
+            error_codes::ADMIN_FORBIDDEN,
+            "当前账号没有勋章目录写入权限",
+            request_id,
+        ),
+        UpdateMembershipMedalRuleError::RevisionConflict => admin_error(
+            StatusCode::CONFLICT,
+            "membership.medal_revision_conflict",
+            "勋章已被修改或删除，请刷新后重试",
+            request_id,
+        ),
+        UpdateMembershipMedalRuleError::InvalidMedal => {
+            validation_error(request_id, "medal_key", "勋章不存在或已删除")
+        }
+        UpdateMembershipMedalRuleError::InvalidDefinition => {
+            validation_error(request_id, "display_name", "请填写有效名称并选择可用图标")
+        }
+        UpdateMembershipMedalRuleError::InvalidThreshold => validation_error(
+            request_id,
+            "required_lifetime_points",
+            "自动授予需要非负积分阈值",
+        ),
+        UpdateMembershipMedalRuleError::Database(error) => {
+            database_error(request_id, error, "勋章目录保存失败")
+        }
+    }
+}
+
+#[utoipa::path(
+    post, path = "/api/v1/admin/membership/medal-rules", operation_id = "createMembershipMedalRule", tag = "admin",
+    params(("x-csrf-token" = String, Header)), request_body = CreateMembershipMedalRuleRequest,
+    responses((status = 200, body = ApiResponse<MembershipMedalRule>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String))), (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 422, body = ErrorResponse, headers(("x-request-id" = String))), (status = 503, body = ErrorResponse, headers(("x-request-id" = String))))
+)]
+pub(crate) async fn create_membership_medal_rule(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    request: Result<Json<CreateMembershipMedalRuleRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<MembershipMedalRule>>, ApiError> {
+    let session = authorize_capability_write(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::MEMBERSHIP_MEDAL_RULES_WRITE,
+    )
+    .await?;
+    let Json(request) =
+        request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
+    validate_medal_definition(&request.display_name, &request.asset_key)
+        .map_err(|(field, message)| validation_error(request_id, field, message))?;
+    let record = database
+        .create_membership_medal_rule(
+            session.user.id,
+            UpdateMembershipMedalRuleRecord {
+                medal_key: String::new(),
+                display_name: request.display_name,
+                asset_key: request.asset_key,
+                expected_revision: 1,
+                enabled: request.enabled,
+                required_lifetime_points: request.required_lifetime_points,
+            },
+        )
+        .await
+        .map_err(|error| medal_catalog_error(request_id, error))?;
+    Ok(Json(ApiResponse::new(
+        map_membership_medal_rule(record).map_err(|()| invalid_record(request_id))?,
+        request_id,
+    )))
+}
+
+#[utoipa::path(
+    delete, path = "/api/v1/admin/membership/medal-rules/{medal_key}", operation_id = "deleteMembershipMedalRule", tag = "admin",
+    params(("medal_key" = String, Path), ("x-csrf-token" = String, Header)), request_body = DeleteMembershipMedalRuleRequest,
+    responses((status = 200, body = ApiResponse<bool>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String))), (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 409, body = ErrorResponse, headers(("x-request-id" = String))), (status = 422, body = ErrorResponse, headers(("x-request-id" = String))), (status = 503, body = ErrorResponse, headers(("x-request-id" = String))))
+)]
+pub(crate) async fn delete_membership_medal_rule(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    path: Result<Path<String>, axum::extract::rejection::PathRejection>,
+    request: Result<Json<DeleteMembershipMedalRuleRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<bool>>, ApiError> {
+    let session = authorize_capability_write(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::MEMBERSHIP_MEDAL_RULES_WRITE,
+    )
+    .await?;
+    let Path(key) = path.map_err(|_| validation_error(request_id, "medal_key", "勋章标识无效"))?;
+    let Json(request) =
+        request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
+    if !valid_medal_key(&key) || request.expected_revision < 1 {
+        return Err(validation_error(request_id, "body", "请刷新勋章后重试"));
+    }
+    let deleted = database
+        .delete_membership_medal_rule(session.user.id, &key, request.expected_revision)
+        .await
+        .map_err(|error| medal_catalog_error(request_id, error))?;
+    Ok(Json(ApiResponse::new(deleted, request_id)))
+}
+
+#[utoipa::path(
     patch,
     path = "/api/v1/admin/membership/medal-rules/{medal_key}",
     operation_id = "updateMembershipMedalRule",
@@ -2274,7 +2546,7 @@ pub(crate) async fn list_membership_medal_rules(
     responses(
         (status = 200, body = ApiResponse<MembershipMedalRule>, headers(("x-request-id" = String))),
         (status = 401, body = ErrorResponse), (status = 403, body = ErrorResponse),
-        (status = 422, body = ErrorResponse), (status = 503, body = ErrorResponse)
+        (status = 409, body = ErrorResponse, headers(("x-request-id" = String))), (status = 422, body = ErrorResponse), (status = 503, body = ErrorResponse)
     )
 )]
 pub(crate) async fn update_membership_medal_rule(
@@ -2293,9 +2565,8 @@ pub(crate) async fn update_membership_medal_rule(
         permission_keys::MEMBERSHIP_MEDAL_RULES_WRITE,
     )
     .await?;
-    let Path(medal_key) = path.map_err(|_| {
-        validation_error(request_id, "medal_key", "勋章键必须是 medal_01 至 medal_17")
-    })?;
+    let Path(medal_key) = path
+        .map_err(|_| validation_error(request_id, "medal_key", "勋章不存在、已删除或标识无效"))?;
     let Json(request) =
         request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
     validate_membership_medal_rule(&medal_key, &request)
@@ -2305,30 +2576,15 @@ pub(crate) async fn update_membership_medal_rule(
             session.user.id,
             UpdateMembershipMedalRuleRecord {
                 medal_key,
+                display_name: request.display_name,
+                asset_key: request.asset_key,
+                expected_revision: request.expected_revision,
                 enabled: request.enabled,
                 required_lifetime_points: request.required_lifetime_points,
             },
         )
         .await
-        .map_err(|error| match error {
-            UpdateMembershipMedalRuleError::Forbidden => admin_error(
-                StatusCode::FORBIDDEN,
-                error_codes::ADMIN_FORBIDDEN,
-                "当前账号已失去勋章规则写入权限",
-                request_id,
-            ),
-            UpdateMembershipMedalRuleError::InvalidMedal => {
-                validation_error(request_id, "medal_key", "勋章键必须是 medal_01 至 medal_17")
-            }
-            UpdateMembershipMedalRuleError::InvalidThreshold => validation_error(
-                request_id,
-                "required_lifetime_points",
-                "启用规则必须配置非负积分阈值",
-            ),
-            UpdateMembershipMedalRuleError::Database(error) => {
-                database_error(request_id, error, "勋章运营规则保存失败")
-            }
-        })?;
+        .map_err(|error| medal_catalog_error(request_id, error))?;
     Ok(Json(ApiResponse::new(
         map_membership_medal_rule(record).map_err(|()| invalid_record(request_id))?,
         request_id,
@@ -4848,9 +5104,13 @@ fn map_membership_medal_rule(record: MembershipMedalRuleRecord) -> Result<Member
     if !valid_medal_key(&record.medal_key) {
         return Err(());
     }
+    let (asset_url, _) = crate::membership::medal_asset_metadata(&record.asset_key).ok_or(())?;
     Ok(MembershipMedalRule {
+        asset_key: record.asset_key,
+        asset_url,
+        revision: record.revision,
         key: record.medal_key.clone(),
-        display_name: medal_display_name(&record.medal_key),
+        display_name: record.display_name,
         enabled: record.enabled,
         required_lifetime_points: record.required_lifetime_points,
         updated_at: format_time(record.updated_at),
@@ -4858,11 +5118,12 @@ fn map_membership_medal_rule(record: MembershipMedalRuleRecord) -> Result<Member
 }
 
 fn map_membership_medal(record: MembershipMedalRecord) -> Result<MembershipMedal, ()> {
-    let (filename, sha256) = crate::membership::medal_asset_metadata(&record.medal_key).ok_or(())?;
+    let (asset_url, sha256) =
+        crate::membership::medal_asset_metadata(&record.asset_key).ok_or(())?;
     Ok(MembershipMedal {
         key: record.medal_key.clone(),
-        display_name: medal_display_name(&record.medal_key),
-        asset_url: format!("/assets/membership/medals/{filename}"),
+        display_name: record.display_name,
+        asset_url,
         sha256: sha256.to_owned(),
         granted_at: format_time(record.granted_at),
     })
@@ -4873,7 +5134,7 @@ fn validate_membership_medal_rule(
     request: &UpdateMembershipMedalRuleRequest,
 ) -> Result<(), (&'static str, &'static str)> {
     if !valid_medal_key(medal_key) {
-        return Err(("medal_key", "勋章键必须是 medal_01 至 medal_17"));
+        return Err(("medal_key", "勋章不存在、已删除或标识无效"));
     }
     if request.enabled && request.required_lifetime_points.is_none() {
         return Err(("required_lifetime_points", "启用规则必须配置非负积分阈值"));
@@ -4884,6 +5145,10 @@ fn validate_membership_medal_rule(
     {
         return Err(("required_lifetime_points", "积分阈值不能为负数"));
     }
+    if request.expected_revision < 1 {
+        return Err(("expected_revision", "请刷新勋章后重试"));
+    }
+    validate_medal_definition(&request.display_name, &request.asset_key)?;
     Ok(())
 }
 
@@ -4891,7 +5156,7 @@ fn validate_membership_medal_grant(
     request: &GrantMembershipMedalRequest,
 ) -> Result<(), (&'static str, &'static str)> {
     if !valid_medal_key(&request.medal_key) {
-        return Err(("medal_key", "勋章键必须是 medal_01 至 medal_17"));
+        return Err(("medal_key", "勋章不存在、已删除或标识无效"));
     }
     if !(2..=64).contains(&request.reason.len())
         || request
@@ -4915,7 +5180,7 @@ fn validate_membership_medal_revocation(
     request: &RevokeMembershipMedalRequest,
 ) -> Result<(), (&'static str, &'static str)> {
     if !valid_medal_key(&request.medal_key) {
-        return Err(("medal_key", "勋章键必须是 medal_01 至 medal_17"));
+        return Err(("medal_key", "勋章不存在、已删除或标识无效"));
     }
     if request.reason != request.reason.trim()
         || !(1..=64).contains(&request.reason.chars().count())
@@ -4942,7 +5207,7 @@ fn validate_membership_medal_operations_query(
         .as_deref()
         .is_some_and(|value| !valid_medal_key(value))
     {
-        return Err(("medal_key", "勋章键必须是 medal_01 至 medal_17"));
+        return Err(("medal_key", "勋章不存在、已删除或标识无效"));
     }
     Ok(ListMembershipMedalOperationsQuery {
         user_id: query.user_id,
@@ -4971,7 +5236,7 @@ fn map_membership_medal_operation(
         username: record.username,
         user_display_name: record.user_display_name,
         medal_key: record.medal_key.clone(),
-        medal_display_name: medal_display_name(&record.medal_key),
+        medal_display_name: record.medal_display_name,
         reason: record.reason,
         actor_id: record.actor_id,
         actor_username: record.actor_username,
@@ -4981,15 +5246,11 @@ fn map_membership_medal_operation(
 }
 
 fn valid_medal_key(value: &str) -> bool {
-    let Some(number) = value.strip_prefix("medal_") else {
-        return false;
-    };
-    matches!(number.parse::<u8>(), Ok(value) if (1..=17).contains(&value) && number == format!("{value:02}"))
-}
-
-fn medal_display_name(key: &str) -> String {
-    key.strip_prefix("medal_")
-        .map_or_else(|| "勋章".to_owned(), |number| format!("勋章 {number}"))
+    (3..=64).contains(&value.len())
+        && value.as_bytes()[0].is_ascii_lowercase()
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
 }
 
 fn validate_membership_level_rule(

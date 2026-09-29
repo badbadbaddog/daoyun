@@ -8,6 +8,10 @@ use crate::BoardTone;
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateTopicRequest {
     #[serde(default)]
+    pub poll: Option<crate::PollInput>,
+    #[serde(default)]
+    pub draft: Option<crate::DraftReference>,
+    #[serde(default)]
     pub board_id: Option<Uuid>,
     #[serde(default)]
     pub title: Option<String>,
@@ -142,6 +146,7 @@ pub struct TopicSummary {
     pub is_featured: bool,
     pub is_pinned: bool,
     pub image_url: Option<String>,
+    pub image_urls: Vec<String>,
     pub tags: Vec<TopicTag>,
 }
 

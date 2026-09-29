@@ -164,7 +164,7 @@ async function getEnvelope(url: string, signal?: AbortSignal): Promise<{ data: u
 }
 
 function pointsReason(reason: string): string {
-  const labels: Record<string, string> = { "content.topic.quality": "发布优质主题", "content.reply.quality": "发布优质回复", "operations.adjustment": "运营调整" }
+  const labels: Record<string, string> = { "content.topic.quality": "发布优质主题", "content.reply.quality": "发布优质回复", "operations.adjustment": "运营调整", "points.redemption": "积分兑换" }
   return labels[reason] ?? reason
 }
 

@@ -9,6 +9,7 @@
     "dev": "vite --host 127.0.0.1",
     "api:local": "node scripts/start-local-api.mjs",
     "seed:local": "node scripts/seed-local-test-accounts.mjs",
+    "plugins:build": "node scripts/build-topic-supplements-plugin.mjs && node scripts/build-topic-edit-review-plugin.mjs && node scripts/build-points-redemption-plugin.mjs && node scripts/build-community-analytics-plugin.mjs && node scripts/build-polls-plugin.mjs",
     "build": "tsc -b && vite build",
     "generate:api": "node scripts/generate-api-client.mjs",
     "verify:membership": "node scripts/verify-membership-assets.mjs",

@@ -58,7 +58,7 @@ beforeEach(() => {
   vi.mocked(listAuthorizationPermissions).mockResolvedValue([{ key: "content.moderate", name: "内容管理", description: "管理主题与回复" }])
   vi.mocked(listAuthorizationRoles).mockResolvedValue([systemRole, customRole])
   vi.mocked(listAuthorizationAssignments).mockResolvedValue({ assignments: [], nextCursor: null })
-  vi.mocked(createAuthorizationRole).mockResolvedValue(customRole)
+  vi.mocked(createAuthorizationRole).mockResolvedValue({ ...customRole, id: "019fc900-0000-7000-8000-000000000503" })
   vi.mocked(updateAuthorizationRole).mockResolvedValue({ ...customRole, revision: 2 })
   vi.mocked(createAuthorizationAssignment).mockResolvedValue(assignment)
   vi.mocked(deleteAuthorizationRole).mockResolvedValue(true)
@@ -68,6 +68,50 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
 describe("AuthorizationAdminPanel", () => {
+  it("preserves selected permissions across categories and searches the whole catalog", async () => {
+    const user = userEvent.setup()
+    vi.mocked(listAuthorizationPermissions).mockResolvedValueOnce([
+      { key: "content.moderate", name: "内容管理", description: "管理主题" },
+      { key: "admin.users.read", name: "读取用户", description: "查看用户" },
+    ])
+    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} />)
+    await user.click(await screen.findByRole("button", { name: "新建角色" }))
+    await user.click(screen.getByRole("checkbox", { name: "选择当前显示的 1 项权限" }))
+    await user.click(screen.getByRole("button", { name: /用户与权限/ }))
+    await user.click(screen.getByLabelText("读取用户 admin.users.read"))
+    await user.type(screen.getByRole("searchbox", { name: "搜索权限" }), "内容")
+    expect(screen.getByLabelText("内容管理 content.moderate")).toBeChecked()
+    await user.type(screen.getByLabelText("角色名称"), "审核员")
+    await user.type(screen.getByLabelText("角色键"), "reviewer")
+    await user.click(screen.getByRole("button", { name: "创建角色" }))
+    expect(createAuthorizationRole).toHaveBeenCalledWith(expect.objectContaining({ permissionKeys: ["content.moderate", "admin.users.read"] }), csrfToken)
+  })
+
+  it("searches roles and opens system permissions without offering a save action", async () => {
+    const user = userEvent.setup()
+    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} />)
+    await screen.findByText("超级管理员")
+    await user.type(screen.getByRole("searchbox", { name: "搜索角色" }), "超级")
+    expect(screen.queryByText("版主")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "查看权限：超级管理员" }))
+    expect(screen.getByLabelText("内容管理 content.moderate")).toBeDisabled()
+    expect(screen.queryByRole("button", { name: "保存角色" })).not.toBeInTheDocument()
+  })
+
+  it("opens a dedicated role editor and an assignment dialog instead of inline forms", async () => {
+    const user = userEvent.setup()
+    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} />)
+    await screen.findByText("超级管理员")
+    expect(screen.queryByLabelText("角色名称")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "新建角色" }))
+    expect(screen.getByLabelText("角色名称")).toBeInTheDocument()
+    expect(screen.queryByText("超级管理员")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "返回角色目录" }))
+    await user.click(screen.getByRole("button", { name: "人员授权" }))
+    expect(screen.queryByLabelText("用户名（精确匹配）")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "新增授权" }))
+    expect(screen.getByRole("dialog", { name: "分配角色" })).toBeInTheDocument()
+  })
   it("renders system roles as read-only and creates a custom role", async () => {
     const user = userEvent.setup()
     vi.mocked(createAuthorizationRole).mockResolvedValueOnce({ ...customRole, id: "019fc900-0000-7000-8000-000000000503", key: "topic_reviewer", name: "主题审核员" })
@@ -76,6 +120,7 @@ describe("AuthorizationAdminPanel", () => {
     expect(await screen.findByRole("heading", { name: "角色与权限" })).toBeInTheDocument()
     expect(screen.getByText("超级管理员")).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "编辑角色：超级管理员" })).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "新建角色" }))
     await user.type(screen.getByLabelText("角色键"), "topic_reviewer")
     await user.type(screen.getByLabelText("角色名称"), "主题审核员")
     await user.click(screen.getByLabelText("内容管理 content.moderate"))
@@ -95,6 +140,7 @@ describe("AuthorizationAdminPanel", () => {
     vi.mocked(createAuthorizationRole).mockImplementationOnce(() => new Promise((resolve) => { resolveCreate = resolve }))
     render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} />)
     await screen.findByRole("heading", { name: "角色与权限" })
+    await user.click(screen.getByRole("button", { name: "新建角色" }))
 
     await user.type(screen.getByLabelText("角色键"), "topic_reviewer")
     await user.type(screen.getByLabelText("角色名称"), "主题审核员")
@@ -116,6 +162,8 @@ describe("AuthorizationAdminPanel", () => {
     const user = userEvent.setup()
     render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} />)
     await screen.findByRole("heading", { name: "角色与权限" })
+    await user.click(screen.getByRole("button", { name: "人员授权" }))
+    await user.click(screen.getByRole("button", { name: "新增授权" }))
 
     await user.type(screen.getByLabelText("用户名（精确匹配）"), "demo_member")
     await user.selectOptions(screen.getByLabelText("自定义角色"), customRole.id)

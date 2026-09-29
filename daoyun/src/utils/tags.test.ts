@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { parseTopicTags } from "./tags"
+import { extractTopicTags, findTopicHashtags, parseTopicTags } from "./tags"
 
 describe("parseTopicTags", () => {
   it("creates API-compatible ASCII slugs for Chinese tag names", () => {
@@ -18,5 +18,16 @@ describe("parseTopicTags", () => {
     expect(tags[0]).toEqual({ slug: "rust-lang", name: "Rust" })
     expect(tags).toHaveLength(5)
     expect(new Set(tags.map((tag) => tag.slug)).size).toBe(5)
+  })
+
+  it("extracts adjacent hashtags from post content", () => {
+    expect(findTopicHashtags("正文 #我是标签#例子标签，再加 #Rust 和 #Rust").map((match) => match.name))
+      .toEqual(["我是标签", "例子标签", "Rust", "Rust"])
+
+    expect(extractTopicTags("正文 #我是标签#例子标签，再加 #Rust 和 #Rust")).toEqual([
+      { slug: expect.stringMatching(/^[a-z0-9-]{1,40}$/), name: "我是标签" },
+      { slug: expect.stringMatching(/^[a-z0-9-]{1,40}$/), name: "例子标签" },
+      { slug: "rust", name: "Rust" },
+    ])
   })
 })

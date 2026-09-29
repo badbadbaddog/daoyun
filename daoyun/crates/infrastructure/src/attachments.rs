@@ -52,7 +52,7 @@ pub struct DraftImageAttachmentRecord {
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
 pub struct AttachmentRecord {
     pub id: Uuid,
-    pub topic_id: Uuid,
+    pub topic_id: Option<Uuid>,
     pub original_name: String,
     pub mime_type: String,
     pub size_bytes: i64,
@@ -362,6 +362,40 @@ impl Database {
         thumbnail: bool,
         viewer_user_id: Option<Uuid>,
     ) -> Result<(AttachmentRecord, Vec<u8>), ListAttachmentsError> {
+        let mut can_review = false;
+        if let Some(viewer) = viewer_user_id {
+            let mut transaction = self.pool.begin().await?;
+            let boards: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT DISTINCT t.board_id FROM content_edit_reviews r \
+                 JOIN topics t ON t.id=r.topic_id \
+                 JOIN boards b ON b.id=t.board_id \
+                 JOIN posts p ON p.id=r.post_id \
+                 JOIN topic_attachments a ON a.id=$1 AND a.uploader_id=r.editor_id \
+                 WHERE r.status='pending' AND t.status='published' AND t.deleted_at IS NULL \
+                 AND p.status='published' AND p.deleted_at IS NULL AND b.deleted_at IS NULL \
+                 AND a.topic_id IS NULL AND a.status='ready' AND a.scan_status='clean' \
+                 AND a.deleted_at IS NULL AND a.expires_at>CURRENT_TIMESTAMP \
+                 AND jsonb_path_exists(r.proposed_rich_content, '$.**.attachmentId ? (@ == $id)', \
+                     jsonb_build_object('id', $1::text))",
+            )
+            .bind(attachment_id)
+            .fetch_all(&mut *transaction)
+            .await?;
+            for board in boards {
+                if crate::authorization::has_permission_with_executor(
+                    &mut transaction,
+                    viewer,
+                    crate::authorization::permission_keys::MODERATION_TOPIC,
+                    Some(board),
+                )
+                .await?
+                {
+                    can_review = true;
+                    break;
+                }
+            }
+            transaction.commit().await?;
+        }
         let record = sqlx::query_as::<_, AttachmentRecord>(
             "SELECT a.id, a.topic_id, a.original_name, a.mime_type, a.size_bytes,
                     a.sha256, a.status, a.scan_status, a.created_at, a.storage_key,
@@ -369,14 +403,28 @@ impl Database {
                          THEN regexp_replace(a.storage_key, '\\.[^.]+$', '-thumb.webp')
                          ELSE NULL END AS thumbnail_key
              FROM topic_attachments AS a
-             INNER JOIN topics AS t ON t.id = a.topic_id
+             LEFT JOIN topics AS t ON t.id = a.topic_id
              WHERE a.id = $1 AND a.status = 'ready'
-               AND t.status = 'published' AND t.deleted_at IS NULL
-               AND daoyun_can_access_content('topic', t.id, $2, CURRENT_TIMESTAMP)
-               AND daoyun_can_access_content('attachment', a.id, $2, CURRENT_TIMESTAMP)",
+               AND (
+                    (
+                        t.status = 'published' AND t.deleted_at IS NULL
+                        AND daoyun_can_access_content('topic', t.id, $2, CURRENT_TIMESTAMP)
+                        AND daoyun_can_access_content('attachment', a.id, $2, CURRENT_TIMESTAMP)
+                    )
+                    OR (
+                        $3 AND a.topic_id IS NULL AND a.uploader_id = $2
+                        AND a.scan_status = 'clean' AND a.deleted_at IS NULL
+                        AND (a.expires_at > CURRENT_TIMESTAMP OR EXISTS(SELECT 1 FROM member_draft_attachments r WHERE r.attachment_id=a.id))
+                    )
+                    OR ($4 AND a.topic_id IS NULL AND a.mime_type LIKE 'image/%'
+                        AND a.scan_status='clean' AND a.deleted_at IS NULL
+                        AND a.expires_at>CURRENT_TIMESTAMP)
+               )",
         )
         .bind(attachment_id)
         .bind(viewer_user_id)
+        .bind(thumbnail)
+        .bind(can_review)
         .fetch_optional(&self.pool)
         .await
         .map_err(|error| ListAttachmentsError::Database(DatabaseError::from(error)))?
@@ -480,7 +528,7 @@ impl Database {
                          ELSE NULL END AS thumbnail_key
              FROM topic_attachments
              WHERE deleted_at IS NOT NULL
-                OR expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP
+                OR (expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP AND NOT EXISTS(SELECT 1 FROM member_draft_attachments r WHERE r.attachment_id=topic_attachments.id))
                 OR status = 'rejected'
                 OR scan_status IN ('infected', 'error')
              ORDER BY COALESCE(expires_at, created_at), id

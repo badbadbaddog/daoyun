@@ -26,6 +26,16 @@ pub enum PluginCapability {
     StorageReadWrite,
     #[serde(rename = "tasks.schedule")]
     TasksSchedule,
+    #[serde(rename = "topic.supplements")]
+    TopicSupplements,
+    #[serde(rename = "topic.edit_review")]
+    TopicEditReview,
+    #[serde(rename = "membership.redemption")]
+    MembershipRedemption,
+    #[serde(rename = "community.analytics")]
+    CommunityAnalytics,
+    #[serde(rename = "topic.polls")]
+    TopicPolls,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, ToSchema)]
@@ -191,6 +201,16 @@ pub enum BusinessPluginCapability {
     StorageReadWrite,
     #[serde(rename = "tasks.schedule")]
     TasksSchedule,
+    #[serde(rename = "topic.supplements")]
+    TopicSupplements,
+    #[serde(rename = "topic.edit_review")]
+    TopicEditReview,
+    #[serde(rename = "membership.redemption")]
+    MembershipRedemption,
+    #[serde(rename = "community.analytics")]
+    CommunityAnalytics,
+    #[serde(rename = "topic.polls")]
+    TopicPolls,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -351,6 +371,7 @@ pub enum PluginUiSlot {
     MembershipPanel,
     AdminUser,
     AdminPlugin,
+    TopicDetail,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]

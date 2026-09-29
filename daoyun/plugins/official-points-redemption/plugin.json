@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "key": "official_points_redemption",
+  "name": "积分兑换",
+  "version": "0.1.0",
+  "description": "使用积分兑换有期限的标准权益，扣分和发放原子完成。",
+  "business_api_version": "0.1.0",
+  "capabilities": [
+    "membership.redemption",
+    "ui.panel"
+  ],
+  "data_scopes": [],
+  "event_subscriptions": []
+}

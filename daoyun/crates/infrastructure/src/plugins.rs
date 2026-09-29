@@ -200,6 +200,15 @@ impl Database {
         .fetch_one(&mut *transaction)
         .await
         .map_err(map_plugin_write_error)?;
+        if input
+            .capabilities
+            .iter()
+            .any(|capability| capability == "topic.supplements")
+        {
+            sqlx::query("UPDATE topic_supplement_settings SET enabled = true WHERE id = 1")
+                .execute(&mut *transaction)
+                .await?;
+        }
         insert_audit(
             &mut transaction,
             actor_id,
@@ -479,6 +488,11 @@ fn valid_install_input(input: &InstallPluginRecord) -> bool {
         "points.write",
         "storage.read_write",
         "tasks.schedule",
+        "topic.supplements",
+        "topic.edit_review",
+        "membership.redemption",
+        "community.analytics",
+        "topic.polls",
         "ui.panel",
     ];
     const DATA_SCOPES: &[&str] = &[

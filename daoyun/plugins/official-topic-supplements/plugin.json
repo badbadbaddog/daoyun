@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "key": "official_topic_supplements",
+  "name": "帖子补充",
+  "version": "0.1.0",
+  "description": "作者在正文下方追加独立补充；全站统一次数，默认每帖一次，保存后直接发布，停用保留历史内容。",
+  "business_api_version": "0.1.0",
+  "capabilities": ["topic.supplements", "ui.panel"],
+  "data_scopes": [],
+  "event_subscriptions": []
+}

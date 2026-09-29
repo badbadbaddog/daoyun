@@ -127,6 +127,8 @@ export function TopicFeed({
             <TopicRow
               topic={topic}
               key={topic.id}
+              statsPlacement="footer"
+              identityVariant="feed"
               onOpen={onOpenTopic}
               onToggleBookmark={onToggleBookmark}
               bookmarkPending={bookmarkPendingIds.has(topic.id)}

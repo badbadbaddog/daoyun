@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -53,6 +53,24 @@ describe("TopicRow", () => {
 
     expect(screen.getByRole("article")).toHaveAttribute("data-layout", "media")
     expect(screen.getByRole("article")).toHaveClass("topic-row--feed", "topic-row--media")
+  })
+
+  it("renders at most three public preview images", () => {
+    const { container } = render(
+      <TopicRow
+        topic={{ ...topic, imageUrls: ["/one.webp", "/two.webp", "/three.webp", "/four.webp"] }}
+        onOpen={vi.fn()}
+        onToggleBookmark={vi.fn()}
+        bookmarkPending={false}
+      />,
+    )
+
+    const article = screen.getByRole("article")
+    expect(article).toHaveAttribute("data-layout", "media")
+    expect(article).toHaveAttribute("data-media-count", "3")
+    expect(container.querySelector(".topic-cover")).toHaveClass("topic-cover--count-3")
+    expect(container.querySelectorAll(".topic-cover img")).toHaveLength(3)
+    expect(container.querySelector('img[src="/four.webp"]')).not.toBeInTheDocument()
   })
 
   it("gives active text discussions a feed-only conversation rhythm without changing media or board layouts", () => {
@@ -130,9 +148,10 @@ describe("TopicRow", () => {
   })
 
   it("links the display board name through its canonical slug", () => {
-    render(
+    const { container } = render(
       <TopicRow
         topic={topic}
+        identityVariant="feed"
         onOpen={vi.fn()}
         onToggleBookmark={vi.fn()}
         onToggleLike={vi.fn()}
@@ -143,6 +162,10 @@ describe("TopicRow", () => {
 
     expect(screen.getByRole("link", { name: topic.board }))
       .toHaveAttribute("href", "#board/general")
+    expect(container.querySelector(".topic-author-meta"))
+      .toContainElement(screen.getByRole("link", { name: topic.author }))
+    expect(container.querySelector(".topic-context-meta"))
+      .toContainElement(screen.getByRole("link", { name: topic.board }))
   })
 
   it("falls back to the board directory for an unroutable slug", () => {
@@ -216,4 +239,54 @@ describe("TopicRow", () => {
     expect(screen.getByRole("button", { name: `正在收藏主题：${topic.title}` }))
       .toBeDisabled()
   })
+  it.each([
+    ["feed", undefined], ["board", undefined], ["feed", "/cover.webp"], ["board", "/cover.webp"],
+  ] as const)("opens %s posts from the excerpt and row background (cover: %s)", async (variant, imageUrl) => {
+    const user = userEvent.setup()
+    const onOpen = vi.fn()
+    render(<div role="tabpanel" tabIndex={0}><TopicRow topic={{ ...topic, imageUrl }} variant={variant} onOpen={onOpen} bookmarkPending={false} /></div>)
+    await user.click(screen.getByText(topic.excerpt))
+    expect(onOpen).toHaveBeenCalledTimes(1)
+    expect(onOpen).toHaveBeenLastCalledWith(topic.id)
+    await user.click(screen.getByRole("article"))
+    expect(onOpen).toHaveBeenCalledTimes(2)
+    await user.click(screen.getByRole("heading", { name: topic.title }))
+    expect(onOpen).toHaveBeenCalledTimes(3)
+  })
+
+  it("preserves author and board links and does not open when selecting text", async () => {
+    const user = userEvent.setup()
+    const onOpen = vi.fn()
+    render(<TopicRow topic={topic} onOpen={onOpen} bookmarkPending={false} />)
+    await user.click(screen.getByRole("link", { name: topic.author }))
+    await user.click(screen.getByRole("link", { name: topic.board }))
+    await user.click(screen.getByRole("link", { name: `查看 ${topic.author} 的主页` }))
+    expect(onOpen).not.toHaveBeenCalled()
+    const range = document.createRange()
+    range.selectNodeContents(screen.getByText(topic.excerpt))
+    window.getSelection()!.removeAllRanges()
+    window.getSelection()!.addRange(range)
+    expect(window.getSelection()!.toString()).toBe(topic.excerpt)
+    try {
+      fireEvent.click(screen.getByRole("article"))
+      expect(onOpen).not.toHaveBeenCalled()
+    } finally {
+      window.getSelection()!.removeAllRanges()
+    }
+  })
+
+  it("retains native modified title clicks and keyboard navigation", async () => {
+    const user = userEvent.setup()
+    const onOpen = vi.fn()
+    render(<TopicRow topic={topic} onOpen={onOpen} bookmarkPending={false} />)
+    const link = screen.getByRole("link", { name: topic.title })
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true })
+    link.dispatchEvent(click)
+    expect(click.defaultPrevented).toBe(false)
+    expect(onOpen).not.toHaveBeenCalled()
+    link.focus()
+    await user.keyboard("{Enter}")
+    expect(onOpen).toHaveBeenCalledOnce()
+  })
+
 })

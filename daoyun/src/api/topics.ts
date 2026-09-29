@@ -1,9 +1,11 @@
+import type { PollInput } from "./polls"
 import type { Topic, TopicTag } from "../types/community"
 import { isRichTextDocument, type RichTextDocument } from "../editor/richContent"
 import type { components } from "./generated"
 
 const TOPICS_ENDPOINT = "/api/v1/topics"
 const DEFAULT_LIMIT = 20
+const MAX_SUPPLEMENT_LENGTH = 1000
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const boardSlugPattern = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/
 const attachmentThumbnailPattern = /^\/api\/v1\/attachments\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/thumbnail$/i
@@ -17,6 +19,8 @@ export interface ListTopicsOptions {
   query?: string
   tag?: string
   author?: string
+  from?: string
+  through?: string
   scope?: TopicScope
   featured?: boolean
   sort?: TopicSort
@@ -37,6 +41,8 @@ export interface TopicDetail extends Topic {
   authorUsername: string
   contentRevision: number
   hasLockedContent: boolean
+  editDisposition?: "published" | "pending_review"
+  editReviewId?: string | null
 }
 
 export interface ReplyReference {
@@ -66,11 +72,38 @@ export interface TopicReply {
   revisionCount: number
   likeCount: number
   liked: boolean | null
+  editDisposition?: "published" | "pending_review"
+  editReviewId?: string | null
+}
+
+export interface TopicSupplement {
+  id: string
+  topicId: string
+  content: string
+  status: "approved" | "hidden"
+  createdAt: string
+  updatedAt: string
+  author: {
+    id: string
+    username: string
+    displayName: string
+    avatarUrl: string | null
+  }
 }
 
 export interface ReplyPage {
   replies: TopicReply[]
   nextCursor: string | null
+}
+
+export interface SupplementPage {
+  supplements: TopicSupplement[]
+  policy?: {
+    enabled: boolean
+    maxPerTopic: number
+    usedCount: number
+    canSubmit: boolean
+  }
 }
 
 export interface ListRepliesOptions {
@@ -141,11 +174,19 @@ export interface TopicRevision {
 }
 
 export interface CreateTopicInput {
+  poll?: PollInput
+  draft?: { id: string; revision: number }
   title?: string
   content: string
   richContent?: RichTextDocument
   boardId?: string
   tags?: TopicTag[]
+}
+
+export interface CreateTopicSupplementOptions {
+  csrfToken: string
+  idempotencyKey: string
+  signal?: AbortSignal
 }
 
 export interface CreateTopicOptions {
@@ -164,6 +205,7 @@ type TopicSummaryDto = components["schemas"]["TopicSummary"] & {
   viewer_bookmarked: boolean | null
   viewer_liked: boolean | null
   image_url?: string | null
+  image_urls?: string[]
 }
 type TopicDetailDto = TopicSummaryDto & { content: string; rich_content?: unknown; content_revision: number; has_locked_content: boolean }
 type TopicRevisionDto = Omit<components["schemas"]["TopicRevision"], "editor"> & { editor: TopicAuthorDto; rich_content?: unknown }
@@ -173,6 +215,10 @@ type TopicPageDto = Omit<components["schemas"]["PageResponse_TopicSummary"], "da
   meta: Required<components["schemas"]["PageMeta"]>
 }
 type TopicResponseDto = Omit<components["schemas"]["ApiResponse_TopicDetail"], "data"> & { data: TopicDetailDto }
+type TopicEditResponseDto = {
+  data: { topic: TopicDetailDto; disposition: "published" | "pending_review"; review_id: string | null }
+  meta: { request_id: string }
+}
 type TopicReplyDto = Omit<components["schemas"]["TopicReply"], "author"> & {
   author: TopicAuthorDto
   floor_number: number
@@ -181,12 +227,33 @@ type TopicReplyDto = Omit<components["schemas"]["TopicReply"], "author"> & {
   viewer_liked: boolean | null
   rich_content?: unknown
 }
+type ReplyEditResponseDto = {
+  data: { reply: TopicReplyDto; disposition: "published" | "pending_review"; review_id: string | null }
+  meta: { request_id: string }
+}
 type ReplyReferenceDto = {
   id: string
   floor_number: number
   author: TopicAuthorDto
   excerpt: string | null
   is_deleted: boolean
+}
+
+type TopicSupplementAuthorDto = {
+  id: string
+  username: string
+  display_name: string
+  avatar_url: string | null
+}
+
+type TopicSupplementDto = {
+  id: string
+  topic_id: string
+  content: string
+  status: "approved" | "hidden"
+  created_at: string
+  updated_at: string
+  author: TopicSupplementAuthorDto
 }
 type ReplyPageDto = Omit<components["schemas"]["PageResponse_TopicReply"], "data" | "meta"> & {
   data: TopicReplyDto[]
@@ -197,6 +264,22 @@ type TagsResponseDto = components["schemas"]["ApiResponse_Vec_TopicTag"]
 type RevisionsResponseDto = Omit<components["schemas"]["ApiResponse_Vec_TopicRevision"], "data"> & { data: TopicRevisionDto[] }
 type ReplyRevisionsResponseDto = Omit<components["schemas"]["ApiResponse_Vec_ReplyRevision"], "data"> & { data: ReplyRevisionDto[] }
 type BooleanResponseDto = components["schemas"]["ApiResponse_bool"]
+type TopicSupplementListDto = {
+  data: TopicSupplementDto[]
+  meta: {
+    request_id: string
+    enabled?: boolean
+    max_per_topic?: number
+    used_count?: number
+    can_submit?: boolean
+  }
+}
+type TopicSupplementCreateResponseDto = {
+  data: TopicSupplementDto
+  meta: {
+    request_id: string
+  }
+}
 type ErrorResponseDto = components["schemas"]["ErrorResponse"]
 type CreateTopicRequestDto = Omit<components["schemas"]["CreateTopicRequest"], "rich_content" | "title"> & {
   title?: string
@@ -238,6 +321,8 @@ export async function listTopics(options: ListTopicsOptions = {}): Promise<Topic
   if (options.query?.trim()) params.set("query", options.query.trim())
   if (options.tag?.trim()) params.set("tag", options.tag.trim())
   if (options.author?.trim()) params.set("author", options.author.trim())
+  if (options.from) params.set("from", options.from)
+  if (options.through) params.set("through", options.through)
   if (options.scope) params.set("scope", options.scope)
   if (options.featured) params.set("featured", "true")
   if (options.sort) params.set("sort", options.sort)
@@ -264,9 +349,11 @@ export async function createTopic(
   input: CreateTopicInput,
   options: CreateTopicOptions,
 ): Promise<Topic> {
-  const requestBody: CreateTopicRequestDto = {
+  const requestBody: CreateTopicRequestDto & { draft?: { id: string; revision: number }; poll?: PollInput } = {
     content: input.content,
   }
+  if (input.poll) requestBody.poll = input.poll
+  if (input.draft) requestBody.draft = input.draft
   if (input.title?.trim()) requestBody.title = input.title.trim()
   if (input.boardId) {
     requestBody.board_id = input.boardId
@@ -364,17 +451,19 @@ export async function updateTopic(
   if (!response.ok) {
     throw toApiError(response.status, payload)
   }
-  if (response.status !== 200 || !isTopicResponse(payload)) {
+  if (response.status !== 200 || !isTopicEditResponse(payload)) {
     throw new Error("主题编辑响应格式无效")
   }
   return {
-    ...mapTopic(payload.data),
-    content: payload.data.content,
-    richContent: readRichContent(payload.data.rich_content),
-    authorId: payload.data.author.id,
-    authorUsername: payload.data.author.username,
-    contentRevision: payload.data.content_revision,
-    hasLockedContent: payload.data.has_locked_content,
+    ...mapTopic(payload.data.topic),
+    content: payload.data.topic.content,
+    richContent: readRichContent(payload.data.topic.rich_content),
+    authorId: payload.data.topic.author.id,
+    authorUsername: payload.data.topic.author.username,
+    contentRevision: payload.data.topic.content_revision,
+    hasLockedContent: payload.data.topic.has_locked_content,
+    editDisposition: payload.data.disposition,
+    editReviewId: payload.data.review_id,
   }
 }
 
@@ -400,7 +489,15 @@ export async function listRevisions(
   topicId: string,
   signal?: AbortSignal,
 ): Promise<TopicRevision[]> {
-  const response = await fetch(`${TOPICS_ENDPOINT}/${encodeURIComponent(topicId)}/revisions`, {
+  return fetchTopicRevisions(`${TOPICS_ENDPOINT}/${encodeURIComponent(topicId)}/revisions`, signal)
+}
+
+export async function listAdminTopicRevisions(topicId: string, signal?: AbortSignal): Promise<TopicRevision[]> {
+  return fetchTopicRevisions(`/api/v1/admin/moderation/topics/${encodeURIComponent(topicId)}/revisions`, signal)
+}
+
+async function fetchTopicRevisions(url: string, signal?: AbortSignal): Promise<TopicRevision[]> {
+  const response = await fetch(url, {
     headers: { Accept: "application/json" },
     credentials: "include",
     signal,
@@ -441,6 +538,66 @@ export async function listReplies(
     replies: payload.data.map(mapReply),
     nextCursor: payload.meta.next_cursor,
   }
+}
+
+export async function listTopicSupplements(
+  topicId: string,
+  signal?: AbortSignal,
+): Promise<SupplementPage> {
+  const response = await fetch(`${TOPICS_ENDPOINT}/${encodeURIComponent(topicId)}/supplements`, {
+    headers: { Accept: "application/json" },
+    credentials: "include",
+    signal,
+  })
+  const payload = await readJson(response)
+  if (!response.ok) {
+    throw toApiError(response.status, payload)
+  }
+  if (response.status !== 200 || !isTopicSupplementList(payload)) {
+    throw new Error("补充列表响应格式无效")
+  }
+  return {
+    supplements: payload.data.map(mapTopicSupplement),
+    ...(payload.meta.enabled !== undefined ? {
+      policy: {
+        enabled: payload.meta.enabled,
+        maxPerTopic: payload.meta.max_per_topic!,
+        usedCount: payload.meta.used_count!,
+        canSubmit: payload.meta.can_submit!,
+      },
+    } : {}),
+  }
+}
+
+export async function createTopicSupplement(
+  topicId: string,
+  content: string,
+  options: CreateTopicSupplementOptions,
+): Promise<TopicSupplement> {
+  content = content.trim()
+  if (![...content].length || [...content].length > MAX_SUPPLEMENT_LENGTH) {
+    throw new TopicApiError(422, "request.validation_failed", "补充正文必须为 1 至 1,000 个字符")
+  }
+  const response = await fetch(`${TOPICS_ENDPOINT}/${encodeURIComponent(topicId)}/supplements`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "x-csrf-token": options.csrfToken,
+      "idempotency-key": options.idempotencyKey,
+    },
+    credentials: "include",
+    body: JSON.stringify({ content }),
+    signal: options.signal,
+  })
+  const payload = await readJson(response)
+  if (!response.ok) {
+    throw toApiError(response.status, payload)
+  }
+  if (!isTopicSupplementCreate(payload)) {
+    throw new Error("帖子补充响应格式无效")
+  }
+  return mapTopicSupplement(payload.data)
 }
 
 export async function createReply(
@@ -500,10 +657,14 @@ export async function updateReply(
   if (!response.ok) {
     throw toApiError(response.status, payload)
   }
-  if (response.status !== 200 || !isReplyResponse(payload)) {
+  if (response.status !== 200 || !isReplyEditResponse(payload)) {
     throw new Error("回复编辑响应格式无效")
   }
-  return mapReply(payload.data)
+  return {
+    ...mapReply(payload.data.reply),
+    editDisposition: payload.data.disposition,
+    editReviewId: payload.data.review_id,
+  }
 }
 
 export async function listReplyRevisions(
@@ -566,7 +727,8 @@ function mapTopic(topic: TopicSummaryDto): Topic {
     authorUsername: topic.author.username,
     author: topic.author.display_name,
     avatarUrl: topic.author.avatar_url,
-    imageUrl: topic.image_url ?? undefined,
+    imageUrl: topic.image_url ?? topic.image_urls?.[0] ?? undefined,
+    imageUrls: (topic.image_urls ?? (topic.image_url ? [topic.image_url] : [])).slice(0, 3),
     publishedAt: formatRelativeTime(topic.published_at),
     publishedAtIso: topic.published_at,
     replies: topic.reply_count,
@@ -599,7 +761,7 @@ function mapRevision(revision: TopicRevisionDto): TopicRevision {
     },
     content: revision.content,
     richContent: readRichContent(revision.rich_content),
-    createdAt: formatRelativeTime(revision.created_at),
+    createdAt: revision.created_at,
   }
 }
 
@@ -654,6 +816,23 @@ function mapReply(reply: TopicReplyDto): TopicReply {
   }
 }
 
+function mapTopicSupplement(supplement: TopicSupplementDto): TopicSupplement {
+  return {
+    id: supplement.id,
+    topicId: supplement.topic_id,
+    content: supplement.content,
+    status: supplement.status,
+    createdAt: formatRelativeTime(supplement.created_at),
+    updatedAt: formatRelativeTime(supplement.updated_at),
+    author: {
+      id: supplement.author.id,
+      username: supplement.author.username,
+      displayName: supplement.author.display_name,
+      avatarUrl: supplement.author.avatar_url,
+    },
+  }
+}
+
 export function parseTopicPage(value: unknown): TopicPage | null {
   if (!isTopicPage(value)) return null
   return {
@@ -699,7 +878,7 @@ function isTopicPage(value: unknown): value is TopicPageDto {
     && Array.isArray(value.data)
     && isRecord(value.meta)
     && isUuid(value.meta.request_id)
-    && (value.meta.next_cursor === null || isUuid(value.meta.next_cursor))
+    && (value.meta.next_cursor === null || isUuid(value.meta.next_cursor) || (typeof value.meta.next_cursor === "string" && /^[0-9a-f-]{36}\.[0-9a-f]{64}$/.test(value.meta.next_cursor)))
     && value.data.every(isTopicSummary)
 }
 
@@ -709,6 +888,16 @@ function isTopicResponse(value: unknown): value is TopicResponseDto {
     && isRecord(value.meta)
     && isUuid(value.meta.request_id)
     && isTopicDetail(value.data)
+}
+
+function isTopicEditResponse(value: unknown): value is TopicEditResponseDto {
+  return isRecord(value)
+    && isRecord(value.data)
+    && isRecord(value.meta)
+    && isUuid(value.meta.request_id)
+    && isTopicDetail(value.data.topic)
+    && (value.data.disposition === "published" || value.data.disposition === "pending_review")
+    && (value.data.review_id === null || isUuid(value.data.review_id))
 }
 
 function isReplyPage(value: unknown): value is ReplyPageDto {
@@ -726,6 +915,16 @@ function isReplyResponse(value: unknown): value is ReplyResponseDto {
     && isRecord(value.meta)
     && isUuid(value.meta.request_id)
     && isTopicReply(value.data)
+}
+
+function isReplyEditResponse(value: unknown): value is ReplyEditResponseDto {
+  return isRecord(value)
+    && isRecord(value.data)
+    && isRecord(value.meta)
+    && isUuid(value.meta.request_id)
+    && isTopicReply(value.data.reply)
+    && (value.data.disposition === "published" || value.data.disposition === "pending_review")
+    && (value.data.review_id === null || isUuid(value.data.review_id))
 }
 
 function isTagsResponse(value: unknown): value is TagsResponseDto {
@@ -817,6 +1016,49 @@ function isReplyRevision(value: unknown): value is ReplyRevisionDto {
     && isNonEmptyString(value.created_at)
 }
 
+function isTopicSupplement(value: unknown): value is TopicSupplementDto {
+  if (!isRecord(value) || !isUuid(value.id) || !isUuid(value.topic_id)) {
+    return false
+  }
+  if (!isSupplementStatus(value.status) || !isNonEmptyString(value.content)) return false
+  if (!isNonEmptyString(value.created_at) || !isNonEmptyString(value.updated_at)) return false
+  if (!isRecord(value.author)
+    || !isUuid(value.author.id)
+    || !isNonEmptyString(value.author.username)
+    || !isNonEmptyString(value.author.display_name)
+    || typeof value.author.avatar_url !== "string" && value.author.avatar_url !== null) {
+    return false
+  }
+  return true
+}
+
+function isTopicSupplementList(value: unknown): value is TopicSupplementListDto {
+  return isRecord(value)
+    && Array.isArray(value.data)
+    && isRecord(value.meta)
+    && isUuid(value.meta.request_id)
+    && (value.meta.enabled === undefined || (
+      typeof value.meta.enabled === "boolean"
+      && isSafeNonNegativeInteger(value.meta.max_per_topic)
+      && value.meta.max_per_topic <= 100
+      && isSafeNonNegativeInteger(value.meta.used_count)
+      && typeof value.meta.can_submit === "boolean"
+    ))
+    && value.data.every(isTopicSupplement)
+}
+
+function isTopicSupplementCreate(value: unknown): value is TopicSupplementCreateResponseDto {
+  return isRecord(value)
+    && isRecord(value.data)
+    && isRecord(value.meta)
+    && isUuid(value.meta.request_id)
+    && isTopicSupplement(value.data)
+}
+
+function isSupplementStatus(value: unknown): value is TopicSupplement["status"] {
+  return value === "approved" || value === "hidden"
+}
+
 function isTopicDetail(value: unknown): value is TopicDetailDto {
   return isTopicSummary(value)
     && typeof (value as unknown as Record<string, unknown>).content === "string"
@@ -855,6 +1097,7 @@ function isTopicSummary(value: unknown): value is TopicSummaryDto {
     && typeof value.title === "string"
     && typeof value.excerpt === "string"
     && (value.image_url === undefined || isNullableTopicImageUrl(value.image_url))
+    && (value.image_urls === undefined || isTopicImageUrls(value.image_urls))
     && isUuid(value.author.id)
     && isNonEmptyString(value.author.username)
     && isNonEmptyString(value.author.display_name)
@@ -931,4 +1174,10 @@ function isNullableTopicImageUrl(value: unknown): value is string | null {
   return isNullableHttpsUrl(value)
     || (isNonEmptyString(value)
       && attachmentThumbnailPattern.test(value))
+}
+
+function isTopicImageUrls(value: unknown): value is string[] {
+  return Array.isArray(value)
+    && value.length <= 3
+    && value.every((imageUrl) => isNullableTopicImageUrl(imageUrl) && imageUrl !== null)
 }

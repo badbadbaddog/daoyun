@@ -40,4 +40,12 @@ describe("MemberIdentityBadges", () => {
     expect(screen.getByRole("img", { name: "首批用户" })).toHaveAttribute("src", "/assets/medals/early-adopter.svg")
     expect(screen.queryByText(/积分|权益|额度/)).not.toBeInTheDocument()
   })
+
+  it("labels the first public medal in feed identity metadata", () => {
+    const { container } = render(<MemberIdentityBadges summary={summary} variant="feed" maxMedals={1} />)
+
+    expect(container.querySelector(".public-member-identity--feed")).toBeInTheDocument()
+    expect(screen.getByText("首批用户")).toBeInTheDocument()
+    expect(container.querySelectorAll(".public-member-medal")).toHaveLength(1)
+  })
 })

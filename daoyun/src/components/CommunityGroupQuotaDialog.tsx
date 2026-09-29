@@ -1,8 +1,9 @@
-import { LoaderCircle, Save, ShieldCheck, X } from "lucide-react"
-import { useEffect, useRef, type FormEvent, type KeyboardEvent, type MouseEvent } from "react"
+import { LoaderCircle, Save, ShieldCheck, UsersRound, X } from "lucide-react"
+import { useState, type FormEvent } from "react"
 
 import type { AdminCommunityGroup, CommunityGroupStatus } from "../api/admin"
 import { RevisionConflictNotice } from "./admin/RevisionConflictNotice"
+import { ModalDialog } from "./ui/ModalDialog"
 
 export interface CommunityGroupDraft {
   internalKey: string
@@ -27,50 +28,46 @@ interface CommunityGroupEditorDialogProps {
   onSubmit: (event: FormEvent) => void
 }
 
-const focusableSelector = "button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [href], [tabindex]:not([tabindex='-1'])"
-
 export function CommunityGroupEditorDialog({ group, value, pending, error, conflict = false, onRefresh, onChange, onClose, onSubmit }: CommunityGroupEditorDialogProps) {
-  const dialogRef = useRef<HTMLFormElement | null>(null)
-  const firstFieldRef = useRef<HTMLInputElement | null>(null)
-  useEffect(() => { firstFieldRef.current?.focus() }, [])
-
-  function handleKeyDown(event: KeyboardEvent<HTMLFormElement>) {
-    if (event.key === "Escape" && !pending) { event.preventDefault(); onClose(); return }
-    if (event.key !== "Tab") return
-    const controls = [...(dialogRef.current?.querySelectorAll<HTMLElement>(focusableSelector) ?? [])]
-    const first = controls[0]; const last = controls.at(-1)
-    if (!first || !last) return
-    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
-    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
-  }
-
-  function closeFromBackdrop(event: MouseEvent<HTMLDivElement>) { if (event.currentTarget === event.target && !pending) onClose() }
+  const [section, setSection] = useState("基本信息")
+  const readOnly = group?.status === "archived"
+  const disabled = pending || readOnly
   function togglePermission(key: string, checked: boolean) { onChange({ permissionKeys: checked ? [...value.permissionKeys, key].sort() : value.permissionKeys.filter((item) => item !== key) }) }
 
-  return <div className="dialog-backdrop membership-growth-dialog-backdrop" onMouseDown={closeFromBackdrop}>
-    <form ref={dialogRef} className="membership-growth-dialog community-group-quota-dialog" role="dialog" aria-modal="true" aria-labelledby="community-group-editor-title" onSubmit={onSubmit} onKeyDown={handleKeyDown}>
-      <header className="membership-growth-dialog__header"><div><h4 id="community-group-editor-title">{group ? "编辑用户组" : "创建用户组"}</h4><p>{group ? `${group.displayName} · revision ${group.revision}` : "创建基础组或附加组"}</p></div><button className="icon-button" type="button" aria-label="关闭用户组编辑" title="关闭用户组编辑" disabled={pending} onClick={onClose}><X size={16} aria-hidden="true" /></button></header>
-      <div className="membership-growth-dialog__body">
-        <fieldset className="membership-growth-dialog__section"><legend><strong>基本信息与排序</strong></legend><div className="membership-growth-dialog__fields">
-          <label>内部键<input ref={firstFieldRef} aria-label="内部键" value={value.internalKey} readOnly={Boolean(group)} disabled={pending} onChange={(event) => onChange({ internalKey: event.target.value })} /></label>
-          <label>显示名称<input aria-label="显示名称" value={value.displayName} disabled={pending} onChange={(event) => onChange({ displayName: event.target.value })} /></label>
-          <label>说明<textarea aria-label="用户组说明" value={value.description} disabled={pending} onChange={(event) => onChange({ description: event.target.value })} /></label>
-          <label>显示顺序<input aria-label="显示顺序" type="number" min={0} max={1_000_000} value={value.displayOrder} disabled={pending} onChange={(event) => onChange({ displayOrder: event.target.value })} /></label>
-          <label>状态<select aria-label="用户组状态" value={value.status} disabled={pending || !group} onChange={(event) => onChange({ status: event.target.value as CommunityGroupStatus })}><option value="active">启用</option><option value="disabled">停用</option><option value="archived">归档</option></select></label>
-          <label className="admin-checkbox"><input type="checkbox" checked={value.isBase} disabled={pending || Boolean(group)} onChange={(event) => onChange({ isBase: event.target.checked })} /><span>基础组（否则为附加组）</span></label>
-        </div></fieldset>
-        <fieldset className="membership-growth-dialog__section"><legend><strong>社区权限</strong></legend><div className="community-group-permission-grid">{communityPermissionKeys.map((key) => <label className="admin-checkbox" key={key}><input type="checkbox" checked={value.permissionKeys.includes(key)} disabled={pending} onChange={(event) => togglePermission(key, event.target.checked)} /><span>{key}</span></label>)}</div><small>用户组权限和标准权益只包含社区行为，不包含治理或后台能力。</small></fieldset>
-        <fieldset className="membership-growth-dialog__section"><legend><strong>全部额度</strong></legend><div className="membership-growth-dialog__fields">{communityQuotaKeys.map(({ key, label, maximum }) => <label key={key}>{label}<input aria-label={label} type="number" min={0} max={maximum} value={value.quotas[key] ?? "0"} disabled={pending} onChange={(event) => onChange({ quotas: { ...value.quotas, [key]: event.target.value } })} /><small>{key}</small></label>)}</div></fieldset>
-      </div>
-      <div className="community-group-quota-dialog__notice"><ShieldCheck size={17} aria-hidden="true" /><span>保存受 CSRF、RBAC、审计和 revision 保护；标准权益与用户组保持分离。</span></div>
+  return <ModalDialog element="form" className="community-group-editor" titleId="community-group-editor-title" busy={pending} onClose={onClose} onSubmit={onSubmit} initialFocusSelector={readOnly ? "button" : group ? 'input[aria-label="显示名称"]' : 'input[aria-label="内部键"]'}>
+    <header className="community-group-editor__header"><span className="community-group-editor__icon"><UsersRound size={22} aria-hidden="true" /></span><div><h3 id="community-group-editor-title">{group ? "编辑用户组" : "创建用户组"}</h3><p>{group ? `${group.displayName} · ${group.isBase ? "基础组" : "附加组"}` : "设置成员身份、可用权限与使用额度"}</p></div><button className="icon-button" type="button" aria-label="关闭用户组编辑" title="关闭用户组编辑" disabled={pending} onClick={onClose}><X size={18} aria-hidden="true" /></button></header>
+    <div className="community-group-editor__nav" role="group" aria-label="用户组编辑区域">{["基本信息", "社区权限", "使用额度"].map(name => <button key={name} type="button" aria-pressed={section === name} onClick={() => setSection(name)}>{name}</button>)}</div>
+    <div className="community-group-editor__body">
+      {readOnly && <p className="community-group-editor__hint">该用户组已归档，仅可查看，无法恢复或修改。</p>}
+      {section === "基本信息" && <section aria-label="基本信息">
+        <div className="community-group-editor__fields">
+          <label>显示名称<input aria-label="显示名称" value={value.displayName} maxLength={80} disabled={disabled} placeholder="例如：社区贡献者" onChange={event => onChange({ displayName: event.target.value })} /></label>
+          <label>内部键<input aria-label="内部键" value={value.internalKey} readOnly={Boolean(group)} disabled={disabled} placeholder="例如：contributor" onChange={event => onChange({ internalKey: event.target.value })} /><small>{group ? "创建后不可更改" : "3–64 位小写字母、数字或下划线，以字母开头"}</small></label>
+          <label className="community-group-editor__wide">说明<textarea aria-label="用户组说明" value={value.description} maxLength={500} disabled={disabled} placeholder="描述该用户组适用的成员与用途" onChange={event => onChange({ description: event.target.value })} /></label>
+          <label>显示顺序<input aria-label="显示顺序" type="number" min={1} max={1_000_000} value={value.displayOrder} disabled={disabled} onChange={event => onChange({ displayOrder: event.target.value })} /><small>数字越小，排列越靠前</small></label>
+          <label>状态<select aria-label="用户组状态" value={value.status} disabled={disabled || !group || group.isDefault} onChange={event => onChange({ status: event.target.value as CommunityGroupStatus })}><option value="active">启用</option><option value="disabled">停用</option>{readOnly && <option value="archived">已归档</option>}</select><small>{group?.isDefault ? "默认基础组须保持启用" : "停用后暂停提供权限与额度，可重新启用"}</small></label>
+        </div>
+        <label className="community-group-editor__type"><input type="checkbox" checked={value.isBase} disabled={disabled || Boolean(group)} onChange={event => onChange({ isBase: event.target.checked })} /><span><strong>基础组（否则为附加组）</strong><small>基础组代表主要社区身份，附加组用于叠加权限与额度。创建后不可更改类型。</small></span></label>
+        <p className="community-group-editor__hint">不再使用时可以停用，需要时重新启用。成员关系与历史记录会保留。</p>
+      </section>}
+      {section === "社区权限" && <section aria-label="社区权限"><div className="community-group-editor__section-heading"><h4>允许成员做什么</h4><span>已选 {value.permissionKeys.length} 项</span></div><p className="community-group-editor__description">仅配置社区行为，后台管理能力请在“角色与权限”中设置。</p><div className="community-group-editor__permissions">{communityPermissionKeys.map(key => <label key={key}><input type="checkbox" aria-label={permissionLabels[key]} checked={value.permissionKeys.includes(key)} disabled={disabled} onChange={event => togglePermission(key, event.target.checked)} /><span>{permissionLabels[key]}</span></label>)}</div><p className="community-group-editor__hint"><ShieldCheck size={16} aria-hidden="true" />“内容须预审”是一项限制：勾选后发布内容需要先审核。</p></section>}
+      {section === "使用额度" && <section aria-label="使用额度"><div className="community-group-editor__section-heading"><h4>设置使用上限</h4><span>{communityQuotaKeys.length} 项额度</span></div><p className="community-group-editor__description">填写非负整数；0 表示该组不提供对应额度。存储空间须不小于单文件上限。</p><div className="community-group-editor__fields">{communityQuotaKeys.map(({ key, label, maximum }) => <label key={key}>{label}<input aria-label={label} type="number" min={0} max={maximum} value={value.quotas[key] ?? "0"} disabled={disabled} onChange={event => onChange({ quotas: { ...value.quotas, [key]: event.target.value } })} />{key.includes("bytes") && <small>单位：字节 · 1 MiB = 1,048,576 字节</small>}</label>)}</div></section>}
+    </div>
+    <footer className="community-group-editor__footer">
       {error && <p className="form-alert" role="alert">{error}</p>}
       {conflict && onRefresh && <RevisionConflictNotice onRefresh={onRefresh} />}
-      <div className="membership-growth-form-actions"><button className="secondary-button" type="button" disabled={pending} onClick={onClose}>取消</button><button className="primary-button" type="submit" disabled={pending}>{pending ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" /> : <Save size={14} aria-hidden="true" />}{group ? "保存用户组" : "创建用户组"}</button></div>
-    </form>
-  </div>
+      <div><span>保存后生效</span><button className="secondary-button" type="button" disabled={pending} onClick={onClose}>取消</button><button className="primary-button" type="submit" disabled={disabled}>{pending ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" /> : <Save size={14} aria-hidden="true" />}{group ? "保存用户组" : "创建用户组"}</button></div>
+    </footer>
+  </ModalDialog>
 }
 
 export const communityPermissionKeys = ["board.read", "topic.read", "topic.create", "reply.create", "message.send", "attachment.upload", "attachment.download", "topic.poll.create", "topic.bounty.create", "topic.lottery.join", "content.external_link.use", "profile.signature.use", "content.pre_moderation.required"] as const
+export const permissionLabels: Record<typeof communityPermissionKeys[number], string> = {
+  "board.read": "浏览版块", "topic.read": "阅读主题", "topic.create": "发布主题", "reply.create": "回复主题",
+  "message.send": "发送私信", "attachment.upload": "上传附件", "attachment.download": "下载附件",
+  "topic.poll.create": "发起投票", "topic.bounty.create": "发布悬赏", "topic.lottery.join": "参与抽奖",
+  "content.external_link.use": "使用外链", "profile.signature.use": "使用个人签名", "content.pre_moderation.required": "内容须预审",
+}
 export const communityQuotaKeys = [
   { key: "topic.create.daily", label: "每日主题数", maximum: 1_000_000 },
   { key: "reply.create.daily", label: "每日回复数", maximum: 1_000_000 },

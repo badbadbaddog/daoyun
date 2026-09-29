@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "key": "official_community_analytics",
+  "name": "运营报表",
+  "version": "0.1.0",
+  "description": "按 UTC 自然日读取社区增长、参与、积分收支与七日留存聚合报表。",
+  "business_api_version": "0.1.0",
+  "capabilities": [
+    "community.analytics",
+    "ui.panel"
+  ],
+  "data_scopes": [],
+  "event_subscriptions": []
+}

@@ -129,6 +129,35 @@ afterEach(() => {
 })
 
 describe("BoardAdminPanel", () => {
+  it("lets a board without a dedicated access policy create one explicitly", async () => {
+    const user = userEvent.setup()
+    vi.mocked(getAdminContentAccessPolicy).mockRejectedValueOnce(new AdminApiError(404, "content.access_policy_not_found", "内容访问策略不存在", {}))
+    renderPanel()
+    await user.click(screen.getByRole("button", { name: "更多操作：社区交流" }))
+    await user.click(screen.getByRole("menuitem", { name: "访问策略" }))
+    expect(await screen.findByLabelText("访问主体 1")).toHaveValue("authenticated")
+    await user.click(screen.getByRole("button", { name: "保存访问策略" }))
+    await waitFor(() => expect(putAdminContentAccessPolicy).toHaveBeenCalledWith("board", rootId, expect.objectContaining({ expectedRevision: undefined, subjects: [expect.objectContaining({ subjectType: "authenticated" })] }), "csrf"))
+  })
+
+  it("switches real settings sections without changing the route or losing the name draft", async () => {
+    const user = userEvent.setup()
+    renderPanel()
+    await user.click(screen.getByRole("button", { name: "更多操作：社区交流" }))
+    await user.click(screen.getByRole("menuitem", { name: "编辑设置" }))
+    const hash = location.hash
+    await user.clear(screen.getByLabelText("版块名称"))
+    await user.type(screen.getByLabelText("版块名称"), "新版社区交流")
+    await user.click(screen.getByRole("button", { name: "外观展示" }))
+    expect(screen.queryByLabelText("版块名称")).not.toBeInTheDocument()
+    expect(screen.getByLabelText("色调")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "访问权限" }))
+    expect(await screen.findByLabelText("访问策略匹配方式")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "基本信息" }))
+    expect(screen.getByLabelText("版块名称")).toHaveValue("新版社区交流")
+    expect(location.hash).toBe(hash)
+  })
+
   it("keeps each tree row compact and exposes secondary actions from one keyboard menu", async () => {
     const user = userEvent.setup()
     renderPanel()
@@ -158,7 +187,7 @@ describe("BoardAdminPanel", () => {
 
     expect(await screen.findByText("数据已被其他管理员更新")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "刷新最新数据" }))
-    expect(await screen.findByText("当前 revision 2")).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText("数据已被其他管理员更新")).not.toBeInTheDocument())
     expect(name).toHaveValue("本地草稿名称")
 
     await user.click(screen.getByRole("button", { name: "保存版块" }))

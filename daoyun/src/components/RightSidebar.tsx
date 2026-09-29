@@ -2,47 +2,153 @@ import { ArrowUpRight, CheckCircle2, Eye, Flame, FolderOpen, LayoutGrid, LogIn, 
 
 import type { BoardDetail } from "../api/boards"
 import type { AuthSession } from "../api/auth"
+import type { MembershipExperience } from "../features/membership/membershipTypes"
 import type { Board, Topic } from "../types/community"
 import { topicDisplayTitle } from "../utils/topicPresentation"
+import { PublicMemberIdentity } from "./PublicMemberIdentity"
 import { UserAvatar } from "./UserAvatar"
 
 interface RightSidebarProps {
-  variant?: "default" | "boardDirectory" | "boardDetail" | "topicDetail"
+  variant?: "default" | "home" | "boardDirectory" | "boardDetail" | "topicDetail"
   topics: Topic[]
   boards?: Board[]
   currentBoard?: BoardDetail
   currentTopic?: Topic | null
   session: AuthSession | null
+  membershipExperience?: MembershipExperience | null
   onCompose: () => void
   onLogin: () => void
   onOpenTopic: (topicId: string) => void
 }
 
-export function RightSidebar({ variant = "default", topics, boards = [], currentBoard, currentTopic, session, onCompose, onLogin, onOpenTopic }: RightSidebarProps) {
-  const hotTopics = topics.slice(0, 3)
+export function RightSidebar({ variant = "default", topics, boards = [], currentBoard, currentTopic, session, membershipExperience, onCompose, onLogin, onOpenTopic }: RightSidebarProps) {
+  const hotTopics = [...topics]
+    .sort((left, right) => (right.replies * 12 + right.likes * 8) - (left.replies * 12 + left.likes * 8))
+    .slice(0, 4)
   const activeBoards = [...boards].sort((left, right) => right.topicCount - left.topicCount).slice(0, 4)
+  const activeMembers = [...new Map(topics.map((topic) => [topic.authorUsername, {
+    username: topic.authorUsername,
+    displayName: topic.author,
+    avatarUrl: topic.avatarUrl,
+  }])).values()].slice(0, 5)
+  const ownTopics = session ? topics.filter((topic) => topic.authorUsername === session.user.username) : []
+  const ownReplies = ownTopics.reduce((total, topic) => total + topic.replies, 0)
+  const ownLikes = ownTopics.reduce((total, topic) => total + topic.likes, 0)
 
-  if (variant === "boardDirectory") {
+  if (variant === "home") {
+    const levelProgressValue = membershipExperience?.nextLevel
+      ? Math.max(0, membershipExperience.experience - membershipExperience.level.requiredExperience)
+      : 1
+    const levelProgressMax = membershipExperience?.nextLevel
+      ? Math.max(1, membershipExperience.nextLevel.requiredExperience - membershipExperience.level.requiredExperience)
+      : 1
+
     return (
-      <aside className="right-sidebar right-sidebar--boards" aria-label="版块信息">
-        <section className="panel board-guide-panel">
-          <div className="panel-heading">
-            <div><ShieldCheck size={17} aria-hidden="true" /><h2>版块指南</h2></div>
-          </div>
-          <ul className="board-guide-list">
-            <li><CheckCircle2 size={15} aria-hidden="true" /><span>选择合适的版块参与讨论</span></li>
-            <li><CheckCircle2 size={15} aria-hidden="true" /><span>尊重他人，保持友善交流</span></li>
-            <li><CheckCircle2 size={15} aria-hidden="true" /><span>发布前先阅读版块说明</span></li>
-          </ul>
+      <aside className="right-sidebar right-sidebar--home" aria-label="首页社区信息">
+        <section className="panel home-profile-panel">
+          {session ? (
+            <>
+              <a className="home-profile-panel__identity" href={`#user/${session.user.username}`}>
+                <UserAvatar username={session.user.username} displayName={session.user.displayName} avatarUrl={null} />
+                <span>
+                  <h2>你好，{session.user.displayName}</h2>
+                  <small>分享生活，发现更多可能</small>
+                </span>
+              </a>
+              {membershipExperience ? (
+                <div className="home-profile-panel__level">
+                  <span
+                    className="home-profile-panel__level-badge"
+                    aria-label={`成长等级：${membershipExperience.level.displayName}`}
+                    title={membershipExperience.level.description || membershipExperience.level.displayName}
+                  >
+                    Lv.{membershipExperience.level.levelOrder}
+                  </span>
+                  <progress aria-label="成长等级进度" value={levelProgressValue} max={levelProgressMax} />
+                  <span className="home-profile-panel__level-value">
+                    {membershipExperience.nextLevel
+                      ? `${membershipExperience.experience.toLocaleString("zh-CN")} / ${membershipExperience.nextLevel.requiredExperience.toLocaleString("zh-CN")}`
+                      : `${membershipExperience.experience.toLocaleString("zh-CN")} EXP`}
+                  </span>
+                </div>
+              ) : (
+                <div className="home-profile-panel__level home-profile-panel__level--summary">
+                  <PublicMemberIdentity username={session.user.username} maxMedals={0} />
+                </div>
+              )}
+              <dl className="home-profile-panel__stats">
+                <div><dt>我的发布</dt><dd>{ownTopics.length}</dd></div>
+                <div><dt>收到回复</dt><dd>{ownReplies}</dd></div>
+                <div><dt>获得喜欢</dt><dd>{ownLikes}</dd></div>
+              </dl>
+              <button className="primary-button" type="button" onClick={onCompose} aria-label="发布主题">
+                <MessageSquare size={15} aria-hidden="true" />
+                发布主题
+              </button>
+            </>
+          ) : (
+            <div className="home-profile-panel__guest">
+              <span aria-hidden="true"><UserRound size={22} /></span>
+              <div><h2>欢迎来到刀云社区</h2><p>登录后参与讨论与收藏</p></div>
+              <button className="primary-button" type="button" onClick={onLogin}><LogIn size={15} />登录</button>
+            </div>
+          )}
         </section>
 
-        {activeBoards.length > 0 && (
-          <section className="panel community-panel board-directory-active-panel">
+        <section className="panel home-hot-panel">
+          <div className="panel-heading">
+            <div><Flame size={16} aria-hidden="true" /><h2>今日热议</h2></div>
+          </div>
+          {hotTopics.length > 0 ? (
+            <ol className="home-hot-list">
+              {hotTopics.map((topic, index) => (
+                <li key={topic.id}>
+                  <span>{index + 1}</span>
+                  <div>
+                    <a href={`#topic/${topic.id}`} onClick={(event) => { event.preventDefault(); onOpenTopic(topic.id) }}>
+                      {topicDisplayTitle(topic)}
+                    </a>
+                    <small>{topic.replies} 回复</small>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          ) : <p className="home-sidebar-empty">暂无公开热议主题</p>}
+        </section>
+
+        {activeMembers.length > 0 && (
+          <section className="panel home-member-panel">
             <div className="panel-heading">
-              <div><LayoutGrid size={17} aria-hidden="true" /><h2>活跃版块</h2></div>
+              <div><UserRound size={16} aria-hidden="true" /><h2>活跃成员</h2></div>
             </div>
-            <ul className="community-list">
-              {activeBoards.map((board) => (
+            <p>来自近期公开内容</p>
+            <div className="home-member-list" aria-label="近期活跃成员">
+              {activeMembers.map((member) => (
+                <a href={`#user/${member.username}`} key={member.username} aria-label={`活跃成员：${member.displayName}`} title={member.displayName}>
+                  <UserAvatar username={member.username} displayName={member.displayName} avatarUrl={member.avatarUrl} size="small" />
+                </a>
+              ))}
+            </div>
+          </section>
+        )}
+      </aside>
+    )
+  }
+
+  if (variant === "boardDirectory") {
+    const totalTopics = boards.reduce((total, board) => total + board.topicCount, 0)
+    const rootBoards = boards.filter((board) => board.parentId === null).length
+
+    return (
+      <aside className="right-sidebar right-sidebar--boards" aria-label="版块信息">
+        {activeBoards.length > 0 && (
+          <section className="panel board-directory-popular-panel">
+            <div className="panel-heading">
+              <div><LayoutGrid size={17} aria-hidden="true" /><h2>热门版块</h2></div>
+              <a href="#boards">查看全部<ArrowUpRight size={13} aria-hidden="true" /></a>
+            </div>
+            <ol className="board-directory-popular-list">
+              {activeBoards.map((board, index) => (
                 <li key={board.id}>
                   <a href={`#board/${board.slug}`}>
                     <span className={`community-list__icon community-list__icon--${board.tone}`} aria-hidden="true">
@@ -50,14 +156,45 @@ export function RightSidebar({ variant = "default", topics, boards = [], current
                     </span>
                     <span>
                       <strong>{board.name}</strong>
-                      <small>{board.topicCount} 个主题</small>
+                      <small>{board.topicCount.toLocaleString("zh-CN")} 个主题</small>
                     </span>
+                    <b aria-hidden="true">{index + 1}</b>
                   </a>
                 </li>
               ))}
-            </ul>
+            </ol>
           </section>
         )}
+
+        <section className="panel board-directory-topic-panel">
+          <div className="panel-heading">
+            <div><Flame size={17} aria-hidden="true" /><h2>推荐话题</h2></div>
+          </div>
+          {hotTopics.length > 0 ? (
+            <ol className="board-directory-topic-list">
+              {hotTopics.map((topic, index) => (
+                <li key={topic.id}>
+                  <span aria-hidden="true">{index + 1}</span>
+                  <button type="button" aria-label={`打开话题：${topicDisplayTitle(topic)}`} onClick={() => onOpenTopic(topic.id)}>
+                    <strong>{topicDisplayTitle(topic)}</strong>
+                    <small>{topic.replies.toLocaleString("zh-CN")} 回复 · {topic.views.toLocaleString("zh-CN")} 浏览</small>
+                  </button>
+                </li>
+              ))}
+            </ol>
+          ) : <p className="board-detail-topic-list__empty">暂无公开推荐话题</p>}
+        </section>
+
+        <section className="panel board-directory-data-panel">
+          <div className="panel-heading">
+            <div><MessageSquare size={17} aria-hidden="true" /><h2>社区数据</h2></div>
+          </div>
+          <dl className="board-directory-data-list">
+            <div><dt>公开主题</dt><dd>{totalTopics.toLocaleString("zh-CN")}</dd></div>
+            <div><dt>全部版块</dt><dd>{boards.length.toLocaleString("zh-CN")}</dd></div>
+            <div><dt>一级版块</dt><dd>{rootBoards.toLocaleString("zh-CN")}</dd></div>
+          </dl>
+        </section>
       </aside>
     )
   }
@@ -69,18 +206,26 @@ export function RightSidebar({ variant = "default", topics, boards = [], current
   if (variant === "boardDetail" && currentBoard) {
     return (
       <aside className="right-sidebar right-sidebar--board-detail" aria-label="当前版块信息">
-        <section className="panel board-detail-info-panel">
+        <section className="panel board-detail-hero-panel" aria-labelledby="board-detail-hero-title">
+          <div className="board-detail-hero-panel__content">
+            <span aria-hidden="true"><LayoutGrid size={20} /></span>
+            <div>
+              <h2 id="board-detail-hero-title">{currentBoard.name}</h2>
+              {currentBoard.description && <p>{currentBoard.description}</p>}
+              <small>{currentBoard.topicCount.toLocaleString("zh-CN")} 个公开主题</small>
+            </div>
+          </div>
+        </section>
+
+        <section className="panel board-detail-rules-panel">
           <div className="panel-heading">
-            <div><FolderOpen size={17} aria-hidden="true" /><h2>版块信息</h2></div>
+            <div><ShieldCheck size={17} aria-hidden="true" /><h2>版块规则 · 发帖须知</h2></div>
           </div>
-          <div className="board-detail-info-panel__body">
-            <strong>{currentBoard.name}</strong>
-            {currentBoard.description && <p>{currentBoard.description}</p>}
-            <dl>
-              <div><dt>主题</dt><dd>{currentBoard.topicCount} 个主题</dd></div>
-              <div><dt>子版块</dt><dd>{currentBoard.children.length} 个</dd></div>
-            </dl>
-          </div>
+          <ul className="board-guide-list">
+            <li><CheckCircle2 size={15} aria-hidden="true" /><span>{currentBoard.viewer.canCreateTopic ? "可以在本版块发布主题" : "当前账号仅可浏览主题"}</span></li>
+            <li><CheckCircle2 size={15} aria-hidden="true" /><span>{currentBoard.viewer.canReply ? "可以参与本版块回复" : "本版块当前不开放回复"}</span></li>
+            <li><CheckCircle2 size={15} aria-hidden="true" /><span>{currentBoard.viewer.canUploadAttachment ? "发布时支持上传附件" : "发布时暂不支持上传附件"}</span></li>
+          </ul>
         </section>
 
         {currentBoard.children.length > 0 && (
@@ -103,11 +248,11 @@ export function RightSidebar({ variant = "default", topics, boards = [], current
 
         <section className="panel board-detail-topic-panel">
           <div className="panel-heading">
-            <div><Flame size={17} aria-hidden="true" /><h2>本版主题</h2></div>
+            <div><Flame size={17} aria-hidden="true" /><h2>本版热议</h2></div>
           </div>
-          {topics.length > 0 ? (
+          {hotTopics.length > 0 ? (
             <ol className="board-detail-topic-list">
-              {topics.slice(0, 5).map((topic) => (
+              {hotTopics.slice(0, 5).map((topic) => (
                 <li key={topic.id}>
                   <a href={`#topic/${topic.id}`} onClick={(event) => { event.preventDefault(); onOpenTopic(topic.id) }}>
                     {topicDisplayTitle(topic)}
@@ -119,14 +264,6 @@ export function RightSidebar({ variant = "default", topics, boards = [], current
           ) : <p className="board-detail-topic-list__empty">本版暂时没有公开主题</p>}
         </section>
 
-        <section className="panel board-guide-panel">
-          <div className="panel-heading"><div><ShieldCheck size={17} aria-hidden="true" /><h2>参与提示</h2></div></div>
-          <ul className="board-guide-list">
-            <li><CheckCircle2 size={15} aria-hidden="true" /><span>{currentBoard.viewer.canCreateTopic ? "可以在本版块发布主题" : "当前账号仅可浏览主题"}</span></li>
-            <li><CheckCircle2 size={15} aria-hidden="true" /><span>{currentBoard.viewer.canReply ? "可以参与本版块回复" : "本版块当前不开放回复"}</span></li>
-            <li><CheckCircle2 size={15} aria-hidden="true" /><span>{currentBoard.viewer.canUploadAttachment ? "发布时支持上传附件" : "发布时暂不支持上传附件"}</span></li>
-          </ul>
-        </section>
       </aside>
     )
   }

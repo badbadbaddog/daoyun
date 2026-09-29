@@ -1,4 +1,4 @@
-import { Aperture, ChevronDown, ChevronRight, Code2, Folder, LayoutGrid, MessageSquareText } from "lucide-react"
+import { Aperture, ChevronDown, ChevronRight, Code2, LayoutGrid, MessageSquareText } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 
 import type { BoardIcon } from "../../types/community"
@@ -164,7 +164,7 @@ function BoardDirectoryLink({
   group?: boolean
   showArrow?: boolean
 }) {
-  const Icon = group ? Folder : boardIcons[node.board.icon] ?? MessageSquareText
+  const Icon = boardIcons[node.board.icon] ?? MessageSquareText
 
   return (
     <a className={`board-directory-link${group ? " board-directory-link--group" : ""}`} href={`#board/${node.board.slug}`} data-depth={depth}>

@@ -1,4 +1,4 @@
-import { Award, Coins, History, LoaderCircle, Pencil, Plus, RotateCcw, Save, Sparkles, Trash2, UsersRound } from "lucide-react"
+import { Award, Coins, History, LoaderCircle, Pencil, Plus, RotateCcw, Sparkles, Trash2, UsersRound } from "lucide-react"
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
 
 import {
@@ -13,7 +13,6 @@ import {
   listMembershipMedalOperations,
   revokeMembershipMedal,
   updateAdminGrowthLevel,
-  updateMembershipMedalRule,
 } from "../api/admin"
 import type {
   AdminGrowthLevel,
@@ -25,9 +24,12 @@ import type {
 import { listUsers } from "../api/users"
 import { AdminUserPicker } from "./admin/AdminUserPicker"
 import type { AdminUserCandidate } from "./admin/AdminUserPicker"
+import { RedemptionWorkspace } from "../features/admin-membership/RedemptionWorkspace"
 import { PointsWorkspace } from "../features/admin-membership/PointsWorkspace"
 import { EntitlementsWorkspace } from "../features/admin-membership/EntitlementsWorkspace"
 import { GrowthLevelFormDialog, type GrowthLevelDraft } from "./GrowthLevelFormDialog"
+import { MedalsWorkspace } from "../features/admin-membership/MedalsWorkspace"
+import { AdminActionDialog } from "./admin/AdminActionDialog"
 import { CommunityGroupAdminPanel } from "./CommunityGroupAdminPanel"
 
 interface MembershipAdminPanelProps {
@@ -46,6 +48,8 @@ interface MembershipAdminPanelProps {
   canReadEntitlementTypes: boolean
   canWriteEntitlementTypes: boolean
   canReadEntitlementGrants: boolean
+  canReadRedemptions?: boolean
+  canWriteRedemptions?: boolean
   canWriteEntitlementGrants: boolean
 }
 
@@ -55,8 +59,8 @@ interface MedalDraft {
   reason: string
 }
 
-type MembershipWorkspace = "growth" | "points" | "medals" | "groups" | "entitlements"
-type WorkspaceCapabilities = Pick<MembershipAdminPanelProps, "canReadLevelRules" | "canWriteLevelRules" | "canGrantPoints" | "canReadMedalRules" | "canGrantMedals" | "canReadGroups" | "canWriteGroups" | "canReadEntitlementTypes" | "canWriteEntitlementTypes" | "canReadEntitlementGrants" | "canWriteEntitlementGrants">
+type MembershipWorkspace = "growth" | "points" | "medals" | "groups" | "entitlements" | "redemptions"
+type WorkspaceCapabilities = Pick<MembershipAdminPanelProps, "canReadRedemptions" | "canReadLevelRules" | "canWriteLevelRules" | "canGrantPoints" | "canReadMedalRules" | "canWriteMedalRules" | "canGrantMedals" | "canReadGroups" | "canWriteGroups" | "canReadEntitlementTypes" | "canWriteEntitlementTypes" | "canReadEntitlementGrants" | "canWriteEntitlementGrants">
 
 const reasonPattern = /^[a-z][a-z0-9._-]{1,63}$/
 const growthLevelKeyPattern = /^[a-z][a-z0-9_]{2,63}$/
@@ -78,9 +82,11 @@ export function MembershipAdminPanel({
   canWriteEntitlementTypes,
   canReadEntitlementGrants,
   canWriteEntitlementGrants,
+  canReadRedemptions = false,
+  canWriteRedemptions = false,
 }: MembershipAdminPanelProps) {
-  const entitlementCapabilities = { canReadEntitlementTypes, canWriteEntitlementTypes, canReadEntitlementGrants, canWriteEntitlementGrants }
-  const [workspace, setWorkspace] = useState<MembershipWorkspace>(() => initialWorkspace({ canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals, canReadGroups, canWriteGroups, ...entitlementCapabilities }))
+  const entitlementCapabilities = { canReadRedemptions, canReadEntitlementTypes, canWriteEntitlementTypes, canReadEntitlementGrants, canWriteEntitlementGrants }
+  const [workspace, setWorkspace] = useState<MembershipWorkspace>(() => initialWorkspace({ canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canWriteMedalRules, canGrantMedals, canReadGroups, canWriteGroups, ...entitlementCapabilities }))
   const [growthLevels, setGrowthLevels] = useState<AdminGrowthLevel[]>([])
   const [growthLoading, setGrowthLoading] = useState(canReadLevelRules)
   const [growthError, setGrowthError] = useState("")
@@ -102,10 +108,23 @@ export function MembershipAdminPanel({
   const [pointsUsersLoading, setPointsUsersLoading] = useState(false)
   const [selectedPointsUser, setSelectedPointsUser] = useState<AdminUserCandidate | null>(null)
   const [selectedPointsBalance, setSelectedPointsBalance] = useState<number | null>(null)
+  const [pointsBalanceLoading, setPointsBalanceLoading] = useState(false)
+  const [pointsBalanceError, setPointsBalanceError] = useState("")
+  const [pointsBusy, setPointsBusy] = useState(false)
+  const pointsAccountRequest = useRef(0)
+  const pointsUserRef = useRef<string | null>(null)
   const [medalRules, setMedalRules] = useState<MembershipMedalRule[]>([])
   const [medalDraft, setMedalDraft] = useState<MedalDraft>({ userId: "", medalKey: "medal_01", reason: "operator.award" })
   const [medalBusy, setMedalBusy] = useState(false)
-  const [savingMedalKey, setSavingMedalKey] = useState<string | null>(null)
+  const [medalView, setMedalView] = useState<"catalog" | "operations">("catalog")
+  const [grantOpen, setGrantOpen] = useState(false)
+  const [medalLoading, setMedalLoading] = useState(canReadMedalRules)
+  const [medalLoadError, setMedalLoadError] = useState("")
+  const [recipientQuery, setRecipientQuery] = useState("")
+  const [recipientUsers, setRecipientUsers] = useState<AdminUserCandidate[]>([])
+  const [recipient, setRecipient] = useState<AdminUserCandidate | null>(null)
+  const [recipientLoading, setRecipientLoading] = useState(false)
+  const medalMutationRef = useRef(false)
   const [medalError, setMedalError] = useState("")
   const [medalResult, setMedalResult] = useState<MembershipMedalGrant | null>(null)
   const [medalOperations, setMedalOperations] = useState<MembershipMedalOperation[]>([])
@@ -122,10 +141,10 @@ export function MembershipAdminPanel({
   const medalOperationsRequestId = useRef(0)
 
   useEffect(() => {
-    if (!workspaceAvailable(workspace, { canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals, canReadGroups, canWriteGroups, ...entitlementCapabilities })) {
-      setWorkspace(initialWorkspace({ canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals, canReadGroups, canWriteGroups, ...entitlementCapabilities }))
+    if (!workspaceAvailable(workspace, { canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canWriteMedalRules, canGrantMedals, canReadGroups, canWriteGroups, ...entitlementCapabilities })) {
+      setWorkspace(initialWorkspace({ canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canWriteMedalRules, canGrantMedals, canReadGroups, canWriteGroups, ...entitlementCapabilities }))
     }
-  }, [workspace, canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals, canReadGroups, canWriteGroups, canReadEntitlementTypes, canWriteEntitlementTypes, canReadEntitlementGrants, canWriteEntitlementGrants])
+  }, [workspace, canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canWriteMedalRules, canGrantMedals, canReadGroups, canWriteGroups, canReadEntitlementTypes, canWriteEntitlementTypes, canReadEntitlementGrants, canWriteEntitlementGrants, canReadRedemptions])
 
   useEffect(() => {
     const query = pointsUserQuery.trim()
@@ -177,24 +196,39 @@ export function MembershipAdminPanel({
     return () => controller.abort()
   }, [canReadLevelRules])
 
+  async function refreshMedals() {
+    const rules = await getMembershipMedalRules()
+    setMedalRules(rules)
+    return rules
+  }
+
   useEffect(() => {
-    if (!canReadMedalRules) {
-      setMedalRules([])
-      return
-    }
+    if (!canReadMedalRules) { setMedalLoading(false); return }
     const controller = new AbortController()
-    getMembershipMedalRules(controller.signal)
-      .then((value) => {
-        if (!controller.signal.aborted) {
-          setMedalRules(value)
-          setMedalDraft((current) => ({ ...current, medalKey: value.some((rule) => rule.key === current.medalKey) ? current.medalKey : (value[0]?.key ?? "medal_01") }))
-        }
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setMedalRules([])
-      })
+    setMedalLoading(true); setMedalLoadError("")
+    getMembershipMedalRules(controller.signal).then(value => {
+      if (!controller.signal.aborted) {
+        setMedalRules(value)
+        setMedalDraft(current => ({ ...current, medalKey: value[0]?.key ?? "" }))
+      }
+    }).catch(reason => {
+      if (!controller.signal.aborted) setMedalLoadError(reason instanceof Error ? reason.message : "勋章目录加载失败。")
+    }).finally(() => { if (!controller.signal.aborted) setMedalLoading(false) })
     return () => controller.abort()
   }, [canReadMedalRules])
+
+  useEffect(() => {
+    if (!grantOpen || recipientQuery.trim().length < 2) { setRecipientUsers([]); setRecipientLoading(false); return }
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => {
+      setRecipientLoading(true)
+      listUsers(recipientQuery.trim(), { limit: 10, signal: controller.signal }).then(result => {
+        if (!controller.signal.aborted) setRecipientUsers(result.users.map(user => ({ ...user, status: "active" })))
+      }).catch(() => { if (!controller.signal.aborted) setMedalError("用户搜索失败，请重试。") })
+        .finally(() => { if (!controller.signal.aborted) setRecipientLoading(false) })
+    }, 250)
+    return () => { window.clearTimeout(timeout); controller.abort() }
+  }, [grantOpen, recipientQuery])
 
   const loadMedalOperations = useCallback(async ({ cursor, append = false, signal }: { cursor?: string; append?: boolean; signal?: AbortSignal } = {}) => {
     if (!canReadMedalRules) return
@@ -221,11 +255,11 @@ export function MembershipAdminPanel({
   }, [appliedMedalOperationFilters, canReadMedalRules])
 
   useEffect(() => {
-    if (workspace !== "medals" || !canReadMedalRules) return
+    if (workspace !== "medals" || medalView !== "operations" || !canReadMedalRules) return
     const controller = new AbortController()
     void loadMedalOperations({ signal: controller.signal })
     return () => controller.abort()
-  }, [workspace, canReadMedalRules, loadMedalOperations])
+  }, [workspace, medalView, canReadMedalRules, loadMedalOperations])
 
   function changeGrowthLevel(levelId: string, patch: Partial<AdminGrowthLevel>) {
     setEditingGrowth((current) => current?.id === levelId ? { ...current, ...patch } : current)
@@ -397,57 +431,55 @@ export function MembershipAdminPanel({
   }
 
   async function selectPointsUser(user: AdminUserCandidate) {
+    if (pointsBusy) return
+    const requestId = ++pointsAccountRequest.current
+    pointsUserRef.current = user.id
     setSelectedPointsUser(user)
     setSelectedPointsBalance(null)
+    setPointsBalanceLoading(true)
+    setPointsBalanceError("")
     try {
       const account = await getAdminMembershipAccount(user.id)
-      setSelectedPointsBalance(account.pointsBalance)
+      if (requestId === pointsAccountRequest.current) setSelectedPointsBalance(account.pointsBalance)
     } catch {
-      setSelectedPointsBalance(null)
+      if (requestId === pointsAccountRequest.current) setPointsBalanceError("积分余额读取失败，请重试后再操作。")
+    } finally {
+      if (requestId === pointsAccountRequest.current) setPointsBalanceLoading(false)
     }
   }
 
   async function grantPoints(input: { userId: string; amount: number; reason: string; details: string; idempotencyKey: string }) {
+    ++pointsAccountRequest.current
     const result = await grantMembershipPoints({ userId: input.userId, amount: input.amount, reason: input.reason, details: input.details, idempotencyKey: input.idempotencyKey }, csrfToken)
-    setSelectedPointsBalance(result.account.pointsBalance)
+    if (pointsUserRef.current === input.userId) setSelectedPointsBalance(result.account.pointsBalance)
     return { balance: result.account.pointsBalance, auditId: result.auditId ?? undefined, replayed: !result.created }
-  }
-
-  async function saveMedalRule(rule: MembershipMedalRule) {
-    if (!canWriteMedalRules) return
-    setSavingMedalKey(rule.key)
-    setMedalError("")
-    try {
-      const saved = await updateMembershipMedalRule(rule.key, { enabled: rule.enabled, requiredLifetimePoints: rule.requiredLifetimePoints }, csrfToken)
-      setMedalRules((current) => current.map((item) => item.key === saved.key ? saved : item))
-    } catch (reason) {
-      setMedalError(reason instanceof AdminApiError ? reason.message : "勋章规则保存失败，请稍后重试。")
-    } finally {
-      setSavingMedalKey(null)
-    }
   }
 
   async function awardMedal(event: FormEvent) {
     event.preventDefault()
+    if (!canGrantMedals || medalMutationRef.current) return
     setMedalError("")
     setMedalResult(null)
     const userId = medalDraft.userId.trim()
     if (!userId) {
-      setMedalError("请输入勋章目标用户 UUID。")
+      setMedalError("请搜索并选择要发放勋章的成员。")
       return
     }
     if (!reasonPattern.test(medalDraft.reason.trim())) {
       setMedalError("授予理由格式无效。")
       return
     }
+    medalMutationRef.current = true
     setMedalBusy(true)
     try {
       const result = await grantMembershipMedal({ userId, medalKey: medalDraft.medalKey, reason: medalDraft.reason.trim() }, csrfToken)
       setMedalResult(result)
+      setGrantOpen(false)
       if (canReadMedalRules) await loadMedalOperations()
     } catch (reason) {
       setMedalError(reason instanceof AdminApiError ? reason.message : "勋章授予失败，请稍后重试。")
     } finally {
+      medalMutationRef.current = false
       setMedalBusy(false)
     }
   }
@@ -459,12 +491,13 @@ export function MembershipAdminPanel({
 
   async function confirmMedalRevocation(event: FormEvent) {
     event.preventDefault()
-    if (!revocationTarget || !canGrantMedals) return
+    if (!revocationTarget || !canGrantMedals || medalMutationRef.current) return
     const reason = revocationReason.trim()
     if (reason.length < 1 || Array.from(reason).length > 64 || Array.from(reason).some((character) => /\p{Cc}/u.test(character))) {
       setMedalOperationsError("撤销原因必须是 1 到 64 个有效字符。")
       return
     }
+    medalMutationRef.current = true
     setRevocationBusy(true)
     setMedalOperationsError("")
     setRevocationMessage("")
@@ -477,12 +510,13 @@ export function MembershipAdminPanel({
     } catch (reason) {
       setMedalOperationsError(reason instanceof AdminApiError ? reason.message : "勋章撤销失败，请稍后重试。")
     } finally {
+      medalMutationRef.current = false
       setRevocationBusy(false)
     }
   }
 
   const activeMedalOperationIds = activeMembershipMedalOperationIds(medalOperations)
-  const availableWorkspaces = membershipWorkspaces({ canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canGrantMedals, canReadGroups, canWriteGroups, ...entitlementCapabilities })
+  const availableWorkspaces = membershipWorkspaces({ canReadLevelRules, canWriteLevelRules, canGrantPoints, canReadMedalRules, canWriteMedalRules, canGrantMedals, canReadGroups, canWriteGroups, ...entitlementCapabilities })
   const growthDialogOpen = growthCreateOpen || editingGrowth !== null || growthDeleteTarget !== null
 
   function handleWorkspaceKeyDown(event: KeyboardEvent<HTMLButtonElement>, currentWorkspace: MembershipWorkspace) {
@@ -501,60 +535,49 @@ export function MembershipAdminPanel({
 
   return (
     <>
-    <div className="admin-panel membership-admin-panel" inert={growthDialogOpen ? true : undefined} aria-hidden={growthDialogOpen ? "true" : undefined}>
-      <div className="admin-panel__heading">
-        <div><p>成长、消费与荣誉</p><h2>会员经济</h2></div>
-        {workspace === "growth" && <span className="admin-badge">共 {growthLevels.length} 个等级</span>}
-      </div>
-      <p className="admin-panel__description">成长等级由 EXP 决定；积分是可消费账本；勋章和标准权益均不授予后台治理权限。</p>
+    <div className="admin-panel membership-admin-panel membership-admin-panel--focused admin-catalog" inert={growthDialogOpen ? true : undefined} aria-hidden={growthDialogOpen ? "true" : undefined}>
       <div className="membership-workspace-tabs" role="tablist" aria-label="会员运营工作区">
         {(canReadLevelRules || canWriteLevelRules) && <button id="membership-growth-tab" type="button" role="tab" data-membership-workspace="growth" tabIndex={workspace === "growth" ? 0 : -1} aria-selected={workspace === "growth"} aria-controls="membership-growth-workspace" onKeyDown={(event) => handleWorkspaceKeyDown(event, "growth")} onClick={() => setWorkspace("growth")}><Sparkles size={15} aria-hidden="true" />成长运营</button>}
         {canGrantPoints && <button id="membership-points-tab" type="button" role="tab" data-membership-workspace="points" tabIndex={workspace === "points" ? 0 : -1} aria-selected={workspace === "points"} aria-controls="membership-points-workspace" onKeyDown={(event) => handleWorkspaceKeyDown(event, "points")} onClick={() => setWorkspace("points")}><Coins size={15} aria-hidden="true" />积分运营</button>}
-        {(canReadMedalRules || canGrantMedals) && <button id="membership-medals-tab" type="button" role="tab" data-membership-workspace="medals" tabIndex={workspace === "medals" ? 0 : -1} aria-selected={workspace === "medals"} aria-controls="membership-medals-workspace" onKeyDown={(event) => handleWorkspaceKeyDown(event, "medals")} onClick={() => setWorkspace("medals")}><Award size={15} aria-hidden="true" />勋章运营</button>}
+        {(canReadMedalRules || canWriteMedalRules || canGrantMedals) && <button id="membership-medals-tab" type="button" role="tab" data-membership-workspace="medals" tabIndex={workspace === "medals" ? 0 : -1} aria-selected={workspace === "medals"} aria-controls="membership-medals-workspace" onKeyDown={(event) => handleWorkspaceKeyDown(event, "medals")} onClick={() => setWorkspace("medals")}><Award size={15} aria-hidden="true" />勋章运营</button>}
         {canReadGroups && <button id="membership-groups-tab" type="button" role="tab" data-membership-workspace="groups" tabIndex={workspace === "groups" ? 0 : -1} aria-selected={workspace === "groups"} aria-controls="membership-groups-workspace" onKeyDown={(event) => handleWorkspaceKeyDown(event, "groups")} onClick={() => setWorkspace("groups")}><UsersRound size={15} aria-hidden="true" />用户组</button>}
         {(canReadEntitlementTypes || canWriteEntitlementTypes || canReadEntitlementGrants || canWriteEntitlementGrants) && <button id="membership-entitlements-tab" type="button" role="tab" data-membership-workspace="entitlements" tabIndex={workspace === "entitlements" ? 0 : -1} aria-selected={workspace === "entitlements"} aria-controls="membership-entitlements-workspace" onKeyDown={(event) => handleWorkspaceKeyDown(event, "entitlements")} onClick={() => setWorkspace("entitlements")}>标准权益</button>}
+        {canReadRedemptions && <button id="membership-redemptions-tab" type="button" role="tab" data-membership-workspace="redemptions" tabIndex={workspace === "redemptions" ? 0 : -1} aria-selected={workspace === "redemptions"} aria-controls="membership-redemptions-workspace" onKeyDown={event => handleWorkspaceKeyDown(event, "redemptions")} onClick={() => setWorkspace("redemptions")}>积分兑换</button>}
       </div>
       <div className="membership-admin-grid membership-admin-grid--workspace">
         {workspace === "growth" && (canReadLevelRules || canWriteLevelRules) && <section id="membership-growth-workspace" role="tabpanel" className="membership-rule-section" aria-labelledby="membership-growth-tab">
-          <div className="admin-form__heading membership-section-heading"><div><h3 id="membership-growth-heading">成长等级（EXP）</h3><p>保存后立即生效；积分变更不会增加 EXP，也不会改变成长等级。</p></div>{canWriteLevelRules && <button className="secondary-button membership-growth-create-trigger" type="button" aria-haspopup="dialog" onClick={(event) => openGrowthCreate(event.currentTarget)}><Plus size={14} aria-hidden="true" />新增等级</button>}</div>
+          <div className="admin-form__heading membership-section-heading"><div><h3 id="membership-growth-heading">成长等级（EXP）</h3><span className="admin-badge">共 {growthLevels.length} 个等级</span><p>保存后立即生效；积分变更不会增加 EXP，也不会改变成长等级。</p></div>{canWriteLevelRules && <button className="secondary-button membership-growth-create-trigger" type="button" aria-haspopup="dialog" onClick={(event) => openGrowthCreate(event.currentTarget)}><Plus size={14} aria-hidden="true" />新增等级</button>}</div>
           {!canReadLevelRules ? <div className="admin-empty" role="status"><Sparkles size={20} aria-hidden="true" /><span>当前账号可创建成长等级，但不具备等级目录读取权限。</span></div> : growthLoading ? <div className="admin-state" role="status"><LoaderCircle className="topic-loading__spinner" size={20} aria-hidden="true" /><span>正在读取成长等级</span></div> : growthLevels.length === 0 ? <div className="admin-empty" role="status"><Sparkles size={20} aria-hidden="true" /><span>尚未创建成长等级</span></div> : <ul className="membership-growth-list" aria-label="成长等级列表">
             {growthLevels.map((level) => <GrowthLevelRow key={level.id} level={level} canWrite={canWriteLevelRules} pending={deletingGrowth || savingGrowthId === level.id} onEdit={(trigger) => openGrowthEdit(level, trigger)} onDelete={(trigger) => { growthDeleteTriggerRef.current = trigger; setGrowthDeleteTarget(level); setGrowthError(""); setGrowthMessage("") }} />)}
           </ul>}
           {!growthCreateOpen && !editingGrowth && (growthError || growthMessage) && <p className={growthError ? "form-alert" : "admin-success"} role={growthError ? "alert" : "status"}>{growthError || growthMessage}</p>}
         </section>}
 
-        {workspace === "points" && canGrantPoints && <section id="membership-points-workspace" role="tabpanel" className="membership-grant-section" aria-labelledby="membership-points-tab">
-          <AdminUserPicker query={pointsUserQuery} users={pointsUsers} selectedUser={selectedPointsUser} loading={pointsUsersLoading} onQueryChange={setPointsUserQuery} onSelect={(user) => void selectPointsUser(user)} />
-          <PointsWorkspace selectedUser={selectedPointsUser} balance={selectedPointsBalance} onGrant={grantPoints} />
+        {canGrantPoints && <section hidden={workspace !== "points"} id="membership-points-workspace" role="tabpanel" className="membership-grant-section membership-points-layout" aria-labelledby="membership-points-tab">
+          <AdminUserPicker query={pointsUserQuery} users={pointsUsers} selectedUser={selectedPointsUser} loading={pointsUsersLoading} disabled={pointsBusy} onQueryChange={setPointsUserQuery} onSelect={(user) => void selectPointsUser(user)} />
+          <PointsWorkspace selectedUser={selectedPointsUser} balance={selectedPointsBalance} balanceLoading={pointsBalanceLoading} balanceError={pointsBalanceError} onRetryBalance={() => { if (selectedPointsUser) void selectPointsUser(selectedPointsUser) }} onBusyChange={setPointsBusy} onGrant={grantPoints} />
         </section>}
 
+        {workspace === "redemptions" && canReadRedemptions && <section id="membership-redemptions-workspace" role="tabpanel" aria-labelledby="membership-redemptions-tab"><RedemptionWorkspace csrfToken={csrfToken} canWrite={canWriteRedemptions} canReadTypes={canReadEntitlementTypes}/></section>}
         {workspace === "groups" && canReadGroups && <section id="membership-groups-workspace" role="tabpanel" className="membership-rule-section" aria-labelledby="membership-groups-tab"><CommunityGroupAdminPanel csrfToken={csrfToken} canWrite={canWriteGroups} canReadMemberships={canReadGroupMemberships} canWriteMemberships={canWriteGroupMemberships} canReadUsers={canReadUsers} /></section>}
 
 {workspace === "entitlements" && <section id="membership-entitlements-workspace" role="tabpanel" aria-labelledby="membership-entitlements-tab"><EntitlementsWorkspace csrfToken={csrfToken} canReadTypes={canReadEntitlementTypes} canWriteTypes={canWriteEntitlementTypes} canReadGrants={canReadEntitlementGrants} canWriteGrants={canWriteEntitlementGrants} canReadUsers={canReadUsers} /></section>}
 
-        {workspace === "medals" && (canReadMedalRules || canGrantMedals) && <section id="membership-medals-workspace" role="tabpanel" className="membership-grant-section" aria-labelledby="membership-medals-tab">
-          <div className="admin-form__heading membership-section-heading"><div><h3 id="membership-medal-heading">勋章</h3><p>勋章是独立的荣誉标识，可按累计积分阈值自动授予或手动发放。</p></div><Award size={18} aria-hidden="true" /></div>
-          {canReadMedalRules && <><p className="membership-catalog-note">固定勋章目录：可调整自动授予条件，已发放的勋章保留历史记录。</p><ul className="membership-medal-list" aria-label="勋章规则列表">
-            {medalRules.map((rule) => {
-              const pending = savingMedalKey === rule.key
-              return <li className="membership-medal-row" key={rule.key}>
-                <header><img src={medalAssetPath(rule.key)} alt={rule.displayName} width="36" height="36" /><div><strong>{rule.displayName}</strong><small>{rule.key}</small></div></header>
-                <label htmlFor={`medal-threshold-${rule.key}`}><span>累计积分阈值</span><input id={`medal-threshold-${rule.key}`} type="number" min={0} value={rule.requiredLifetimePoints ?? ""} disabled={!canWriteMedalRules || pending} onChange={(event) => setMedalRules((current) => current.map((item) => item.key === rule.key ? { ...item, requiredLifetimePoints: event.target.value === "" ? null : Number(event.target.value) } : item))} /></label>
-                <label className="admin-checkbox" htmlFor={`medal-enabled-${rule.key}`}><input id={`medal-enabled-${rule.key}`} type="checkbox" checked={rule.enabled} disabled={!canWriteMedalRules || pending} onChange={(event) => setMedalRules((current) => current.map((item) => item.key === rule.key ? { ...item, enabled: event.target.checked } : item))} /><span>启用自动授予</span></label>
-                <span className={rule.enabled ? "membership-status membership-status--published" : "membership-status membership-status--draft"}>{rule.enabled ? "自动授予中" : "未启用"}</span>
-                {canWriteMedalRules ? <button className="secondary-button membership-rule-save" type="button" disabled={pending} onClick={() => void saveMedalRule(rule)}>{pending ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" /> : <Save size={14} aria-hidden="true" />}保存 {rule.key}</button> : <small>仅具有勋章规则读取权限</small>}
-              </li>
-            })}
-          </ul></>}
-          {canGrantMedals && (canReadMedalRules ? <form className="admin-form" onSubmit={(event) => void awardMedal(event)}>
-            <label htmlFor="membership-medal-user-id"><span>勋章目标用户 UUID</span><input id="membership-medal-user-id" value={medalDraft.userId} onChange={(event) => setMedalDraft({ ...medalDraft, userId: event.target.value })} required /></label>
+        {workspace === "medals" && (canReadMedalRules || canWriteMedalRules || canGrantMedals) && <section id="membership-medals-workspace" role="tabpanel" className="membership-grant-section" aria-labelledby="membership-medals-tab">
+          <h3 className="sr-only">勋章</h3><div className="membership-medal-toolbar">
+            <div className="membership-medal-switch" role="group" aria-label="勋章视图"><button type="button" aria-pressed={medalView === "catalog"} onClick={() => setMedalView("catalog")}>勋章目录</button>{canReadMedalRules && <button type="button" aria-pressed={medalView === "operations"} onClick={() => setMedalView("operations")}>操作记录</button>}</div>
+            {canGrantMedals && canReadMedalRules && <button className="secondary-button" type="button" disabled={!medalRules.length} onClick={() => { setMedalError(""); setRecipient(null); setRecipientQuery(""); setRecipientUsers([]); setGrantOpen(true); setMedalDraft(current => ({ userId: "", reason: "operator.award", medalKey: medalRules.some(rule => rule.key === current.medalKey) ? current.medalKey : medalRules[0]?.key ?? "" })) }}><Award size={15} aria-hidden="true" />发放勋章</button>}
+          </div>
+          {medalView === "catalog" && (medalLoading ? <p className="admin-state" role="status">正在读取勋章目录</p> : medalLoadError ? <div className="admin-state"><p role="alert">{medalLoadError}</p><button className="secondary-button" onClick={() => { setMedalLoading(true); void refreshMedals().then(() => setMedalLoadError("")).catch(reason => setMedalLoadError(reason instanceof Error ? reason.message : "加载失败")).finally(() => setMedalLoading(false)) }}>重新加载</button></div> : <MedalsWorkspace rules={medalRules} canWrite={canWriteMedalRules} csrfToken={csrfToken} onChange={setMedalRules} onRefresh={refreshMedals} />)}
+          {grantOpen && canGrantMedals && (canReadMedalRules ? <AdminActionDialog title="发放勋章" busy={medalBusy} onClose={() => setGrantOpen(false)}><form className="admin-form" onSubmit={(event) => void awardMedal(event)}>
+            <AdminUserPicker query={recipientQuery} users={recipientUsers} selectedUser={recipient} loading={recipientLoading} onQueryChange={setRecipientQuery} onSelect={user => { setRecipient(user); setMedalDraft(current => ({ ...current, userId: user.id })) }} />
             <label htmlFor="membership-medal-key"><span>勋章</span><select id="membership-medal-key" value={medalDraft.medalKey} onChange={(event) => setMedalDraft({ ...medalDraft, medalKey: event.target.value })} disabled={medalRules.length === 0}>{medalRules.map((rule) => <option value={rule.key} key={rule.key}>{rule.displayName}</option>)}</select></label>
             <label htmlFor="membership-medal-reason"><span>勋章授予理由</span><input id="membership-medal-reason" value={medalDraft.reason} onChange={(event) => setMedalDraft({ ...medalDraft, reason: event.target.value })} pattern="[a-z][a-z0-9._-]{1,63}" required /></label>
             {medalError && <p className="form-alert" role="alert">{medalError}</p>}
             <button className="primary-button" type="submit" disabled={medalBusy || medalRules.length === 0}><Award size={15} aria-hidden="true" />{medalBusy ? "正在发放" : "手动发放勋章"}</button>
-          </form> : <p className="admin-empty" role="status">当前账号无法读取勋章目录，不能安全地手动发放勋章。</p>)}
+          </form></AdminActionDialog> : <p className="admin-empty" role="status">当前账号无法读取勋章目录，不能安全地手动发放勋章。</p>)}
           {medalResult && <div className="membership-grant-result" role="status"><Award size={18} aria-hidden="true" /><div><strong>{medalResult.created ? `${medalResult.medal.displayName} 已发放` : "幂等重放：勋章已持有"}</strong><span>资源键 {medalResult.medal.key}</span></div></div>}
-          {canReadMedalRules && <div className="membership-medal-operations">
+          {medalView === "operations" && canReadMedalRules && <div className="membership-medal-operations">
             <div className="admin-form__heading membership-section-heading"><div><h4>操作记录</h4><p>发放、自动授予和撤销均保留审计记录。</p></div><History size={17} aria-hidden="true" /></div>
             <form className="membership-operation-filters" onSubmit={filterMedalOperations}>
               <label htmlFor="medal-operation-user"><span>用户 UUID</span><input id="medal-operation-user" value={medalOperationUserFilter} onChange={(event) => setMedalOperationUserFilter(event.target.value)} placeholder="全部用户" /></label>
@@ -563,19 +586,20 @@ export function MembershipAdminPanel({
             </form>
             {medalOperationsLoading && medalOperations.length === 0 ? <div className="admin-state" role="status"><LoaderCircle className="topic-loading__spinner" size={18} aria-hidden="true" /><span>正在读取操作记录</span></div> : medalOperations.length === 0 ? <div className="admin-empty" role="status"><History size={18} aria-hidden="true" /><span>当前条件下没有勋章操作记录</span></div> : <div className="membership-operation-list">
               {medalOperations.map((operation) => <article className="membership-operation-row" key={operation.id}>
-                <img src={medalAssetPath(operation.medalKey)} alt="" width="32" height="32" />
+                <Award size={24} aria-hidden="true" />
                 <div className="membership-operation-row__main"><strong>{operation.userDisplayName}</strong><span>@{operation.username} · {operation.medalDisplayName}</span><small>{operation.reason} · {formatOperationTime(operation.createdAt)}</small></div>
                 <div className="membership-operation-row__meta"><span className={`membership-status membership-operation-kind--${operation.operation}`}>{medalOperationLabel(operation.operation)}</span><small>操作人 {operation.actorDisplayName}</small></div>
-                {canGrantMedals && activeMedalOperationIds.has(operation.id) && <button className="secondary-button" type="button" aria-label={`撤销 ${operation.medalDisplayName}`} onClick={() => { setRevocationTarget(operation); setRevocationReason(""); setRevocationMessage("") }}><RotateCcw size={14} aria-hidden="true" />撤销</button>}
+                {canGrantMedals && activeMedalOperationIds.has(operation.id) && <button className="secondary-button" type="button" aria-label={`撤销 ${operation.medalDisplayName}`} onClick={() => { setRevocationTarget(operation); setRevocationReason(""); setRevocationMessage(""); setMedalOperationsError("") }}><RotateCcw size={14} aria-hidden="true" />撤销</button>}
               </article>)}
             </div>}
             {medalOperationsNextCursor && <button className="secondary-button membership-operation-more" type="button" disabled={medalOperationsLoading} onClick={() => void loadMedalOperations({ cursor: medalOperationsNextCursor, append: true })}>{medalOperationsLoading ? "正在加载" : "加载更早记录"}</button>}
-            {revocationTarget && <form className="membership-revocation-form" onSubmit={(event) => void confirmMedalRevocation(event)}>
+            {revocationTarget && <AdminActionDialog title="撤销勋章" busy={revocationBusy} onClose={() => setRevocationTarget(null)}><form className="membership-revocation-form" onSubmit={(event) => void confirmMedalRevocation(event)}>
               <div><strong>撤销 {revocationTarget.userDisplayName} 的 {revocationTarget.medalDisplayName}</strong><p>只移除当前持有状态，历史记录不会删除。</p></div>
               <label htmlFor="membership-revocation-reason"><span>撤销原因</span><input id="membership-revocation-reason" value={revocationReason} maxLength={64} onChange={(event) => setRevocationReason(event.target.value)} required /></label>
               <div className="membership-revocation-actions"><button className="secondary-button" type="button" disabled={revocationBusy} onClick={() => setRevocationTarget(null)}>取消</button><button className="danger-button" type="submit" disabled={revocationBusy}>{revocationBusy ? "正在撤销" : "确认撤销"}</button></div>
-            </form>}
-            {(medalOperationsError || revocationMessage) && <p className={medalOperationsError ? "form-alert" : "admin-success"} role={medalOperationsError ? "alert" : "status"}>{medalOperationsError || revocationMessage}</p>}
+              {medalOperationsError && <p className="form-alert" role="alert">{medalOperationsError}</p>}
+            </form></AdminActionDialog>}
+            {!revocationTarget && (medalOperationsError || revocationMessage) && <p className={medalOperationsError ? "form-alert" : "admin-success"} role={medalOperationsError ? "alert" : "status"}>{medalOperationsError || revocationMessage}</p>}
           </div>}
         </section>}
       </div>
@@ -636,28 +660,26 @@ function sortGrowthLevels(levels: AdminGrowthLevel[]): AdminGrowthLevel[] {
   return [...levels].sort((left, right) => left.levelOrder - right.levelOrder || left.internalKey.localeCompare(right.internalKey))
 }
 
-function medalAssetPath(key: string): string {
-  return `/assets/membership/medals/medal${Number(key.slice(-2))}.gif`
-}
-
 function initialWorkspace(capabilities: WorkspaceCapabilities): MembershipWorkspace {
   if (workspaceAvailable("growth", capabilities)) return "growth"
   if (workspaceAvailable("points", capabilities)) return "points"
   if (workspaceAvailable("medals", capabilities)) return "medals"
   if (workspaceAvailable("groups", capabilities)) return "groups"
+  if (workspaceAvailable("redemptions", capabilities)) return "redemptions"
   return "entitlements"
 }
 
 function workspaceAvailable(workspace: MembershipWorkspace, capabilities: WorkspaceCapabilities): boolean {
+  if (workspace === "redemptions") return Boolean(capabilities.canReadRedemptions)
   if (workspace === "growth") return capabilities.canReadLevelRules || capabilities.canWriteLevelRules
   if (workspace === "points") return capabilities.canGrantPoints
-  if (workspace === "medals") return capabilities.canReadMedalRules || capabilities.canGrantMedals
+  if (workspace === "medals") return capabilities.canReadMedalRules || capabilities.canWriteMedalRules || capabilities.canGrantMedals
   if (workspace === "entitlements") return capabilities.canReadEntitlementTypes || capabilities.canWriteEntitlementTypes || capabilities.canReadEntitlementGrants || capabilities.canWriteEntitlementGrants
   return capabilities.canReadGroups
 }
 
 function membershipWorkspaces(capabilities: WorkspaceCapabilities): MembershipWorkspace[] {
-  return (["growth", "points", "medals", "groups", "entitlements"] as const).filter((workspace) => workspaceAvailable(workspace, capabilities))
+  return (["growth", "points", "medals", "groups", "entitlements", "redemptions"] as const).filter((workspace) => workspaceAvailable(workspace, capabilities))
 }
 
 function activeMembershipMedalOperationIds(operations: MembershipMedalOperation[]): Set<string> {

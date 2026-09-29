@@ -5,7 +5,7 @@ use std::{
 };
 
 use serde_json::{Value, json};
-use sqlx::{FromRow, types::Uuid};
+use sqlx::{FromRow, Postgres, Transaction, types::Uuid};
 use time::OffsetDateTime;
 
 use crate::admin::insert_audit;
@@ -34,6 +34,8 @@ pub struct PublicTopicFilters {
     pub search: Option<String>,
     pub tag_slug: Option<String>,
     pub author_username: Option<String>,
+    pub published_from: Option<OffsetDateTime>,
+    pub published_before: Option<OffsetDateTime>,
     pub following_user_id: Option<Uuid>,
     pub viewer_user_id: Option<Uuid>,
     pub featured_only: bool,
@@ -66,6 +68,8 @@ pub struct PublicTopicRecord {
     pub is_pinned: bool,
     #[sqlx(skip)]
     pub image_attachment_id: Option<Uuid>,
+    #[sqlx(skip)]
+    pub image_attachment_ids: Vec<Uuid>,
     #[sqlx(skip)]
     pub tags: Vec<PublicTagRecord>,
 }
@@ -346,6 +350,8 @@ pub struct TopicGovernanceResultRecord {
 
 #[derive(Debug)]
 pub enum CreateTopicError {
+    Poll(crate::PollError),
+    DraftConflict,
     BoardUnavailable,
     BoardRestricted,
     AuthorRestricted,
@@ -1026,6 +1032,25 @@ impl Database {
         input: NewTopicRecord,
         idempotency: Option<IdempotencyInput>,
     ) -> Result<CreateTopicResult, CreateTopicError> {
+        self.create_published_topic_with_draft(input, idempotency, None)
+            .await
+    }
+    pub async fn create_published_topic_with_draft(
+        &self,
+        input: NewTopicRecord,
+        idempotency: Option<IdempotencyInput>,
+        draft: Option<(Uuid, i64)>,
+    ) -> Result<CreateTopicResult, CreateTopicError> {
+        self.create_published_topic_with_extensions(input, idempotency, draft, None)
+            .await
+    }
+    pub async fn create_published_topic_with_extensions(
+        &self,
+        input: NewTopicRecord,
+        idempotency: Option<IdempotencyInput>,
+        draft: Option<(Uuid, i64)>,
+        poll: Option<crate::NewPollRecord>,
+    ) -> Result<CreateTopicResult, CreateTopicError> {
         let mut transaction = self.pool.begin().await?;
         let active_author =
             sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE id = $1 FOR UPDATE")
@@ -1240,6 +1265,19 @@ impl Database {
             }),
         )
         .await?;
+        if let Some(poll) = poll {
+            crate::polls::create_poll(&mut transaction, input.author_id, input.id, poll)
+                .await
+                .map_err(CreateTopicError::Poll)?;
+        }
+        if let Some((draft_id, revision)) = draft {
+            crate::drafts::consume_draft(&mut transaction, input.author_id, draft_id, revision)
+                .await
+                .map_err(|e| match e {
+                    crate::DraftError::Database(e) => CreateTopicError::from(e),
+                    _ => CreateTopicError::DraftConflict,
+                })?;
+        }
         transaction.commit().await?;
         Ok(CreateTopicResult {
             topic_id: input.id,
@@ -1252,6 +1290,18 @@ impl Database {
         input: UpdateTopicRecord,
     ) -> Result<UpdateTopicResult, UpdateTopicError> {
         let mut transaction = self.pool.begin().await?;
+        let result = self
+            .update_published_topic_in_transaction(&mut transaction, input)
+            .await?;
+        transaction.commit().await?;
+        Ok(result)
+    }
+
+    pub(crate) async fn update_published_topic_in_transaction(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        input: UpdateTopicRecord,
+    ) -> Result<UpdateTopicResult, UpdateTopicError> {
         let current = sqlx::query_as::<_, EditableTopicRow>(
             "SELECT t.author_id, t.status, t.deleted_at, p.revision_count, p.content, p.rich_content \
              FROM topics AS t \
@@ -1259,7 +1309,7 @@ impl Database {
              WHERE t.id = $1 FOR UPDATE OF t, p",
         )
         .bind(input.topic_id)
-        .fetch_optional(&mut *transaction)
+        .fetch_optional(&mut **transaction)
         .await?
         .ok_or(UpdateTopicError::TopicUnavailable)?;
         if current.status != "published" || current.deleted_at.is_some() {
@@ -1285,7 +1335,7 @@ impl Database {
         .bind(input.title.as_deref())
         .bind(input.excerpt.as_deref())
         .bind(input.content.as_deref())
-        .execute(&mut *transaction)
+        .execute(&mut **transaction)
         .await?;
         if updated.rows_affected() != 1 {
             return Err(UpdateTopicError::TopicUnavailable);
@@ -1299,7 +1349,7 @@ impl Database {
             current.rich_content.as_ref()
         };
         if !bind_rich_content_attachments(
-            &mut transaction,
+            transaction,
             input.topic_id,
             input.author_id,
             next_rich_content,
@@ -1316,7 +1366,7 @@ impl Database {
         .bind(next_content)
         .bind(next_rich_content)
         .bind(next_revision)
-        .execute(&mut *transaction)
+        .execute(&mut **transaction)
         .await?;
         sqlx::query(
             "INSERT INTO post_revisions (id, post_id, editor_id, revision_number, content, rich_content) \
@@ -1329,13 +1379,13 @@ impl Database {
         .bind(next_content)
         .bind(next_rich_content)
         .bind(input.topic_id)
-        .execute(&mut *transaction)
+        .execute(&mut **transaction)
         .await?;
 
         if let Some(tags) = input.tags {
             sqlx::query("DELETE FROM topic_tags WHERE topic_id = $1")
                 .bind(input.topic_id)
-                .execute(&mut *transaction)
+                .execute(&mut **transaction)
                 .await?;
             for tag in tags {
                 let tag_id = sqlx::query_scalar::<_, Uuid>(
@@ -1346,20 +1396,20 @@ impl Database {
                 .bind(Uuid::now_v7())
                 .bind(&tag.slug)
                 .bind(&tag.name)
-                .fetch_one(&mut *transaction)
+                .fetch_one(&mut **transaction)
                 .await?;
                 sqlx::query(
                     "INSERT INTO topic_tags (topic_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
                 )
                 .bind(input.topic_id)
                 .bind(tag_id)
-                .execute(&mut *transaction)
+                .execute(&mut **transaction)
                 .await?;
             }
         }
 
         insert_audit(
-            &mut transaction,
+            transaction,
             input.author_id,
             "topic.update",
             "topic",
@@ -1367,7 +1417,6 @@ impl Database {
             json!({"revision": next_revision}),
         )
         .await?;
-        transaction.commit().await?;
         Ok(UpdateTopicResult {
             topic_id: input.topic_id,
             revision_number: next_revision,
@@ -1388,6 +1437,35 @@ impl Database {
              GROUP BY tg.id, tg.slug, tg.name \
              ORDER BY COUNT(DISTINCT tt.topic_id) DESC, tg.slug ASC",
         )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn list_admin_topic_revisions(
+        &self,
+        topic_id: Uuid,
+    ) -> Result<Vec<TopicRevisionRecord>, ListTopicRevisionsError> {
+        let exists =
+            sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM topics WHERE id = $1)")
+                .bind(topic_id)
+                .fetch_one(&self.pool)
+                .await?;
+        if !exists {
+            return Err(ListTopicRevisionsError::TopicUnavailable);
+        }
+        // Audit readers must retain access to hidden content and inactive editors' revisions.
+        Ok(sqlx::query_as::<_, TopicRevisionRecord>(
+            "SELECT r.id, p.topic_id, r.revision_number, e.id AS editor_id, \
+                    e.username AS editor_username, e.display_name AS editor_display_name, \
+                    e.avatar_url AS editor_avatar_url, \
+                    r.content, r.rich_content, r.created_at \
+             FROM post_revisions AS r \
+             INNER JOIN posts AS p ON p.id = r.post_id \
+             INNER JOIN users AS e ON e.id = r.editor_id \
+             WHERE p.topic_id = $1 AND p.kind = 'topic' \
+             ORDER BY r.revision_number DESC, r.id DESC",
+        )
+        .bind(topic_id)
         .fetch_all(&self.pool)
         .await?)
     }
@@ -1434,6 +1512,18 @@ impl Database {
         input: UpdateReplyRecord,
     ) -> Result<UpdateReplyResult, ReplyMutationError> {
         let mut transaction = self.pool.begin().await?;
+        let result = self
+            .update_published_reply_in_transaction(&mut transaction, input)
+            .await?;
+        transaction.commit().await?;
+        Ok(result)
+    }
+
+    pub(crate) async fn update_published_reply_in_transaction(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        input: UpdateReplyRecord,
+    ) -> Result<UpdateReplyResult, ReplyMutationError> {
         let visible_topic = sqlx::query_scalar::<_, Uuid>(
             "SELECT t.id FROM topics AS t \
              INNER JOIN boards AS b ON b.id = t.board_id \
@@ -1443,7 +1533,7 @@ impl Database {
              FOR UPDATE OF t FOR SHARE OF b, u",
         )
         .bind(input.topic_id)
-        .fetch_optional(&mut *transaction)
+        .fetch_optional(&mut **transaction)
         .await?;
         if visible_topic.is_none() {
             return Err(ReplyMutationError::ReplyUnavailable);
@@ -1456,7 +1546,7 @@ impl Database {
         )
         .bind(input.reply_id)
         .bind(input.topic_id)
-        .fetch_optional(&mut *transaction)
+        .fetch_optional(&mut **transaction)
         .await?;
         let Some(current) = current else {
             return Err(ReplyMutationError::ReplyUnavailable);
@@ -1469,7 +1559,7 @@ impl Database {
         }
 
         if !bind_rich_content_attachments(
-            &mut transaction,
+            transaction,
             input.topic_id,
             input.author_id,
             input.rich_content.as_ref(),
@@ -1488,7 +1578,7 @@ impl Database {
         .bind(&input.content)
         .bind(&input.rich_content)
         .bind(next_revision)
-        .execute(&mut *transaction)
+        .execute(&mut **transaction)
         .await?;
         if updated.rows_affected() != 1 {
             return Err(ReplyMutationError::ReplyUnavailable);
@@ -1503,11 +1593,11 @@ impl Database {
         .bind(next_revision)
         .bind(&input.content)
         .bind(&input.rich_content)
-        .execute(&mut *transaction)
+        .execute(&mut **transaction)
         .await?;
 
         insert_audit(
-            &mut transaction,
+            transaction,
             input.author_id,
             "reply.update",
             "reply",
@@ -1515,7 +1605,6 @@ impl Database {
             json!({"topic_id": input.topic_id, "revision": next_revision}),
         )
         .await?;
-        transaction.commit().await?;
         Ok(UpdateReplyResult {
             reply_id: input.reply_id,
             revision_number: next_revision,
@@ -2093,6 +2182,8 @@ impl Database {
                            WHERE uf.follower_id = $7 AND uf.followed_id = u.id
                        ))
                        AND daoyun_can_access_content('topic', t.id, $8, CURRENT_TIMESTAMP)
+                       AND ($9::timestamptz IS NULL OR t.published_at >= $9)
+                       AND ($10::timestamptz IS NULL OR t.published_at < $10)
                  )"#,
             )
             .bind(cursor)
@@ -2103,6 +2194,8 @@ impl Database {
             .bind(filters.author_username.as_deref())
             .bind(filters.following_user_id)
             .bind(filters.viewer_user_id)
+             .bind(filters.published_from)
+             .bind(filters.published_before)
             .fetch_one(&self.pool)
             .await?;
             if !cursor_is_valid {
@@ -2144,6 +2237,8 @@ impl Database {
                            WHERE uf.follower_id = $6 AND uf.followed_id = u.id
                        ))
                        AND daoyun_can_access_content('topic', t.id, $9, CURRENT_TIMESTAMP)
+                       AND ($10::timestamptz IS NULL OR t.published_at >= $10)
+                       AND ($11::timestamptz IS NULL OR t.published_at < $11)
                        AND (
                            $7::uuid IS NULL
                            OR ((t.pinned_at IS NOT NULL), t.published_at, t.id) < (
@@ -2163,6 +2258,8 @@ impl Database {
                 .bind(cursor)
                 .bind(limit)
                 .bind(filters.viewer_user_id)
+             .bind(filters.published_from)
+             .bind(filters.published_before)
                 .fetch_all(&self.pool)
                 .await
             }
@@ -2199,6 +2296,8 @@ impl Database {
                            WHERE uf.follower_id = $6 AND uf.followed_id = u.id
                        ))
                        AND daoyun_can_access_content('topic', t.id, $9, CURRENT_TIMESTAMP)
+                       AND ($10::timestamptz IS NULL OR t.published_at >= $10)
+                       AND ($11::timestamptz IS NULL OR t.published_at < $11)
                        AND (
                            $7::uuid IS NULL
                            OR ((CASE WHEN $1::text IS NOT NULL THEN (t.pinned_at IS NOT NULL) ELSE FALSE END), t.hot_score, t.published_at, t.id) < (
@@ -2219,6 +2318,8 @@ impl Database {
                 .bind(cursor)
                 .bind(limit)
                 .bind(filters.viewer_user_id)
+             .bind(filters.published_from)
+             .bind(filters.published_before)
                 .fetch_all(&self.pool)
                 .await
             }
@@ -2255,6 +2356,8 @@ impl Database {
                            WHERE uf.follower_id = $6 AND uf.followed_id = u.id
                        ))
                        AND daoyun_can_access_content('topic', t.id, $9, CURRENT_TIMESTAMP)
+                       AND ($10::timestamptz IS NULL OR t.published_at >= $10)
+                       AND ($11::timestamptz IS NULL OR t.published_at < $11)
                        AND (
                            $7::uuid IS NULL
                            OR ((t.pinned_at IS NOT NULL), t.last_activity_at, t.id) < (
@@ -2274,6 +2377,8 @@ impl Database {
                 .bind(cursor)
                 .bind(limit)
                 .bind(filters.viewer_user_id)
+             .bind(filters.published_from)
+             .bind(filters.published_before)
                 .fetch_all(&self.pool)
                 .await
             }
@@ -2364,8 +2469,9 @@ impl Database {
         let cover_candidates = detail
             .rich_content
             .as_ref()
-            .and_then(first_public_rich_content_image_id)
-            .map(|attachment_id| HashMap::from([(topic_id, attachment_id)]))
+            .map(|content| public_rich_content_image_ids(content, 3))
+            .filter(|attachment_ids| !attachment_ids.is_empty())
+            .map(|attachment_ids| HashMap::from([(topic_id, attachment_ids)]))
             .unwrap_or_default();
         hydrate_topic_cover_candidates(
             &self.pool,
@@ -2476,11 +2582,12 @@ pub(crate) async fn hydrate_topic_cover_images(
     let candidates = documents
         .into_iter()
         .filter_map(|document| {
-            document
+            let attachment_ids = document
                 .rich_content
                 .as_ref()
-                .and_then(first_public_rich_content_image_id)
-                .map(|attachment_id| (document.topic_id, attachment_id))
+                .map(|content| public_rich_content_image_ids(content, 3))
+                .unwrap_or_default();
+            (!attachment_ids.is_empty()).then_some((document.topic_id, attachment_ids))
         })
         .collect::<HashMap<_, _>>();
     hydrate_topic_cover_candidates(pool, topics, candidates, viewer_user_id).await
@@ -2489,13 +2596,13 @@ pub(crate) async fn hydrate_topic_cover_images(
 async fn hydrate_topic_cover_candidates(
     pool: &sqlx::PgPool,
     topics: &mut [PublicTopicRecord],
-    candidates: HashMap<Uuid, Uuid>,
+    candidates: HashMap<Uuid, Vec<Uuid>>,
     viewer_user_id: Option<Uuid>,
 ) -> Result<(), sqlx::Error> {
     if candidates.is_empty() {
         return Ok(());
     }
-    let attachment_ids = candidates.values().copied().collect::<Vec<_>>();
+    let attachment_ids = candidates.values().flatten().copied().collect::<Vec<_>>();
     let topic_ids = candidates.keys().copied().collect::<Vec<_>>();
     let available = sqlx::query_as::<_, TopicCoverAttachmentRow>(
         "SELECT attachment.id, attachment.topic_id \
@@ -2518,39 +2625,63 @@ async fn hydrate_topic_cover_candidates(
     .await?
     .into_iter()
     .map(|attachment| (attachment.topic_id, attachment.id))
-    .collect::<HashMap<_, _>>();
+    .collect::<HashSet<_>>();
     for topic in topics {
-        topic.image_attachment_id = candidates.get(&topic.id).and_then(|candidate| {
-            (available.get(&topic.id) == Some(candidate)).then_some(*candidate)
-        });
+        topic.image_attachment_ids = candidates
+            .get(&topic.id)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|attachment_id| available.contains(&(topic.id, *attachment_id)))
+            .take(3)
+            .collect();
+        topic.image_attachment_id = topic.image_attachment_ids.first().copied();
     }
     Ok(())
 }
 
-fn first_public_rich_content_image_id(value: &Value) -> Option<Uuid> {
-    let object = value.as_object()?;
-    if object.get("type").and_then(Value::as_str) == Some("replyGate") {
-        return None;
+fn public_rich_content_image_ids(value: &Value, limit: usize) -> Vec<Uuid> {
+    fn collect(value: &Value, limit: usize, output: &mut Vec<Uuid>) {
+        if output.len() >= limit {
+            return;
+        }
+        let Some(object) = value.as_object() else {
+            return;
+        };
+        if object.get("type").and_then(Value::as_str) == Some("replyGate") {
+            return;
+        }
+        if object.get("type").and_then(Value::as_str) == Some("image")
+            && let Some(attachment_id) = object
+                .get("attrs")
+                .and_then(Value::as_object)
+                .and_then(|attrs| attrs.get("attachmentId"))
+                .and_then(Value::as_str)
+                .and_then(|value| Uuid::parse_str(value).ok())
+        {
+            if !output.contains(&attachment_id) {
+                output.push(attachment_id);
+            }
+            return;
+        }
+        if let Some(content) = object.get("content").and_then(Value::as_array) {
+            for child in content {
+                collect(child, limit, output);
+                if output.len() >= limit {
+                    break;
+                }
+            }
+        }
     }
-    if object.get("type").and_then(Value::as_str) == Some("image")
-        && let Some(attachment_id) = object
-            .get("attrs")
-            .and_then(Value::as_object)
-            .and_then(|attrs| attrs.get("attachmentId"))
-            .and_then(Value::as_str)
-            .and_then(|value| Uuid::parse_str(value).ok())
-    {
-        return Some(attachment_id);
-    }
-    object
-        .get("content")
-        .and_then(Value::as_array)
-        .and_then(|content| content.iter().find_map(first_public_rich_content_image_id))
+
+    let mut output = Vec::with_capacity(limit.min(3));
+    collect(value, limit, &mut output);
+    output
 }
 
 #[cfg(test)]
 mod cover_image_tests {
-    use super::first_public_rich_content_image_id;
+    use super::public_rich_content_image_ids;
     use serde_json::json;
     use sqlx::types::Uuid;
 
@@ -2567,7 +2698,10 @@ mod cover_image_tests {
             ]
         });
 
-        assert_eq!(first_public_rich_content_image_id(&document), Some(first));
+        assert_eq!(
+            public_rich_content_image_ids(&document, 3),
+            vec![first, second]
+        );
     }
 
     #[test]
@@ -2588,7 +2722,26 @@ mod cover_image_tests {
             ]
         });
 
-        assert_eq!(first_public_rich_content_image_id(&document), Some(public));
+        assert_eq!(public_rich_content_image_ids(&document, 3), vec![public]);
+    }
+
+    #[test]
+    fn rich_content_preview_is_capped_at_three_images() {
+        let images = [
+            Uuid::from_u128(10),
+            Uuid::from_u128(11),
+            Uuid::from_u128(12),
+            Uuid::from_u128(13),
+        ];
+        let document = json!({
+            "type": "doc",
+            "content": images.iter().map(|attachment_id| json!({
+                "type": "image",
+                "attrs": {"attachmentId": attachment_id}
+            })).collect::<Vec<_>>()
+        });
+
+        assert_eq!(public_rich_content_image_ids(&document, 3), images[..3]);
     }
 }
 
@@ -2765,6 +2918,7 @@ impl From<PublicTopicDetailRow> for PublicTopicDetailRecord {
                 is_featured: row.is_featured,
                 is_pinned: row.is_pinned,
                 image_attachment_id: None,
+                image_attachment_ids: Vec::new(),
                 tags: Vec::new(),
             },
             content: row.content,
@@ -2875,7 +3029,7 @@ async fn bind_rich_content_attachments(
            AND (topic_id IS NULL OR topic_id = $3)
            AND status = 'ready' AND scan_status = 'clean'
            AND deleted_at IS NULL
-           AND (topic_id IS NOT NULL OR expires_at > CURRENT_TIMESTAMP)
+           AND (topic_id IS NOT NULL OR expires_at > CURRENT_TIMESTAMP OR EXISTS(SELECT 1 FROM member_draft_attachments r WHERE r.attachment_id=topic_attachments.id))
          FOR UPDATE",
     )
     .bind(&attachment_ids)
@@ -2900,7 +3054,10 @@ async fn bind_rich_content_attachments(
     Ok(true)
 }
 
-fn collect_rich_content_attachment_ids(value: &Value, output: &mut HashSet<Uuid>) -> bool {
+pub(crate) fn collect_rich_content_attachment_ids(
+    value: &Value,
+    output: &mut HashSet<Uuid>,
+) -> bool {
     let Some(object) = value.as_object() else {
         return false;
     };
@@ -2949,6 +3106,8 @@ fn map_reply_community_action_error(error: CommunityActionError) -> CreateReplyE
 impl fmt::Display for CreateTopicError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Poll(error) => write!(formatter, "poll creation failed: {error:?}"),
+            Self::DraftConflict => formatter.write_str("draft has changed or is unavailable"),
             Self::BoardUnavailable => formatter.write_str("topic board is unavailable"),
             Self::BoardRestricted => formatter.write_str("topic creation is restricted in board"),
             Self::AuthorRestricted => formatter.write_str("topic author is restricted"),
@@ -2966,7 +3125,9 @@ impl fmt::Display for CreateTopicError {
 impl Error for CreateTopicError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::BoardUnavailable
+            Self::Poll(_)
+            | Self::DraftConflict
+            | Self::BoardUnavailable
             | Self::BoardRestricted
             | Self::AuthorRestricted
             | Self::PermissionDenied

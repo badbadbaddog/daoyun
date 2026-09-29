@@ -1,8 +1,28 @@
-import { Award, Bell, Bookmark, LoaderCircle, LogIn, LogOut, MessageCircle, Moon, Plus, Search, ShieldCheck, Sun, UserRound, X } from "lucide-react"
+import {
+  Award,
+  BarChart3,
+  Bell,
+  Bookmark,
+  Compass,
+  Home,
+  LayoutGrid,
+  LoaderCircle,
+  LogIn,
+  LogOut,
+  MessageCircle,
+  Moon,
+  Plus,
+  Search,
+  ShieldCheck,
+  Sun,
+  UserRound,
+  X,
+} from "lucide-react"
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react"
 
 import type { AuthSession } from "../api/auth"
 import { BrandMark } from "./BrandMark"
+import { PublicMemberIdentity } from "./PublicMemberIdentity"
 import { UserAvatar } from "./UserAvatar"
 
 interface SiteHeaderProps {
@@ -15,6 +35,8 @@ interface SiteHeaderProps {
   onSearch?: (query: string) => void
   onCompose: () => void
   showCompose?: boolean
+  showAccountSummary?: boolean
+  activeNavigation?: "home" | "community" | "discover" | "ranking" | "none"
   onToggleTheme: () => void
   session: AuthSession | null
   onOpenAuth: () => void
@@ -36,6 +58,8 @@ export function SiteHeader({
   onSearch,
   onCompose,
   showCompose = true,
+  showAccountSummary = false,
+  activeNavigation = "home",
   onToggleTheme,
   session,
   onOpenAuth,
@@ -208,6 +232,15 @@ export function SiteHeader({
           </button>
         </div>
 
+        {showAccountSummary && (
+          <nav className="header-primary-nav" aria-label="主导航">
+            <a className={headerNavigationLinkClass(activeNavigation === "home")} href="#hot" aria-current={activeNavigation === "home" ? "page" : undefined}><Home size={17} aria-hidden="true" /><span>首页</span></a>
+            <a className={headerNavigationLinkClass(activeNavigation === "community")} href="#boards" aria-current={activeNavigation === "community" ? "page" : undefined}><LayoutGrid size={17} aria-hidden="true" /><span>社区</span></a>
+            <a className={headerNavigationLinkClass(activeNavigation === "discover")} href="#featured" aria-current={activeNavigation === "discover" ? "page" : undefined}><Compass size={17} aria-hidden="true" /><span>发现</span></a>
+            <a className={headerNavigationLinkClass(activeNavigation === "ranking")} href="#active" aria-current={activeNavigation === "ranking" ? "page" : undefined}><BarChart3 size={17} aria-hidden="true" /><span>排行榜</span></a>
+          </nav>
+        )}
+
         <div className="header-actions">
           <button className="icon-button" type="button" onClick={onToggleTheme} aria-label={darkMode ? "切换浅色模式" : "切换深色模式"} title={darkMode ? "浅色模式" : "深色模式"}>
             {darkMode ? <Sun size={18} /> : <Moon size={18} />}
@@ -234,7 +267,7 @@ export function SiteHeader({
             <div ref={accountMenuRef} className="account-menu">
               <button
                 ref={accountMenuTriggerRef}
-                className="avatar-button"
+                className={`avatar-button${showAccountSummary ? " avatar-button--summary" : ""}`}
                 type="button"
                 aria-label="打开个人菜单"
                 aria-haspopup="menu"
@@ -252,6 +285,12 @@ export function SiteHeader({
                   avatarUrl={null}
                   size="small"
                 />
+                {showAccountSummary && (
+                  <span className="avatar-button__summary" aria-hidden="true">
+                    <strong>{session.user.displayName}</strong>
+                    <PublicMemberIdentity username={session.user.username} maxMedals={0} />
+                  </span>
+                )}
               </button>
               {accountMenuOpen && (
                 <div className="account-menu__popover" role="menu" aria-label="个人菜单" onKeyDown={handleAccountMenuKeyDown}>
@@ -302,4 +341,8 @@ export function SiteHeader({
       </div>
     </header>
   )
+}
+
+function headerNavigationLinkClass(active: boolean): string {
+  return active ? "header-primary-nav__link header-primary-nav__link--active" : "header-primary-nav__link"
 }

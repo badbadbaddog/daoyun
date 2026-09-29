@@ -1069,6 +1069,10 @@ fn topic_summary_and_detail_serialize_only_the_public_contract() {
         is_featured: true,
         is_pinned: false,
         image_url: Some(format!("/api/v1/attachments/{}/thumbnail", fixed_uuid(903))),
+        image_urls: vec![
+            format!("/api/v1/attachments/{}/thumbnail", fixed_uuid(903)),
+            format!("/api/v1/attachments/{}/thumbnail", fixed_uuid(904)),
+        ],
         tags: Vec::new(),
     };
     let payload = serde_json::to_value(TopicDetail {
@@ -1108,6 +1112,10 @@ fn topic_summary_and_detail_serialize_only_the_public_contract() {
             "is_featured": true,
             "is_pinned": false,
             "image_url": format!("/api/v1/attachments/{}/thumbnail", fixed_uuid(903)),
+            "image_urls": [
+                format!("/api/v1/attachments/{}/thumbnail", fixed_uuid(903)),
+                format!("/api/v1/attachments/{}/thumbnail", fixed_uuid(904))
+            ],
             "tags": [],
             "content": "正文",
             "rich_content": null,

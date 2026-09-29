@@ -4,7 +4,7 @@ use crate::{
 };
 use api_contract::{
     ApiResponse, CreateReplyRequest, CreateTopicRequest, ErrorResponse, PageResponse, RequestId,
-    TopicDetail, TopicReply, TopicSummary, UpdateTopicRequest,
+    TopicDetail, TopicEditSubmission, TopicReply, TopicSummary, UpdateTopicRequest,
 };
 use axum::{
     Extension, Json, Router,
@@ -147,7 +147,7 @@ pub(crate) async fn detail(
     ),
     request_body = UpdateTopicRequest,
     responses(
-        (status = 200, description = "The updated post", body = ApiResponse<TopicDetail>, headers(("x-request-id" = String))),
+        (status = 200, description = "The published post and edit disposition", body = ApiResponse<TopicEditSubmission>, headers(("x-request-id" = String))),
         (status = 400, description = "The post path is invalid", body = ErrorResponse, headers(("x-request-id" = String))),
         (status = 401, description = "The request has no active session", body = ErrorResponse, headers(("x-request-id" = String), ("set-cookie" = String))),
         (status = 403, description = "The current user cannot edit this post", body = ErrorResponse, headers(("x-request-id" = String))),
@@ -164,7 +164,7 @@ pub(crate) async fn update(
     headers: HeaderMap,
     path: Result<Path<Uuid>, PathRejection>,
     request: Result<Json<UpdateTopicRequest>, JsonRejection>,
-) -> Result<(StatusCode, Json<ApiResponse<TopicDetail>>), ApiError> {
+) -> Result<(StatusCode, Json<ApiResponse<TopicEditSubmission>>), ApiError> {
     topics::update(
         State(database),
         Extension(request_id),

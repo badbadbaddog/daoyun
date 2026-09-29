@@ -432,6 +432,66 @@ async fn draft_image_upload_is_private_image_only_and_expires(pool: PgPool) {
         .expect("draft thumbnail request must respond");
     assert_eq!(hidden.status(), StatusCode::NOT_FOUND);
 
+    let preview = app
+        .clone()
+        .oneshot(get_request_with_cookies(
+            &format!("/api/v1/attachments/{attachment_id}/thumbnail"),
+            &cookies,
+        ))
+        .await
+        .expect("draft thumbnail preview must respond");
+    assert_eq!(preview.status(), StatusCode::OK);
+    assert_eq!(preview.headers()["content-type"], "image/webp");
+
+    sqlx::query(
+        "UPDATE topic_attachments
+         SET expires_at = CURRENT_TIMESTAMP - INTERVAL '1 minute'
+         WHERE id = $1",
+    )
+    .bind(uuid::Uuid::parse_str(attachment_id).expect("draft attachment id must be valid"))
+    .execute(&pool)
+    .await
+    .expect("draft expiry fixture must update");
+    let expired_preview = app
+        .clone()
+        .oneshot(get_request_with_cookies(
+            &format!("/api/v1/attachments/{attachment_id}/thumbnail"),
+            &cookies,
+        ))
+        .await
+        .expect("expired draft thumbnail request must respond");
+    assert_eq!(expired_preview.status(), StatusCode::NOT_FOUND);
+    sqlx::query(
+        "UPDATE topic_attachments
+         SET expires_at = CURRENT_TIMESTAMP + INTERVAL '24 hours'
+         WHERE id = $1",
+    )
+    .bind(uuid::Uuid::parse_str(attachment_id).expect("draft attachment id must be valid"))
+    .execute(&pool)
+    .await
+    .expect("draft expiry fixture must reset");
+
+    let original = app
+        .clone()
+        .oneshot(get_request_with_cookies(
+            &format!("/api/v1/attachments/{attachment_id}"),
+            &cookies,
+        ))
+        .await
+        .expect("draft original request must respond");
+    assert_eq!(original.status(), StatusCode::NOT_FOUND);
+
+    let (other_cookies, _) = login_owner(&app).await;
+    let other_user_preview = app
+        .clone()
+        .oneshot(get_request_with_cookies(
+            &format!("/api/v1/attachments/{attachment_id}/thumbnail"),
+            &other_cookies,
+        ))
+        .await
+        .expect("other user draft thumbnail request must respond");
+    assert_eq!(other_user_preview.status(), StatusCode::NOT_FOUND);
+
     let topic = app
         .clone()
         .oneshot(json_request(
@@ -492,20 +552,18 @@ async fn draft_image_upload_is_private_image_only_and_expires(pool: PgPool) {
         .iter()
         .find(|topic| topic["id"] == topic_id)
         .expect("topic with a rich-content image must be listed");
-    assert_eq!(
-        listed_topic["image_url"],
-        format!("/api/v1/attachments/{attachment_id}/thumbnail")
-    );
+    let image_url = format!("/api/v1/attachments/{attachment_id}/thumbnail");
+    assert_eq!(listed_topic["image_url"], image_url);
+    assert_eq!(listed_topic["image_urls"], json!([image_url]));
 
     let detail = app
         .oneshot(get_request(&format!("/api/v1/topics/{topic_id}")))
         .await
         .expect("topic detail must respond");
     assert_eq!(detail.status(), StatusCode::OK);
-    assert_eq!(
-        response_json(detail).await["data"]["image_url"],
-        format!("/api/v1/attachments/{attachment_id}/thumbnail")
-    );
+    let detail_payload = response_json(detail).await;
+    assert_eq!(detail_payload["data"]["image_url"], image_url);
+    assert_eq!(detail_payload["data"]["image_urls"], json!([image_url]));
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]

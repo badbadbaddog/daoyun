@@ -4,6 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { governTopic, listModerationTopics, listTopicModerationHistory, moderateTopic, ModerationApiError } from "../api/moderation"
 import { ModerationAdminPanel } from "./ModerationAdminPanel"
+import { listAdminTopicRevisions } from "../api/topics"
+
+vi.mock("../api/topics", () => ({ listAdminTopicRevisions: vi.fn() }))
 
 vi.mock("../api/moderation", async () => {
   const actual = await vi.importActual<typeof import("../api/moderation")>("../api/moderation")
@@ -54,6 +57,123 @@ async function openTopicActions(user: ReturnType<typeof userEvent.setup>, title 
 }
 
 describe("ModerationAdminPanel", () => {
+  it("shows all governed boards without borrowing another board's action permissions", async () => {
+    const user = userEvent.setup()
+    const otherTopic = { ...topic, id: "other", title: "另一个板块的主题", board: { ...targetBoard } }
+    vi.mocked(listModerationTopics).mockResolvedValue({ topics: [topic, otherTopic], nextCursor: null })
+    render(<ModerationAdminPanel boards={[board, { ...targetBoard, capabilityKeys: ["moderation.topic.lock"] }]} csrfToken="csrf-token" />)
+    await screen.findByRole("heading", { name: otherTopic.title })
+    expect(screen.getByRole("heading", { name: "主题管理", level: 1 })).toBeInTheDocument()
+    expect(screen.getByRole("combobox", { name: "治理板块" })).toHaveValue("")
+    expect(listModerationTopics).toHaveBeenCalledWith(expect.objectContaining({ boardId: undefined }))
+    await user.click(screen.getByRole("button", { name: "操作：" + otherTopic.title }))
+    expect(screen.getByRole("menuitem", { name: "锁定" })).toBeEnabled()
+    expect(screen.queryByRole("menuitem", { name: "隐藏" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("menuitem", { name: "置顶" })).not.toBeInTheDocument()
+    await user.keyboard("{Escape}")
+    await user.selectOptions(screen.getByRole("combobox", { name: "治理板块" }), board.id)
+    await waitFor(() => expect(listModerationTopics).toHaveBeenLastCalledWith(expect.objectContaining({ boardId: board.id })))
+    await user.click(screen.getByRole("button", { name: "重置" }))
+    await waitFor(() => expect(listModerationTopics).toHaveBeenLastCalledWith(expect.objectContaining({ boardId: undefined })))
+  })
+
+  it("lets the operator clear selection without losing search results", async () => {
+    const user = userEvent.setup()
+    vi.mocked(listModerationTopics).mockResolvedValue({ topics: [topic], nextCursor: null })
+    render(<ModerationAdminPanel boards={[board]} csrfToken="csrf-token" />)
+    await user.click(await screen.findByRole("checkbox", { name: "选择主题：" + topic.title }))
+    expect(screen.getByRole("group", { name: "已选主题操作" })).toHaveTextContent("已选择 1 条主题")
+    await user.click(screen.getByRole("button", { name: "取消选择" }))
+    expect(screen.getByRole("checkbox", { name: "选择主题：" + topic.title })).not.toBeChecked()
+    expect(screen.getByRole("heading", { name: topic.title })).toBeInTheDocument()
+    expect(listModerationTopics).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps a moved topic visible in the all-board view and updates its board permissions", async () => {
+    const user = userEvent.setup()
+    vi.mocked(listModerationTopics).mockResolvedValue({ topics: [topic], nextCursor: null })
+    vi.mocked(governTopic).mockResolvedValue({ topicId: topic.id, boardId: targetBoard.id, isPinned: false, isFeatured: false, isLocked: false, governanceRevision: 5 })
+    render(<ModerationAdminPanel boards={[fullCapabilityBoard, targetBoard]} csrfToken="csrf-token" />)
+    await user.click(within(await openTopicActions(user)).getByRole("menuitem", { name: "移动" }))
+    await user.type(screen.getByRole("textbox", { name: "处理备注" }), "调整板块")
+    await user.click(screen.getByRole("button", { name: "确认移动主题" }))
+    await screen.findByText("主题已移动到目标板块。")
+    const table = screen.getByRole("table", { name: "主题治理队列" })
+    expect(within(table).getByRole("heading", { name: topic.title })).toBeInTheDocument()
+    expect(within(table).getByText(targetBoard.name)).toBeInTheDocument()
+  })
+
+  it("filters loaded topics by date and resets filters and selection together", async () => {
+    const user = userEvent.setup()
+    vi.mocked(listModerationTopics).mockResolvedValue({ topics: [topic, { ...topic, id: "recent", title: "近期主题", publishedAt: new Date().toISOString(), pinned: true }], nextCursor: null })
+    render(<ModerationAdminPanel boards={[board]} csrfToken="csrf-token" />)
+    await screen.findByRole("heading", { name: "近期主题" })
+    expect(within(screen.getByRole("region", { name: "已加载主题统计" })).getByText("已加载主题")).toBeInTheDocument()
+    await user.click(screen.getByRole("checkbox", { name: "选择当前筛选结果" }))
+    expect(screen.getByRole("button", { name: "导出选中 2 条" })).toBeEnabled()
+    await user.selectOptions(screen.getByRole("combobox", { name: "发布时间筛选" }), "7")
+    expect(screen.queryByRole("heading", { name: topic.title })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "导出选中 1 条" })).toBeEnabled()
+    await user.click(screen.getByRole("button", { name: "重置" }))
+    expect(await screen.findByRole("heading", { name: topic.title })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "导出当前结果" })).toBeEnabled()
+    expect(screen.getByRole("checkbox", { name: "选择当前筛选结果" })).not.toBeChecked()
+  })
+
+  it("restarts cursor loading when changing the page size", async () => {
+    const user = userEvent.setup()
+    vi.mocked(listModerationTopics).mockResolvedValue({ topics: [topic], nextCursor: "next" })
+    render(<ModerationAdminPanel boards={[board]} csrfToken="csrf-token" />)
+    await screen.findByRole("heading", { name: topic.title })
+    await user.selectOptions(screen.getByRole("combobox", { name: "每次加载条数" }), "50")
+    await waitFor(() => expect(listModerationTopics).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 50 })))
+    expect(listModerationTopics).toHaveBeenLastCalledWith(expect.not.objectContaining({ cursor: expect.anything() }))
+  })
+
+  it("opens read-only topic revisions from admin operations and restores focus on close", async () => {
+    const user = userEvent.setup()
+    vi.mocked(listModerationTopics).mockResolvedValue({ topics: [topic], nextCursor: null })
+    vi.mocked(listAdminTopicRevisions).mockResolvedValue([
+      { id: "revision-1", topicId: topic.id, revisionNumber: 1, editor: topic.author, content: "初始正文", createdAt: topic.publishedAt },
+      { id: "revision-2", topicId: topic.id, revisionNumber: 2, editor: topic.author, content: "修订后的正文", createdAt: topic.lastActivityAt },
+    ])
+    render(<ModerationAdminPanel boards={[board]} csrfToken="csrf-token" canReadAudit />)
+    expect(listAdminTopicRevisions).not.toHaveBeenCalled()
+    const menu = await openTopicActions(user)
+    await user.click(within(menu).getByRole("menuitem", { name: "查看修订历史" }))
+    const dialog = screen.getByRole("dialog", { name: "修订历史" })
+    expect(await within(dialog).findByText("修订后的正文")).toBeInTheDocument()
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: "查看版本" }), "revision-1")
+    expect(within(dialog).getByText("初始正文")).toBeInTheDocument()
+    expect(within(dialog).queryByRole("textbox")).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole("button", { name: /恢复|保存|删除/ })).not.toBeInTheDocument()
+    expect(listAdminTopicRevisions).toHaveBeenCalledWith(topic.id, expect.any(AbortSignal))
+    await user.keyboard("{Escape}")
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole("button", { name: `操作：${topic.title}` })).toHaveFocus())
+  })
+
+  it("hides topic revisions without audit permission", async () => {
+    const user = userEvent.setup()
+    vi.mocked(listModerationTopics).mockResolvedValue({ topics: [topic], nextCursor: null })
+    render(<ModerationAdminPanel boards={[board]} csrfToken="csrf-token" />)
+    const menu = await openTopicActions(user)
+    expect(within(menu).queryByRole("menuitem", { name: "查看修订历史" })).not.toBeInTheDocument()
+    expect(listAdminTopicRevisions).not.toHaveBeenCalled()
+  })
+
+  it("allows retrying revision loading and explains an empty history", async () => {
+    const user = userEvent.setup()
+    vi.mocked(listModerationTopics).mockResolvedValue({ topics: [topic], nextCursor: null })
+    vi.mocked(listAdminTopicRevisions).mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce([])
+    render(<ModerationAdminPanel boards={[board]} csrfToken="csrf-token" canReadAudit />)
+    await user.click(within(await openTopicActions(user)).getByRole("menuitem", { name: "查看修订历史" }))
+    const dialog = screen.getByRole("dialog", { name: "修订历史" })
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("修订历史暂时无法加载")
+    await user.click(within(dialog).getByRole("button", { name: "重试" }))
+    expect(await within(dialog).findByText("暂无修订记录")).toBeInTheDocument()
+  })
+
   it("announces the initial loading state", () => {
     vi.mocked(listModerationTopics).mockImplementation(() => new Promise(() => undefined))
 
@@ -99,17 +219,12 @@ describe("ModerationAdminPanel", () => {
     const table = await screen.findByRole("table", { name: "主题治理队列" })
     const rows = within(table).getAllByRole("row")
     expect(rows).toHaveLength(2)
-    expect(within(rows[1]).getAllByRole("cell")).toHaveLength(10)
+    expect(within(rows[1]).getAllByRole("cell")).toHaveLength(8)
     const columnHeaders = screen.getByRole("row", { name: "主题治理字段" })
-    expect(within(columnHeaders).getByText("所属板块")).toBeInTheDocument()
-    expect(within(columnHeaders).getByText("发布时间")).toBeInTheDocument()
-    expect(within(columnHeaders).getByText("主题标题 / 内容摘要")).toBeInTheDocument()
-    expect(within(columnHeaders).getByText("作者（昵称 / 用户名）")).toBeInTheDocument()
-    expect(within(columnHeaders).getByText("回复数")).toBeInTheDocument()
-    expect(within(columnHeaders).getByText("点赞数")).toBeInTheDocument()
-    expect(within(columnHeaders).getByText("浏览数")).toBeInTheDocument()
-    expect(within(columnHeaders).getByText("审核状态")).toBeInTheDocument()
-    expect(within(columnHeaders).getByText("治理状态")).toBeInTheDocument()
+    expect(within(columnHeaders).getByText("主题内容")).toBeInTheDocument()
+    expect(within(columnHeaders).getByText("作者")).toBeInTheDocument()
+    expect(within(columnHeaders).getByText("互动数据")).toBeInTheDocument()
+    expect(within(columnHeaders).getByText("内容状态")).toBeInTheDocument()
     expect(within(columnHeaders).getByText("操作")).toBeInTheDocument()
   })
 
@@ -137,16 +252,15 @@ describe("ModerationAdminPanel", () => {
     expect(within(workbench).getByText(/仅显示当前账号有权治理/)).toBeInTheDocument()
   })
 
-  it("uses the reference workspace with a side filter rail and one row action menu", async () => {
+  it("keeps filters above the list and actions in a single row menu", async () => {
     const user = userEvent.setup()
     vi.mocked(listModerationTopics).mockResolvedValue({ topics: [topic], nextCursor: null })
 
     render(<ModerationAdminPanel boards={[fullCapabilityBoard, targetBoard]} csrfToken="csrf-token" canReadAudit />)
 
-    const sideRail = await screen.findByRole("complementary", { name: "主题治理筛选与反馈" })
-    expect(within(sideRail).getByRole("group", { name: "审核状态筛选" })).toBeInTheDocument()
-    expect(within(sideRail).getByRole("group", { name: "治理状态筛选" })).toBeInTheDocument()
-    expect(within(sideRail).getByRole("region", { name: "近期反馈" })).toBeInTheDocument()
+    expect(screen.getByRole("group", { name: "治理快捷筛选" })).toBeInTheDocument()
+    expect(screen.getByRole("combobox", { name: "治理状态筛选" })).toBeInTheDocument()
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument()
     expect(screen.queryByRole("menuitem", { name: "隐藏" })).not.toBeInTheDocument()
 
     const menu = await openTopicActions(user)
@@ -236,6 +350,7 @@ describe("ModerationAdminPanel", () => {
     vi.mocked(governTopic).mockResolvedValue({ topicId: topic.id, boardId: targetBoard.id, isPinned: false, isFeatured: false, isLocked: false, governanceRevision: 5 })
 
     render(<ModerationAdminPanel boards={[fullCapabilityBoard, targetBoard]} csrfToken="csrf-token" />)
+    await user.selectOptions(screen.getByRole("combobox", { name: "治理板块" }), board.id)
     await openTopicActions(user)
     await user.click(screen.getByRole("menuitem", { name: "移动" }))
 
@@ -357,7 +472,7 @@ describe("ModerationAdminPanel", () => {
     vi.mocked(listModerationTopics).mockResolvedValue({ topics: [], nextCursor: null })
 
     render(<ModerationAdminPanel boards={[board]} csrfToken="csrf-token" />)
-    await screen.findByText("当前板块暂无已发布主题")
+    await screen.findByText("当前权限范围内暂无已发布主题")
     await user.type(screen.getByRole("textbox", { name: "搜索主题" }), "不存在的主题")
     await user.click(screen.getByRole("button", { name: "搜索" }))
 
@@ -373,7 +488,7 @@ describe("ModerationAdminPanel", () => {
     render(<ModerationAdminPanel boards={[board]} csrfToken="csrf-token" />)
 
     expect(await screen.findByRole("alert")).toHaveTextContent("主题治理队列暂时无法加载")
-    expect(screen.queryByText("当前板块暂无已发布主题")).not.toBeInTheDocument()
+    expect(screen.queryByText("当前权限范围内暂无已发布主题")).not.toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "重试加载" }))
 
     expect(await screen.findByText(topic.title)).toBeInTheDocument()
@@ -420,12 +535,13 @@ describe("ModerationAdminPanel", () => {
 
     expect(await screen.findByText("重要公告")).toBeInTheDocument()
     expect(within(screen.getByRole("region", { name: "主题处理记录" })).getByText("置顶")).toBeInTheDocument()
-    const expandedMenu = await openTopicActions(user)
-    expect(within(expandedMenu).getByRole("menuitem", { name: "处理记录" })).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByRole("dialog", { name: "主题处理记录" })).toBeInTheDocument()
+    await user.keyboard("{Escape}")
+    expect(screen.getByRole("button", { name: `操作：${topic.title}` })).toHaveFocus()
     expect(listTopicModerationHistory).toHaveBeenCalledWith(expect.objectContaining({ topicId: topic.id, limit: 20 }))
   })
 
-  it("loads a topic history only on its first expansion", async () => {
+  it("loads fresh history when the history drawer is reopened", async () => {
     const user = userEvent.setup()
     vi.mocked(listModerationTopics).mockResolvedValue({ topics: [topic], nextCursor: null })
     vi.mocked(listTopicModerationHistory).mockResolvedValue({ entries: [], nextCursor: null })
@@ -435,12 +551,11 @@ describe("ModerationAdminPanel", () => {
     const historyButton = screen.getByRole("menuitem", { name: "处理记录" })
     await user.click(historyButton)
     await screen.findByText("暂无处理记录")
-    await openTopicActions(user)
-    await user.click(screen.getByRole("menuitem", { name: "处理记录" }))
+    await user.keyboard("{Escape}")
     await openTopicActions(user)
     await user.click(screen.getByRole("menuitem", { name: "处理记录" }))
 
     expect(await screen.findByText("暂无处理记录")).toBeInTheDocument()
-    expect(listTopicModerationHistory).toHaveBeenCalledTimes(1)
+    expect(listTopicModerationHistory).toHaveBeenCalledTimes(2)
   })
 })

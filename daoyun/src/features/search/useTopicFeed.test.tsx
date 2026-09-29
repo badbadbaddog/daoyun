@@ -101,3 +101,20 @@ describe("useTopicFeed", () => {
     expect(result.current.errorInitial).toBeNull()
   })
 })
+
+it("changes dates during pagination without accepting the stale page or locking load more",async()=>{
+ let resolveOld!: (value: {topics:Topic[];nextCursor:string|null})=>void
+ vi.mocked(listTopics).mockResolvedValueOnce({topics:[topic("a","A")],nextCursor:"old"})
+  .mockImplementationOnce(()=>new Promise(resolve=>{resolveOld=resolve}))
+  .mockResolvedValueOnce({topics:[topic("new","New")],nextCursor:"new-cursor"})
+ const {result,rerender}=renderHook(({from})=>useTopicFeed({from}),{initialProps:{from:"2026-08-01"}})
+ await waitFor(()=>expect(result.current.loadingInitial).toBe(false))
+ act(()=>{void result.current.loadMore()})
+ rerender({from:"2026-09-01"})
+ await waitFor(()=>expect(result.current.topics[0].id).toBe("new"))
+ expect(result.current.loadingMore).toBe(false)
+ await act(async()=>resolveOld({topics:[topic("old","Old")],nextCursor:null}))
+ expect(result.current.topics.map(t=>t.id)).toEqual(["new"])
+ expect(result.current.nextCursor).toBe("new-cursor")
+ expect(listTopics).toHaveBeenLastCalledWith(expect.objectContaining({from:"2026-09-01"}))
+})

@@ -49,6 +49,8 @@ pub struct MembershipLevelRuleRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
 pub struct MembershipMedalRecord {
+    pub display_name: String,
+    pub asset_key: String,
     pub user_id: Uuid,
     pub medal_key: String,
     pub granted_at: OffsetDateTime,
@@ -56,6 +58,9 @@ pub struct MembershipMedalRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
 pub struct MembershipMedalRuleRecord {
+    pub display_name: String,
+    pub asset_key: String,
+    pub revision: i64,
     pub medal_key: String,
     pub enabled: bool,
     pub required_lifetime_points: Option<i64>,
@@ -64,6 +69,9 @@ pub struct MembershipMedalRuleRecord {
 
 #[derive(Debug)]
 pub struct UpdateMembershipMedalRuleRecord {
+    pub display_name: String,
+    pub asset_key: String,
+    pub expected_revision: i64,
     pub medal_key: String,
     pub enabled: bool,
     pub required_lifetime_points: Option<i64>,
@@ -77,6 +85,7 @@ pub struct GrantMembershipMedalResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
 pub struct MembershipMedalOperationRecord {
+    pub medal_display_name: String,
     pub id: Uuid,
     pub operation: String,
     pub user_id: Uuid,
@@ -153,6 +162,8 @@ pub enum RevokeMembershipMedalError {
 
 #[derive(Debug)]
 pub enum UpdateMembershipMedalRuleError {
+    RevisionConflict,
+    InvalidDefinition,
     Forbidden,
     InvalidMedal,
     InvalidThreshold,
@@ -276,7 +287,7 @@ impl Database {
         user_id: Uuid,
     ) -> Result<Vec<MembershipMedalRecord>, DatabaseError> {
         Ok(sqlx::query_as::<_, MembershipMedalRecord>(
-            "SELECT user_id, medal_key, granted_at
+            "SELECT user_id, medal_key, granted_at, (SELECT display_name FROM membership_medal_rules r WHERE r.medal_key = membership_medals.medal_key) AS display_name, (SELECT asset_key FROM membership_medal_rules r WHERE r.medal_key = membership_medals.medal_key) AS asset_key
              FROM membership_medals WHERE user_id = $1
              ORDER BY granted_at DESC, medal_key",
         )
@@ -289,8 +300,8 @@ impl Database {
         &self,
     ) -> Result<Vec<MembershipMedalRuleRecord>, DatabaseError> {
         Ok(sqlx::query_as::<_, MembershipMedalRuleRecord>(
-            "SELECT medal_key, enabled, required_lifetime_points, updated_at
-             FROM membership_medal_rules ORDER BY medal_key",
+            "SELECT medal_key, display_name, asset_key, revision, enabled, required_lifetime_points, updated_at
+             FROM membership_medal_rules WHERE deleted_at IS NULL ORDER BY medal_key",
         )
         .fetch_all(&self.pool)
         .await?)
@@ -338,6 +349,7 @@ impl Database {
                     target.id AS user_id, target.username,
                     target.display_name AS user_display_name,
                     audit.summary ->> 'medal_key' AS medal_key,
+                    COALESCE((SELECT display_name FROM membership_medal_rules r WHERE r.medal_key = audit.summary ->> 'medal_key'), audit.summary ->> 'medal_key') AS medal_display_name,
                     COALESCE(audit.summary ->> 'reason', '') AS reason,
                     actor.id AS actor_id, actor.username AS actor_username,
                     actor.display_name AS actor_display_name, audit.created_at
@@ -368,11 +380,81 @@ impl Database {
         .await?)
     }
 
+    pub async fn create_membership_medal_rule(
+        &self,
+        actor_id: Uuid,
+        input: UpdateMembershipMedalRuleRecord,
+    ) -> Result<MembershipMedalRuleRecord, UpdateMembershipMedalRuleError> {
+        if !valid_medal_definition(&input.display_name, &input.asset_key) {
+            return Err(UpdateMembershipMedalRuleError::InvalidDefinition);
+        }
+        if input.required_lifetime_points.is_some_and(|v| v < 0)
+            || (input.enabled && input.required_lifetime_points.is_none())
+        {
+            return Err(UpdateMembershipMedalRuleError::InvalidThreshold);
+        }
+        let mut transaction = self.pool.begin().await?;
+        if !has_permission_with_executor(
+            &mut transaction,
+            actor_id,
+            permission_keys::MEMBERSHIP_MEDAL_RULES_WRITE,
+            None,
+        )
+        .await?
+        {
+            return Err(UpdateMembershipMedalRuleError::Forbidden);
+        }
+        let key = format!("medal_{}", Uuid::now_v7().simple());
+        ensure_medal_asset(&mut transaction, &input.asset_key).await?;
+        let record = sqlx::query_as::<_, MembershipMedalRuleRecord>(
+            "INSERT INTO membership_medal_rules (medal_key, display_name, asset_key, enabled, required_lifetime_points, updated_by)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             RETURNING medal_key, display_name, asset_key, revision, enabled, required_lifetime_points, updated_at",
+        ).bind(&key).bind(input.display_name.trim()).bind(&input.asset_key).bind(input.enabled).bind(input.required_lifetime_points).bind(actor_id)
+        .fetch_one(&mut *transaction).await?;
+        insert_audit(&mut transaction, actor_id, "membership.medal.rule.create", "membership_medal_rule", None,
+            serde_json::json!({"medal_key": key, "display_name": record.display_name, "asset_key": record.asset_key, "enabled": record.enabled, "required_lifetime_points": record.required_lifetime_points})).await?;
+        transaction.commit().await?;
+        Ok(record)
+    }
+
+    pub async fn delete_membership_medal_rule(
+        &self,
+        actor_id: Uuid,
+        key: &str,
+        expected_revision: i64,
+    ) -> Result<bool, UpdateMembershipMedalRuleError> {
+        let mut transaction = self.pool.begin().await?;
+        if !has_permission_with_executor(
+            &mut transaction,
+            actor_id,
+            permission_keys::MEMBERSHIP_MEDAL_RULES_WRITE,
+            None,
+        )
+        .await?
+        {
+            return Err(UpdateMembershipMedalRuleError::Forbidden);
+        }
+        let deleted = sqlx::query("UPDATE membership_medal_rules SET deleted_at = CURRENT_TIMESTAMP, enabled = FALSE, revision = revision + 1, updated_at = CURRENT_TIMESTAMP, updated_by = $3
+            WHERE medal_key = $1 AND revision = $2 AND deleted_at IS NULL")
+            .bind(key).bind(expected_revision).bind(actor_id).execute(&mut *transaction).await?.rows_affected() == 1;
+        if !deleted {
+            return Err(UpdateMembershipMedalRuleError::RevisionConflict);
+        }
+        insert_audit(&mut transaction, actor_id, "membership.medal.rule.delete", "membership_medal_rule", None,
+            serde_json::json!({"medal_key": key, "expected_revision": expected_revision, "ownership_preserved": true})).await?;
+        transaction.commit().await?;
+        Ok(true)
+    }
+
     pub async fn update_membership_medal_rule(
         &self,
         actor_id: Uuid,
         input: UpdateMembershipMedalRuleRecord,
     ) -> Result<MembershipMedalRuleRecord, UpdateMembershipMedalRuleError> {
+        if !valid_medal_definition(&input.display_name, &input.asset_key) {
+            return Err(UpdateMembershipMedalRuleError::InvalidDefinition);
+        }
         if !medal_key_valid(&input.medal_key) {
             return Err(UpdateMembershipMedalRuleError::InvalidMedal);
         }
@@ -396,20 +478,25 @@ impl Database {
         {
             return Err(UpdateMembershipMedalRuleError::Forbidden);
         }
+        ensure_medal_asset(&mut transaction, &input.asset_key).await?;
         let record = sqlx::query_as::<_, MembershipMedalRuleRecord>(
             "UPDATE membership_medal_rules
              SET enabled = $2, required_lifetime_points = $3,
-                 updated_by = $4, updated_at = CURRENT_TIMESTAMP
-             WHERE medal_key = $1
-             RETURNING medal_key, enabled, required_lifetime_points, updated_at",
+                 updated_by = $4, updated_at = CURRENT_TIMESTAMP,
+                 display_name = $5, asset_key = $6, revision = revision + 1
+             WHERE medal_key = $1 AND deleted_at IS NULL AND revision = $7
+             RETURNING medal_key, display_name, asset_key, revision, enabled, required_lifetime_points, updated_at",
         )
         .bind(&input.medal_key)
         .bind(input.enabled)
         .bind(input.required_lifetime_points)
         .bind(actor_id)
+        .bind(input.display_name.trim())
+        .bind(&input.asset_key)
+        .bind(input.expected_revision)
         .fetch_optional(&mut *transaction)
         .await?
-        .ok_or(UpdateMembershipMedalRuleError::InvalidMedal)?;
+        .ok_or(UpdateMembershipMedalRuleError::RevisionConflict)?;
         insert_audit(
             &mut transaction,
             actor_id,
@@ -418,6 +505,7 @@ impl Database {
             None,
             serde_json::json!({
                 "medal_key": record.medal_key,
+                "display_name": record.display_name, "asset_key": record.asset_key, "revision": record.revision,
                 "enabled": record.enabled,
                 "required_lifetime_points": record.required_lifetime_points
             }),
@@ -460,11 +548,17 @@ impl Database {
         if !exists {
             return Err(GrantMembershipMedalError::UserNotFound);
         }
+        let available = sqlx::query_scalar::<_, String>(
+            "SELECT medal_key FROM membership_medal_rules WHERE medal_key = $1 AND deleted_at IS NULL FOR SHARE",
+        ).bind(medal_key).fetch_optional(&mut *transaction).await?;
+        if available.is_none() {
+            return Err(GrantMembershipMedalError::InvalidMedal);
+        }
         let inserted = sqlx::query_as::<_, MembershipMedalRecord>(
             "INSERT INTO membership_medals (user_id, medal_key, granted_by, reason)
              VALUES ($1, $2, $3, $4)
              ON CONFLICT (user_id, medal_key) DO NOTHING
-             RETURNING user_id, medal_key, granted_at",
+             RETURNING user_id, medal_key, granted_at, (SELECT display_name FROM membership_medal_rules r WHERE r.medal_key = membership_medals.medal_key) AS display_name, (SELECT asset_key FROM membership_medal_rules r WHERE r.medal_key = membership_medals.medal_key) AS asset_key",
         )
         .bind(user_id)
         .bind(medal_key)
@@ -476,7 +570,7 @@ impl Database {
             Some(record) => (record, true),
             None => (
                 sqlx::query_as::<_, MembershipMedalRecord>(
-                    "SELECT user_id, medal_key, granted_at
+                    "SELECT user_id, medal_key, granted_at, (SELECT display_name FROM membership_medal_rules r WHERE r.medal_key = membership_medals.medal_key) AS display_name, (SELECT asset_key FROM membership_medal_rules r WHERE r.medal_key = membership_medals.medal_key) AS asset_key
                      FROM membership_medals WHERE user_id = $1 AND medal_key = $2",
                 )
                 .bind(user_id)
@@ -860,10 +954,11 @@ impl Database {
             "INSERT INTO membership_medals (user_id, medal_key, reason)
              SELECT $1, medal_key, 'rule.points'
              FROM membership_medal_rules
-             WHERE enabled AND required_lifetime_points IS NOT NULL
+             WHERE deleted_at IS NULL AND enabled AND required_lifetime_points IS NOT NULL
                AND required_lifetime_points <= $2
+             FOR SHARE
              ON CONFLICT (user_id, medal_key) DO NOTHING
-             RETURNING user_id, medal_key, granted_at",
+             RETURNING user_id, medal_key, granted_at, (SELECT display_name FROM membership_medal_rules r WHERE r.medal_key = membership_medals.medal_key) AS display_name, (SELECT asset_key FROM membership_medal_rules r WHERE r.medal_key = membership_medals.medal_key) AS asset_key",
         )
         .bind(user_id)
         .bind(lifetime_points)
@@ -932,10 +1027,38 @@ fn valid_level_display_name(value: &str) -> bool {
 }
 
 fn medal_key_valid(value: &str) -> bool {
-    let Some(number) = value.strip_prefix("medal_") else {
-        return false;
-    };
-    matches!(number.parse::<u8>(), Ok(value) if (1..=17).contains(&value) && number == format!("{value:02}"))
+    (3..=64).contains(&value.len())
+        && value.as_bytes()[0].is_ascii_lowercase()
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
+fn valid_medal_definition(name: &str, asset_key: &str) -> bool {
+    let valid_asset = asset_key
+        .strip_prefix("medal_")
+        .and_then(|n| n.parse::<u8>().ok())
+        .is_some_and(|n| (1..=17).contains(&n) && asset_key == format!("medal_{n:02}"));
+    (valid_asset || crate::uploaded_medal_sha256(asset_key).is_some())
+        && (1..=80).contains(&name.trim().chars().count())
+        && !name.chars().any(char::is_control)
+}
+
+async fn ensure_medal_asset(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    key: &str,
+) -> Result<(), UpdateMembershipMedalRuleError> {
+    if crate::uploaded_medal_sha256(key).is_some()
+        && !sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM membership_medal_assets WHERE asset_key = $1)",
+        )
+        .bind(key)
+        .fetch_one(&mut **transaction)
+        .await?
+    {
+        return Err(UpdateMembershipMedalRuleError::InvalidDefinition);
+    }
+    Ok(())
 }
 
 #[derive(Debug, FromRow)]
@@ -1089,6 +1212,8 @@ impl Error for RevokeMembershipMedalError {}
 impl fmt::Display for UpdateMembershipMedalRuleError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::RevisionConflict => formatter.write_str("medal catalog revision conflict"),
+            Self::InvalidDefinition => formatter.write_str("invalid medal definition"),
             Self::Forbidden => formatter.write_str("membership medal rule mutation is forbidden"),
             Self::InvalidMedal => formatter.write_str("medal key is invalid"),
             Self::InvalidThreshold => formatter.write_str("medal threshold is invalid"),

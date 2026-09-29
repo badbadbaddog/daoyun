@@ -117,3 +117,9 @@ describe("communityRoute", () => {
     }
   })
 })
+
+it("round-trips all content filters without requiring a keyword",()=>{
+ const route={kind:"search",query:"",scope:"topics",filters:{board:"general",author:"author",tag:"rust",from:"2026-08-01",through:"2026-08-31",sort:"popular"}} as const
+ expect(parseHash(formatRoute(route))).toEqual(route)
+ expect(formatRoute(route)).toContain("from=2026-08-01")
+})

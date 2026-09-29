@@ -134,6 +134,7 @@ test.describe("local real business flow", () => {
     await selectAdminModule(page, "authorization", "角色与权限")
     await expect(page.getByRole("heading", { level: 1, name: "角色与权限", exact: true })).toBeVisible()
 
+    await page.getByRole("button", { name: "新建角色", exact: true }).click()
     await page.getByLabel("角色键").fill(roleKey)
     await page.getByLabel("角色名称").fill(roleName)
     await page.getByLabel("作用域").selectOption("board")
@@ -144,6 +145,8 @@ test.describe("local real business flow", () => {
     moderatorRoleId = roleCreatePayload.data.id
     await expect(page.getByRole("status").filter({ hasText: "角色已创建" })).toBeVisible()
 
+    await page.getByRole("button", { name: "人员授权", exact: true }).click()
+    await page.getByRole("button", { name: "新增授权" }).click()
     await page.getByLabel("用户名（精确匹配）").fill("demo_member")
     await page.getByLabel("自定义角色").selectOption({ label: `${roleName}（板块）` })
     await page.getByLabel("作用板块").selectOption({ label: "社区广场" })
@@ -325,7 +328,8 @@ test.describe("local real business flow", () => {
     try {
       await page.goto("/#admin", { waitUntil: "networkidle" })
       await selectAdminModule(page, "plugins", "插件管理")
-      await expect(page.getByRole("heading", { name: "插件平台" })).toBeVisible()
+      await expect(page.getByRole("heading", { level: 1, name: "插件管理" })).toBeVisible()
+      await page.getByRole("button", { name: "安装插件", exact: true }).click()
 
       const installForm = page.locator(".plugin-install")
       await installForm.getByLabel("插件键").fill(pluginKey)
@@ -347,26 +351,30 @@ test.describe("local real business flow", () => {
       expect(installedResponse.status(), JSON.stringify(installed)).toBe(201)
       pluginId = installed.data.id
 
-      const pluginRow = page.locator(".plugin-row").filter({ hasText: pluginName })
+      const pluginRow = page.getByRole("article", { name: `插件：${pluginName}`, exact: true })
       await expect(pluginRow).toContainText("已停用")
       const enableResponse = page.waitForResponse((response) => (
         response.request().method() === "PATCH"
         && new URL(response.url()).pathname === `/api/v1/admin/plugins/${pluginId}`
       ))
-      await pluginRow.getByRole("button", { name: `启用插件：${pluginName}` }).click()
+      await pluginRow.getByRole("switch", { name: `启用插件：${pluginName}` }).click()
       expect((await enableResponse).status()).toBe(200)
       await expect(pluginRow).toContainText("已启用")
 
       const transformInput = "DaoYun real plugin e2e"
-      await pluginRow.getByText("开发者工具", { exact: true }).click()
-      await pluginRow.getByLabel(`调用输入：${pluginName}`).fill(transformInput)
+      await pluginRow.getByRole("button", { name: `查看插件：${pluginName}` }).click()
+      const detail = page.getByRole("region", { name: `插件：${pluginName}`, exact: true })
+      await detail.getByText("高级与开发者工具", { exact: true }).click()
+      await detail.getByRole("button", { name: "开发者工具", exact: true }).click()
+      const tools = page.getByRole("dialog", { name: `开发者工具：${pluginName}`, exact: true })
+      await tools.getByLabel(`调用输入：${pluginName}`).fill(transformInput)
       const transformResponse = page.waitForResponse((response) => (
         response.request().method() === "POST"
         && new URL(response.url()).pathname === `/api/v1/admin/plugins/${pluginId}/invoke`
       ))
-      await pluginRow.getByRole("button", { name: `转换内容：${pluginName}` }).click()
+      await tools.getByRole("button", { name: `转换内容：${pluginName}` }).click()
       expect((await transformResponse).status()).toBe(200)
-      await expect(pluginRow.getByLabel(`插件输出：${pluginName}`)).toHaveText(transformInput.toUpperCase())
+      await expect(tools.getByLabel(`插件输出：${pluginName}`)).toHaveText(transformInput.toUpperCase())
 
       const unsafeText = "<script>window.parent.document.body.textContent='unsafe'</script>"
       const uiInput = JSON.stringify({
@@ -378,15 +386,15 @@ test.describe("local real business flow", () => {
           { kind: "status", tone: "success", text: "验证通过" },
         ],
       })
-      await pluginRow.getByLabel(`调用输入：${pluginName}`).fill(uiInput)
+      await tools.getByLabel(`调用输入：${pluginName}`).fill(uiInput)
       const renderResponse = page.waitForResponse((response) => (
         response.request().method() === "POST"
         && new URL(response.url()).pathname === `/api/v1/admin/plugins/${pluginId}/invoke`
       ))
-      await pluginRow.getByRole("button", { name: `渲染面板：${pluginName}` }).click()
+      await tools.getByRole("button", { name: `渲染面板：${pluginName}` }).click()
       expect((await renderResponse).status()).toBe(200)
 
-      const pluginFrame = pluginRow.locator('iframe[title="插件面板：安全插件面板"]')
+      const pluginFrame = tools.locator('iframe[title="插件面板：安全插件面板"]')
       await expect(pluginFrame).toBeVisible()
       await expect(pluginFrame).toHaveAttribute("sandbox", "")
       await expect(pluginFrame).toHaveAttribute("referrerpolicy", "no-referrer")
@@ -407,11 +415,12 @@ test.describe("local real business flow", () => {
         await assertNoHorizontalOverflow(page)
       }
 
+      await page.getByRole("button", { name: `关闭开发者工具：${pluginName}` }).click()
       const disableResponse = page.waitForResponse((response) => (
         response.request().method() === "PATCH"
         && new URL(response.url()).pathname === `/api/v1/admin/plugins/${pluginId}`
       ))
-      await pluginRow.getByRole("button", { name: `停用插件：${pluginName}` }).click()
+      await pluginRow.getByRole("switch", { name: `停用插件：${pluginName}` }).click()
       expect((await disableResponse).status()).toBe(200)
       await expect(pluginRow).toContainText("已停用")
       const accessibility = await new AxeBuilder({ page }).include(".admin-view").analyze()
@@ -431,7 +440,8 @@ test.describe("local real business flow", () => {
         response.request().method() === "DELETE"
         && new URL(response.url()).pathname === `/api/v1/admin/plugins/${pluginId}`
       ))
-      await pluginRow.getByRole("button", { name: `卸载插件：${pluginName}` }).click()
+      await pluginRow.getByRole("button", { name: `更多操作：${pluginName}` }).click()
+      await page.getByRole("menuitem", { name: `卸载插件：${pluginName}` }).click()
       const uninstallDialog = page.getByRole("alertdialog", { name: `卸载插件“${pluginName}”` })
       await expect(uninstallDialog).toBeVisible()
       await uninstallDialog.getByRole("button", { name: "确认卸载插件" }).click()
@@ -476,12 +486,13 @@ test.describe("local real business flow", () => {
 
       await topicRow.getByRole("button", { name: `操作：${fixtureTitle}` }).click()
       await topicRow.getByRole("menuitem", { name: "处理记录", exact: true }).click()
-      const history = topicRow.getByRole("region", { name: "主题处理记录" })
+      const history = page.getByRole("dialog", { name: "主题处理记录" })
       await expect(history.getByRole("table", { name: "处理记录" })).toBeVisible()
       await expect(history.getByRole("button", { name: "加载更多记录" })).toBeVisible()
       await assertNoHorizontalOverflow(page)
-      await topicRow.getByRole("button", { name: `操作：${fixtureTitle}` }).click()
-      await topicRow.getByRole("menuitem", { name: "处理记录", exact: true }).click()
+      await page.keyboard.press("Escape")
+      await expect(history).toHaveCount(0)
+      await expect(topicRow.getByRole("button", { name: `操作：${fixtureTitle}` })).toBeFocused()
 
       await topicRow.getByRole("button", { name: `操作：${fixtureTitle}` }).click()
       await topicRow.getByRole("menuitem", { name: "移动", exact: true }).click()
@@ -668,7 +679,9 @@ async function exerciseWritableOperations(
   await expect(page.getByText("数据库正常")).toBeVisible()
 
   const signal = testInfo.project.name.includes("mobile") ? "HTTP P95 毫秒" : "HTTP 5xx 数"
+  await page.getByRole("button", { name: "告警规则", exact: true }).click()
   const ruleForm = page.locator(".operations-rule").filter({ hasText: signal })
+  await ruleForm.getByRole("button", { name: /^编辑 .*规则$/ }).click()
   const threshold = ruleForm.getByLabel(/阈值$/)
   const originalThreshold = Number(await threshold.inputValue())
   expect(Number.isSafeInteger(originalThreshold)).toBe(true)
@@ -683,6 +696,7 @@ async function exerciseWritableOperations(
   expect((await updateResponse).status()).toBe(200)
   await expect(page.getByRole("status").filter({ hasText: "规则已保存" })).toBeVisible()
 
+  await ruleForm.getByRole("button", { name: /^编辑 .*规则$/ }).click()
   await threshold.fill(String(originalThreshold))
   const restoreResponse = page.waitForResponse((response) => (
     response.request().method() === "PATCH"

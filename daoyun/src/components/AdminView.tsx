@@ -2,6 +2,12 @@ import {
   Activity,
   AlertCircle,
   ArrowLeft,
+  ChartNoAxesCombined,
+  ClipboardCheck,
+  MessageSquare,
+  ChevronLeft,
+  ChevronRight,
+  Search,
   Check,
   Flag,
   Gavel,
@@ -48,6 +54,7 @@ import {
 import type { AdminBoard, BrandAssetKind, BrandLink, GovernancePolicy, RiskAlert, SiteBranding, SiteBrandingInput, SmtpSettings, SmtpSettingsInput } from "../api/admin"
 import { listModerationBoards } from "../api/moderation"
 import type { ModerationBoard } from "../api/moderation"
+import { CommunityAnalyticsPanel } from "./CommunityAnalyticsPanel"
 import { MembershipAdminPanel } from "./MembershipAdminPanel"
 import { MembershipAdminPage } from "../features/admin-membership/MembershipAdminPage"
 import { AuthorizationAdminPanel } from "./AuthorizationAdminPanel"
@@ -57,9 +64,12 @@ import { UserAdminPanel } from "./UserAdminPanel"
 import { BoardAdminPanel } from "./BoardAdminPanel"
 import { ReportAdminPanel, type ReportStatusFilter } from "./ReportAdminPanel"
 import { AdminDashboard } from "./AdminDashboard"
+import { CommentAdminPanel } from "./CommentAdminPanel"
+import { ContentReviewAdminPanel } from "./ContentReviewAdminPanel"
 import { ModerationAdminPanel } from "./ModerationAdminPanel"
+import { AdminActionDialog } from "./admin/AdminActionDialog"
 
-export type AdminTab = "dashboard" | "users" | "branding" | "email" | "boards" | "reports" | "moderation" | "risk" | "membership" | "authorization" | "operations" | "plugins"
+export type AdminTab = "comments" | "reviews" | "dashboard" | "users" | "branding" | "email" | "boards" | "reports" | "moderation" | "risk" | "membership" | "authorization" | "operations" | "analytics" | "plugins"
 type LoadState = "loading" | "ready" | "forbidden" | "error"
 
 interface AdminModuleDefinition {
@@ -72,20 +82,30 @@ interface AdminModuleDefinition {
 }
 
 const adminModules: AdminModuleDefinition[] = [
-  { tab: "dashboard", label: "工作台", description: "聚合待处理事项与站点状态。", icon: LayoutDashboard, requirements: [] },
+  { tab: "dashboard", label: "工作台", description: "查看社区近况，优先处理需要关注的事项。", icon: LayoutDashboard, requirements: [] },
   { tab: "users", label: "用户管理", description: "检索用户并处理账号与角色。", icon: Users, requirements: ["admin.users.read"] },
   { tab: "boards", label: "版块管理", description: "维护社区结构、可见性与展示信息。", icon: PanelsTopLeft, requirements: ["admin.configuration.read"] },
   { tab: "reports", label: "举报处理", description: "集中核查举报并记录治理结论。", icon: Flag, requirements: ["governance.reports.read"] },
-  { tab: "moderation", label: "内容治理", description: "管理主题状态与版块内容秩序。", icon: Gavel, requirements: ["moderation.topic"] },
+  { tab: "moderation", label: "主题管理", description: "管理主题状态与版块内容秩序。", icon: Gavel, requirements: ["moderation.topic"] },
+  { tab: "comments", label: "评论管理", description: "检索评论，查看上下文并处理可见性。", icon: MessageSquare, requirements: ["moderation.topic"] },
+  { tab: "reviews", label: "内容审核", description: "核对主题与回复的待审编辑，记录审核结论。", icon: ClipboardCheck, requirements: ["moderation.topic"] },
   { tab: "risk", label: "风控告警", description: "查看风险信号并调整自动治理策略。", icon: ShieldAlert, requirements: ["governance.policy.read", "governance.alerts.read"] },
-  { tab: "membership", label: "会员经济", description: "配置成长、积分、勋章、用户组与标准权益。", icon: Gem, requirements: ["membership.rules.read", "membership.rules.write", "membership.medals.read", "membership.medals.rules.write", "membership.points.grant", "membership.medals.grant", "community.groups.read", "entitlements.types.read", "entitlements.types.write", "entitlements.grants.read", "entitlements.grants.write"], requirementMode: "any" },
+  { tab: "membership", label: "会员经济", description: "配置成长、积分、勋章、用户组与标准权益。", icon: Gem, requirements: ["membership.rules.read", "membership.rules.write", "membership.medals.read", "membership.medals.rules.write", "membership.points.grant", "membership.medals.grant", "community.groups.read", "entitlements.types.read", "entitlements.types.write", "entitlements.grants.read", "entitlements.grants.write", "membership.redemptions.read"], requirementMode: "any" },
   { tab: "branding", label: "品牌配置", description: "统一站点品牌、主题与导航展示。", icon: Palette, requirements: ["admin.configuration.read"] },
   { tab: "email", label: "邮件服务", description: "配置 SMTP 发信与注册邮箱验证。", icon: MailCheck, requirements: ["admin.configuration.read"] },
   { tab: "authorization", label: "角色与权限", description: "管理角色能力与人员授权范围。", icon: KeyRound, requirements: ["authorization.roles.read", "authorization.assignments.read"] },
+  { tab: "analytics", label: "数据总览", description: "查看社区增长、参与和积分收支。", icon: ChartNoAxesCombined, requirements: ["community.analytics.read"] },
   { tab: "operations", label: "运维监控", description: "观察服务状态、告警与运行规则。", icon: Activity, requirements: ["operations.read"] },
   { tab: "plugins", label: "插件管理", description: "管理插件安装、启停与能力边界。", icon: Plug, requirements: ["plugins.read"] },
 ]
 const tabOrder = adminModules.map(({ tab }) => tab)
+const adminGroups: { label: string; tabs: AdminTab[] }[] = [
+  { label: "", tabs: ["dashboard"] },
+  { label: "内容管理", tabs: ["moderation", "comments", "reports", "reviews", "risk"] },
+  { label: "社区运营", tabs: ["boards", "users", "membership", "authorization"] },
+  { label: "数据分析", tabs: ["analytics"] },
+  { label: "系统设置", tabs: ["branding", "plugins", "email", "operations"] },
+]
 
 interface AdminViewProps {
   session: AuthSession | null | undefined
@@ -125,7 +145,7 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
         const capabilities = new Set(capabilityKeys)
         const allowedTaskTabs = adminModules
           .filter(({ tab: candidate, requirements, requirementMode }) => candidate !== "dashboard" && (
-            candidate === "moderation"
+            ["moderation", "comments", "reviews"].includes(candidate)
               ? scopedModerationBoards.length > 0
               : (
             requirementMode === "any"
@@ -198,28 +218,34 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
     setTab(nextTab)
     onTabChange?.(nextTab)
   }
+  const navigationGroups = adminGroups.map((group) => ({
+    ...group,
+    modules: group.tabs.flatMap((groupTab) => availableModules.filter((module) => module.tab === groupTab)),
+  })).filter((group) => group.modules.length > 0)
   const navigation = (
     <>
       <nav className="system-admin-nav" aria-label="站点管理导航">
-        <p>管理任务</p>
-        {availableModules.map((module) => (
-          <div className="system-admin-nav__item" key={module.tab}>
-            <button type="button" aria-label={module.label} title={module.label} aria-current={tab === module.tab ? "page" : undefined} onClick={() => navigateTo(module.tab)}>
-              <module.icon size={17} strokeWidth={1.8} aria-hidden="true" />
-              <strong>{module.label}</strong>
-            </button>
-            {module.tab === "moderation" && tab === "moderation" ? (
-              <div className="system-admin-nav__children" role="group" aria-label="内容治理子导航">
-                <span aria-current="page">主题治理工作台</span>
+        {navigationGroups.map((group) => (
+          <div className="system-admin-nav__group" role="group" aria-label={group.label || "工作台入口"} key={group.label || "dashboard"}>
+            {group.label && <p>{group.label}</p>}
+            {group.modules.map((module) => (
+              <div className="system-admin-nav__item" key={module.tab}>
+                <button type="button" aria-label={module.label} title={module.label} aria-current={tab === module.tab ? "page" : undefined} onClick={() => navigateTo(module.tab)}>
+                  <module.icon size={17} strokeWidth={1.8} aria-hidden="true" />
+                  <strong>{module.label}</strong>
+                </button>
               </div>
-            ) : null}
+            ))}
           </div>
         ))}
       </nav>
       <label className="system-admin-mobile-nav">
         <span>管理模块</span>
         <select aria-label="管理模块" value={tab} onChange={(event) => navigateTo(event.target.value as AdminTab)}>
-          {availableModules.map((module) => <option key={module.tab} value={module.tab}>{module.label}</option>)}
+          {navigationGroups.map((group) => {
+            const options = group.modules.map((module) => <option key={module.tab} value={module.tab}>{module.label}</option>)
+            return group.label ? <optgroup label={group.label} key={group.label}>{options}</optgroup> : options
+          })}
         </select>
       </label>
     </>
@@ -230,14 +256,18 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
       session={session}
       onBack={onBack}
       navigation={navigation}
+      modules={availableModules}
+      onNavigate={navigateTo}
+      hidePageHeading={tab === "moderation" || tab === "users"}
       pageTitle={activeModule.label}
       pageDescription={activeModule.description}
-      variant={tab === "moderation" ? "moderation" : "default"}
+      variant={tab === "moderation" ? "moderation" : tab === "dashboard" ? "dashboard" : tab === "users" ? "users" : "default"}
     >
       {tab === "dashboard" ? (
         <AdminDashboard
           capabilityKeys={capabilityKeys}
           boards={boards}
+          shortcuts={availableModules.filter(({ tab }) => ["users", "boards", "moderation", "branding", "plugins", "operations"].includes(tab))}
           onNavigate={(nextTab, query) => {
             navigateTo(nextTab)
             onQueryChange?.(query)
@@ -249,6 +279,8 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
           onQueryChange={onQueryChange}
           csrfToken={session?.csrfToken ?? ""}
           canModerate={capabilityKeys.includes("admin.users.moderate")}
+          canReadRoles={capabilityKeys.includes("authorization.roles.read")}
+          canReadReports={capabilityKeys.includes("governance.reports.read")}
           canAssignRoles={[
             "authorization.roles.read",
             "authorization.assignments.read",
@@ -276,8 +308,13 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
           canResolve={capabilityKeys.includes("governance.reports.resolve")}
           canReadAudit={capabilityKeys.includes("audit.read")}
         />
+      ) : tab === "comments" ? (
+        <CommentAdminPanel boards={moderationBoards} csrfToken={session?.csrfToken ?? ""} />
+      ) : tab === "reviews" ? (
+        <ContentReviewAdminPanel boards={moderationBoards} csrfToken={session?.csrfToken ?? ""} />
       ) : tab === "moderation" ? (
         <ModerationAdminPanel
+          session={session}
           boards={moderationBoards}
           csrfToken={session?.csrfToken ?? ""}
           canReadAudit={capabilityKeys.includes("audit.read")}
@@ -286,6 +323,8 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
         <RiskPanel csrfToken={session?.csrfToken ?? ""} />
       ) : tab === "authorization" ? (
         <AuthorizationAdminPanel csrfToken={session?.csrfToken ?? ""} boards={boards} />
+      ) : tab === "analytics" ? (
+        <CommunityAnalyticsPanel />
       ) : tab === "operations" ? (
         <OperationsAdminPanel csrfToken={session?.csrfToken ?? ""} canWrite={capabilityKeys.includes("operations.alerts.write")} />
       ) : tab === "plugins" ? (
@@ -294,6 +333,7 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
           canInstall={capabilityKeys.includes("plugins.install")}
           canLifecycle={capabilityKeys.includes("plugins.lifecycle")}
           canInvoke={capabilityKeys.includes("plugins.invoke")}
+          canConfigure={capabilityKeys.includes("admin.configuration.read") && capabilityKeys.includes("admin.configuration.write")}
         />
       ) : (
         <MembershipAdminPage>
@@ -314,6 +354,8 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
             canWriteEntitlementTypes={capabilityKeys.includes("entitlements.types.write")}
             canReadEntitlementGrants={capabilityKeys.includes("entitlements.grants.read")}
             canWriteEntitlementGrants={capabilityKeys.includes("entitlements.grants.write")}
+            canReadRedemptions={capabilityKeys.includes("membership.redemptions.read")}
+            canWriteRedemptions={capabilityKeys.includes("membership.redemptions.write")}
           />
         </MembershipAdminPage>
       )}
@@ -321,7 +363,17 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
   )
 }
 
-function AdminShell({ session, children, onBack, navigation, pageTitle = "站点管理", pageDescription = "管理社区配置与治理任务。", variant = "default" }: { session: AuthSession | null | undefined; children: React.ReactNode; onBack: () => void; navigation?: React.ReactNode; pageTitle?: string; pageDescription?: string; variant?: "default" | "moderation" }) {
+function AdminShell({ session, children, onBack, navigation, modules = [], onNavigate, hidePageHeading = false, pageTitle = "站点管理", pageDescription = "管理社区配置与治理任务。", variant = "default" }: { session: AuthSession | null | undefined; children: React.ReactNode; onBack: () => void; navigation?: React.ReactNode; modules?: AdminModuleDefinition[]; onNavigate?: (tab: AdminTab) => void; hidePageHeading?: boolean; pageTitle?: string; pageDescription?: string; variant?: "default" | "moderation" | "dashboard" | "users" }) {
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return window.localStorage.getItem("daoyun-admin-sidebar-collapsed") === "true" }
+    catch { return false }
+  })
+  useEffect(() => {
+    try { window.localStorage.setItem("daoyun-admin-sidebar-collapsed", String(collapsed)) }
+    catch { /* 本机偏好存储不可用时，菜单仍可正常展开与收起。 */ }
+  }, [collapsed])
+  const [search, setSearch] = useState("")
+  const [searchMessage, setSearchMessage] = useState("")
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     const storedTheme = window.localStorage.getItem("daoyun-theme")
     if (storedTheme === "light" || storedTheme === "dark") return storedTheme
@@ -334,16 +386,32 @@ function AdminShell({ session, children, onBack, navigation, pageTitle = "站点
   }, [theme])
 
   return (
-    <div className={`admin-view admin-view--system${variant === "moderation" ? " admin-view--moderation" : ""}`}>
+    <div className={`admin-view admin-view--system${collapsed ? " admin-view--collapsed" : ""}${variant !== "default" ? ` admin-view--${variant}` : ""}`}>
       <header className="system-admin-header">
         <div className="system-admin-brand"><span aria-hidden="true">刀</span><div><strong>刀云站点管理</strong><small>管理后台</small></div></div>
+        <form className="system-admin-search" role="search" aria-label="管理模块搜索" onSubmit={(event) => {
+          event.preventDefault()
+          const query = search.trim().toLocaleLowerCase()
+          const match = query && modules.find((module) => module.label.toLocaleLowerCase().includes(query))
+          if (match) { onNavigate?.(match.tab); setSearch(""); setSearchMessage("") }
+          else setSearchMessage("没有匹配的可用模块")
+        }}>
+          {modules.length > 0 && <>
+            <Search size={17} aria-hidden="true" />
+            <input type="search" aria-label="搜索管理模块" placeholder="搜索管理模块…" list="admin-module-options" value={search} onChange={(event) => { setSearch(event.target.value); setSearchMessage("") }} />
+            <datalist id="admin-module-options">{modules.map((module) => <option key={module.tab} value={module.label} />)}</datalist>
+            <button type="submit" aria-label="前往管理模块" title="前往管理模块"><ChevronRight size={16} aria-hidden="true" /></button>
+            {searchMessage && <span role="status">{searchMessage}</span>}
+          </>}
+        </form>
         <button className="system-admin-back" type="button" onClick={onBack}><ArrowLeft size={15} aria-hidden="true" />返回社区</button>
         <button className="system-admin-theme" type="button" onClick={() => setTheme((current) => current === "light" ? "dark" : "light")} aria-label={theme === "light" ? "切换为深色主题" : "切换为浅色主题"} title={theme === "light" ? "深色主题" : "浅色主题"}>{theme === "light" ? <Moon size={15} aria-hidden="true" /> : <Sun size={15} aria-hidden="true" />}</button>
-        <div className="system-admin-account"><span>{session?.user.displayName ?? "未登录"}</span><small>{session ? `@${session.user.username}` : "需要管理员会话"}</small></div>
+        <div className="system-admin-account"><span className="system-admin-account__avatar" aria-hidden="true">{(session?.user.displayName ?? "管").slice(0, 1)}</span><div><span>{session?.user.displayName ?? "未登录"}</span><small>{session ? `@${session.user.username}` : "需要管理员会话"}</small></div></div>
       </header>
       <div className="system-admin-layout">
         <aside className="system-admin-sidebar">
           {navigation}
+          {navigation && <button className="system-admin-collapse" type="button" aria-label={collapsed ? "展开菜单" : "收起菜单"} title={collapsed ? "展开菜单" : "收起菜单"} aria-expanded={!collapsed} onClick={() => setCollapsed((value) => !value)}>{collapsed ? <ChevronRight size={17} aria-hidden="true" /> : <ChevronLeft size={17} aria-hidden="true" />}<span>收起菜单</span></button>}
           {variant === "moderation" ? (
             <div className="system-admin-sidebar-account" role="group" aria-label="当前管理员" hidden aria-hidden="true">
               <span className="system-admin-sidebar-account__avatar" aria-hidden="true">{(session?.user.displayName ?? "管").slice(0, 1)}</span>
@@ -352,9 +420,10 @@ function AdminShell({ session, children, onBack, navigation, pageTitle = "站点
           ) : null}
         </aside>
         <main className="system-admin-main">
-          <header className="system-admin-page-heading">
+          {!hidePageHeading && <header className="system-admin-page-heading">
             <div><h1 id="admin-heading">{pageTitle}</h1><p>{pageDescription}</p></div>
-          </header>
+            {variant === "dashboard" && <time className="system-admin-date" dateTime={new Date().toISOString()}>{new Date().toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long" })}</time>}
+          </header>}
           <div className="system-admin-content">{children}</div>
         </main>
       </div>
@@ -373,6 +442,7 @@ function isAdminTab(value: string | null | undefined): value is AdminTab {
 }
 
 function BrandingPanel({ branding, csrfToken, onSaved }: { branding: SiteBranding; csrfToken: string; onSaved: (value: SiteBranding) => void }) {
+  const [category, setCategory] = useState<"basic" | "theme" | "links">("basic")
   const [form, setForm] = useState<SiteBrandingInput>(() => ({ ...branding, homeMode: "hot" }))
   const receivedInitialBranding = useRef(false)
   const [saving, setSaving] = useState(false)
@@ -416,7 +486,13 @@ function BrandingPanel({ branding, csrfToken, onSaved }: { branding: SiteBrandin
   return (
     <div className="admin-panel">
       <div className="admin-panel__heading"><div><p>站点外观</p><h2>站点品牌</h2></div><span className="admin-badge">预览同步</span></div>
+      <nav className="admin-workspace-tabs" aria-label="品牌设置分类">
+        <button type="button" aria-pressed={category === "basic"} onClick={() => setCategory("basic")}>基本信息</button>
+        <button type="button" aria-pressed={category === "theme"} onClick={() => setCategory("theme")}>主题外观</button>
+        <button type="button" aria-pressed={category === "links"} onClick={() => setCategory("links")}>导航与页脚</button>
+      </nav>
       <form className="admin-form" onSubmit={save}>
+        {category === "basic" && <>
         <label><span>站点名称</span><input value={form.siteName} onChange={(event) => change("siteName", event.target.value)} aria-invalid={Boolean(fields.site_name)} />{fieldError(fields.site_name)}</label>
         <div className="admin-form__grid">
           <label><span>Logo HTTPS 地址</span><input type="url" value={form.logoUrl ?? ""} onChange={(event) => change("logoUrl", event.target.value || null)} aria-invalid={Boolean(fields.logo_url)} />{fieldError(fields.logo_url)}</label>
@@ -426,13 +502,17 @@ function BrandingPanel({ branding, csrfToken, onSaved }: { branding: SiteBrandin
           <BrandAssetControl kind="logo" label="Logo" accept="image/png,image/webp" currentUrl={form.logoUrl} csrfToken={csrfToken} onSaved={onSaved} />
           <BrandAssetControl kind="favicon" label="Favicon" accept="image/png" currentUrl={form.faviconUrl} csrfToken={csrfToken} onSaved={onSaved} />
         </div>
-        <label><span>默认主题封面 HTTPS 地址</span><input type="url" value={form.defaultCoverUrl ?? ""} onChange={(event) => change("defaultCoverUrl", event.target.value || null)} aria-invalid={Boolean(fields.default_cover_url)} />{fieldError(fields.default_cover_url)}</label>
+        </>}
+        {category === "links" && <>
         <BrandLinksEditor title="自定义导航" links={form.navigationLinks} fieldErrors={fields.navigation_links} onChange={(index, field, value) => changeLink("navigationLinks", index, field, value)} onAdd={() => addLink("navigationLinks")} onRemove={(index) => removeLink("navigationLinks", index)} />
         <label><span>页脚文字</span><input value={form.footerText ?? ""} onChange={(event) => change("footerText", event.target.value || null)} maxLength={160} aria-invalid={Boolean(fields.footer_text)} />{fieldError(fields.footer_text)}</label>
         <BrandLinksEditor title="页脚链接" links={form.footerLinks} fieldErrors={fields.footer_links} onChange={(index, field, value) => changeLink("footerLinks", index, field, value)} onAdd={() => addLink("footerLinks")} onRemove={(index) => removeLink("footerLinks", index)} />
+        </>}
+        {category === "theme" && <>
+        <label><span>默认主题封面 HTTPS 地址</span><input type="url" value={form.defaultCoverUrl ?? ""} onChange={(event) => change("defaultCoverUrl", event.target.value || null)} aria-invalid={Boolean(fields.default_cover_url)} />{fieldError(fields.default_cover_url)}</label>
         <div className="admin-form__grid">
-          <label><span>主色</span><input type="color" value={form.primaryColor} onChange={(event) => change("primaryColor", event.target.value)} /><small>{form.primaryColor}</small>{fieldError(fields.primary_color)}</label>
-          <label><span>强调色</span><input type="color" value={form.accentColor} onChange={(event) => change("accentColor", event.target.value)} /><small>{form.accentColor}</small>{fieldError(fields.accent_color)}</label>
+          <label><span>主色</span><input type="color" aria-label="主色" value={form.primaryColor} onChange={(event) => change("primaryColor", event.target.value)} /><small>{form.primaryColor}</small>{fieldError(fields.primary_color)}</label>
+          <label><span>强调色</span><input type="color" aria-label="强调色" value={form.accentColor} onChange={(event) => change("accentColor", event.target.value)} /><small>{form.accentColor}</small>{fieldError(fields.accent_color)}</label>
         </div>
         <div className="admin-form__grid">
           <label><span>官方预设</span><select value={form.themePreset} onChange={(event) => change("themePreset", event.target.value as SiteBrandingInput["themePreset"])}><option value="default">默认</option><option value="dark">深色</option><option value="compact">紧凑</option><option value="high_contrast">高对比度</option></select></label>
@@ -440,6 +520,7 @@ function BrandingPanel({ branding, csrfToken, onSaved }: { branding: SiteBrandin
         </div>
         <label><span>首页模式</span><select value="hot" aria-label="首页模式" disabled><option value="hot">推荐（固定）</option></select><small>首页统一使用推荐发现；历史配置仍兼容读取，但保存时会收敛为推荐。</small></label>
         <div className="admin-preview" style={{ "--admin-primary": form.primaryColor, "--admin-accent": form.accentColor } as React.CSSProperties}><strong>{form.siteName || "站点名称"}</strong><span>这是保存后的颜色预览</span><i /></div>
+        </>}
         {(error || message) && <p className={error ? "form-alert" : "admin-success"} role={error ? "alert" : "status"}>{error || message}</p>}
         <div className="admin-form__actions"><button className="primary-button" type="submit" disabled={saving}>{saving ? <LoaderCircle className="topic-loading__spinner" size={15} aria-hidden="true" /> : <Save size={15} aria-hidden="true" />}保存品牌配置</button></div>
       </form>
@@ -448,6 +529,7 @@ function BrandingPanel({ branding, csrfToken, onSaved }: { branding: SiteBrandin
 }
 
 function SmtpSettingsPanel({ settings, csrfToken, canWrite, onSaved }: { settings: SmtpSettings; csrfToken: string; canWrite: boolean; onSaved: (value: SmtpSettings) => void }) {
+  const [testOpen, setTestOpen] = useState(false)
   const [form, setForm] = useState<SmtpSettingsInput>(() => smtpForm(settings))
   const [testRecipient, setTestRecipient] = useState("")
   const [saving, setSaving] = useState(false)
@@ -492,6 +574,7 @@ function SmtpSettingsPanel({ settings, csrfToken, canWrite, onSaved }: { setting
       <div className="admin-panel__heading">
         <div><p>出站邮件</p><h2>SMTP 邮件服务</h2></div>
         <span className="admin-badge">{settings.enabled ? "已启用" : "未启用"}</span>
+        {canWrite && <button className="secondary-button" type="button" onClick={() => { setMessage(""); setError(""); setTestOpen(true) }}>测试发信</button>}
       </div>
       <form className="admin-form" onSubmit={save}>
         <div className="admin-form__grid">
@@ -513,14 +596,17 @@ function SmtpSettingsPanel({ settings, csrfToken, canWrite, onSaved }: { setting
           <label className="admin-checkbox"><input type="checkbox" checked={form.enabled} onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked, registrationEmailVerificationEnabled: event.target.checked ? current.registrationEmailVerificationEnabled : false }))} /><span><strong>启用 SMTP 发信</strong><small>关闭后不会发送任何系统邮件。</small></span></label>
           <label className="admin-checkbox"><input type="checkbox" checked={form.registrationEmailVerificationEnabled} disabled={!form.enabled} onChange={(event) => change("registrationEmailVerificationEnabled", event.target.checked)} /><span><strong>注册时验证邮箱</strong><small>新用户需要填写邮件中的 6 位验证码。</small></span></label>
         </fieldset>
-        {(error || message) && <p className={error ? "form-alert" : "admin-success"} role={error ? "alert" : "status"}>{error || message}</p>}
+        {!testOpen && (error || message) && <p className={error ? "form-alert" : "admin-success"} role={error ? "alert" : "status"}>{error || message}</p>}
         <div className="admin-form__actions"><button className="primary-button" type="submit" disabled={!canWrite || saving}>{saving ? <LoaderCircle className="topic-loading__spinner" size={15} aria-hidden="true" /> : <Save size={15} aria-hidden="true" />}保存邮件配置</button></div>
       </form>
+      {testOpen && <AdminActionDialog title="测试发信" onClose={() => setTestOpen(false)} busy={testing}>
       <div className="smtp-settings-panel__test">
         <div><strong>发送测试邮件</strong><small>测试使用当前已保存的配置，请先保存上方修改。</small></div>
         <label><span>测试收件邮箱</span><input type="email" value={testRecipient} onChange={(event) => setTestRecipient(event.target.value)} placeholder="admin@example.com" /></label>
         <button className="secondary-button" type="button" onClick={() => void sendTest()} disabled={!canWrite || testing || !testRecipient.trim()}>{testing ? <LoaderCircle className="topic-loading__spinner" size={15} aria-hidden="true" /> : <MailCheck size={15} aria-hidden="true" />}发送测试邮件</button>
       </div>
+      {(error || message) && <p className={error ? "form-alert" : "admin-success"} role={error ? "alert" : "status"}>{error || message}</p>}
+      </AdminActionDialog>}
       {!canWrite && <p className="admin-empty">当前账号只有查看权限。</p>}
     </div>
   )
@@ -598,6 +684,7 @@ function reportIdFromQuery(query = ""): string | null {
 }
 
 function RiskPanel({ csrfToken }: { csrfToken: string }) {
+  const [policyOpen, setPolicyOpen] = useState(false)
   const [policy, setPolicy] = useState<GovernancePolicy | null>(null)
   const [alerts, setAlerts] = useState<RiskAlert[]>([])
   const [error, setError] = useState("")
@@ -618,7 +705,7 @@ function RiskPanel({ csrfToken }: { csrfToken: string }) {
     event.preventDefault()
     if (!policy) return
     setSaving(true); setError("")
-    try { setPolicy(await updateGovernancePolicy(policy, csrfToken)) } catch { setError("风控策略保存失败，请稍后重试。") } finally { setSaving(false) }
+    try { setPolicy(await updateGovernancePolicy(policy, csrfToken)); setPolicyOpen(false) } catch { setError("风控策略保存失败，请稍后重试。") } finally { setSaving(false) }
   }
 
   async function changeAlert(alert: RiskAlert, status: "acknowledged" | "dismissed") {
@@ -633,6 +720,8 @@ function RiskPanel({ csrfToken }: { csrfToken: string }) {
 
   return <div className="admin-panel">
     <div className="admin-panel__heading"><div><p>自动治理</p><h2>风控告警</h2></div><span className="admin-badge">{alerts.filter((alert) => alert.status === "open").length} 条待处理</span></div>
+    <div className="admin-workspace-actions"><button className="secondary-button" type="button" onClick={() => setPolicyOpen(true)}>自动治理策略</button></div>
+    {policyOpen && <AdminActionDialog title="自动治理策略" onClose={() => setPolicyOpen(false)} busy={saving}>
     <form className="admin-form" onSubmit={savePolicy}>
       <label className="admin-checkbox"><input type="checkbox" checked={policy.enabled} onChange={(event) => setPolicy({ ...policy, enabled: event.target.checked })} /><span>启用自动风险评分</span></label>
       <div className="admin-form__grid">
@@ -643,6 +732,8 @@ function RiskPanel({ csrfToken }: { csrfToken: string }) {
       <button className="primary-button" type="submit" disabled={saving}>{saving ? <LoaderCircle className="topic-loading__spinner" size={15} aria-hidden="true" /> : <Save size={15} aria-hidden="true" />}保存风控策略</button>
     </form>
     {error && <p className="form-alert" role="alert">{error}</p>}
+    </AdminActionDialog>}
+    {!policyOpen && error && <p className="form-alert" role="alert">{error}</p>}
     {alerts.length === 0 ? <div className="admin-empty" role="status"><ShieldAlert size={22} aria-hidden="true" /><span>暂无风险告警</span></div> : <div className="admin-report-list">
       {alerts.map((alert) => <article className="admin-report-row" key={alert.id}>
         <header><span><ShieldAlert size={14} aria-hidden="true" />{alert.kind === "reporter_spike" ? "举报频次" : "高风险举报"}</span><strong>{alert.severity} · {alert.score} 分</strong><time>{alert.createdAt}</time></header>

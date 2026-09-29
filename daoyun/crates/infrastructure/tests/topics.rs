@@ -162,6 +162,8 @@ async fn topic_filters_use_full_text_search_and_support_each_sort(pool: PgPool) 
         search: Some("100%".to_owned()),
         tag_slug: None,
         author_username: None,
+        published_from: None,
+        published_before: None,
         following_user_id: None,
         viewer_user_id: None,
         featured_only: true,
@@ -2178,4 +2180,133 @@ async fn insert_reply(
     .execute(pool)
     .await
     .expect("reply revision fixture must insert");
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn search_dates_use_inclusive_start_exclusive_end_in_every_sort(pool: PgPool) {
+    let author = fixture_id(1);
+    let board = fixture_id(11);
+    insert_user(&pool, author, "author", "active").await;
+    insert_board(&pool, board, "general", "public").await;
+    for (id, date) in [
+        (101, "2026-08-01T23:59:59Z"),
+        (102, "2026-08-02T00:00:00Z"),
+        (103, "2026-08-02T23:59:59Z"),
+        (104, "2026-08-03T00:00:00Z"),
+    ] {
+        insert_topic(
+            &pool,
+            fixture_id(id),
+            board,
+            author,
+            "Rust",
+            date,
+            0,
+            false,
+            false,
+            "published",
+            false,
+        )
+        .await;
+    }
+    let database = Database::from_pool(pool);
+    for sort in [TopicSort::Latest, TopicSort::Popular, TopicSort::Active] {
+        let filters = PublicTopicFilters {
+            board_slug: Some("general".into()),
+            author_username: Some("author".into()),
+            search: Some("Rust".into()),
+            published_from: Some(
+                time::OffsetDateTime::parse(
+                    "2026-08-02T00:00:00Z",
+                    &time::format_description::well_known::Rfc3339,
+                )
+                .unwrap(),
+            ),
+            published_before: Some(
+                time::OffsetDateTime::parse(
+                    "2026-08-03T00:00:00Z",
+                    &time::format_description::well_known::Rfc3339,
+                )
+                .unwrap(),
+            ),
+            sort,
+            ..Default::default()
+        };
+        let first = database
+            .list_public_topics(&filters, None, 1)
+            .await
+            .unwrap();
+        let second = database
+            .list_public_topics(&filters, Some(first[0].id), 1)
+            .await
+            .unwrap();
+        let mut ids = vec![first[0].id, second[0].id];
+        ids.sort();
+        assert_eq!(ids, vec![fixture_id(102), fixture_id(103)]);
+        assert!(matches!(
+            database
+                .list_public_topics(&filters, Some(fixture_id(104)), 1)
+                .await,
+            Err(ListPublicTopicsError::InvalidCursor)
+        ));
+    }
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn draft_publish_consumption_is_atomic_and_replayable(pool: PgPool) {
+    let author = fixture_id(1);
+    let board = fixture_id(11);
+    insert_user(&pool, author, "draft_author", "active").await;
+    insert_board(&pool, board, "drafts", "public").await;
+    let db = Database::from_pool(pool.clone());
+    let draft = Uuid::now_v7();
+    db.save_draft(author, draft, 0, json!({"title":"Draft"}))
+        .await
+        .unwrap();
+    let input = NewTopicRecord {
+        id: Uuid::now_v7(),
+        board_id: Some(board),
+        author_id: author,
+        title: "Draft".into(),
+        excerpt: "Body".into(),
+        content: "Body".into(),
+        rich_content: None,
+        tags: vec![],
+    };
+    let key = IdempotencyInput {
+        key: "draft-publish-once".into(),
+        request_hash: vec![1; 32],
+    };
+    assert!(matches!(
+        db.create_published_topic_with_draft(input.clone(), Some(key.clone()), Some((draft, 2)))
+            .await,
+        Err(CreateTopicError::DraftConflict)
+    ));
+    assert_eq!(db.draft(author, draft).await.unwrap().revision, 1);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM topics")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    let result = db
+        .create_published_topic_with_draft(input.clone(), Some(key.clone()), Some((draft, 1)))
+        .await
+        .unwrap();
+    assert!(result.created);
+    assert!(db.draft(author, draft).await.is_err());
+    assert!(
+        !db.create_published_topic_with_draft(input, Some(key), Some((draft, 1)))
+            .await
+            .unwrap()
+            .created
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM topics")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        1
+    );
 }

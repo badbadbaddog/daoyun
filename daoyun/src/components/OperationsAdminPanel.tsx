@@ -10,6 +10,7 @@ import {
   updateOperationsAlertRule,
 } from "../api/admin"
 import type { OperationsAlert, OperationsAlertRule, OperationsSummary } from "../api/admin"
+import { AdminActionDialog } from "./admin/AdminActionDialog"
 
 interface OperationsAdminPanelProps {
   csrfToken: string
@@ -27,6 +28,8 @@ interface RuleDraft {
 type LoadStatus = "loading" | "ready" | "forbidden" | "error"
 
 export function OperationsAdminPanel({ csrfToken, canWrite = true }: OperationsAdminPanelProps) {
+  const [view, setView] = useState<"overview" | "alerts" | "rules">("overview")
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
   const [status, setStatus] = useState<LoadStatus>("loading")
   const [summary, setSummary] = useState<OperationsSummary | null>(null)
   const [rules, setRules] = useState<OperationsAlertRule[]>([])
@@ -104,6 +107,7 @@ export function OperationsAdminPanel({ csrfToken, canWrite = true }: OperationsA
       setRules((current) => current.map((item) => item.id === saved.id ? saved : item))
       setDrafts((current) => ({ ...current, [saved.id]: draftFromRule(saved) }))
       setMessage(`${saved.name}规则已保存`)
+      setEditingRuleId(null)
     } catch (reason) {
       if (reason instanceof AdminApiError && reason.code === "operations.rule_conflict") {
         try {
@@ -162,18 +166,23 @@ export function OperationsAdminPanel({ csrfToken, canWrite = true }: OperationsA
         <button className="secondary-button" type="button" onClick={() => setReload((value) => value + 1)}><RefreshCw size={15} aria-hidden="true" />刷新状态</button>
       </div>
 
-      <div className="operations-summary" aria-label="运营指标概览">
+      <nav className="admin-workspace-tabs" aria-label="运维分类">
+        <button type="button" aria-pressed={view === "overview"} onClick={() => setView("overview")}>运行状态</button>
+        <button type="button" aria-pressed={view === "alerts"} onClick={() => setView("alerts")}>待确认告警</button>
+        <button type="button" aria-pressed={view === "rules"} onClick={() => setView("rules")}>告警规则</button>
+      </nav>
+      {view === "overview" && <div className="operations-summary" aria-label="运营指标概览">
         <SummaryItem icon={<Activity size={18} aria-hidden="true" />} label="HTTP 请求" value={summary.http.totalRequests.toLocaleString()} detail={`进行中 ${summary.http.inFlightRequests} · 5 分钟 5xx ${summary.http.errors5m}`} />
         <SummaryItem icon={<Clock3 size={18} aria-hidden="true" />} label="API P95" value={`${summary.http.p95Ms5m} ms`} detail="最近 5 分钟" />
         <SummaryItem icon={<Database size={18} aria-hidden="true" />} label={summary.database.ready ? "数据库正常" : "数据库异常"} value={`${summary.database.connections} 个连接`} detail={`空闲 ${summary.database.idleConnections}`} tone={summary.database.ready ? "normal" : "danger"} />
         <SummaryItem icon={<AlertTriangle size={18} aria-hidden="true" />} label="Outbox" value={`${summary.outbox.pending} 待处理`} detail={`处理中 ${summary.outbox.processing} · 死信 ${summary.outbox.dead}`} tone={summary.outbox.dead > 0 ? "danger" : "normal"} />
         <SummaryItem icon={<AlertTriangle size={18} aria-hidden="true" />} label="风险告警" value={`${summary.riskAlertsOpen} 条`} detail="当前未处理" tone={summary.riskAlertsOpen > 0 ? "warning" : "normal"} />
         <SummaryItem icon={<CheckCircle2 size={18} aria-hidden="true" />} label="运营告警" value={`${summary.alerts.open} 待确认`} detail={`已确认 ${summary.alerts.acknowledged}`} tone={summary.alerts.open > 0 ? "warning" : "normal"} />
-      </div>
+      </div>}
 
-      {(message || error) && <p className={error ? "form-alert" : "form-success"} role={error ? "alert" : "status"}>{error || message}</p>}
+      {!editingRuleId && (message || error) && <p className={error ? "form-alert" : "form-success"} role={error ? "alert" : "status"}>{error || message}</p>}
 
-      <section className="operations-section" aria-labelledby="operations-alerts-heading">
+      {view === "alerts" && <section className="operations-section" aria-labelledby="operations-alerts-heading">
         <div className="operations-section__heading"><div><h2 id="operations-alerts-heading">待确认告警</h2><p>恢复由后台评估器自动处理。</p></div><span className="operations-count">{alerts.length}</span></div>
         {alerts.length === 0 ? <p className="operations-empty">当前没有待确认的运营告警</p> : (
           <div className="operations-alert-list">
@@ -185,15 +194,21 @@ export function OperationsAdminPanel({ csrfToken, canWrite = true }: OperationsA
             </article>)}
           </div>
         )}
-      </section>
+      </section>}
 
-      <section className="operations-section" aria-labelledby="operations-rules-heading">
+      {view === "rules" && <section className="operations-section" aria-labelledby="operations-rules-heading">
         <div className="operations-section__heading"><div><h2 id="operations-rules-heading">告警规则</h2><p>固定信号类型，支持阈值、窗口与启用状态调整。</p></div></div>
         <div className="operations-rule-list">
           {rules.map((rule) => {
             const draft = drafts[rule.id]
             if (!draft) return null
-            return <form className="operations-rule" key={rule.id} onSubmit={(event) => { event.preventDefault(); void saveRule(rule) }}>
+            return <article className="operations-rule" key={rule.id}>
+              <div className="operations-rule__title"><div><h3>{rule.name}</h3><p>{ruleKindLabel(rule.kind)} · 阈值 {rule.threshold} · {rule.windowSeconds} 秒 · {rule.enabled ? "已启用" : "已停用"}</p></div>
+                {canWrite && <button className="secondary-button" type="button" onClick={() => { setEditingRuleId(rule.id); setError(""); setMessage("") }} aria-label={`编辑 ${rule.name}规则`}>编辑规则</button>}
+              </div>
+              {canWrite && editingRuleId === rule.id && <AdminActionDialog title="编辑告警规则" onClose={() => setEditingRuleId(null)} busy={pendingRuleId === rule.id}>
+              {(message || error) && <p className={error ? "form-alert" : "form-success"} role={error ? "alert" : "status"}>{error || message}</p>}
+              <form onSubmit={(event) => { event.preventDefault(); void saveRule(rule) }}>
               <div className="operations-rule__title"><div><h3>{rule.name}</h3><p>{ruleKindLabel(rule.kind)} · revision {draft.revision}</p></div><label className="admin-switch"><input type="checkbox" checked={draft.enabled} disabled={!canWrite} onChange={(event) => changeDraft(rule.id, { enabled: event.target.checked })} /><span>启用</span></label></div>
               <div className="operations-rule__fields">
                 <label><span>规则名称</span><input aria-label={`${rule.name}名称`} value={draft.name} maxLength={80} disabled={!canWrite} onChange={(event) => changeDraft(rule.id, { name: event.target.value })} /></label>
@@ -201,10 +216,11 @@ export function OperationsAdminPanel({ csrfToken, canWrite = true }: OperationsA
                 <label><span>窗口（秒）</span><input aria-label={`${rule.name}窗口`} type="number" min="30" max="86400" step="1" value={draft.windowSeconds} disabled={!canWrite} onChange={(event) => changeDraft(rule.id, { windowSeconds: event.target.value })} /></label>
               </div>
               {canWrite && <div className="admin-form__actions"><button className="secondary-button" type="submit" disabled={pendingRuleId === rule.id} aria-label={`保存 ${rule.name}规则`}>{pendingRuleId === rule.id ? <LoaderCircle className="topic-loading__spinner" size={15} aria-hidden="true" /> : <Save size={15} aria-hidden="true" />}保存规则</button></div>}
-            </form>
+              </form></AdminActionDialog>}
+            </article>
           })}
         </div>
-      </section>
+      </section>}
     </div>
   )
 }

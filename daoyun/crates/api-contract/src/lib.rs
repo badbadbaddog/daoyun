@@ -1,12 +1,15 @@
 #![forbid(unsafe_code)]
 
 mod admin;
+mod admin_comments;
+pub use admin_comments::{AdminComment, AdminCommentStatus, ModerateAdminCommentRequest};
 mod attachments;
 mod auth;
 mod board;
 mod board_restrictions;
 mod community;
 mod content_access;
+mod edit_reviews;
 mod error;
 mod installation;
 mod membership;
@@ -15,11 +18,21 @@ mod moderation;
 mod notifications;
 mod pagination;
 mod plugins;
+mod redemptions;
+pub use redemptions::{
+    PutRedemptionProductRequest, RedeemPointsRequest, RedemptionCatalog, RedemptionHistory,
+    RedemptionProduct, RedemptionReceipt,
+};
 mod relations;
 mod reports;
 mod request_id;
 mod standard_entitlements;
 mod topic;
+mod topic_supplements;
+pub use topic_supplements::{
+    CreateTopicSupplementRequest, TopicSupplement, TopicSupplementListMeta,
+    TopicSupplementListResponse, TopicSupplementSettings, TopicSupplementStatus,
+};
 mod user;
 
 use serde::{Deserialize, Serialize};
@@ -76,20 +89,26 @@ pub use content_access::{
     ContentAccessOperator, ContentAccessPolicy, ContentAccessSubject, ContentAccessSubjectType,
     ContentAccessTargetType, PutContentAccessPolicyRequest,
 };
+pub use edit_reviews::{
+    EditReviewDecision, EditReviewItem, EditReviewPolicy, EditReviewPolicyUpdate, EditReviewStatus,
+    EditReviewTargetType, EditSubmissionDisposition, ReplyEditSubmission, ResolveEditReviewRequest,
+    TopicEditSubmission, UpdateEditReviewPoliciesRequest,
+};
 pub use error::{ErrorBody, ErrorCode, ErrorResponse, FieldErrors, error_codes};
 pub use installation::{
     InitialAdministrator, InitializeInstallationRequest, InstallationInitialization,
     InstallationStatus,
 };
 pub use membership::{
-    AdminGrowthLevel, CreateGrowthLevelRequest, ExperienceAccount, GrantMembershipMedalRequest,
+    AdminGrowthLevel, CreateGrowthLevelRequest, CreateMembershipMedalRuleRequest,
+    DeleteMembershipMedalRuleRequest, ExperienceAccount, GrantMembershipMedalRequest,
     GrantMembershipPointsRequest, GrowthLevel, GrowthLevelStatus, Medal, MembershipAccount,
     MembershipCatalog, MembershipGroup, MembershipLevel, MembershipLevelRule, MembershipMedal,
-    MembershipMedalGrant, MembershipMedalOperation, MembershipMedalOperationKind,
-    MembershipMedalRevocation, MembershipMedalRule, MembershipPointsGrant, PointsLedgerEntry,
-    PublicMembershipGroup, RevokeMembershipMedalRequest, StandardEntitlement,
-    UpdateGrowthLevelRequest, UpdateMembershipLevelRuleRequest, UpdateMembershipMedalRuleRequest,
-    UserMembershipSummary,
+    MembershipMedalAsset, MembershipMedalGrant, MembershipMedalOperation,
+    MembershipMedalOperationKind, MembershipMedalRevocation, MembershipMedalRule,
+    MembershipPointsGrant, PointsLedgerEntry, PublicMembershipGroup, RevokeMembershipMedalRequest,
+    StandardEntitlement, UpdateGrowthLevelRequest, UpdateMembershipLevelRuleRequest,
+    UpdateMembershipMedalRuleRequest, UserMembershipSummary,
 };
 pub use messages::{
     ConversationLastMessage, ConversationReadState, ConversationSummary, CreateConversationRequest,
@@ -187,3 +206,14 @@ impl HealthData {
         }
     }
 }
+
+mod analytics;
+pub use analytics::{CommunityAnalytics, CommunityAnalyticsBoard, CommunityAnalyticsDay};
+
+mod drafts;
+pub use drafts::{
+    DraftContent, DraftImage, DraftReference, MemberDraft, MemberDraftPage, SaveDraftRequest,
+};
+
+mod polls;
+pub use polls::{PollInput, PollOption, PollPolicy, TopicPoll, UpdatePollRequest, VotePollRequest};

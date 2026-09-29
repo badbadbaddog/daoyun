@@ -114,7 +114,9 @@ export function ActionMenu({ label, items, disabled = false }: { label: string; 
               role="menuitem"
               disabled={item.disabled}
               onClick={() => {
-                closeMenu({ restoreFocus: true })
+                // Let an opened dialog capture the stable trigger as its return target.
+                triggerRef.current?.focus()
+                closeMenu({ restoreFocus: false })
                 item.onSelect()
               }}
             >

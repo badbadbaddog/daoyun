@@ -7,6 +7,66 @@ import { SiteHeader } from "./SiteHeader"
 afterEach(cleanup)
 
 describe("SiteHeader search", () => {
+  it("shows the desktop discovery navigation on the home surface", () => {
+    render(
+      <SiteHeader
+        siteName="刀云"
+        logoUrl={null}
+        darkMode={false}
+        query=""
+        onQueryChange={vi.fn()}
+        onClearQuery={vi.fn()}
+        onSearch={vi.fn()}
+        onCompose={vi.fn()}
+        showAccountSummary
+        onToggleTheme={vi.fn()}
+        session={null}
+        onOpenAuth={vi.fn()}
+        onLogout={vi.fn()}
+        authPending={false}
+        notificationsUnread={0}
+        onOpenNotifications={vi.fn()}
+        systemAdminAccess="denied"
+        managementAccess="denied"
+      />,
+    )
+
+    const navigation = screen.getByRole("navigation", { name: "主导航" })
+    expect(navigation).toHaveTextContent("首页")
+    expect(navigation).toHaveTextContent("社区")
+    expect(navigation).toHaveTextContent("发现")
+    expect(navigation).toHaveTextContent("排行榜")
+  })
+
+  it("marks the route-owned primary destination instead of always marking home", () => {
+    render(
+      <SiteHeader
+        siteName="刀云"
+        logoUrl={null}
+        darkMode={false}
+        query=""
+        onQueryChange={vi.fn()}
+        onClearQuery={vi.fn()}
+        onSearch={vi.fn()}
+        onCompose={vi.fn()}
+        showAccountSummary
+        activeNavigation="community"
+        onToggleTheme={vi.fn()}
+        session={null}
+        onOpenAuth={vi.fn()}
+        onLogout={vi.fn()}
+        authPending={false}
+        notificationsUnread={0}
+        onOpenNotifications={vi.fn()}
+        systemAdminAccess="denied"
+        managementAccess="denied"
+      />,
+    )
+
+    expect(screen.getByRole("link", { name: "社区" })).toHaveAttribute("aria-current", "page")
+    expect(screen.getByRole("link", { name: "首页" })).not.toHaveAttribute("aria-current")
+  })
+
   it("opens and closes the compact mobile search affordance", () => {
     render(
       <SiteHeader

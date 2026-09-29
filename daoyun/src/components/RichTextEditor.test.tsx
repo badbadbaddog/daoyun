@@ -11,6 +11,22 @@ afterEach(() => {
 })
 
 describe("RichTextEditor", () => {
+  it("highlights hashtags while keeping them as plain rich-text content", async () => {
+    render(
+      <RichTextEditor
+        value={plainTextDocument("讨论 #我是标签#例子标签")}
+        onChange={vi.fn()}
+        ariaLabel="正文"
+        placeholder="输入正文"
+        maxCharacters={1_000}
+      />,
+    )
+
+    await waitFor(() => expect(
+      Array.from(document.querySelectorAll(".rich-text-hashtag")).map((element) => element.textContent),
+    ).toEqual(["#我是标签", "#例子标签"]))
+  })
+
   it("wraps the current block as reply-visible content", async () => {
     const user = userEvent.setup()
     const onChange = vi.fn()

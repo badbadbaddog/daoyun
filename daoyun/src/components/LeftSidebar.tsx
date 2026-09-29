@@ -16,9 +16,10 @@ interface LeftSidebarProps {
   onRetry: () => void
   navigationLinks: BrandLink[]
   active?: "home" | "following" | "community" | "bookmarks" | "none"
+  activeBoardSlug?: string
 }
 
-export function LeftSidebar({ boards, loadStatus, onRetry, navigationLinks, active = "home" }: LeftSidebarProps) {
+export function LeftSidebar({ boards, loadStatus, onRetry, navigationLinks, active = "home", activeBoardSlug }: LeftSidebarProps) {
   return (
     <aside className="left-sidebar" aria-label="社区导航">
       <nav className="sidebar-nav">
@@ -79,7 +80,13 @@ export function LeftSidebar({ boards, loadStatus, onRetry, navigationLinks, acti
           const Icon = boardIcons[board.icon] ?? MessageSquareText
 
           return (
-            <a className="sidebar-link sidebar-link--board" href={`#board/${board.slug}`} key={board.id} title={board.description}>
+            <a
+              className={`sidebar-link sidebar-link--board${activeBoardSlug === board.slug ? " sidebar-link--active" : ""}`}
+              href={`#board/${board.slug}`}
+              key={board.id}
+              title={board.description}
+              aria-current={activeBoardSlug === board.slug ? "page" : undefined}
+            >
               <span className="board-icon"><Icon size={16} /></span>
               <span>{board.name}</span>
               <small>{board.topicCount}</small>

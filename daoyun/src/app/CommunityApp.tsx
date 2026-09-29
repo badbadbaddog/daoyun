@@ -12,12 +12,13 @@ import { listModerationBoards } from "../api/moderation"
 import type { ConversationSummary } from "../api/messages"
 import { getUnreadNotificationCount } from "../api/notifications"
 import type { Notification } from "../api/notifications"
-import { loadMembershipCenterData } from "../api/membership"
+import { getCurrentExperience, listGrowthLevels, loadMembershipCenterData } from "../api/membership"
 import { setPostLike, setTopicBookmark } from "../api/relations"
 import { listTags, listTopics } from "../api/topics"
 import { listUsers } from "../api/users"
 import type { UserSummary } from "../api/users"
 import { FeedTabs } from "../components/FeedTabs"
+import { HomeShowcase } from "../components/HomeShowcase"
 import { LeftSidebar } from "../components/LeftSidebar"
 import { MobileNavigation } from "../components/MobileNavigation"
 import { RightSidebar } from "../components/RightSidebar"
@@ -26,7 +27,7 @@ import { SiteHeader } from "../components/SiteHeader"
 import { TopicFeed } from "../components/TopicFeed"
 import type { BoardPageState } from "../features/boards/BoardPage"
 import type { BoardTopicSort } from "../features/boards/BoardTopicFeed"
-import type { MembershipCenterData } from "../features/membership/membershipTypes"
+import type { MembershipCenterData, MembershipExperience } from "../features/membership/membershipTypes"
 import { useFeedScrollRestoration } from "../features/feed/useFeedScrollRestoration"
 import { useSearchParams } from "../features/search/useSearchParams"
 import { useTopicFeed } from "../features/search/useTopicFeed"
@@ -121,9 +122,10 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   const [membershipData, setMembershipData] = useState<MembershipCenterData | null>(null)
   const [membershipStatus, setMembershipStatus] = useState<"loading" | "ready" | "error">("loading")
   const [membershipRequestVersion, setMembershipRequestVersion] = useState(0)
+  const [homeMembershipExperience, setHomeMembershipExperience] = useState<MembershipExperience | null>(null)
   const searchParams = useSearchParams(route, navigate)
   const searchingTopics = route.kind === "search"
-    && Boolean(route.query)
+    && Boolean(route.query || Object.keys(route.filters??{}).length)
     && (route.scope === "all" || route.scope === "topics")
   const feedMode: FeedMode | undefined = !searchingTopics && !selectedTag
     ? activeFeed === "hot" ? "recommended"
@@ -136,8 +138,12 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
       && !(activeFeed === "following" && (authLoadStatus !== "ready" || !authSession))),
     mode: feedMode,
     query: searchingTopics ? route.query : undefined,
-    tag: searchingTopics ? undefined : selectedTag || undefined,
-    sort: feedMode ? undefined : searchingTopics ? "latest" : activeFeed === "hot" ? "popular" : activeFeed === "active" ? "active" : "latest",
+    board: searchingTopics ? route.filters?.board : undefined,
+    author: searchingTopics ? route.filters?.author : undefined,
+    from: searchingTopics ? route.filters?.from : undefined,
+    through: searchingTopics ? route.filters?.through : undefined,
+    tag: searchingTopics ? route.filters?.tag : selectedTag || undefined,
+    sort: feedMode ? undefined : searchingTopics ? route.filters?.sort ?? "latest" : activeFeed === "hot" ? "popular" : activeFeed === "active" ? "active" : "latest",
     scope: feedMode ? undefined : searchingTopics ? undefined : activeFeed === "following" ? "following" : undefined,
     featured: feedMode ? false : searchingTopics ? false : activeFeed === "featured",
     requestVersion: topicRequestVersion,
@@ -201,6 +207,27 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
     })
     return () => controller.abort()
   }, [authLoadStatus, authSession, membershipRequestVersion, route.kind])
+
+  useEffect(() => {
+    if (route.kind !== "feed" || authLoadStatus !== "ready" || !authSession) {
+      setHomeMembershipExperience(null)
+      return
+    }
+    const controller = new AbortController()
+    Promise.all([
+      getCurrentExperience(controller.signal),
+      listGrowthLevels(controller.signal),
+    ]).then(([account, levels]) => {
+      if (controller.signal.aborted) return
+      const nextLevel = levels
+        .filter((level) => level.requiredExperience > account.experience)
+        .sort((left, right) => left.requiredExperience - right.requiredExperience)[0] ?? null
+      setHomeMembershipExperience({ experience: account.experience, level: account.currentLevel, nextLevel })
+    }).catch(() => {
+      if (!controller.signal.aborted) setHomeMembershipExperience(null)
+    })
+    return () => controller.abort()
+  }, [authLoadStatus, authSession, route.kind])
 
   useEffect(() => {
     if (route.kind !== "search" || !route.query || (route.scope !== "all" && route.scope !== "users")) {
@@ -270,6 +297,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
         ["membership.rules.read"],
         ["authorization.roles.read", "authorization.assignments.read"],
         ["operations.read"],
+        ["community.analytics.read"],
         ["plugins.read"],
       ].some((requirement) => requirement.every((key) => capabilities.has(key)))
       const hasManagementAccess = [
@@ -700,6 +728,10 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   ) : route.kind === "search" ? (
     <SearchPage
       query={route.query}
+      filters={route.filters}
+      availableBoards={boards}
+      availableTags={availableTags}
+      onFiltersChange={searchParams.setFilters}
       scope={route.scope}
       topics={topics}
       boards={searchBoards}
@@ -712,6 +744,8 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
       error={route.scope === "topics"
         ? topicFeed.errorInitial
         : route.scope === "users" ? searchUsersError : null}
+      contentError={route.scope === "all" ? topicFeed.errorInitial : null}
+      userError={route.scope === "all" ? searchUsersError : null}
       onScopeChange={searchParams.setScope}
       onRetry={() => {
         topicFeed.retry()
@@ -725,6 +759,8 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   ) : route.kind === "member" ? (
     <MemberCenterPage
       activeTab={route.tab}
+      csrfToken={authSession?.csrfToken}
+      onChanged={() => setMembershipRequestVersion(version => version + 1)}
       data={membershipData}
       status={membershipStatus}
       onTabChange={(tab) => navigate({ kind: "member", tab })}
@@ -767,6 +803,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
     />
   ) : (
     <>
+      <HomeShowcase topics={topics} onCompose={() => openComposer()} onOpenTopic={openTopic} />
       <FeedTabs active={activeFeed} onChange={selectFeed} />
       <TopicFeed
         topics={topics}
@@ -803,6 +840,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
 
   return (
     <CommunityShell
+      surface={route.kind === "feed" || route.kind === "boardIndex" || route.kind === "board" ? "home" : "default"}
       header={(
         <SiteHeader
           siteName={branding?.siteName ?? "刀云"}
@@ -817,6 +855,8 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
           onSearch={searchParams.submit}
           onCompose={() => openComposer(boardPageState.kind === "ready" ? boardPageState.board.id : null)}
           showCompose={route.kind !== "board" || (boardPageState.kind === "ready" && boardPageState.board.viewer.canCreateTopic)}
+          showAccountSummary
+          activeNavigation={headerNavigationActive(route)}
           onToggleTheme={toggleTheme}
           session={authSession}
           authPending={authLoadStatus === "loading"}
@@ -843,17 +883,19 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
           onRetry={() => setBoardRequestVersion((version) => version + 1)}
           navigationLinks={branding?.navigationLinks ?? []}
           active={primaryNavigationActive(route)}
+          activeBoardSlug={route.kind === "board" ? route.slug : route.kind === "topic" ? topicDetailSidebarTopic?.boardSlug : undefined}
         />
       )}
       main={main}
       rightSidebar={(
         <RightSidebar
-          variant={route.kind === "boardIndex" ? "boardDirectory" : route.kind === "board" ? "boardDetail" : route.kind === "topic" ? "topicDetail" : "default"}
+          variant={route.kind === "feed" ? "home" : route.kind === "boardIndex" ? "boardDirectory" : route.kind === "board" ? "boardDetail" : route.kind === "topic" ? "topicDetail" : "default"}
           topics={route.kind === "board" ? boardTopics : topics}
           boards={boards}
           currentBoard={boardPageState.kind === "ready" ? boardPageState.board : undefined}
           currentTopic={topicDetailSidebarTopic}
           session={authSession}
+          membershipExperience={homeMembershipExperience}
           onCompose={() => openComposer()}
           onLogin={() => setAuthPanelOpen(true)}
           onOpenTopic={openTopic}
@@ -923,14 +965,22 @@ function sameBackableView(left: CommunityPageRoute, right: CommunityPageRoute): 
 }
 
 function primaryNavigationActive(route: CommunityPageRoute) {
-  if (route.kind === "board" || route.kind === "boardIndex") return "community" as const
+  if (route.kind === "board" || route.kind === "boardIndex" || route.kind === "topic") return "community" as const
   if (route.kind === "bookmarks") return "bookmarks" as const
   if (route.kind === "feed") return route.feed === "following" ? "following" as const : "home" as const
   return "none" as const
 }
 
+function headerNavigationActive(route: CommunityPageRoute) {
+  if (route.kind === "board" || route.kind === "boardIndex" || route.kind === "topic") return "community" as const
+  if (route.kind === "search" || (route.kind === "feed" && route.feed === "featured")) return "discover" as const
+  if (route.kind === "feed" && route.feed === "active") return "ranking" as const
+  if (route.kind === "feed") return "home" as const
+  return "none" as const
+}
+
 function mobileNavigationActive(route: CommunityPageRoute) {
-  if (route.kind === "board" || route.kind === "boardIndex") return "community" as const
+  if (route.kind === "board" || route.kind === "boardIndex" || route.kind === "topic") return "community" as const
   if (route.kind === "notifications") return "notifications" as const
   if (route.kind === "user" || route.kind === "member") return "profile" as const
   if (route.kind === "feed") return "home" as const

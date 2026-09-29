@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "key": "official_topic_edit_review",
+  "name": "编辑审核",
+  "version": "0.1.0",
+  "description": "按版块分别控制主题编辑和回复编辑审核；待审期间继续公开旧版本。",
+  "business_api_version": "0.1.0",
+  "capabilities": ["topic.edit_review", "ui.panel"],
+  "data_scopes": [],
+  "event_subscriptions": []
+}

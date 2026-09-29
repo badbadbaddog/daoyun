@@ -1,0 +1,14 @@
+[package]
+name = "daoyun-official-points-redemption"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wit-bindgen = { version = "=0.58.0", default-features = false, features = ["macros", "realloc", "std"] }
+
+[workspace]

@@ -1,4 +1,5 @@
 import { FileSearch, LoaderCircle, RefreshCw, Search } from "lucide-react"
+import type { ReactNode } from "react"
 
 import type { Topic } from "../../types/community"
 import { TopicRow } from "../../components/TopicRow"
@@ -6,6 +7,7 @@ import { TopicRow } from "../../components/TopicRow"
 export type BoardTopicSort = "latest" | "active" | "hot" | "featured"
 
 interface BoardTopicFeedProps {
+  children?: ReactNode
   topics: Topic[]
   state: "loading" | "ready" | "error"
   error: string | null
@@ -34,6 +36,22 @@ const tabs: { value: BoardTopicSort; label: string }[] = [
 ]
 
 export function BoardTopicFeed(props: BoardTopicFeedProps) {
+  const pinnedTopics = props.topics.filter((topic) => topic.pinned)
+  const regularTopics = props.topics.filter((topic) => !topic.pinned)
+  const renderTopic = (topic: Topic) => (
+    <TopicRow
+      key={topic.id}
+      topic={topic}
+      variant="board"
+      identityVariant="feed"
+      onOpen={props.onOpenTopic}
+      onToggleBookmark={props.onToggleBookmark}
+      bookmarkPending={props.bookmarkPendingIds?.has(topic.id) === true}
+      onToggleLike={props.onToggleLike}
+      likePending={props.likePendingIds?.has(topic.id) === true}
+    />
+  )
+
   return (
     <section className="board-topic-feed" aria-labelledby="board-topics-title">
       <div className="board-feed-controls">
@@ -63,6 +81,15 @@ export function BoardTopicFeed(props: BoardTopicFeedProps) {
           </button>
         ))}
       </div>
+      {props.state === "ready" && pinnedTopics.length > 0 && (
+        <section className="board-pinned-topics" aria-labelledby="board-pinned-title">
+          <h2 id="board-pinned-title">置顶</h2>
+          <div className="board-pinned-topic-list" role="feed" aria-label="置顶主题列表">
+            {pinnedTopics.map(renderTopic)}
+          </div>
+        </section>
+      )}
+      {props.children}
       {props.state === "loading" ? (
         <div className="topic-loading" role="status"><LoaderCircle className="topic-loading__spinner" size={22} />正在加载主题</div>
       ) : props.state === "error" ? (
@@ -75,27 +102,24 @@ export function BoardTopicFeed(props: BoardTopicFeedProps) {
       ) : props.topics.length === 0 ? (
         <div className="empty-state" role="status"><FileSearch size={28} /><h3>这个社区还没有主题</h3><p>发布第一个主题，开始讨论。</p></div>
       ) : (
-        <>
+        <section className="board-topic-section" aria-labelledby="board-topic-list-title">
+          <div className="board-topic-section__heading">
+            <h2 id="board-topic-list-title">主题</h2>
+            <span>{regularTopics.length} 个主题</span>
+          </div>
           <div id="board-topic-columns" className="board-topic-columns" aria-label="主题列表列名">
             <span>主题</span>
-            <span>作者 / 时间</span>
-            <span>回复 / 浏览</span>
+            <span>作者</span>
+            <span>回复</span>
+            <span>点赞</span>
+            <span>浏览</span>
           </div>
-          <div className="topic-list board-topic-list" role="feed" aria-label="主题列表" aria-describedby="board-topic-columns">
-            {props.topics.map((topic) => (
-              <TopicRow
-                key={topic.id}
-                topic={topic}
-                variant="board"
-                onOpen={props.onOpenTopic}
-                onToggleBookmark={props.onToggleBookmark}
-                bookmarkPending={props.bookmarkPendingIds?.has(topic.id) === true}
-                onToggleLike={props.onToggleLike}
-                likePending={props.likePendingIds?.has(topic.id) === true}
-              />
-            ))}
-          </div>
-        </>
+          {regularTopics.length > 0 ? (
+            <div className="topic-list board-topic-list" role="feed" aria-label="主题列表" aria-describedby="board-topic-columns">
+              {regularTopics.map(renderTopic)}
+            </div>
+          ) : <p className="board-topic-section__empty">暂无更多主题</p>}
+        </section>
       )}
       {props.interactionError && <p className="interaction-alert" role="alert">{props.interactionError}</p>}
       {props.errorMore && <p className="interaction-alert" role="alert">{props.errorMore}</p>}

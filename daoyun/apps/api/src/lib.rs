@@ -1,10 +1,15 @@
 #![forbid(unsafe_code)]
 
+mod activity_recorder;
 mod admin;
+mod admin_comments;
+mod analytics;
 mod attachments;
 mod auth;
 mod boards;
 mod cache;
+mod drafts;
+mod edit_reviews;
 mod email;
 mod feed;
 mod governance;
@@ -21,11 +26,14 @@ mod operations;
 mod operations_worker;
 mod plugin_business;
 mod plugins;
+mod polls;
 mod posts;
+mod redemptions;
 mod rejection;
 mod relations;
 mod restriction_worker;
 mod rich_content;
+mod topic_supplements;
 mod topics;
 mod users;
 mod worker;
@@ -97,8 +105,15 @@ pub fn install_rustls_crypto_provider() {
 #[derive(OpenApi)]
 #[openapi(
     paths(
+        admin_comments::list, admin_comments::detail, admin_comments::moderate,
+        analytics::report,
+        polls::policy, polls::detail, polls::vote, polls::update,
+        drafts::list, drafts::detail, drafts::save, drafts::remove,
+        redemptions::catalog, redemptions::admin_catalog, redemptions::save_product, redemptions::history, redemptions::redeem,
         admin::get_public_branding,
         admin::get_public_brand_asset,
+        admin::upload_medal_asset,
+        admin::get_medal_asset,
         admin::upload_brand_asset,
         admin::delete_brand_asset,
         admin::get_admin_access,
@@ -145,6 +160,8 @@ pub fn install_rustls_crypto_provider() {
         admin::grant_membership_points,
         admin::get_admin_membership_account,
         admin::list_membership_medal_rules,
+        admin::create_membership_medal_rule,
+        admin::delete_membership_medal_rule,
         admin::update_membership_medal_rule,
         admin::grant_membership_medal,
         admin::list_membership_medal_operations,
@@ -229,6 +246,7 @@ pub fn install_rustls_crypto_provider() {
         topics::list_moderation_boards,
         topics::list_moderation_topics,
         topics::list_topic_moderation_history,
+        topics::admin_revisions,
         topics::detail,
         topics::create,
         topics::update,
@@ -239,6 +257,15 @@ pub fn install_rustls_crypto_provider() {
         topics::revisions,
         topics::list_replies,
         topics::create_reply,
+        topic_supplements::list,
+        topic_supplements::create,
+        topic_supplements::get_settings,
+        topic_supplements::put_settings,
+        edit_reviews::list_policies,
+        edit_reviews::update_policies,
+        edit_reviews::list_reviews,
+        edit_reviews::get_review,
+        edit_reviews::resolve_review,
         posts::list,
         posts::create,
         posts::detail,
@@ -472,6 +499,23 @@ pub fn install_rustls_crypto_provider() {
         api_contract::AttachmentCleanupResult,
         api_contract::AttachmentStatus,
         api_contract::ApiResponse<api_contract::TopicReply>,
+        api_contract::TopicEditSubmission,
+        api_contract::ReplyEditSubmission,
+        api_contract::TopicSupplementStatus,
+        api_contract::TopicSupplement,
+        api_contract::TopicSupplementListMeta,
+        api_contract::TopicSupplementListResponse,
+        api_contract::CreateTopicSupplementRequest,
+        api_contract::TopicSupplementSettings,
+        api_contract::EditReviewTargetType,
+        api_contract::EditReviewStatus,
+        api_contract::EditSubmissionDisposition,
+        api_contract::EditReviewDecision,
+        api_contract::EditReviewPolicy,
+        api_contract::EditReviewPolicyUpdate,
+        api_contract::UpdateEditReviewPoliciesRequest,
+        api_contract::EditReviewItem,
+        api_contract::ResolveEditReviewRequest,
         api_contract::ApiResponse<Vec<api_contract::TopicTag>>,
         api_contract::CreateTopicRequest,
         api_contract::CreateReplyRequest,
@@ -580,9 +624,13 @@ pub fn install_rustls_crypto_provider() {
         api_contract::GrantMembershipPointsRequest,
         api_contract::MembershipPointsGrant,
         api_contract::MembershipMedal,
+        api_contract::MembershipMedalAsset,
+        api_contract::ApiResponse<api_contract::MembershipMedalAsset>,
         api_contract::MembershipMedalRule,
         api_contract::MembershipMedalGrant,
         api_contract::UpdateMembershipMedalRuleRequest,
+        api_contract::CreateMembershipMedalRuleRequest,
+        api_contract::DeleteMembershipMedalRuleRequest,
         api_contract::GrantMembershipMedalRequest,
         api_contract::CreateConversationRequest,
         api_contract::SendDirectMessageRequest,
@@ -734,6 +782,7 @@ pub fn app_with_all_runtimes_and_email(
     Router::new()
         .merge(auth::router(auth_runtime.clone()))
         .merge(admin::router(auth_runtime.clone()))
+        .merge(admin_comments::router(auth_runtime.clone()))
         .merge(attachments::router(auth_runtime.clone()))
         .merge(governance::router(auth_runtime.clone()))
         .merge(boards::router())
@@ -741,7 +790,13 @@ pub fn app_with_all_runtimes_and_email(
         .merge(installation::router())
         .merge(feed::router(auth_runtime.clone()))
         .merge(topics::router(auth_runtime.clone()))
+        .merge(topic_supplements::router(auth_runtime.clone()))
+        .merge(edit_reviews::router(auth_runtime.clone()))
         .merge(posts::router(auth_runtime.clone()))
+        .merge(redemptions::router(auth_runtime.clone()))
+        .merge(drafts::router(auth_runtime.clone()))
+        .merge(polls::router(auth_runtime.clone()))
+        .merge(analytics::router(auth_runtime.clone()))
         .merge(relations::router(auth_runtime.clone()))
         .merge(messages::router(auth_runtime.clone()))
         .merge(membership::router())
@@ -771,8 +826,12 @@ pub fn app_with_all_runtimes_and_email(
         .layer(middleware::from_fn(assign_request_id))
 }
 
+pub fn openapi_document() -> utoipa::openapi::OpenApi {
+    ApiDoc::openapi()
+}
+
 async fn openapi() -> Json<utoipa::openapi::OpenApi> {
-    Json(ApiDoc::openapi())
+    Json(openapi_document())
 }
 
 async fn assign_request_id(mut request: Request, next: Next) -> Response {

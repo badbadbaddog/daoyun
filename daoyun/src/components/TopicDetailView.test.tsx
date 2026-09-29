@@ -4,9 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
   createReply,
+  createTopicSupplement,
   deleteTopic,
   deleteReply,
   getTopic,
+  listTopicSupplements,
   listReplies,
   listReplyRevisions,
   listRevisions,
@@ -22,10 +24,12 @@ vi.mock("../api/topics", async () => {
   const actual = await vi.importActual<typeof import("../api/topics")>("../api/topics")
   return {
     ...actual,
+    createTopicSupplement: vi.fn(),
     createReply: vi.fn(),
     deleteTopic: vi.fn(),
     deleteReply: vi.fn(),
     getTopic: vi.fn(),
+    listTopicSupplements: vi.fn(),
     listReplies: vi.fn(),
     listReplyRevisions: vi.fn(),
     listRevisions: vi.fn(),
@@ -97,10 +101,29 @@ const reply = {
   liked: false,
 }
 
+const supplement = {
+  id: "019fc800-0000-7000-8000-000000000401",
+  topicId: topic.id,
+  content: "补充内容示例",
+  status: "approved" as const,
+  createdAt: "刚刚",
+  updatedAt: "刚刚",
+  author: {
+    id: session.user.id,
+    username: session.user.username,
+    displayName: topic.author,
+    avatarUrl: "https://example.com/avatar.png",
+  },
+}
+
+const supplementPolicy = { enabled: true, maxPerTopic: 1, usedCount: 0, canSubmit: true }
+
 beforeEach(() => {
   vi.mocked(getTopic).mockReset().mockResolvedValue(topic)
   vi.mocked(listReplies).mockReset().mockResolvedValue({ replies: [], nextCursor: null })
+  vi.mocked(listTopicSupplements).mockReset().mockResolvedValue({ supplements: [], policy: supplementPolicy })
   vi.mocked(createReply).mockReset()
+  vi.mocked(createTopicSupplement).mockReset()
   vi.mocked(deleteTopic).mockReset()
   vi.mocked(deleteReply).mockReset()
   vi.mocked(updateTopic).mockReset()
@@ -127,6 +150,96 @@ describe("TopicDetailView", () => {
     expect(screen.getByRole("status")).toHaveTextContent("正在加载主题")
     await user.click(screen.getByRole("button", { name: "返回主题列表" }))
     expect(onBack).toHaveBeenCalledTimes(1)
+  })
+
+  it("renders topic supplements and remaining quota", async () => {
+    vi.mocked(listTopicSupplements).mockResolvedValueOnce({ supplements: [supplement], policy: { ...supplementPolicy, usedCount: 1, canSubmit: false } })
+    render(<TopicDetailView topicId={topic.id} session={session} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+
+    expect(await screen.findByRole("heading", { name: "补充" })).toBeInTheDocument()
+    expect(screen.getByText("补充内容示例")).toBeInTheDocument()
+    expect(screen.getByText("剩余 0/1 次")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "提交补充" })).toBeDisabled()
+  })
+
+  it("submits a topic supplement and appends it in chronological order", async () => {
+    const user = userEvent.setup()
+    const created = {
+      ...supplement,
+      id: "019fc800-0000-7000-8000-000000000402",
+      content: "新提交补充",
+      status: "approved" as const,
+      updatedAt: "刚刚",
+    }
+    vi.mocked(createTopicSupplement).mockResolvedValue(created)
+    render(<TopicDetailView topicId={topic.id} session={session} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+
+    await user.type(await screen.findByRole("textbox", { name: "补充正文（每帖上限：1）" }), "新提交补充")
+    await user.click(screen.getByRole("button", { name: "提交补充" }))
+
+    await waitFor(() => expect(createTopicSupplement).toHaveBeenCalledWith(topic.id, "新提交补充", expect.objectContaining({
+      csrfToken: session.csrfToken,
+      idempotencyKey: expect.any(String),
+    })))
+    expect(await screen.findByText("补充已发布")).toBeInTheDocument()
+    expect(screen.getByText("新提交补充")).toBeInTheDocument()
+    expect(screen.getByRole("textbox", { name: "补充正文（每帖上限：1）" })).toHaveValue("")
+  })
+
+  it("prevents supplement submission when quota is exhausted", async () => {
+    const user = userEvent.setup()
+    vi.mocked(listTopicSupplements).mockResolvedValueOnce({ supplements: [supplement], policy: { ...supplementPolicy, usedCount: 1, canSubmit: false } })
+    render(<TopicDetailView topicId={topic.id} session={session} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+
+    await screen.findByRole("heading", { name: "补充" })
+    expect(screen.getByText("剩余 0/1 次")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "提交补充" })).toBeDisabled()
+    await user.click(screen.getByRole("button", { name: "提交补充" }))
+    expect(createTopicSupplement).not.toHaveBeenCalled()
+  })
+
+  it("keeps the supplement idempotency key for an unchanged network retry", async () => {
+    const user = userEvent.setup()
+    vi.mocked(createTopicSupplement).mockRejectedValueOnce(new Error("network unavailable")).mockResolvedValueOnce(supplement)
+    render(<TopicDetailView topicId={topic.id} session={session} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+    await user.type(await screen.findByRole("textbox", { name: "补充正文（每帖上限：1）" }), supplement.content)
+    await user.click(screen.getByRole("button", { name: "提交补充" }))
+    expect(await screen.findByText("补充提交失败，请稍后重试")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "提交补充" }))
+    expect(await screen.findByText("补充已发布")).toBeInTheDocument()
+    expect(vi.mocked(createTopicSupplement).mock.calls[1][2].idempotencyKey)
+      .toBe(vi.mocked(createTopicSupplement).mock.calls[0][2].idempotencyKey)
+  })
+
+  it("hides the supplement form from non-authors", async () => {
+    const otherSession = { ...session, user: { ...session.user, id: "019fc700-0000-7000-8000-000000000005" } }
+    render(<TopicDetailView topicId={topic.id} session={otherSession} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+    await screen.findByRole("heading", { name: "补充" })
+    expect(screen.queryByRole("button", { name: "提交补充" })).not.toBeInTheDocument()
+  })
+
+  it("keeps published supplements visible while additions are disabled", async () => {
+    vi.mocked(listTopicSupplements).mockResolvedValueOnce({ supplements: [supplement], policy: { ...supplementPolicy, enabled: false, canSubmit: false, usedCount: 1 } })
+    render(<TopicDetailView topicId={topic.id} session={session} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+    expect(await screen.findByText(supplement.content)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "提交补充" })).not.toBeInTheDocument()
+  })
+
+  it("hides the supplement feature when additions are disabled and no history exists", async () => {
+    vi.mocked(listTopicSupplements).mockResolvedValueOnce({ supplements: [], policy: { ...supplementPolicy, enabled: false, canSubmit: false } })
+    render(<TopicDetailView topicId={topic.id} session={session} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+
+    expect(await screen.findByRole("heading", { name: topic.title })).toBeInTheDocument()
+    expect(screen.queryByRole("heading", { name: "补充" })).not.toBeInTheDocument()
+    expect(screen.queryByText("还没有补充内容")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "提交补充" })).not.toBeInTheDocument()
+  })
+
+  it("uses the server quota including hidden supplements", async () => {
+    vi.mocked(listTopicSupplements).mockResolvedValueOnce({ supplements: [{ ...supplement, status: "hidden" }], policy: { ...supplementPolicy, maxPerTopic: 3, usedCount: 1 } })
+    render(<TopicDetailView topicId={topic.id} session={session} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+    expect(await screen.findByText("剩余 2/3 次")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "提交补充" })).toBeEnabled()
   })
 
   it("publishes the loaded topic for the detail sidebar", async () => {
@@ -460,7 +573,7 @@ describe("TopicDetailView", () => {
     expect(await screen.findByText("举报已提交，管理员会尽快处理")).toBeInTheDocument()
   })
 
-  it("allows the author to edit content and inspect revisions", async () => {
+  it("allows the author to edit content without showing revision history", async () => {
     const user = userEvent.setup()
     const updatedTopic = { ...topic, title: "更新后的标题", content: "更新后的正文", contentRevision: 2, tags: [{ slug: "sqlx", name: "SQLx" }] }
     vi.mocked(updateTopic).mockResolvedValue(updatedTopic)
@@ -486,9 +599,28 @@ describe("TopicDetailView", () => {
 
     expect(await screen.findByRole("heading", { name: "更新后的标题" })).toBeInTheDocument()
     expect(updateTopic).toHaveBeenCalledWith(topic.id, expect.objectContaining({ baseRevision: 1, title: "更新后的标题" }), { csrfToken: session.csrfToken })
-    await user.click(screen.getByRole("button", { name: "查看修订历史" }))
-    expect(await screen.findAllByText("更新后的正文")).toHaveLength(2)
-    expect(listRevisions).toHaveBeenCalledWith(topic.id)
+    expect(screen.queryByRole("button", { name: "查看修订历史" })).not.toBeInTheDocument()
+    expect(await screen.findAllByText("更新后的正文")).toHaveLength(1)
+    expect(listRevisions).not.toHaveBeenCalled()
+  })
+
+  it("keeps the published topic visible when an edit enters review", async () => {
+    const user = userEvent.setup()
+    vi.mocked(updateTopic).mockResolvedValue({
+      ...topic,
+      editDisposition: "pending_review",
+      editReviewId: "019fc800-0000-7000-8000-000000000399",
+    })
+    render(<TopicDetailView topicId={topic.id} session={session} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "编辑" }))
+    await user.clear(screen.getByRole("textbox", { name: "标题（可选）" }))
+    await user.type(screen.getByRole("textbox", { name: "标题（可选）" }), "待审标题")
+    await user.click(screen.getByRole("button", { name: "保存修改" }))
+
+    expect(await screen.findByText(/编辑已提交审核/)).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: topic.title })).toBeInTheDocument()
+    expect(screen.queryByRole("heading", { name: "待审标题" })).not.toBeInTheDocument()
   })
 
   it("shows a conflict and lets the author refresh the latest revision", async () => {
@@ -505,7 +637,7 @@ describe("TopicDetailView", () => {
     expect(getTopic).toHaveBeenCalledTimes(2)
   })
 
-  it("lets a reply author edit, inspect revisions and confirm deletion", async () => {
+  it("lets a reply author edit and confirm deletion without showing revision history", async () => {
     const user = userEvent.setup()
     const onReplyDeleted = vi.fn()
     const updatedReply = { ...reply, content: "更新后的回复", revisionCount: 2 }
@@ -543,9 +675,8 @@ describe("TopicDetailView", () => {
       richContent: expect.objectContaining({ type: "doc" }),
     }), { csrfToken: session.csrfToken })
 
-    await user.click(screen.getByRole("button", { name: "查看回复修订历史" }))
-    expect(await screen.findByText("第 2 版")).toBeInTheDocument()
-    expect(listReplyRevisions).toHaveBeenCalledWith(topic.id, reply.id)
+    expect(screen.queryByRole("button", { name: "查看回复修订历史" })).not.toBeInTheDocument()
+    expect(listReplyRevisions).not.toHaveBeenCalled()
 
     await user.click(screen.getByRole("button", { name: "删除回复" }))
     expect(screen.getByRole("alertdialog", { name: "确认删除回复" })).toBeInTheDocument()
@@ -555,6 +686,24 @@ describe("TopicDetailView", () => {
       csrfToken: session.csrfToken,
     })
     expect(onReplyDeleted).toHaveBeenCalledWith(topic.id)
+  })
+
+  it("keeps the published reply visible when an edit enters review", async () => {
+    const user = userEvent.setup()
+    vi.mocked(getTopic).mockResolvedValue({ ...topic, replies: 1 })
+    vi.mocked(listReplies).mockResolvedValue({ replies: [reply], nextCursor: null })
+    vi.mocked(updateReply).mockResolvedValue({
+      ...reply,
+      editDisposition: "pending_review",
+      editReviewId: "019fc800-0000-7000-8000-000000000399",
+    })
+    render(<TopicDetailView topicId={topic.id} session={session} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+
+    await user.click(await screen.findByRole("button", { name: "编辑回复" }))
+    await user.click(screen.getByRole("button", { name: "保存回复" }))
+
+    expect(await screen.findByText(/回复编辑已提交审核/)).toBeInTheDocument()
+    expect(screen.getByText(reply.content)).toBeInTheDocument()
   })
 
   it("lets the topic author confirm a soft deletion and returns to the feed", async () => {
@@ -609,3 +758,5 @@ describe("TopicDetailView", () => {
     expect(screen.queryByRole("button", { name: "删除回复" })).not.toBeInTheDocument()
   })
 })
+
+vi.mock("./TopicPollPanel",()=>({TopicPollPanel:()=>null}))

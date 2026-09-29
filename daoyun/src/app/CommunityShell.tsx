@@ -9,6 +9,7 @@ interface CommunityShellProps {
   footer: ReactNode
   mobileNavigation: ReactNode
   overlays: ReactNode
+  surface?: "default" | "home"
 }
 
 export function CommunityShell({
@@ -20,9 +21,10 @@ export function CommunityShell({
   footer,
   mobileNavigation,
   overlays,
+  surface = "default",
 }: CommunityShellProps) {
   return (
-    <div className="app" id="top">
+    <div className={`app app--public${surface === "home" ? " app--home" : ""}`} id="top">
       {header}
       {authStatus}
       <div className="page-shell">

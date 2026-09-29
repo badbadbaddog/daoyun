@@ -221,6 +221,7 @@ impl AuthConfig {
 pub(crate) struct AuthRuntime {
     config: AuthConfig,
     attempts: Arc<Mutex<HashMap<String, AttemptWindow>>>,
+    pub(crate) analytics: Arc<crate::activity_recorder::ActivityRecorder>,
     oidc: Option<OidcRuntime>,
 }
 
@@ -235,6 +236,7 @@ pub(crate) fn runtime(config: AuthConfig) -> AuthRuntime {
     AuthRuntime {
         config,
         attempts: Arc::new(Mutex::new(HashMap::new())),
+        analytics: Arc::default(),
         oidc: OidcRuntime::new(),
     }
 }
@@ -2594,6 +2596,7 @@ pub(crate) async fn authenticate_session(
     if record.csrf_token_hash != token_hash(csrf_token) {
         return Err(unauthenticated(runtime, request_id));
     }
+    runtime.analytics.capture(database, record.user.id);
     Ok((record, csrf_token.to_owned()))
 }
 

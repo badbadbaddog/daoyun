@@ -66,6 +66,15 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe("OperationsAdminPanel", () => {
+  it("separates overview, alerts and on-demand rule editing", async () => {
+    const user = userEvent.setup()
+    render(<OperationsAdminPanel csrfToken="csrf-token" />)
+    await screen.findByText("数据库正常")
+    expect(screen.queryByLabelText("API 5xx 错误阈值")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "告警规则" }))
+    await user.click(screen.getByRole("button", { name: "编辑 API 5xx 错误规则" }))
+    expect(screen.getByRole("dialog", { name: "编辑告警规则" })).toContainElement(screen.getByLabelText("API 5xx 错误阈值"))
+  })
   it("renders real operational state and saves a validated rule draft", async () => {
     const user = userEvent.setup()
     vi.mocked(updateOperationsAlertRule).mockResolvedValue({ ...rule, threshold: 15, revision: 2 })
@@ -75,7 +84,8 @@ describe("OperationsAdminPanel", () => {
     expect(await screen.findByRole("heading", { name: "运营概览" })).toBeInTheDocument()
     expect(screen.getByText("1,250")).toBeInTheDocument()
     expect(screen.getByText("数据库正常")).toBeInTheDocument()
-    expect(screen.getAllByText("API 5xx 错误")).toHaveLength(2)
+    await user.click(screen.getByRole("button", { name: "告警规则" }))
+    await user.click(screen.getByRole("button", { name: "编辑 API 5xx 错误规则" }))
 
     const threshold = screen.getByLabelText("API 5xx 错误阈值")
     await user.clear(threshold)
@@ -102,16 +112,20 @@ describe("OperationsAdminPanel", () => {
     })
     render(<OperationsAdminPanel csrfToken="csrf-token" />)
 
+    await user.click(await screen.findByRole("button", { name: "待确认告警" }))
     await user.click(await screen.findByRole("button", { name: "确认 API 5xx 错误告警" }))
     await waitFor(() => expect(acknowledgeOperationsAlert).toHaveBeenCalledWith(alert.id, "csrf-token"))
     expect(await screen.findByText("当前没有待确认的运营告警")).toBeInTheDocument()
   })
 
   it("renders an operations.read-only role without mutation controls", async () => {
+    const user = userEvent.setup()
     render(<OperationsAdminPanel csrfToken="csrf-token" canWrite={false} />)
 
     expect(await screen.findByText("只读权限")).toBeInTheDocument()
-    expect(screen.getByLabelText("API 5xx 错误阈值")).toBeDisabled()
+    await user.click(screen.getByRole("button", { name: "告警规则" }))
+    expect(screen.queryByRole("button", { name: "编辑 API 5xx 错误规则" })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("API 5xx 错误阈值")).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "保存 API 5xx 错误规则" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "确认 API 5xx 错误告警" })).not.toBeInTheDocument()
     expect(updateOperationsAlertRule).not.toHaveBeenCalled()
@@ -132,6 +146,8 @@ describe("OperationsAdminPanel", () => {
     vi.mocked(listOperationsAlertRules).mockResolvedValueOnce([rule]).mockResolvedValueOnce([{ ...rule, threshold: 20, revision: 2 }])
     render(<OperationsAdminPanel csrfToken="csrf-token" />)
 
+    await user.click(await screen.findByRole("button", { name: "告警规则" }))
+    await user.click(screen.getByRole("button", { name: "编辑 API 5xx 错误规则" }))
     await user.click(await screen.findByRole("button", { name: "保存 API 5xx 错误规则" }))
     expect(await screen.findByText("规则已被其他管理员修改，已刷新最新数据。")).toBeInTheDocument()
     await waitFor(() => expect(listOperationsAlertRules).toHaveBeenCalledTimes(2))

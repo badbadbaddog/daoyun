@@ -385,6 +385,9 @@ export interface MembershipPointsGrant {
 }
 
 export interface MembershipMedalRule {
+  assetKey: string
+  assetUrl: string
+  revision: number
   key: string
   displayName: string
   enabled: boolean
@@ -619,7 +622,7 @@ const contentAccessOperators = new Set<ContentAccessOperator>(["any_of", "all_of
 const mergeBlockedReasons = new Set<AdminBoardMergeBlockedReason>(["same_board", "target_descendant", "source_has_children", "topic_limit_exceeded", "source_unavailable", "target_unavailable"])
 const tones = new Set<BoardTone>(["green", "blue", "amber", "rose"])
 const membershipLevelPattern = /^lv_(?:[1-9]|1[0-9]|20)$/
-const membershipMedalPattern = /^medal_(?:0[1-9]|1[0-7])$/
+const membershipMedalPattern = /^[a-z][a-z0-9_]{2,63}$/
 const capabilityKeyPattern = /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/
 const internalKeyPattern = /^[a-z][a-z0-9_]{2,63}$/
 
@@ -1180,11 +1183,44 @@ export async function getMembershipMedalRules(signal?: AbortSignal): Promise<Mem
   return parseResponse<MembershipMedalRule[]>(response, (value): value is MembershipMedalRuleDto[] => Array.isArray(value) && value.every(isMembershipMedalRuleDto))
 }
 
-export async function updateMembershipMedalRule(key: string, input: Pick<MembershipMedalRule, "enabled" | "requiredLifetimePoints">, csrfToken: string, signal?: AbortSignal): Promise<MembershipMedalRule> {
-  if (!membershipMedalPattern.test(key)) throw new AdminApiError(422, "validation.failed", "勋章键必须是 medal_01 至 medal_17")
+export type MembershipMedalRuleInput = Pick<MembershipMedalRule, "displayName" | "assetKey" | "enabled" | "requiredLifetimePoints">
+
+export interface MembershipMedalAsset { assetKey: string; assetUrl: string; sha256: string; mimeType: string; sizeBytes: number }
+type MembershipMedalAssetDto = components["schemas"]["MembershipMedalAsset"]
+
+export async function uploadMembershipMedalAsset(file: File, csrfToken: string): Promise<MembershipMedalAsset> {
+  const response = await fetch("/api/v1/admin/membership/medal-assets", {
+    method: "POST", headers: { Accept: "application/json", "Content-Type": file.type, "x-csrf-token": csrfToken }, credentials: "include", body: file,
+  })
+  return parseResponse(response, isMembershipMedalAssetDto)
+}
+
+function isMembershipMedalAssetDto(value: unknown): value is MembershipMedalAssetDto {
+  return isRecord(value) && typeof value.asset_key === "string" && /^upload_[a-f0-9]{64}$/.test(value.asset_key) && value.asset_url === `/api/v1/membership/medal-assets/${value.asset_key}` && value.sha256 === value.asset_key.slice(7) && ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(value.mime_type) && Number.isSafeInteger(value.size_bytes) && value.size_bytes > 0 && value.size_bytes <= 2 * 1024 * 1024
+}
+
+export async function createMembershipMedalRule(input: MembershipMedalRuleInput, csrfToken: string): Promise<MembershipMedalRule> {
+  const response = await fetch("/api/v1/admin/membership/medal-rules", {
+    method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken }, credentials: "include",
+    body: JSON.stringify({ display_name: input.displayName.trim(), asset_key: input.assetKey, enabled: input.enabled, required_lifetime_points: input.requiredLifetimePoints }),
+  })
+  return parseResponse(response, isMembershipMedalRuleDto)
+}
+
+export async function deleteMembershipMedalRule(key: string, expectedRevision: number, csrfToken: string): Promise<boolean> {
+  if (!membershipMedalPattern.test(key)) throw new AdminApiError(422, "validation.failed", "勋章标识无效")
+  const response = await fetch(`/api/v1/admin/membership/medal-rules/${encodeURIComponent(key)}`, {
+    method: "DELETE", headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken }, credentials: "include",
+    body: JSON.stringify({ expected_revision: expectedRevision }),
+  })
+  return parseResponse(response, (value): value is boolean => typeof value === "boolean")
+}
+
+export async function updateMembershipMedalRule(key: string, input: MembershipMedalRuleInput & { expectedRevision: number }, csrfToken: string, signal?: AbortSignal): Promise<MembershipMedalRule> {
+  if (!membershipMedalPattern.test(key)) throw new AdminApiError(422, "validation.failed", "勋章标识无效")
   const response = await fetch(`/api/v1/admin/membership/medal-rules/${encodeURIComponent(key)}`, {
     method: "PATCH", headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken }, credentials: "include",
-    body: JSON.stringify({ enabled: input.enabled, required_lifetime_points: input.requiredLifetimePoints }), signal,
+    body: JSON.stringify({ display_name: input.displayName.trim(), asset_key: input.assetKey, expected_revision: input.expectedRevision, enabled: input.enabled, required_lifetime_points: input.requiredLifetimePoints }), signal,
   })
   return parseResponse(response, isMembershipMedalRuleDto)
 }
@@ -1205,7 +1241,7 @@ export async function getAdminMembershipAccount(userId: string, signal?: AbortSi
 }
 
 export async function listMembershipMedalOperations(options: ListMembershipMedalOperationsOptions = {}): Promise<{ operations: MembershipMedalOperation[]; nextCursor: string | null }> {
-  if (options.medalKey && !membershipMedalPattern.test(options.medalKey)) throw new AdminApiError(422, "validation.failed", "勋章键必须是 medal_01 至 medal_17")
+  if (options.medalKey && !membershipMedalPattern.test(options.medalKey)) throw new AdminApiError(422, "validation.failed", "勋章标识无效")
   const params = new URLSearchParams()
   if (options.userId) params.set("user_id", options.userId)
   if (options.medalKey) params.set("medal_key", options.medalKey)
@@ -1223,7 +1259,7 @@ export async function listMembershipMedalOperations(options: ListMembershipMedal
 }
 
 export async function revokeMembershipMedal(input: RevokeMembershipMedalInput, csrfToken: string, signal?: AbortSignal): Promise<MembershipMedalRevocation> {
-  if (!membershipMedalPattern.test(input.medalKey)) throw new AdminApiError(422, "validation.failed", "勋章键必须是 medal_01 至 medal_17")
+  if (!membershipMedalPattern.test(input.medalKey)) throw new AdminApiError(422, "validation.failed", "勋章标识无效")
   const response = await fetch("/api/v1/admin/membership/medal-revocations", {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken },
@@ -1441,7 +1477,7 @@ type UpdateMembershipLevelRuleRequestDto = components["schemas"]["UpdateMembersh
 type GrantMembershipPointsRequestDto = components["schemas"]["GrantMembershipPointsRequest"] & { details?: string | null }
 type MembershipPointsGrantDto = components["schemas"]["MembershipPointsGrant"] & { audit_id?: string | null }
 type MembershipAccountDto = components["schemas"]["MembershipAccount"]
-type MembershipMedalRuleDto = { key: string; display_name: string; enabled: boolean; required_lifetime_points: number | null; updated_at: string }
+type MembershipMedalRuleDto = { asset_key: string; asset_url: string; revision: number; key: string; display_name: string; enabled: boolean; required_lifetime_points: number | null; updated_at: string }
 type MembershipMedalDto = { key: string; display_name: string; asset_url: string; sha256: string; granted_at: string }
 type MembershipMedalGrantDto = { medal: MembershipMedalDto; created: boolean }
 type MembershipMedalOperationDto = {
@@ -1485,6 +1521,7 @@ async function parseResponse<T>(response: Response, guard: (value: unknown) => b
 }
 
 function mapValue(value: unknown): unknown {
+  if (isMembershipMedalAssetDto(value)) return { assetKey: value.asset_key, assetUrl: value.asset_url, sha256: value.sha256, mimeType: value.mime_type, sizeBytes: value.size_bytes }
   if (isAdminCapabilityAccessDto(value)) return { capabilityKeys: value.capability_keys }
   if (isOperationsSummaryDto(value)) return { observedAt: value.observed_at, uptimeSeconds: value.uptime_seconds, http: { totalRequests: value.http.total_requests, inFlightRequests: value.http.in_flight_requests, errors5m: value.http.errors_5m, p95Ms5m: value.http.p95_ms_5m }, database: { ready: value.database.ready, connections: value.database.connections, idleConnections: value.database.idle_connections }, outbox: { pending: value.outbox.pending, processing: value.outbox.processing, dead: value.outbox.dead }, riskAlertsOpen: value.risk_alerts_open, alerts: { open: value.alerts.open, acknowledged: value.alerts.acknowledged } }
   if (isOperationsAlertDto(value)) return { id: value.id, rule: { id: value.rule.id, key: value.rule.key, name: value.rule.name, kind: value.rule.kind }, status: value.status, observedValue: value.observed_value, threshold: value.threshold, firstTriggeredAt: value.first_triggered_at, lastTriggeredAt: value.last_triggered_at, acknowledgedBy: value.acknowledged_by ? mapAuthorizationUser(value.acknowledged_by) : null, acknowledgedAt: value.acknowledged_at, resolvedAt: value.resolved_at }
@@ -1508,7 +1545,7 @@ function mapValue(value: unknown): unknown {
   if (isMembershipLevelRuleDto(value)) return { levelKey: value.level_key, levelNumber: value.level_number, levelDisplayName: value.level_display_name, requiredLifetimePoints: value.required_lifetime_points, enabled: value.enabled, updatedAt: value.updated_at }
   if (isMembershipPointsGrantDto(value)) return { account: mapValue(value.account) as MembershipAccount, created: value.created, auditId: value.audit_id ?? null }
   if (isMembershipAccountDto(value)) return { userId: value.user_id, pointsBalance: value.points_balance, lifetimePoints: value.lifetime_points, levelKey: value.level_key, levelNumber: value.level_number, levelDisplayName: value.level_display_name, revision: value.revision, updatedAt: value.updated_at }
-  if (isMembershipMedalRuleDto(value)) return { key: value.key, displayName: value.display_name, enabled: value.enabled, requiredLifetimePoints: value.required_lifetime_points, updatedAt: value.updated_at }
+  if (isMembershipMedalRuleDto(value)) return { assetKey: value.asset_key, assetUrl: value.asset_url, revision: value.revision, key: value.key, displayName: value.display_name, enabled: value.enabled, requiredLifetimePoints: value.required_lifetime_points, updatedAt: value.updated_at }
   if (isMembershipMedalGrantDto(value)) return { medal: mapValue(value.medal) as MembershipMedal, created: value.created }
   if (isMembershipMedalRevocationDto(value)) return { userId: value.user_id, medalKey: value.medal_key, revoked: value.revoked }
   if (isMembershipMedalDto(value)) return { key: value.key, displayName: value.display_name, assetUrl: value.asset_url, sha256: value.sha256, grantedAt: value.granted_at }
@@ -1569,10 +1606,10 @@ function isValidGrowthText(value: unknown, minimumLength: number, maximumLength:
 function isMembershipLevelRuleDto(value: unknown): value is MembershipLevelRuleDto { return isRecord(value) && typeof value.level_key === "string" && membershipLevelPattern.test(value.level_key) && Number.isSafeInteger(value.level_number) && value.level_number >= 1 && value.level_number <= 20 && value.level_key === `lv_${value.level_number}` && typeof value.level_display_name === "string" && value.level_display_name.trim().length > 0 && Number.isSafeInteger(value.required_lifetime_points) && value.required_lifetime_points >= 0 && typeof value.enabled === "boolean" && typeof value.updated_at === "string" }
 function isMembershipAccountDto(value: unknown): value is MembershipAccountDto { return isRecord(value) && isUuid(value.user_id) && Number.isSafeInteger(value.points_balance) && value.points_balance >= 0 && Number.isSafeInteger(value.lifetime_points) && value.lifetime_points >= 0 && typeof value.level_key === "string" && /^[a-z][a-z0-9_]{1,63}$/.test(value.level_key) && Number.isSafeInteger(value.level_number) && value.level_number >= 1 && typeof value.level_display_name === "string" && value.level_display_name.trim().length > 0 && Number.isSafeInteger(value.revision) && value.revision >= 0 && typeof value.updated_at === "string" }
 function isMembershipPointsGrantDto(value: unknown): value is MembershipPointsGrantDto { return isRecord(value) && typeof value.created === "boolean" && isMembershipAccountDto(value.account) && (value.audit_id === undefined || value.audit_id === null || isUuid(value.audit_id)) }
-function isMembershipMedalRuleDto(value: unknown): value is MembershipMedalRuleDto { return isRecord(value) && typeof value.key === "string" && membershipMedalPattern.test(value.key) && value.display_name === `勋章 ${value.key.slice(-2)}` && typeof value.enabled === "boolean" && (value.required_lifetime_points === null || (Number.isSafeInteger(value.required_lifetime_points) && value.required_lifetime_points >= 0)) && typeof value.updated_at === "string" }
-function isMembershipMedalDto(value: unknown): value is MembershipMedalDto { return isRecord(value) && typeof value.key === "string" && membershipMedalPattern.test(value.key) && value.display_name === `勋章 ${value.key.slice(-2)}` && typeof value.asset_url === "string" && value.asset_url.startsWith("/assets/membership/medals/") && typeof value.sha256 === "string" && /^[0-9a-f]{64}$/.test(value.sha256) && typeof value.granted_at === "string" }
+function isMembershipMedalRuleDto(value: unknown): value is MembershipMedalRuleDto { return isRecord(value) && typeof value.asset_key === "string" && /^(?:medal_(?:0[1-9]|1[0-7])|upload_[a-f0-9]{64})$/.test(value.asset_key) && typeof value.asset_url === "string" && (/^(?:\/assets\/membership\/medals\/medal(?:[1-9]|1[0-7])\.gif|\/api\/v1\/membership\/medal-assets\/upload_[a-f0-9]{64})$/.test(value.asset_url)) && Number.isSafeInteger(value.revision) && value.revision >= 1 && typeof value.key === "string" && membershipMedalPattern.test(value.key) && isNonEmptyString(value.display_name) && typeof value.enabled === "boolean" && (value.required_lifetime_points === null || (Number.isSafeInteger(value.required_lifetime_points) && value.required_lifetime_points >= 0)) && typeof value.updated_at === "string" }
+function isMembershipMedalDto(value: unknown): value is MembershipMedalDto { return isRecord(value) && typeof value.key === "string" && membershipMedalPattern.test(value.key) && isNonEmptyString(value.display_name) && typeof value.asset_url === "string" && (/^(?:\/assets\/membership\/medals\/medal(?:[1-9]|1[0-7])\.gif|\/api\/v1\/membership\/medal-assets\/upload_[a-f0-9]{64})$/.test(value.asset_url)) && typeof value.sha256 === "string" && /^[0-9a-f]{64}$/.test(value.sha256) && typeof value.granted_at === "string" }
 function isMembershipMedalGrantDto(value: unknown): value is MembershipMedalGrantDto { return isRecord(value) && typeof value.created === "boolean" && isMembershipMedalDto(value.medal) }
-function isMembershipMedalOperationDto(value: unknown): value is MembershipMedalOperationDto { return isRecord(value) && isUuid(value.id) && (value.operation === "grant" || value.operation === "automatic_grant" || value.operation === "revoke") && isUuid(value.user_id) && isNonEmptyString(value.username) && isNonEmptyString(value.user_display_name) && typeof value.medal_key === "string" && membershipMedalPattern.test(value.medal_key) && value.medal_display_name === `勋章 ${value.medal_key.slice(-2)}` && typeof value.reason === "string" && value.reason.length <= 64 && isUuid(value.actor_id) && isNonEmptyString(value.actor_username) && isNonEmptyString(value.actor_display_name) && isTimestamp(value.created_at) }
+function isMembershipMedalOperationDto(value: unknown): value is MembershipMedalOperationDto { return isRecord(value) && isUuid(value.id) && (value.operation === "grant" || value.operation === "automatic_grant" || value.operation === "revoke") && isUuid(value.user_id) && isNonEmptyString(value.username) && isNonEmptyString(value.user_display_name) && typeof value.medal_key === "string" && membershipMedalPattern.test(value.medal_key) && isNonEmptyString(value.medal_display_name) && typeof value.reason === "string" && value.reason.length <= 64 && isUuid(value.actor_id) && isNonEmptyString(value.actor_username) && isNonEmptyString(value.actor_display_name) && isTimestamp(value.created_at) }
 function isMembershipMedalOperationPage(value: unknown): value is { data: MembershipMedalOperationDto[]; meta: { request_id: string; next_cursor: string | null } } { return isPageEnvelope(value) && value.data.every(isMembershipMedalOperationDto) }
 function isMembershipMedalRevocationDto(value: unknown): value is MembershipMedalRevocationDto { return isRecord(value) && isUuid(value.user_id) && typeof value.medal_key === "string" && membershipMedalPattern.test(value.medal_key) && typeof value.revoked === "boolean" }
 function mapMembershipMedalOperation(value: MembershipMedalOperationDto): MembershipMedalOperation { return { id: value.id, operation: value.operation, userId: value.user_id, username: value.username, userDisplayName: value.user_display_name, medalKey: value.medal_key, medalDisplayName: value.medal_display_name, reason: value.reason, actorId: value.actor_id, actorUsername: value.actor_username, actorDisplayName: value.actor_display_name, createdAt: value.created_at } }

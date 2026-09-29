@@ -6,7 +6,7 @@ export type CommunityRoute =
   | { kind: "feed"; feed: CommunityFeed }
   | { kind: "boardIndex" }
   | { kind: "board"; slug: string }
-  | { kind: "search"; query: string; scope: SearchScope }
+  | { kind: "search"; query: string; scope: SearchScope; filters?: SearchContentFilters }
   | { kind: "topic"; topicId: string; replyId?: string }
   | { kind: "user"; username: string }
   | { kind: "bookmarks" }
@@ -104,10 +104,12 @@ export function formatRoute(route: CommunityRoute): string {
     case "search": {
       const query = normalizeSearchQuery(route.query)
       const scope = SEARCH_SCOPES.has(route.scope) ? route.scope : "all"
-      if (!query && scope === "all") return "#search"
+      const filters = normalizeSearchFilters(route.filters)
+      if (!query && scope === "all" && !Object.keys(filters).length) return "#search"
       const params = new URLSearchParams()
       if (query) params.set("q", query)
       if (scope !== "all") params.set("type", scope)
+      Object.entries(filters).forEach(([key,value]) => params.set(key,value))
       return `#search?${params.toString()}`
     }
     case "topic": {
@@ -175,7 +177,8 @@ function parseSearch(hash: string): CommunityRoute {
   const query = normalizeSearchQuery(params.get("q") ?? "")
   const requestedScope = params.get("type") as SearchScope | null
   const scope = requestedScope && SEARCH_SCOPES.has(requestedScope) ? requestedScope : "all"
-  return { kind: "search", query, scope }
+  const filters = normalizeSearchFilters(Object.fromEntries(params.entries()) as SearchContentFilters)
+  return { kind: "search", query, scope, ...(Object.keys(filters).length ? {filters} : {}) }
 }
 
 function parseAdmin(hash: string): CommunityRoute {
@@ -201,4 +204,22 @@ function decodeSegment(value: string): string {
   } catch {
     return ""
   }
+}
+
+export interface SearchContentFilters {
+  board?: string
+  author?: string
+  tag?: string
+  from?: string
+  through?: string
+  sort?: "latest" | "popular" | "active"
+}
+export function normalizeSearchFilters(filters: SearchContentFilters = {}): SearchContentFilters {
+  const result: SearchContentFilters = {}
+  for (const key of ["board","author","tag","from","through"] as const) {
+    const value = filters[key]?.trim()
+    if (value) result[key] = value.slice(0,100)
+  }
+  if (filters.sort === "popular" || filters.sort === "active") result.sort = filters.sort
+  return result
 }

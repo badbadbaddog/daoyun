@@ -1,4 +1,5 @@
 import { useEffect, useRef, type FormEventHandler, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
+import { useBodyScrollLock } from "./useBodyScrollLock"
 
 const focusableSelector = "button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [href], [tabindex]:not([tabindex='-1'])"
 
@@ -36,6 +37,7 @@ export function ModalDialog({
 }: ModalDialogProps) {
   const dialogRef = useRef<HTMLElement | null>(null)
   const capturedReturnFocusRef = useRef<HTMLElement | null>(null)
+  useBodyScrollLock()
 
   useEffect(() => {
     capturedReturnFocusRef.current = returnFocus?.isConnected
@@ -43,8 +45,6 @@ export function ModalDialog({
       : document.activeElement instanceof HTMLElement
         ? document.activeElement
         : null
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = "hidden"
     queueMicrotask(() => {
       const preferred = initialFocusSelector
         ? dialogRef.current?.querySelector<HTMLElement>(initialFocusSelector)
@@ -57,7 +57,6 @@ export function ModalDialog({
       }
     })
     return () => {
-      document.body.style.overflow = previousOverflow
       const focusTarget = returnFocus?.isConnected ? returnFocus : capturedReturnFocusRef.current
       queueMicrotask(() => {
         if (focusTarget?.isConnected) focusTarget.focus()
@@ -77,6 +76,7 @@ export function ModalDialog({
       return
     }
     if (event.key !== "Tab") return
+    event.stopPropagation()
     const controls = focusableControls()
     if (controls.length === 0) {
       event.preventDefault()

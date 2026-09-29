@@ -3,10 +3,11 @@ use crate::auth::{
     authenticate_state_change,
 };
 use api_contract::{
-    ApiResponse, BoardTone, CreateReplyRequest, CreateTopicRequest, ErrorBody, ErrorCode,
-    ErrorResponse, FieldErrors, GovernTopicRequest, ModerateTopicRequest, ModerationBoard,
-    ModerationTopic, PageResponse, ReplyReference, ReplyRevision, RequestId, TopicAuthorSummary,
-    TopicBoardSummary, TopicDetail, TopicGovernanceAction, TopicGovernanceResult,
+    ApiResponse, BoardTone, CreateReplyRequest, CreateTopicRequest, EditSubmissionDisposition,
+    ErrorBody, ErrorCode, ErrorResponse, FieldErrors, GovernTopicRequest, ModerateTopicRequest,
+    ModerationBoard, ModerationTopic, PageResponse, ReplyEditSubmission, ReplyReference,
+    ReplyRevision, RequestId, TopicAuthorSummary, TopicBoardSummary, TopicDetail,
+    TopicEditSubmission, TopicGovernanceAction, TopicGovernanceResult,
     TopicModerationHistoryAction, TopicModerationHistoryEntry, TopicModerationHistorySource,
     TopicModerationResult, TopicModerationStatus, TopicReply, TopicRevision, TopicScope, TopicSort,
     TopicSummary, TopicTag, TopicTagInput, UpdateReplyRequest, UpdateTopicRequest, UserSummary,
@@ -22,14 +23,14 @@ use axum::{
     routing::{get, patch},
 };
 use infrastructure::{
-    CreateReplyError, CreateTopicError, Database, IdempotencyInput, ListModerationTopicsError,
-    ListPublicRepliesError, ListPublicTopicsError, ListTopicModerationHistoryError,
-    ListTopicRevisionsError, ModerationTopicFilters, NewReplyRecord, NewTagRecord, NewTopicRecord,
-    PublicReplyRecord, PublicTopicDetailRecord, PublicTopicFilters, PublicTopicRecord,
-    ReplyMutationError, TopicDeleteError, TopicGovernanceAction as InfrastructureGovernanceAction,
-    TopicGovernanceError, TopicGovernanceInput, TopicModerationError,
-    TopicSort as InfrastructureTopicSort, UpdateReplyRecord, UpdateTopicError, UpdateTopicRecord,
-    permission_keys,
+    CreateReplyError, CreateTopicError, Database, EditReviewError, IdempotencyInput,
+    ListModerationTopicsError, ListPublicRepliesError, ListPublicTopicsError,
+    ListTopicModerationHistoryError, ListTopicRevisionsError, ModerationTopicFilters,
+    NewReplyRecord, NewTagRecord, NewTopicRecord, PublicReplyRecord, PublicTopicDetailRecord,
+    PublicTopicFilters, PublicTopicRecord, ReplyMutationError, TopicDeleteError,
+    TopicGovernanceAction as InfrastructureGovernanceAction, TopicGovernanceError,
+    TopicGovernanceInput, TopicModerationError, TopicSort as InfrastructureTopicSort,
+    UpdateReplyRecord, UpdateTopicError, UpdateTopicRecord, permission_keys,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -52,10 +53,14 @@ pub(crate) struct ListTopicsQuery {
     pub(crate) query: Option<String>,
     pub(crate) tag: Option<String>,
     pub(crate) author: Option<String>,
+    /// Inclusive UTC publication date (YYYY-MM-DD).
+    pub(crate) from: Option<String>,
+    /// Inclusive UTC publication date (YYYY-MM-DD).
+    pub(crate) through: Option<String>,
     pub(crate) scope: Option<TopicScope>,
     pub(crate) featured: Option<bool>,
     pub(crate) sort: Option<TopicSort>,
-    pub(crate) cursor: Option<Uuid>,
+    pub(crate) cursor: Option<String>,
     pub(crate) limit: Option<u16>,
 }
 
@@ -83,6 +88,8 @@ pub(crate) struct ListTopicModerationHistoryQuery {
 }
 
 struct ValidatedCreateTopic {
+    poll: Option<api_contract::PollInput>,
+    draft: Option<api_contract::DraftReference>,
     board_id: Option<Uuid>,
     title: String,
     content: String,
@@ -127,6 +134,10 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
         .route(
             "/api/v1/admin/moderation/topics/{topic_id}/history",
             get(list_topic_moderation_history),
+        )
+        .route(
+            "/api/v1/admin/moderation/topics/{topic_id}/revisions",
+            get(admin_revisions),
         )
         .route(
             "/api/v1/topics/{topic_id}",
@@ -197,8 +208,10 @@ pub(crate) async fn list(
     filters.viewer_user_id = viewer_user_id;
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT);
     let fetch_limit = i64::from(limit) + 1;
+    let cursor = parse_topic_cursor(query.cursor.as_deref(), &filters)
+        .map_err(|(field, message)| read_error(validation_error(request_id, field, message)))?;
     let mut records = database
-        .list_public_topics(&filters, query.cursor, fetch_limit)
+        .list_public_topics(&filters, cursor, fetch_limit)
         .await
         .map_err(|error| match error {
             ListPublicTopicsError::InvalidCursor => read_error(validation_error(
@@ -219,11 +232,10 @@ pub(crate) async fn list(
     let has_next_page = records.len() > usize::from(limit);
     records.truncate(usize::from(limit));
     let next_cursor = has_next_page.then(|| {
-        records
-            .last()
-            .expect("a full topic page is non-empty")
-            .id
-            .to_string()
+        topic_cursor(
+            records.last().expect("a full topic page is non-empty").id,
+            &filters,
+        )
     });
     let topics = records
         .into_iter()
@@ -479,7 +491,7 @@ pub(crate) async fn create(
     let topic_id = Uuid::now_v7();
     let stored_content = storage_content(&input.content, input.rich_content.as_ref());
     let result = database
-        .create_published_topic(
+        .create_published_topic_with_extensions(
             NewTopicRecord {
                 id: topic_id,
                 board_id: input.board_id,
@@ -491,9 +503,27 @@ pub(crate) async fn create(
                 tags: input.tags,
             },
             idempotency_key.map(|key| IdempotencyInput { key, request_hash }),
+            input.draft.map(|d| (d.id, d.revision)),
+            input
+                .poll
+                .map(crate::polls::parse)
+                .transpose()
+                .map_err(|e| crate::polls::error(e, request_id))?,
         )
         .await
         .map_err(|error| match error {
+            CreateTopicError::Poll(error) => crate::polls::error(error, request_id),
+            CreateTopicError::DraftConflict => (
+                StatusCode::CONFLICT,
+                HeaderMap::new(),
+                Json(ErrorResponse::new(
+                    ErrorBody::new(
+                        ErrorCode::from_static("draft.conflict"),
+                        "草稿已更新、发布或删除，请重新读取后再发布",
+                    ),
+                    request_id,
+                )),
+            ),
             CreateTopicError::BoardUnavailable => topic_board_unavailable(request_id),
             CreateTopicError::BoardRestricted => board_posting_restricted(request_id),
             CreateTopicError::AuthorRestricted => user_action_restricted(request_id),
@@ -581,7 +611,7 @@ pub(crate) async fn detail(
     ),
     request_body = UpdateTopicRequest,
     responses(
-        (status = 200, description = "The updated topic", body = ApiResponse<TopicDetail>, headers(("x-request-id" = String))),
+        (status = 200, description = "The published topic and edit disposition", body = ApiResponse<TopicEditSubmission>, headers(("x-request-id" = String))),
         (status = 400, description = "The topic path is invalid", body = ErrorResponse, headers(("x-request-id" = String))),
         (status = 401, description = "The request has no active session", body = ErrorResponse, headers(("x-request-id" = String), ("set-cookie" = String))),
         (status = 403, description = "The current user cannot edit this topic", body = ErrorResponse, headers(("x-request-id" = String))),
@@ -598,7 +628,7 @@ pub(crate) async fn update(
     headers: HeaderMap,
     path: Result<Path<Uuid>, PathRejection>,
     request: Result<Json<UpdateTopicRequest>, JsonRejection>,
-) -> Result<(StatusCode, Json<ApiResponse<TopicDetail>>), ApiError> {
+) -> Result<(StatusCode, Json<ApiResponse<TopicEditSubmission>>), ApiError> {
     let Path(topic_id) = path.map_err(|_| create_path_invalid(request_id))?;
     let Json(request) = request.map_err(|_| malformed_update_body(request_id))?;
     let input = validate_update_request(request)
@@ -608,30 +638,40 @@ pub(crate) async fn update(
         (Some(content), rich_content) => Some(storage_content(content, rich_content.as_ref())),
         (None, _) => None,
     };
-    let result = database
-        .update_published_topic(UpdateTopicRecord {
-            topic_id,
-            author_id: session.user.id,
-            base_revision: input.base_revision,
-            title: input.title,
-            excerpt: input.excerpt,
-            content: stored_content,
-            rich_content: input.rich_content,
-            tags: input.tags,
-        })
+    let update = UpdateTopicRecord {
+        topic_id,
+        author_id: session.user.id,
+        base_revision: input.base_revision,
+        title: input.title,
+        excerpt: input.excerpt,
+        content: stored_content,
+        rich_content: input.rich_content,
+        tags: input.tags,
+    };
+    let review_id = database
+        .submit_topic_edit_review(update.clone())
         .await
-        .map_err(|error| match error {
-            UpdateTopicError::TopicUnavailable => create_not_found(request_id),
-            UpdateTopicError::Forbidden => topic_edit_forbidden(request_id),
-            UpdateTopicError::RevisionConflict => topic_revision_conflict(request_id),
-            UpdateTopicError::AttachmentUnavailable => rich_attachment_unavailable(request_id),
-            UpdateTopicError::Database(error) => {
-                tracing::warn!(request_id = %request_id, error = %error, "Topic update failed");
-                service_unavailable_create(request_id)
-            }
-        })?;
+        .map_err(|error| edit_review_submission_error(error, request_id))?;
+    let result_topic_id = if review_id.is_some() {
+        topic_id
+    } else {
+        database
+            .update_published_topic(update)
+            .await
+            .map_err(|error| match error {
+                UpdateTopicError::TopicUnavailable => create_not_found(request_id),
+                UpdateTopicError::Forbidden => topic_edit_forbidden(request_id),
+                UpdateTopicError::RevisionConflict => topic_revision_conflict(request_id),
+                UpdateTopicError::AttachmentUnavailable => rich_attachment_unavailable(request_id),
+                UpdateTopicError::Database(error) => {
+                    tracing::warn!(request_id = %request_id, error = %error, "Topic update failed");
+                    service_unavailable_create(request_id)
+                }
+            })?
+            .topic_id
+    };
     let record = database
-        .public_topic_for_viewer(result.topic_id, Some(session.user.id))
+        .public_topic_for_viewer(result_topic_id, Some(session.user.id))
         .await
         .map_err(|error| {
             tracing::warn!(request_id = %request_id, error = %error, "Updated topic lookup failed");
@@ -639,7 +679,21 @@ pub(crate) async fn update(
         })?
         .ok_or_else(|| service_unavailable_create(request_id))?;
     let topic = topic_detail(record).map_err(|()| service_unavailable_create(request_id))?;
-    Ok((StatusCode::OK, Json(ApiResponse::new(topic, request_id))))
+    Ok((
+        StatusCode::OK,
+        Json(ApiResponse::new(
+            TopicEditSubmission {
+                topic,
+                disposition: if review_id.is_some() {
+                    EditSubmissionDisposition::PendingReview
+                } else {
+                    EditSubmissionDisposition::Published
+                },
+                review_id,
+            },
+            request_id,
+        )),
+    ))
 }
 
 #[utoipa::path(
@@ -865,6 +919,52 @@ pub(crate) async fn revisions(
 
 #[utoipa::path(
     get,
+    path = "/api/v1/admin/moderation/topics/{topic_id}/revisions",
+    operation_id = "listAdminTopicRevisions",
+    tag = "admin",
+    params(("topic_id" = Uuid, Path)),
+    responses(
+        (status = 200, description = "Read-only topic revisions, newest first; requires audit.read", body = ApiResponse<Vec<TopicRevision>>, headers(("x-request-id" = String))),
+        (status = 400, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 404, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn admin_revisions(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    path: Result<Path<Uuid>, PathRejection>,
+) -> Result<Json<ApiResponse<Vec<TopicRevision>>>, ApiError> {
+    let Path(topic_id) = path.map_err(|_| create_path_invalid(request_id))?;
+    authorize_capability_read(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::AUDIT_READ,
+    )
+    .await?;
+    let records = database.list_admin_topic_revisions(topic_id).await.map_err(|error| match error {
+        ListTopicRevisionsError::TopicUnavailable => create_not_found(request_id),
+        ListTopicRevisionsError::Database(error) => {
+            tracing::warn!(request_id = %request_id, error = %error, "Admin topic revision query failed");
+            service_unavailable_create(request_id)
+        }
+    })?;
+    let revisions = records
+        .into_iter()
+        .map(topic_revision)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|()| service_unavailable_create(request_id))?;
+    Ok(Json(ApiResponse::new(revisions, request_id)))
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/topics/{topic_id}/replies",
     operation_id = "listTopicReplies",
     tag = "topics",
@@ -1061,7 +1161,7 @@ pub(crate) async fn create_reply(
     ),
     request_body = UpdateReplyRequest,
     responses(
-        (status = 200, description = "The updated reply", body = ApiResponse<TopicReply>, headers(("x-request-id" = String))),
+        (status = 200, description = "The published reply and edit disposition", body = ApiResponse<ReplyEditSubmission>, headers(("x-request-id" = String))),
         (status = 400, description = "The reply path is invalid", body = ErrorResponse, headers(("x-request-id" = String))),
         (status = 401, description = "The request has no active session", body = ErrorResponse, headers(("x-request-id" = String), ("set-cookie" = String))),
         (status = 403, description = "The CSRF token is missing or invalid", body = ErrorResponse, headers(("x-request-id" = String))),
@@ -1078,26 +1178,39 @@ pub(crate) async fn update_reply(
     headers: HeaderMap,
     path: Result<Path<(Uuid, Uuid)>, PathRejection>,
     request: Result<Json<UpdateReplyRequest>, JsonRejection>,
-) -> Result<(StatusCode, Json<ApiResponse<TopicReply>>), ApiError> {
+) -> Result<(StatusCode, Json<ApiResponse<ReplyEditSubmission>>), ApiError> {
     let Path((topic_id, reply_id)) = path.map_err(|_| reply_path_invalid(request_id))?;
     let Json(request) = request.map_err(|_| malformed_reply_body(request_id))?;
     let input = validate_update_reply(request)
         .map_err(|fields| create_validation_error(request_id, fields))?;
     let session = authenticate_state_change(&database, &runtime, &headers, request_id).await?;
     let stored_content = storage_content(&input.content, input.rich_content.as_ref());
-    let result = database
-        .update_published_reply(UpdateReplyRecord {
-            topic_id,
-            reply_id,
-            author_id: session.user.id,
-            base_revision: input.base_revision,
-            content: stored_content,
-            rich_content: input.rich_content,
-        })
+    let update = UpdateReplyRecord {
+        topic_id,
+        reply_id,
+        author_id: session.user.id,
+        base_revision: input.base_revision,
+        content: stored_content,
+        rich_content: input.rich_content,
+    };
+    let review_id = database
+        .submit_reply_edit_review(update.clone())
         .await
-        .map_err(|error| reply_mutation_error(error, request_id, "Reply update failed"))?;
+        .map_err(|error| match error {
+            EditReviewError::NotFound => reply_not_found(request_id),
+            other => edit_review_submission_error(other, request_id),
+        })?;
+    let result_reply_id = if review_id.is_some() {
+        reply_id
+    } else {
+        database
+            .update_published_reply(update)
+            .await
+            .map_err(|error| reply_mutation_error(error, request_id, "Reply update failed"))?
+            .reply_id
+    };
     let record = database
-        .public_reply_for_viewer(result.reply_id, Some(session.user.id))
+        .public_reply_for_viewer(result_reply_id, Some(session.user.id))
         .await
         .map_err(|error| {
             tracing::warn!(request_id = %request_id, error = %error, "Updated reply lookup failed");
@@ -1105,7 +1218,21 @@ pub(crate) async fn update_reply(
         })?
         .ok_or_else(|| service_unavailable_reply_mutation(request_id))?;
     let reply = topic_reply(record).map_err(|()| service_unavailable_reply_mutation(request_id))?;
-    Ok((StatusCode::OK, Json(ApiResponse::new(reply, request_id))))
+    Ok((
+        StatusCode::OK,
+        Json(ApiResponse::new(
+            ReplyEditSubmission {
+                reply,
+                disposition: if review_id.is_some() {
+                    EditSubmissionDisposition::PendingReview
+                } else {
+                    EditSubmissionDisposition::Published
+                },
+                review_id,
+            },
+            request_id,
+        )),
+    ))
 }
 
 #[utoipa::path(
@@ -1215,6 +1342,19 @@ fn validate_query(
         return Err(("author", "author 必须是有效用户名"));
     }
 
+    let from = search_date(query.from.as_deref())?;
+    let through = search_date(query.through.as_deref())?;
+    if from.zip(through).is_some_and(|(a, b)| a > b) {
+        return Err(("date", "起始日期不能晚于结束日期"));
+    }
+    let published_from = from.map(|d| d.midnight().assume_utc());
+    let published_before = through
+        .map(|d| {
+            d.next_day()
+                .map(|d| d.midnight().assume_utc())
+                .ok_or(("through", "结束日期超出范围"))
+        })
+        .transpose()?;
     let sort = match query.sort.unwrap_or_default() {
         TopicSort::Latest => InfrastructureTopicSort::Latest,
         TopicSort::Popular => InfrastructureTopicSort::Popular,
@@ -1225,6 +1365,8 @@ fn validate_query(
         search: search.map(str::to_owned),
         tag_slug: tag_slug.map(str::to_owned),
         author_username: author_username.map(str::to_owned),
+        published_from,
+        published_before,
         following_user_id: None,
         viewer_user_id: None,
         featured_only: query.featured.unwrap_or(false),
@@ -1286,6 +1428,9 @@ fn validate_create_request(
     request: CreateTopicRequest,
 ) -> Result<ValidatedCreateTopic, FieldErrors> {
     let mut fields = FieldErrors::new();
+    if request.draft.as_ref().is_some_and(|d| d.revision < 1) {
+        add_field_error(&mut fields, "draft", "草稿版本无效");
+    }
     let title = request.title.unwrap_or_default().trim().to_owned();
     let (content, rich_content) = validate_body_content(
         request.content,
@@ -1315,6 +1460,8 @@ fn validate_create_request(
             .take(500)
             .collect();
         Ok(ValidatedCreateTopic {
+            poll: request.poll,
+            draft: request.draft,
             board_id: request.board_id,
             title,
             content,
@@ -1539,6 +1686,17 @@ fn parse_idempotency_key(headers: &HeaderMap) -> Result<Option<String>, FieldErr
 
 fn request_hash(input: &ValidatedCreateTopic) -> Vec<u8> {
     let mut hasher = Sha256::new();
+    if let Some(poll) = &input.poll {
+        hasher.update(b"poll:");
+        hasher.update(serde_json::to_vec(poll).expect("poll input is JSON"));
+        hasher.update([0]);
+    }
+    if let Some(draft) = &input.draft {
+        hasher.update(b"draft:");
+        hasher.update(draft.id.as_bytes());
+        hasher.update(draft.revision.to_be_bytes());
+        hasher.update([0]);
+    }
     hasher.update(input.board_id.map(|id| id.to_string()).unwrap_or_default());
     hasher.update([0]);
     hasher.update(input.title.as_bytes());
@@ -1645,6 +1803,12 @@ pub(crate) fn topic_summary(record: PublicTopicRecord) -> Result<TopicSummary, (
         image_url: record
             .image_attachment_id
             .map(|attachment_id| format!("/api/v1/attachments/{attachment_id}/thumbnail")),
+        image_urls: record
+            .image_attachment_ids
+            .into_iter()
+            .take(3)
+            .map(|attachment_id| format!("/api/v1/attachments/{attachment_id}/thumbnail"))
+            .collect(),
         tags: record
             .tags
             .into_iter()
@@ -2105,6 +2269,34 @@ fn reply_revision_conflict(request_id: RequestId) -> ApiError {
     )
 }
 
+fn edit_review_submission_error(error: EditReviewError, request_id: RequestId) -> ApiError {
+    match error {
+        EditReviewError::NotFound => create_not_found(request_id),
+        EditReviewError::Forbidden => topic_edit_forbidden(request_id),
+        EditReviewError::Conflict => create_error(
+            StatusCode::CONFLICT,
+            ErrorBody::new(
+                ErrorCode::from_static("edit_review.conflict"),
+                "已有待审编辑或公开版本已更新，请刷新后重试",
+            ),
+            request_id,
+        ),
+        EditReviewError::InvalidInput => create_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorBody::new(
+                ErrorCode::from_static("request.validation_failed"),
+                "编辑审核参数无效",
+            ),
+            request_id,
+        ),
+        EditReviewError::AttachmentUnavailable => rich_attachment_unavailable(request_id),
+        EditReviewError::Database(error) => {
+            tracing::warn!(request_id = %request_id, error = %error, "Edit review submission failed");
+            service_unavailable_create(request_id)
+        }
+    }
+}
+
 fn reply_mutation_error(
     error: ReplyMutationError,
     request_id: RequestId,
@@ -2271,4 +2463,84 @@ fn create_error(status: StatusCode, body: ErrorBody, request_id: RequestId) -> A
         HeaderMap::new(),
         Json(ErrorResponse::new(body, request_id)),
     )
+}
+
+fn search_date(value: Option<&str>) -> Result<Option<time::Date>, (&'static str, &'static str)> {
+    value
+        .map(|value| {
+            let format = time::format_description::parse_borrowed::<2>("[year]-[month]-[day]")
+                .expect("fixed date format");
+            if value.len() != 10 {
+                return Err(("date", "日期必须使用 YYYY-MM-DD 格式"));
+            }
+            time::Date::parse(value, &format)
+                .map_err(|_| ("date", "日期必须是有效的 YYYY-MM-DD 日期"))
+        })
+        .transpose()
+}
+
+// The cursor is tied to every normalized filter and viewer. It carries no authorization;
+// the database rechecks visibility and the cursor row on every page.
+fn topic_cursor(id: Uuid, filters: &PublicTopicFilters) -> String {
+    let fingerprint = format!("{:x}", Sha256::digest(format!("{filters:?}").as_bytes()));
+    format!("{id}.{fingerprint}")
+}
+fn parse_topic_cursor(
+    value: Option<&str>,
+    filters: &PublicTopicFilters,
+) -> Result<Option<Uuid>, (&'static str, &'static str)> {
+    value
+        .map(|value| {
+            if value.len() != 101 {
+                return Err(("cursor", "cursor 不属于当前筛选条件"));
+            }
+            let (id, _) = value
+                .split_once('.')
+                .ok_or(("cursor", "cursor 格式不正确"))?;
+            let id = Uuid::parse_str(id).map_err(|_| ("cursor", "cursor 格式不正确"))?;
+            if value != topic_cursor(id, filters) {
+                return Err(("cursor", "筛选条件已变化，请从第一页重新搜索"));
+            }
+            Ok(id)
+        })
+        .transpose()
+}
+#[cfg(test)]
+mod search_filter_tests {
+    use super::*;
+    #[test]
+    fn dates_are_validated_and_cursor_is_bound_to_sort_and_dates() {
+        let q = ListTopicsQuery {
+            from: Some("2026-08-01".into()),
+            through: Some("2026-08-02".into()),
+            ..Default::default()
+        };
+        let filters = validate_query(&q).unwrap();
+        assert_eq!(
+            filters.published_before.unwrap().date().to_string(),
+            "2026-08-03"
+        );
+        let id = Uuid::now_v7();
+        let cursor = topic_cursor(id, &filters);
+        assert_eq!(
+            parse_topic_cursor(Some(&cursor), &filters).unwrap(),
+            Some(id)
+        );
+        let mut changed = filters.clone();
+        changed.sort = InfrastructureTopicSort::Popular;
+        assert!(parse_topic_cursor(Some(&cursor), &changed).is_err());
+        changed = filters.clone();
+        changed.published_from = None;
+        assert!(parse_topic_cursor(Some(&cursor), &changed).is_err());
+        for value in ["2026-02-30", "2026-1-01", "2026-08-03"] {
+            assert!(
+                validate_query(&ListTopicsQuery {
+                    from: Some(value.into()),
+                    through: Some("2026-08-02".into()),
+                    ..Default::default()
+                })
+                .is_err()
+            );
+        }
+    }
 }

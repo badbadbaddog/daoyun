@@ -1,9 +1,12 @@
 import CharacterCount from "@tiptap/extension-character-count"
-import { Node } from "@tiptap/core"
+import { Extension, Node } from "@tiptap/core"
 import Image from "@tiptap/extension-image"
 import Placeholder from "@tiptap/extension-placeholder"
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
+import { Plugin, PluginKey } from "@tiptap/pm/state"
+import { Decoration, DecorationSet } from "@tiptap/pm/view"
 import {
   Bold,
   Code,
@@ -32,6 +35,7 @@ import {
   toPlainText,
   type RichTextDocument,
 } from "../editor/richContent"
+import { findTopicHashtags } from "../utils/tags"
 
 interface RichTextEditorProps {
   value: RichTextDocument
@@ -43,6 +47,7 @@ interface RichTextEditorProps {
   disabled?: boolean
   invalid?: boolean
   errorMessageId?: string
+  showImageUpload?: boolean
   onImageUpload?: (
     file: File,
     onProgress: (percent: number) => void,
@@ -68,6 +73,7 @@ export function RichTextEditor({
   disabled = false,
   invalid = false,
   errorMessageId,
+  showImageUpload = true,
   onImageUpload,
 }: RichTextEditorProps) {
   const [linkPanelOpen, setLinkPanelOpen] = useState(false)
@@ -99,6 +105,7 @@ export function RichTextEditor({
       }),
       Placeholder.configure({ placeholder }),
       CharacterCount.configure({ limit: maxCharacters }),
+      HashtagHighlight,
       ReplyGate,
       PrivateAttachmentImage.configure({
         allowBase64: false,
@@ -134,6 +141,7 @@ export function RichTextEditor({
 
   useEffect(() => {
     if (!editor || !autoFocus || disabled) return
+    if (document.querySelector("[role='alertdialog'][aria-modal='true']")) return
     editor.commands.focus("start")
   }, [autoFocus, disabled, editor])
 
@@ -245,7 +253,7 @@ export function RichTextEditor({
         <ToolbarButton label="斜体" active={state?.italic} disabled={disabled} onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={17} /></ToolbarButton>
         <ToolbarButton label="删除线" active={state?.strike} disabled={disabled} onClick={() => editor?.chain().focus().toggleStrike().run()}><Strikethrough size={17} /></ToolbarButton>
         <ToolbarButton label="行内代码" active={state?.code} disabled={disabled} onClick={() => editor?.chain().focus().toggleCode().run()}><Code size={17} /></ToolbarButton>
-        <ToolbarButton
+        {showImageUpload && <ToolbarButton
           label="上传图片"
           disabled={disabled || !onImageUpload || Boolean(imageUpload && !imageUpload.error)}
           onClick={() => imageInputRef.current?.click()}
@@ -253,7 +261,7 @@ export function RichTextEditor({
           {imageUpload && !imageUpload.error
             ? <LoaderCircle className="topic-loading__spinner" size={17} />
             : <ImagePlus size={17} />}
-        </ToolbarButton>
+        </ToolbarButton>}
         <span className="rich-text-editor__separator" aria-hidden="true" />
         <ToolbarButton label="二级标题" active={state?.heading2} disabled={disabled} onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}><Heading2 size={17} /></ToolbarButton>
         <ToolbarButton label="三级标题" active={state?.heading3} disabled={disabled} onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}><Heading3 size={17} /></ToolbarButton>
@@ -270,7 +278,7 @@ export function RichTextEditor({
         <ToolbarButton label="撤销" disabled={disabled || !state?.canUndo} onClick={() => editor?.chain().focus().undo().run()}><Undo2 size={17} /></ToolbarButton>
         <ToolbarButton label="重做" disabled={disabled || !state?.canRedo} onClick={() => editor?.chain().focus().redo().run()}><Redo2 size={17} /></ToolbarButton>
       </div>
-      <input
+      {showImageUpload && <input
         ref={imageInputRef}
         className="rich-text-editor__file-input"
         type="file"
@@ -286,8 +294,8 @@ export function RichTextEditor({
             })
           }
         }}
-      />
-      {imageUpload && (
+      />}
+      {showImageUpload && imageUpload && (
         <div
           className={`rich-text-editor__upload${imageUpload.error ? " rich-text-editor__upload--error" : ""}`}
           role={imageUpload.error ? "alert" : "status"}
@@ -367,6 +375,39 @@ const ReplyGate = Node.create({
     return ["section", { "data-reply-gate": "true" }, 0]
   },
 })
+
+const HashtagHighlight = Extension.create({
+  name: "hashtagHighlight",
+  addProseMirrorPlugins() {
+    return [new Plugin<DecorationSet>({
+      key: new PluginKey("hashtagHighlight"),
+      state: {
+        init: (_, state) => createHashtagDecorations(state.doc),
+        apply: (transaction, current) => transaction.docChanged
+          ? createHashtagDecorations(transaction.doc)
+          : current,
+      },
+      props: {
+        decorations(state) {
+          return this.getState(state)
+        },
+      },
+    })]
+  },
+})
+
+function createHashtagDecorations(document: ProseMirrorNode): DecorationSet {
+  const decorations: Decoration[] = []
+  document.descendants((node, position) => {
+    if (!node.isText || !node.text) return
+    if (document.resolve(position).parent.type.name === "codeBlock") return
+    if (node.marks.some((mark) => mark.type.name === "link" || mark.type.name === "code")) return
+    findTopicHashtags(node.text).forEach((match) => {
+      decorations.push(Decoration.inline(position + match.start, position + match.end, { class: "rich-text-hashtag" }))
+    })
+  })
+  return DecorationSet.create(document, decorations)
+}
 
 function ToolbarButton({ label, active = false, disabled = false, onClick, children }: ToolbarButtonProps) {
   return (

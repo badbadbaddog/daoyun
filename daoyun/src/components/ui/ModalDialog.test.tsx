@@ -7,6 +7,21 @@ import { ModalDialog } from "./ModalDialog"
 afterEach(cleanup)
 
 describe("ModalDialog", () => {
+  it("restores page scrolling when a form and its nested confirmation close together", () => {
+    document.body.style.overflow = "auto"
+    const { rerender, unmount } = render(<ModalDialog titleId="form-title" onClose={() => {}}>
+      <h2 id="form-title">操作表单</h2>
+    </ModalDialog>)
+    rerender(<ModalDialog titleId="form-title" onClose={() => {}}>
+      <h2 id="form-title">操作表单</h2>
+      <ModalDialog titleId="confirm-title" onClose={() => {}}><h2 id="confirm-title">确认操作</h2></ModalDialog>
+    </ModalDialog>)
+    expect(document.body.style.overflow).toBe("hidden")
+    unmount()
+    expect(document.body.style.overflow).toBe("auto")
+    document.body.style.overflow = ""
+  })
+
   it("focuses the requested field, traps Tab, closes with Escape, and restores focus", async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()

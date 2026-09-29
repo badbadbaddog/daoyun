@@ -3,12 +3,15 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   createReply,
   createTopic,
+  createTopicSupplement,
   deleteTopic,
   deleteReply,
   getTopic,
   listRevisions,
+  listAdminTopicRevisions,
   listReplies,
   listReplyRevisions,
+  listTopicSupplements,
   listTags,
   listTopics,
   parseTopicPage,
@@ -65,7 +68,31 @@ const replyPayload = {
   viewer_liked: true,
 }
 
+const supplementPayload = {
+  id: "019fc800-0000-7000-8000-000000000401",
+  topic_id: topicPayload.id,
+  content: "补充说明内容",
+  status: "approved",
+  created_at: "2026-08-03T10:30:00Z",
+  updated_at: "2026-08-03T10:30:00Z",
+  author: topicPayload.author,
+}
+
 describe("topics API client", () => {
+  it("loads read-only admin revisions with credentials and preserves permission failures", async () => {
+    const signal = new AbortController().signal
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({
+      data: [{ id: "019fc800-0000-7000-8000-000000000301", topic_id: topicPayload.id, revision_number: 2, editor: topicPayload.author, content: "历史正文", created_at: "2026-08-03T10:20:00Z" }],
+      meta: { request_id: "019fc800-0000-7000-8000-000000000104" },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }))
+    await expect(listAdminTopicRevisions(topicPayload.id, signal)).resolves.toMatchObject([{ revisionNumber: 2, content: "历史正文", createdAt: "2026-08-03T10:20:00Z" }])
+    expect(fetchMock).toHaveBeenCalledWith(`/api/v1/admin/moderation/topics/${topicPayload.id}/revisions`, {
+      headers: { Accept: "application/json" }, credentials: "include", signal,
+    })
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "auth.forbidden", message: "无查看权限" }, meta: { request_id: "019fc800-0000-7000-8000-000000000104" } }), { status: 403 }))
+    await expect(listAdminTopicRevisions(topicPayload.id)).rejects.toMatchObject({ status: 403, code: "auth.forbidden" })
+  })
+
   it("maps a server page and sends filters", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       data: [topicPayload],
@@ -212,6 +239,53 @@ describe("topics API client", () => {
     })
   })
 
+  it("loads topic supplements", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      data: [supplementPayload],
+      meta: { request_id: "019fc800-0000-7000-8000-000000000102" },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }))
+    await expect(listTopicSupplements(topicPayload.id)).resolves.toMatchObject({
+      supplements: [expect.objectContaining({
+        id: supplementPayload.id,
+        status: "approved",
+        content: "补充说明内容",
+      })],
+    })
+    expect(fetchMock).toHaveBeenCalledWith(`/api/v1/topics/${topicPayload.id}/supplements`, {
+      headers: { Accept: "application/json" },
+      credentials: "include",
+    })
+  })
+
+  it("creates a topic supplement with credentials, csrf and idempotency headers", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      data: supplementPayload,
+      meta: { request_id: "019fc800-0000-7000-8000-000000000102" },
+    }), { status: 201, headers: { "Content-Type": "application/json" } }))
+
+    await expect(createTopicSupplement(topicPayload.id, "补充说明内容", {
+      csrfToken: "d".repeat(64),
+      idempotencyKey: "supplement-create-001",
+    })).resolves.toMatchObject({ content: "补充说明内容", status: "approved" })
+    expect(fetchMock).toHaveBeenCalledWith(`/api/v1/topics/${topicPayload.id}/supplements`, expect.objectContaining({
+      method: "POST",
+      credentials: "include",
+      headers: expect.objectContaining({
+        "x-csrf-token": "d".repeat(64),
+        "idempotency-key": "supplement-create-001",
+      }),
+      body: JSON.stringify({ content: "补充说明内容" }),
+    }))
+  })
+
+  it("rejects malformed supplement payloads", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      data: [{ ...supplementPayload, status: "bad_status" }],
+      meta: { request_id: "019fc800-0000-7000-8000-000000000102" },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }))
+    await expect(listTopicSupplements(topicPayload.id)).rejects.toThrow("补充列表响应格式无效")
+  })
+
   it("shares strict topic-page parsing with relationship clients", () => {
     expect(parseTopicPage({
       data: [topicPayload],
@@ -281,7 +355,11 @@ describe("topics API client", () => {
     }
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({
-        data: { ...replyPayload, content: "更新后的回复", revision_count: 2 },
+        data: {
+          reply: { ...replyPayload, content: "更新后的回复", revision_count: 2 },
+          disposition: "published",
+          review_id: null,
+        },
         meta: { request_id: "019fc800-0000-7000-8000-000000000102" },
       }), { status: 200, headers: { "Content-Type": "application/json" } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -363,7 +441,11 @@ describe("topics API client", () => {
         meta: { request_id: "019fc800-0000-7000-8000-000000000102" },
       }), { status: 200, headers: { "Content-Type": "application/json" } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
-        data: { ...topicPayload, title: "已编辑", content: "更新正文", content_revision: 2, has_locked_content: false },
+        data: {
+          topic: { ...topicPayload, title: "已编辑", content: "更新正文", content_revision: 2, has_locked_content: false },
+          disposition: "published",
+          review_id: null,
+        },
         meta: { request_id: "019fc800-0000-7000-8000-000000000103" },
       }), { status: 200, headers: { "Content-Type": "application/json" } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -405,5 +487,26 @@ describe("topics API client", () => {
         }),
       }),
     )
+  })
+
+  it("returns the published topic with a pending edit disposition", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({
+      data: {
+        topic: { ...topicPayload, content: "原始正文", content_revision: 1, has_locked_content: false },
+        disposition: "pending_review",
+        review_id: "019fc800-0000-7000-8000-000000000399",
+      },
+      meta: { request_id: "019fc800-0000-7000-8000-000000000103" },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }))
+
+    await expect(updateTopic(topicPayload.id, {
+      baseRevision: 1,
+      content: "待审正文",
+    }, { csrfToken: "d".repeat(64) })).resolves.toMatchObject({
+      content: "原始正文",
+      contentRevision: 1,
+      editDisposition: "pending_review",
+      editReviewId: "019fc800-0000-7000-8000-000000000399",
+    })
   })
 })

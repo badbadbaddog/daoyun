@@ -1153,14 +1153,12 @@ fn membership_level_number(value: &str) -> i16 {
 fn map_membership_medal(
     record: infrastructure::MembershipMedalRecord,
 ) -> Result<MembershipMedal, ()> {
-    let (filename, sha256) = crate::membership::medal_asset_metadata(&record.medal_key).ok_or(())?;
+    let (asset_url, sha256) =
+        crate::membership::medal_asset_metadata(&record.asset_key).ok_or(())?;
     Ok(MembershipMedal {
         key: record.medal_key.clone(),
-        display_name: format!(
-            "勋章 {}",
-            record.medal_key.strip_prefix("medal_").ok_or(())?
-        ),
-        asset_url: format!("/assets/membership/medals/{filename}"),
+        display_name: record.display_name,
+        asset_url,
         sha256: sha256.to_owned(),
         granted_at: format_timestamp(record.granted_at)?,
     })

@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { useState } from "react"
 
 import { Drawer } from "./Drawer"
@@ -88,4 +88,15 @@ describe("Drawer", () => {
     fireEvent.pointerDown(backdrop as Element)
     expect(screen.getByRole("dialog", { name: "版块设置" })).toBeInTheDocument()
   })
+})
+
+it("keeps keyboard focus inside when a completed action removes its focused button", async () => {
+  const user = userEvent.setup()
+  const close = vi.fn()
+  const view = render(<Drawer title="测试详情" onClose={close}><button>提交处理</button></Drawer>)
+  await user.click(screen.getByRole("button", { name: "提交处理" }))
+  view.rerender(<Drawer title="测试详情" onClose={close}><p>处理完成</p></Drawer>)
+  expect(screen.getByRole("dialog")).toContainElement(document.activeElement as HTMLElement)
+  await user.keyboard("{Escape}")
+  expect(close).toHaveBeenCalledOnce()
 })

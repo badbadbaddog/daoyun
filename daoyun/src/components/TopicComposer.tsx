@@ -1,15 +1,17 @@
-import { LoaderCircle, Send, X } from "lucide-react"
+import {getPollPolicy,isPollInput,type PollInput} from "../api/polls"
+import {PollEditor,newPoll} from "./PollEditor"
+import { GripVertical, ImagePlus, LoaderCircle, Send, Trash2, X } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
-import { createPost } from "../api/posts"
-import { TopicApiError } from "../api/topics"
 import { uploadDraftImage } from "../api/attachments"
 import type { AuthSession } from "../api/auth"
-import type { Topic } from "../types/community"
-import type { Board, TopicTag } from "../types/community"
-import { parseTopicTags } from "../utils/tags"
-import { plainTextDocument, sanitizeRichContent, toPlainText, type RichTextDocument } from "../editor/richContent"
+import { createPost } from "../api/posts"
+import { TopicApiError } from "../api/topics"
+import { attachmentThumbnailUrl, plainTextDocument, sanitizeRichContent, toPlainText, type RichTextDocument } from "../editor/richContent"
+import type { Board, Topic, TopicTag } from "../types/community"
+import { extractTopicTags } from "../utils/tags"
 import { RichTextEditor } from "./RichTextEditor"
+import { DraftShelf, type DraftHandle } from "./DraftShelf"
 import { ConfirmDialog } from "./ui/ConfirmDialog"
 
 interface TopicComposerProps {
@@ -22,43 +24,71 @@ interface TopicComposerProps {
   onPublished: (topic: Topic) => void
 }
 
-type FieldErrors = Record<string, string[]>
-type ComposerCloseOptions = { skipConfirm?: boolean; clearDraft?: boolean }
+interface ComposerImage {
+  attachmentId: string
+  fileName: string
+  expiresAt?: string
+}
 
 interface ComposerDraft {
-  version: 1
+  poll?: PollInput | null
+  version: 2
   title: string
   richContent: RichTextDocument
+  images: ComposerImage[]
   boardId: string
-  tagInput: string
   savedAt: string
 }
 
+interface UploadStatus {
+  current: number
+  total: number
+  percent: number
+}
+
+type FieldErrors = Record<string, string[]>
+
+const MAX_TOPIC_IMAGES = 9
+const DRAFT_SAVE_DELAY_MS = 150
+const DRAFT_IMAGE_FALLBACK_RETENTION_MS = 24 * 60 * 60 * 1_000
+
 export function TopicComposer({ open, boards, session, availableTags = [], defaultBoardId = null, onClose, onPublished }: TopicComposerProps) {
-  const titleRef = useRef<HTMLInputElement>(null)
+  const serverDraftRef = useRef<DraftHandle>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const submittingRef = useRef(false)
+  const uploadingRef = useRef(false)
   const closeConfirmationOpenRef = useRef(false)
   const idempotencyKeyRef = useRef<string | null>(null)
-  const savedDraftSnapshotRef = useRef("")
-  const restoredDraftKeyRef = useRef<string | null>(null)
+  const uploadControllerRef = useRef<AbortController | null>(null)
+  const requestCloseRef = useRef<() => void>(() => undefined)
+  const [poll, setPoll] = useState<PollInput | null>(null)
+  const [canCreatePoll, setCanCreatePoll] = useState(false)
   const [title, setTitle] = useState("")
-  const [titleVisible, setTitleVisible] = useState(false)
   const [content, setContent] = useState("")
   const [richContent, setRichContent] = useState<RichTextDocument>(() => plainTextDocument(""))
+  const [images, setImages] = useState<ComposerImage[]>([])
+  const [draggedImageId, setDraggedImageId] = useState<string | null>(null)
+  const [uploadStatus, setUploadStatus] = useState<UploadStatus | null>(null)
+  const [imageError, setImageError] = useState("")
   const [boardId, setBoardId] = useState("")
-  const [tagInput, setTagInput] = useState("")
+  const [restoredDraftKey, setRestoredDraftKey] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [formError, setFormError] = useState("")
   const [submitting, setSubmitting] = useState(false)
-  const [closeConfirmation, setCloseConfirmation] = useState<{ options: ComposerCloseOptions; returnFocus: HTMLElement | null } | null>(null)
-  submittingRef.current = submitting
+  const [closing, setClosing] = useState(false)
+  const [closeConfirmation, setCloseConfirmation] = useState<{ returnFocus: HTMLElement | null } | null>(null)
+  const uploading = uploadStatus !== null
+  const busy = submitting || uploading || closing
+  submittingRef.current = submitting || closing
+  uploadingRef.current = uploading
   closeConfirmationOpenRef.current = closeConfirmation !== null
-
+  requestCloseRef.current = requestClose
   const draftKey = useMemo(
-    () => composerDraftKey(session?.user.id ?? "guest", defaultBoardId),
+    () => `daoyun:composer-draft:v2:${session?.user.id ?? "guest"}:${defaultBoardId ?? "global"}`,
     [defaultBoardId, session?.user.id],
   )
+
   const selectedBoard = useMemo(
     () => boards.find((board) => board.id === boardId) ?? boards[0],
     [boardId, boards],
@@ -66,7 +96,6 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
 
   useEffect(() => {
     if (!open) return
-
     setBoardId((current) => {
       const preferred = defaultBoardId && boards.some((board) => board.id === defaultBoardId)
         ? defaultBoardId
@@ -79,53 +108,65 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
     setFormError("")
   }, [boards, defaultBoardId, open])
 
+  useEffect(() => () => uploadControllerRef.current?.abort(), [])
   useEffect(() => {
-    if (!open) {
-      setCloseConfirmation(null)
-      restoredDraftKeyRef.current = null
-      return
-    }
-    if (restoredDraftKeyRef.current === draftKey) return
-
-    const draft = readComposerDraft(draftKey)
-    if (draft) {
-      const restoredRichContent = sanitizeRichContent(draft.richContent)
-      setTitle(draft.title)
-      setTitleVisible(Boolean(draft.title.trim()))
-      setContent(toPlainText(restoredRichContent))
-      setRichContent(restoredRichContent)
-      if (!defaultBoardId && boards.some((board) => board.id === draft.boardId)) setBoardId(draft.boardId)
-      setTagInput(draft.tagInput)
-      savedDraftSnapshotRef.current = composerDraftSnapshot(
-        draft.title,
-        restoredRichContent,
-        defaultBoardId ?? draft.boardId,
-        draft.tagInput,
-      )
-    } else {
-      savedDraftSnapshotRef.current = composerDraftSnapshot(title, richContent, boardId, tagInput)
-    }
-    restoredDraftKeyRef.current = draftKey
-  }, [boardId, boards, defaultBoardId, draftKey, open, richContent, tagInput, title])
+    setCanCreatePoll(false)
+    if(!open || !session) return
+    const controller=new AbortController()
+    getPollPolicy(controller.signal).then(policy=>{if(!controller.signal.aborted)setCanCreatePoll(policy.can_create)}).catch(()=>undefined)
+    return()=>controller.abort()
+  },[open,session?.user.id])
 
   useEffect(() => {
-    if (!open || restoredDraftKeyRef.current !== draftKey) return
-    const snapshot = composerDraftSnapshot(title, richContent, boardId, tagInput)
+    if (!open || restoredDraftKey === draftKey) return
+    if (restoredDraftKey) {
+      writeComposerDraft(restoredDraftKey, { title, richContent, images, boardId, poll })
+    }
+    const draft = readComposerDraft(draftKey, session?.user.id)
+    const nextRichContent = draft?.richContent ?? plainTextDocument("")
+    setPoll(draft?.poll ?? null)
+    setTitle(draft?.title ?? "")
+    setRichContent(nextRichContent)
+    setContent(toPlainText(nextRichContent))
+    setImages(draft?.images ?? [])
+    setBoardId(draft && boards.some((board) => board.id === draft.boardId)
+      ? draft.boardId
+      : defaultBoardId && boards.some((board) => board.id === defaultBoardId)
+        ? defaultBoardId
+        : boards[0]?.id ?? "")
+    setFieldErrors({})
+    setFormError("")
+    idempotencyKeyRef.current = null
+    setRestoredDraftKey(draftKey)
+  }, [boardId, boards, defaultBoardId, draftKey, images, open, restoredDraftKey, richContent, title, poll, session?.user.id])
+
+  useEffect(() => {
+    if (!open || restoredDraftKey !== draftKey) return
     const timer = window.setTimeout(() => {
-      const saved = hasComposerDraftContent(title, content, tagInput)
-        ? writeComposerDraft(draftKey, {
-          version: 1,
-          title,
-          richContent,
-          boardId,
-          tagInput,
-          savedAt: new Date().toISOString(),
-        })
-        : removeComposerDraft(draftKey)
-      if (saved) savedDraftSnapshotRef.current = snapshot
-    }, 150)
+      writeComposerDraft(draftKey, { title, richContent, images, boardId, poll })
+    }, DRAFT_SAVE_DELAY_MS)
     return () => window.clearTimeout(timer)
-  }, [boardId, content, draftKey, open, richContent, tagInput, title])
+  }, [boardId, draftKey, images, open, restoredDraftKey, richContent, title, poll])
+
+  useEffect(() => {
+    if (open) return
+    uploadControllerRef.current?.abort()
+    uploadControllerRef.current = null
+    uploadingRef.current = false
+    setPoll(null)
+    setTitle("")
+    setContent("")
+    setRichContent(plainTextDocument(""))
+    setImages([])
+    setDraggedImageId(null)
+    setUploadStatus(null)
+    setImageError("")
+    setBoardId("")
+    setRestoredDraftKey(null)
+    setFieldErrors({})
+    setFormError("")
+    idempotencyKeyRef.current = null
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -133,9 +174,8 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
     const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = "hidden"
-    /* body editor owns initial focus */
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !submittingRef.current && !closeConfirmationOpenRef.current) requestClose()
+      if (event.key === "Escape" && !submittingRef.current && !uploadingRef.current && !closeConfirmationOpenRef.current) requestCloseRef.current()
     }
     const handleTab = (event: KeyboardEvent) => {
       if (event.key !== "Tab" || closeConfirmationOpenRef.current) return
@@ -167,51 +207,126 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
     }
   }, [open])
 
-  function requestClose(options: ComposerCloseOptions = {}) {
-    const snapshot = composerDraftSnapshot(title, richContent, boardId, tagInput)
-    const hasUnsavedChanges = hasComposerDraftContent(title, content, tagInput)
-      && snapshot !== savedDraftSnapshotRef.current
-    if (!options.skipConfirm && hasUnsavedChanges) {
+  function requestClose() {
+    const hasUnsavedChanges = Boolean(title.trim() || content.trim() || images.length || poll)
+    if (hasUnsavedChanges) {
       setCloseConfirmation({
-        options,
         returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null,
       })
       return
     }
-    performClose(options)
+    performClose()
   }
 
-  function performClose(options: ComposerCloseOptions = {}) {
-    if (options.clearDraft) removeComposerDraft(draftKey)
+  function performClose(clearDraft = false) {
+    if (clearDraft) { serverDraftRef.current?.complete(); removeComposerDraft(draftKey) }
+    else writeComposerDraft(draftKey, { title, richContent, images, boardId, poll })
+    uploadControllerRef.current?.abort()
+    uploadControllerRef.current = null
+    uploadingRef.current = false
+    setPoll(null)
     setTitle("")
-    setTitleVisible(false)
     setContent("")
     setRichContent(plainTextDocument(""))
+    setImages([])
+    setDraggedImageId(null)
+    setUploadStatus(null)
+    setImageError("")
     setBoardId("")
-    setTagInput("")
+    setRestoredDraftKey(null)
     setFieldErrors({})
     setFormError("")
     idempotencyKeyRef.current = null
-    savedDraftSnapshotRef.current = ""
-    restoredDraftKeyRef.current = null
     onClose()
   }
 
   function validate(): FieldErrors {
     const errors: FieldErrors = {}
-    const normalizedTitle = title.trim()
-    const normalizedContent = content.trim()
-    if (countCharacters(normalizedTitle) > 160) {
-      errors.title = ["标题最多 160 个字符"]
-    }
-    if (countCharacters(normalizedContent) < 1) {
-      errors.content = ["请输入正文"]
-    }
+    if (countCharacters(title.trim()) > 160) errors.title = ["标题最多 160 个字符"]
+    if (countCharacters(content.trim()) < 1) errors.content = ["请输入正文"]
+    if (poll && !canCreatePoll) errors.poll = ["投票功能未启用或当前账号没有创建权限，请移除投票后发布"]
     return errors
   }
 
+  async function addImages(files: File[]) {
+    if (uploadingRef.current || files.length === 0) return
+    if (!session) {
+      setImageError("请先登录后上传图片")
+      return
+    }
+
+    const remaining = MAX_TOPIC_IMAGES - images.length
+    if (remaining <= 0) {
+      setImageError(`最多上传 ${MAX_TOPIC_IMAGES} 张图片`)
+      return
+    }
+    const selectedFiles = files.slice(0, remaining)
+    setImageError(files.length > remaining ? `最多上传 ${MAX_TOPIC_IMAGES} 张图片` : "")
+    const controller = new AbortController()
+    uploadControllerRef.current?.abort()
+    uploadControllerRef.current = controller
+    uploadingRef.current = true
+    setUploadStatus({ current: 1, total: selectedFiles.length, percent: 0 })
+
+    let failedMessage = ""
+    try {
+      for (let index = 0; index < selectedFiles.length; index += 1) {
+        if (controller.signal.aborted || uploadControllerRef.current !== controller) break
+        const file = selectedFiles[index]
+        setUploadStatus({ current: index + 1, total: selectedFiles.length, percent: 0 })
+        try {
+          const attachment = await uploadDraftImage(
+            file,
+            session.csrfToken,
+            (percent) => {
+              if (!controller.signal.aborted && uploadControllerRef.current === controller) {
+                setUploadStatus({ current: index + 1, total: selectedFiles.length, percent })
+              }
+            },
+            controller.signal,
+          )
+          if (controller.signal.aborted || uploadControllerRef.current !== controller) break
+          setImages((current) => [...current, {
+            attachmentId: attachment.id,
+            fileName: attachment.originalName || file.name,
+            expiresAt: attachment.expiresAt,
+          }])
+          idempotencyKeyRef.current = null
+        } catch (error) {
+          if (!controller.signal.aborted && uploadControllerRef.current === controller) {
+            failedMessage = error instanceof Error ? error.message : "图片上传失败，请重试"
+          }
+        }
+      }
+      if (failedMessage && uploadControllerRef.current === controller) setImageError(failedMessage)
+    } finally {
+      if (uploadControllerRef.current === controller) {
+        uploadControllerRef.current = null
+        uploadingRef.current = false
+        setUploadStatus(null)
+      }
+    }
+  }
+
+  function moveImage(fromIndex: number, toIndex: number) {
+    if (busy || fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || toIndex >= images.length) return
+    setImages((current) => {
+      const next = [...current]
+      const [moved] = next.splice(fromIndex, 1)
+      next.splice(toIndex, 0, moved)
+      return next
+    })
+    idempotencyKeyRef.current = null
+  }
+
+  function removeImage(index: number) {
+    setImages((current) => current.filter((_, currentIndex) => currentIndex !== index))
+    idempotencyKeyRef.current = null
+    setImageError("")
+  }
+
   async function submit() {
-    if (submitting) return
+    if (busy) return
     const errors = validate()
     setFieldErrors(errors)
     setFormError("")
@@ -223,30 +338,30 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
 
     setSubmitting(true)
     try {
+      const draft = await serverDraftRef.current?.flush()
       const idempotencyKey = idempotencyKeyRef.current ?? createIdempotencyKey()
       idempotencyKeyRef.current = idempotencyKey
-      const tags = parseTopicTags(tagInput, availableTags)
+      const tags = extractTopicTags(content, availableTags)
       const topic = await createPost(
         {
           ...(title.trim() ? { title: title.trim() } : {}),
           content: content.trim(),
-          richContent,
+          ...(draft ? { draft } : {}),
+          ...(poll ? { poll } : {}),
+          richContent: withComposerImages(richContent, images),
           boardId: selectedBoard?.id,
           ...(tags.length > 0 ? { tags } : {}),
         },
-        {
-          csrfToken: session.csrfToken,
-          idempotencyKey,
-        },
+        { csrfToken: session.csrfToken, idempotencyKey },
       )
-      performClose({ clearDraft: true })
+      performClose(true)
       onPublished(topic)
     } catch (error) {
       if (error instanceof TopicApiError) {
         setFieldErrors(error.fields)
         setFormError(error.fields.body?.[0] ?? error.message)
       } else {
-        setFormError("主题服务暂时不可用，请稍后重试")
+        setFormError("主题服务暂时不可用，请稍后重试；未发布的正文仍保留")
       }
     } finally {
       setSubmitting(false)
@@ -259,7 +374,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
 
   return (
     <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.currentTarget === event.target && !submitting && !closeConfirmation) requestClose()
+      if (event.currentTarget === event.target && !busy && !closeConfirmation) requestClose()
     }}>
       <div ref={dialogRef} className="composer-dialog" role="dialog" aria-modal="true" aria-labelledby="composer-title">
         <div className="dialog-header">
@@ -267,15 +382,18 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
             <p>{selectedBoard?.name ?? "社区广场"}</p>
             <h2 id="composer-title">发布内容</h2>
           </div>
-          <button className="icon-button" type="button" onClick={() => requestClose()} disabled={submitting} aria-label="关闭发布窗口" title="关闭">
+          <button className="icon-button" type="button" onClick={() => requestClose()} disabled={busy} aria-label="关闭发布窗口" title="关闭">
             <X size={19} aria-hidden="true" />
           </button>
         </div>
-        <form className="dialog-body" aria-busy={submitting} onSubmit={(event) => { event.preventDefault(); void submit() }}>
+        <form className="dialog-body" aria-busy={busy} onSubmit={(event) => { event.preventDefault(); void submit() }}>
+          {session && <DraftShelf key={draftKey} ref={serverDraftRef} ownerId={session.user.id} csrfToken={session.csrfToken} storageKey={draftKey} ready={restoredDraftKey === draftKey} busy={busy}
+            content={{title,board_id:boardId || null,rich_content:richContent,images:images.map(({attachmentId,fileName})=>({attachmentId,fileName})),poll}}
+            onRestore={draft=>{setPoll(isPollInput(draft.poll)?draft.poll:null);setTitle(draft.title);setRichContent(draft.rich_content);setContent(toPlainText(draft.rich_content));setImages(draft.images);setBoardId(draft.board_id??"");setFieldErrors({});setFormError("");idempotencyKeyRef.current=null;writeComposerDraft(draftKey,{title:draft.title,richContent:draft.rich_content,images:draft.images,boardId:draft.board_id??"",poll:draft.poll})}} />}
           {boards.length > 1 && (
             <label>
               <span>板块</span>
-              <select value={boardId} onChange={(event) => {
+              <select value={boardId} disabled={busy} onChange={(event) => {
                 setBoardId(event.target.value)
                 idempotencyKeyRef.current = null
               }}>
@@ -283,87 +401,169 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
               </select>
             </label>
           )}
-          {titleVisible ? (
-            <label>
-              <span>标题（可选）</span>
-              <input
-                ref={titleRef}
-                type="text"
-                value={title}
-                maxLength={160}
-                placeholder="需要时再补充标题"
-                aria-invalid={inputError("title") ? "true" : undefined}
-                aria-describedby={inputError("title") ? "composer-title-error" : undefined}
-                onChange={(event) => {
-                  setTitle(event.target.value)
-                  idempotencyKeyRef.current = null
-                }}
-              />
-              {inputError("title") && <p id="composer-title-error" className="composer-field-error">{inputError("title")}</p>}
-            </label>
-          ) : (
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={() => {
-                setTitleVisible(true)
-                window.setTimeout(() => titleRef.current?.focus(), 0)
+          <label>
+            <span>标题（可选）</span>
+            <input
+              type="text"
+              value={title}
+              maxLength={160}
+              disabled={busy}
+              placeholder="一句话说明你想分享的内容"
+              aria-invalid={inputError("title") ? "true" : undefined}
+              aria-describedby={inputError("title") ? "composer-title-error" : undefined}
+              onChange={(event) => {
+                setTitle(event.target.value)
+                idempotencyKeyRef.current = null
+              }}
+            />
+            {inputError("title") && <p id="composer-title-error" className="composer-field-error">{inputError("title")}</p>}
+          </label>
+
+          {(canCreatePoll || poll) && <div className="composer-poll">
+            {!poll ? <button className="secondary-button" type="button" disabled={busy} onClick={()=>{setPoll(newPoll());idempotencyKeyRef.current=null}}>添加单选投票</button> : <>
+              <PollEditor value={poll} disabled={busy || !canCreatePoll} onChange={value=>{setPoll(value);idempotencyKeyRef.current=null}} />
+              {!canCreatePoll && <p role="alert">投票插件未启用或创建权限不可用。草稿配置已保留；可移除投票后发布。</p>}
+              <button className="secondary-button" type="button" disabled={busy} onClick={()=>{setPoll(null);idempotencyKeyRef.current=null}}>移除投票</button>
+            </>}
+            {inputError("poll") && <p role="alert">{inputError("poll")}</p>}
+          </div>}
+          <div className="composer-image-field">
+            <div className="composer-image-field__heading">
+              <span className="composer-field__label">图片</span>
+              <span>已上传 {images.length} / {MAX_TOPIC_IMAGES} 张</span>
+            </div>
+            <div
+              className="composer-image-dropzone"
+              data-testid="composer-image-dropzone"
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault()
+                if (!busy) void addImages(Array.from(event.dataTransfer.files))
               }}
             >
-              添加标题
-            </button>
-          )}
+              {images.length > 0 && (
+                <ol className="composer-image-grid" aria-label="已上传图片">
+                  {images.map((image, index) => (
+                    <li
+                      className={draggedImageId === image.attachmentId ? "composer-image-item composer-image-item--dragging" : "composer-image-item"}
+                      key={image.attachmentId}
+                      draggable={!busy}
+                      onDragStart={(event) => {
+                        setDraggedImageId(image.attachmentId)
+                        event.dataTransfer.setData("text/plain", image.attachmentId)
+                      }}
+                      onDragEnd={() => setDraggedImageId(null)}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        if (busy) return
+                        if (event.dataTransfer.files.length > 0) {
+                          void addImages(Array.from(event.dataTransfer.files))
+                          return
+                        }
+                        const sourceId = event.dataTransfer.getData("text/plain") || draggedImageId
+                        const sourceIndex = images.findIndex((item) => item.attachmentId === sourceId)
+                        moveImage(sourceIndex, index)
+                        setDraggedImageId(null)
+                      }}
+                    >
+                      <img src={attachmentThumbnailUrl(image.attachmentId) ?? ""} alt={image.fileName} />
+                      <span className="composer-image-item__number">{index + 1}</span>
+                      {index === 0 && <span className="composer-image-item__primary">主图</span>}
+                      <button
+                        className="composer-image-item__sort"
+                        type="button"
+                        disabled={busy}
+                        aria-label={`排序图片 ${index + 1}`}
+                        title="拖动排序，或使用方向键"
+                        onKeyDown={(event) => {
+                          if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+                            event.preventDefault()
+                            moveImage(index, index - 1)
+                          } else if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+                            event.preventDefault()
+                            moveImage(index, index + 1)
+                          }
+                        }}
+                      >
+                        <GripVertical size={15} aria-hidden="true" />
+                      </button>
+                      <button
+                        className="composer-image-item__delete"
+                        type="button"
+                        disabled={busy}
+                        aria-label={`删除图片 ${index + 1}`}
+                        title="删除图片"
+                        onClick={() => removeImage(index)}
+                      >
+                        <Trash2 size={14} aria-hidden="true" />
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              {images.length < MAX_TOPIC_IMAGES && (
+                <button
+                  className="composer-image-upload"
+                  type="button"
+                  disabled={busy || !session}
+                  aria-label="上传图片"
+                  onClick={() => imageInputRef.current?.click()}
+                >
+                  {uploading ? <LoaderCircle className="topic-loading__spinner" size={20} aria-hidden="true" /> : <ImagePlus size={20} aria-hidden="true" />}
+                  <strong>{uploading ? `上传中 ${uploadStatus.percent}%` : "上传图片"}</strong>
+                  <span>{uploading ? `${uploadStatus.current} / ${uploadStatus.total}` : "点击选择或拖拽到这里"}</span>
+                </button>
+              )}
+              <input
+                ref={imageInputRef}
+                className="visually-hidden"
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                multiple
+                aria-label="选择帖子图片"
+                disabled={busy || !session}
+                onChange={(event) => {
+                  void addImages(Array.from(event.target.files ?? []))
+                  event.target.value = ""
+                }}
+              />
+            </div>
+            <div className="composer-image-field__help">
+              <span>支持 JPG、PNG、GIF、WebP；拖动缩略图可排序</span>
+              <span>第一张为详情页主图，首页展示前 3 张</span>
+            </div>
+            {imageError && <p className="composer-field-error" role="alert">{imageError}</p>}
+          </div>
+
           <div className="composer-field">
             <span className="composer-field__label">正文</span>
             <RichTextEditor
               value={richContent}
               ariaLabel="正文"
-              placeholder="补充背景、你的判断和希望大家讨论的问题"
+              placeholder="补充背景和想法；输入 #标签 可自动归类"
               maxCharacters={1_000_000}
               autoFocus
-              onImageUpload={session
-                ? (file, onProgress, signal) => uploadDraftImage(file, session.csrfToken, onProgress, signal)
-                : undefined}
-              disabled={submitting}
+              showImageUpload={false}
+              disabled={busy}
               invalid={Boolean(inputError("content") || inputError("rich_content"))}
               errorMessageId={(inputError("content") || inputError("rich_content")) ? "composer-content-error" : undefined}
               onChange={(document, plainText) => {
-                if (plainText !== content || JSON.stringify(document) !== JSON.stringify(richContent)) {
-                  idempotencyKeyRef.current = null
-                }
+                if (plainText !== content || JSON.stringify(document) !== JSON.stringify(richContent)) idempotencyKeyRef.current = null
                 setRichContent(document)
                 setContent(plainText)
               }}
             />
             {(inputError("content") || inputError("rich_content")) && <p id="composer-content-error" className="composer-field-error">{inputError("content") ?? inputError("rich_content")}</p>}
           </div>
-          <label>
-            <span>标签</span>
-            <input
-              type="text"
-              value={tagInput}
-              placeholder="用逗号分隔，例如 rust, 架构"
-              list="topic-tag-options"
-              aria-invalid={inputError("tags") ? "true" : undefined}
-              aria-describedby={inputError("tags") ? "composer-tags-error" : undefined}
-              onChange={(event) => {
-                setTagInput(event.target.value)
-                idempotencyKeyRef.current = null
-              }}
-            />
-            {availableTags.length > 0 && (
-              <datalist id="topic-tag-options">
-                {availableTags.map((tag) => <option value={tag.name} key={tag.slug} />)}
-              </datalist>
-            )}
-            {inputError("tags") && <p id="composer-tags-error" className="composer-field-error">{inputError("tags")}</p>}
-          </label>
+          {inputError("tags") && <p id="composer-tags-error" className="composer-field-error">{inputError("tags")}</p>}
           {formError && <p className="composer-form-error" role="alert">{formError}</p>}
           <div className="dialog-toolbar">
-            <span className="dialog-toolbar__hint">本地草稿自动保存 · 发布后进入详情</span>
-            <button className="primary-button" type="submit" disabled={submitting}>
+            <span className="dialog-toolbar__hint">本地草稿自动保存 · 正文输入 #标签 · 最多 9 张图片</span>
+            <button className="primary-button" type="submit" disabled={busy}>
               {submitting ? <LoaderCircle className="topic-loading__spinner" size={16} aria-hidden="true" /> : <Send size={16} aria-hidden="true" />}
-              {submitting ? "正在发布" : "发布"}
+              {closing ? "正在保存" : submitting ? "正在发布" : uploading ? "正在上传" : "发布"}
             </button>
           </div>
         </form>
@@ -371,17 +571,20 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
       {closeConfirmation && <ConfirmDialog
         title="关闭发布窗口？"
         confirmLabel="确认关闭"
-        busy={submitting}
+        busy={busy}
         returnFocus={closeConfirmation.returnFocus}
         onCancel={() => setCloseConfirmation(null)}
         onConfirm={() => {
-          const options = closeConfirmation.options
           setCloseConfirmation(null)
-          performClose(options)
+          setClosing(true)
+          void (serverDraftRef.current?.flush() ?? Promise.resolve()).catch(() => undefined).finally(() => {
+            performClose()
+            setClosing(false)
+          })
         }}
       >
-        <p>还有尚未保存到本地草稿的编辑内容。现在关闭可能丢失最近的修改。</p>
-        <p>建议取消后等待“本地草稿自动保存”，或确认关闭并放弃这些未保存修改。</p>
+        <p>当前内容已保存为本地草稿，下次打开时可继续编辑。</p>
+        <p>确认关闭编辑窗口吗？</p>
       </ConfirmDialog>}
     </div>
   )
@@ -397,78 +600,92 @@ const FOCUSABLE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(",")
 
-function createIdempotencyKey(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID()
+function withComposerImages(document: RichTextDocument, images: ComposerImage[]): RichTextDocument {
+  return {
+    type: "doc",
+    content: [
+      ...document.content,
+      ...images.map((image) => ({
+        type: "image",
+        attrs: { attachmentId: image.attachmentId, alt: image.fileName },
+      })),
+    ],
   }
-  return `topic-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-function countCharacters(value: string): number {
-  return [...value].length
-}
-
-function composerDraftKey(userId: string, defaultBoardId: string | null): string {
-  return `daoyun:composer-draft:v1:${userId}:${defaultBoardId ?? "global"}`
-}
-
-function composerDraftSnapshot(
-  title: string,
-  richContent: RichTextDocument,
-  boardId: string,
-  tagInput: string,
-): string {
-  return JSON.stringify({ title, richContent, boardId, tagInput })
-}
-
-function hasComposerDraftContent(title: string, content: string, tagInput: string): boolean {
-  return Boolean(title.trim() || content.trim() || tagInput.trim())
-}
-
-function readComposerDraft(key: string): ComposerDraft | null {
+function readComposerDraft(key: string, ownerId?: string): ComposerDraft | null {
   try {
-    const raw = window.localStorage.getItem(key)
-    if (!raw) return null
-    const value: unknown = JSON.parse(raw)
-    if (!isRecord(value)
-      || value.version !== 1
-      || typeof value.title !== "string"
-      || typeof value.boardId !== "string"
-      || typeof value.tagInput !== "string"
-      || typeof value.savedAt !== "string") {
-      return null
-    }
+    const value: unknown = JSON.parse(window.localStorage.getItem(key) ?? "null")
+    if (!value || typeof value !== "object" || (value as { version?: unknown }).version !== 2) return null
+    const record = value as Record<string, unknown>
+    const server = ownerId ? JSON.parse(window.localStorage.getItem(key + ":server:" + ownerId) ?? "null") : null
+    const serverReferenced = server && Number.isSafeInteger(server.revision) && server.revision > 0
+    const richContent = sanitizeRichContent(record.richContent)
+    const savedAt = typeof record.savedAt === "string" ? record.savedAt : ""
+    const fallbackImagesFresh = Number.isFinite(Date.parse(savedAt))
+      && Date.now() - Date.parse(savedAt) < DRAFT_IMAGE_FALLBACK_RETENTION_MS
+    const images = Array.isArray(record.images)
+      ? record.images.flatMap((image) => {
+        if (!image || typeof image !== "object") return []
+        const { attachmentId, fileName, expiresAt } = image as Record<string, unknown>
+        if (typeof attachmentId !== "string" || !attachmentThumbnailUrl(attachmentId)) return []
+        const hasFreshExpiry = typeof expiresAt === "string"
+          && Number.isFinite(Date.parse(expiresAt))
+          && Date.parse(expiresAt) > Date.now()
+        if (!serverReferenced && !hasFreshExpiry && (typeof expiresAt === "string" || !fallbackImagesFresh)) return []
+        return [{
+          attachmentId,
+          fileName: typeof fileName === "string" ? fileName.slice(0, 300) : "草稿图片",
+          ...(typeof expiresAt === "string" ? { expiresAt } : {}),
+        }]
+      }).slice(0, MAX_TOPIC_IMAGES)
+      : []
     return {
-      version: 1,
-      title: value.title,
-      richContent: sanitizeRichContent(value.richContent),
-      boardId: value.boardId,
-      tagInput: value.tagInput,
-      savedAt: value.savedAt,
+      version: 2,
+      title: typeof record.title === "string" ? record.title.slice(0, 160) : "",
+      richContent,
+      poll: isPollInput(record.poll) ? record.poll : null,
+      images,
+      boardId: typeof record.boardId === "string" ? record.boardId : "",
+      savedAt,
     }
   } catch {
     return null
   }
 }
 
-function writeComposerDraft(key: string, draft: ComposerDraft): boolean {
+function writeComposerDraft(
+  key: string,
+  value: Pick<ComposerDraft, "title" | "richContent" | "images" | "boardId" | "poll">,
+) {
   try {
-    window.localStorage.setItem(key, JSON.stringify(draft))
-    return true
+    if (!value.title.trim() && !toPlainText(value.richContent).trim() && value.images.length === 0 && !value.poll) {
+      window.localStorage.removeItem(key)
+      return
+    }
+    window.localStorage.setItem(key, JSON.stringify({
+      version: 2,
+      ...value,
+      savedAt: new Date().toISOString(),
+    } satisfies ComposerDraft))
   } catch {
-    return false
+    // localStorage may be unavailable or full; publishing remains usable.
   }
 }
 
-function removeComposerDraft(key: string): boolean {
+function removeComposerDraft(key: string) {
   try {
     window.localStorage.removeItem(key)
-    return true
   } catch {
-    return false
+    // Ignore unavailable browser storage.
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
+function createIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID()
+  return `topic-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function countCharacters(value: string): number {
+  return [...value].length
 }

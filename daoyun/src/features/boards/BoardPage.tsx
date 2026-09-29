@@ -56,7 +56,6 @@ export function BoardPage({ state, ...props }: BoardPageProps) {
       <BoardMobileToolbar board={state.board} />
       <BoardBreadcrumb items={state.board.breadcrumb} />
       <BoardHeader board={state.board} onCreateTopic={props.onCreateTopic} />
-      <BoardChildren boards={state.board.children} />
       <BoardTopicFeed
         topics={props.topics ?? []}
         state={props.topicState ?? "ready"}
@@ -76,7 +75,9 @@ export function BoardPage({ state, ...props }: BoardPageProps) {
         onToggleLike={props.onToggleLike}
         likePendingIds={props.likePendingIds}
         interactionError={props.interactionError}
-      />
+      >
+        <BoardChildren boards={state.board.children} />
+      </BoardTopicFeed>
     </article>
   )
 }

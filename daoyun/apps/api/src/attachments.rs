@@ -313,7 +313,9 @@ fn to_contract(record: AttachmentRecord) -> TopicAttachment {
     let id = record.id;
     TopicAttachment {
         id,
-        topic_id: record.topic_id,
+        topic_id: record
+            .topic_id
+            .expect("published attachment must belong to a topic"),
         original_name: record.original_name,
         mime_type: record.mime_type,
         size_bytes: u64::try_from(record.size_bytes).expect("database size is non-negative"),

@@ -15,13 +15,12 @@ use axum::{
 use infrastructure::Database;
 use serde::Deserialize;
 use utoipa::IntoParams;
-use uuid::Uuid;
 
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub(crate) struct FeedQuery {
     mode: FeedMode,
-    cursor: Option<Uuid>,
+    cursor: Option<String>,
     limit: Option<u16>,
 }
 
@@ -62,6 +61,8 @@ pub(crate) async fn list(
         query: None,
         tag: None,
         author: None,
+        from: None,
+        through: None,
         scope,
         featured: None,
         sort,

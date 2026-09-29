@@ -1,0 +1,9 @@
+import {cleanup,fireEvent,render,screen} from "@testing-library/react"
+import {afterEach,beforeEach,expect,it,vi} from "vitest"
+import {TopicPollPanel} from "./TopicPollPanel"
+import {getTopicPoll,voteTopicPoll,type TopicPoll} from "../api/polls"
+vi.mock("../api/polls",()=>({getTopicPoll:vi.fn(),voteTopicPoll:vi.fn(),updateTopicPoll:vi.fn()}))
+const row:TopicPoll={topic_id:"topic",question:"选哪个？",ends_at:new Date(Date.now()+86400000).toISOString(),revision:1,enabled:true,closed:false,can_vote:true,can_edit:false,selected_option:null,total_votes:null,options:[{id:"a",label:"甲",votes:null},{id:"b",label:"乙",votes:null}]}
+afterEach(cleanup);beforeEach(()=>vi.clearAllMocks())
+it("shows no vote counts before participating and shows results after voting",async()=>{vi.mocked(getTopicPoll).mockResolvedValue(row);vi.mocked(voteTopicPoll).mockResolvedValue({...row,can_vote:false,selected_option:"a",total_votes:1,options:[{id:"a",label:"甲",votes:1},{id:"b",label:"乙",votes:0}]});render(<TopicPollPanel topicId="topic" userId="user" csrfToken="csrf" onLogin={vi.fn()}/>);await screen.findByText("选哪个？");expect(screen.queryByText(/总计/)).not.toBeInTheDocument();fireEvent.click(screen.getByRole("radio",{name:"甲"}));fireEvent.click(screen.getByRole("button",{name:"提交投票"}));await screen.findByText("总计 1 票");expect(voteTopicPoll).toHaveBeenCalledWith("topic","a","csrf");expect(screen.queryByRole("button",{name:"提交投票"})).not.toBeInTheDocument()})
+it("shows an explicit zero-vote result after the deadline",async()=>{vi.mocked(getTopicPoll).mockResolvedValue({...row,closed:true,can_vote:false,total_votes:0,options:row.options.map(o=>({...o,votes:0}))});render(<TopicPollPanel topicId="topic" onLogin={vi.fn()}/>);await screen.findByText("总计 0 票");expect(screen.getByText("暂无投票")).toBeInTheDocument();expect(screen.queryByRole("radio")).not.toBeInTheDocument()})

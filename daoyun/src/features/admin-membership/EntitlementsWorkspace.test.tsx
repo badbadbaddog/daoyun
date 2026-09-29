@@ -45,7 +45,7 @@ describe("EntitlementsWorkspace", () => {
     const publish = vi.fn()
     render(<EntitlementsWorkspace onPublishVersion={publish} />)
 
-    await userEvent.click(screen.getByRole("button", { name: "发布新版本" }))
+    await userEvent.click(screen.getByRole("button", { name: "创建权益类型" }))
     expect(screen.getByRole("dialog", { name: "发布权益版本" })).toHaveTextContent("权限与额度快照")
     expect(screen.getByRole("button", { name: "确认发布" })).toBeDisabled()
     expect(publish).not.toHaveBeenCalled()
@@ -55,7 +55,7 @@ describe("EntitlementsWorkspace", () => {
     const user = userEvent.setup()
     render(<EntitlementsWorkspace onPublishVersion={vi.fn()} />)
 
-    const trigger = screen.getByRole("button", { name: "发布新版本" })
+    const trigger = screen.getByRole("button", { name: "创建权益类型" })
     await user.click(trigger)
     const dialog = screen.getByRole("dialog", { name: "发布权益版本" })
     const internalKey = screen.getByRole("textbox", { name: "内部键" })
@@ -305,3 +305,45 @@ function jsonPageResponse(data: unknown[]): Response {
 function jsonError(status: number, code: string, message: string): Response {
   return new Response(JSON.stringify({ error: { code, message }, meta: { request_id: requestId } }), { status, headers: { "content-type": "application/json" } })
 }
+
+it("publishes Chinese permission selections and numeric quotas without manual API keys", async () => {
+  const publish = vi.fn()
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse([])))
+  const user = userEvent.setup()
+  render(<EntitlementsWorkspace onPublishVersion={publish} />)
+  await user.click(screen.getByRole("button", { name: "创建权益类型" }))
+  await user.type(screen.getByLabelText("内部键"), "vip_monthly")
+  await user.type(screen.getByLabelText("显示名称"), "月度会员")
+  await user.click(screen.getByRole("checkbox", { name: "上传附件" }))
+  await user.type(screen.getByRole("spinbutton", { name: "每日上传数量" }), "20")
+  await user.click(screen.getByRole("button", { name: "确认发布" }))
+  expect(publish).toHaveBeenCalledWith({ internalKey: "vip_monthly", displayName: "月度会员", permissionKeys: ["attachment.upload"], quotas: { "attachment.upload.daily": 20 } })
+})
+
+it("shows missing grant fields instead of silently ignoring submission", async () => {
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse([entitlementTypeDto()]))
+    .mockResolvedValueOnce(jsonPageResponse([userDto()]))
+    .mockResolvedValueOnce(jsonResponse([]))
+  vi.stubGlobal("fetch", fetchMock)
+  const user = userEvent.setup()
+  render(<EntitlementsWorkspace csrfToken="csrf" />)
+  await user.click(screen.getByRole("tab", { name: "用户权益" }))
+  await user.type(screen.getByLabelText("搜索权益用户"), "member")
+  await user.click(screen.getByRole("button", { name: "搜索用户" }))
+  await user.click(await screen.findByRole("button", { name: "选择演示成员 @demo_member" }))
+  await user.click(screen.getByRole("button", { name: "发放标准权益" }))
+  const dialog = screen.getByRole("dialog", { name: "发放标准权益" })
+  act(() => dialog.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
+  expect(within(dialog).getByRole("alert")).toHaveTextContent("请填写发放来源、发放原因和开始时间")
+  expect(screen.getByLabelText("发放原因")).toBeRequired()
+  expect(fetchMock).toHaveBeenCalledTimes(3)
+})
+
+it("distinguishes a failed type load from an empty catalog and allows retry", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(jsonResponse([entitlementTypeDto()])))
+  render(<EntitlementsWorkspace />)
+  await userEvent.click(await screen.findByRole("button", { name: "重新加载权益类型" }))
+  expect(await screen.findByRole("button", { name: "查看月度会员版本历史" })).toBeInTheDocument()
+  expect(screen.queryByText("尚未配置标准权益类型。")).not.toBeInTheDocument()
+})

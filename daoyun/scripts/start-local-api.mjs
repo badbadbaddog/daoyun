@@ -44,6 +44,7 @@ export function buildLocalApiEnvironment(environment, options) {
     DATABASE_URL: options.databaseUrl,
     DAOYUN_BIND_ADDR: options.bindAddress,
     DAOYUN_COOKIE_SECURE: "false",
+    DAOYUN_PLUGINS_ENABLED: environment.DAOYUN_PLUGINS_ENABLED ?? "true",
   }
 }
 

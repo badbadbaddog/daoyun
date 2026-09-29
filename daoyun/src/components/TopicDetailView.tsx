@@ -1,3 +1,4 @@
+import { TopicPollPanel } from "./TopicPollPanel"
 import {
   ArrowLeft,
   Bookmark,
@@ -5,7 +6,6 @@ import {
   Edit3,
   FileSearch,
   Flag,
-  History,
   LoaderCircle,
   MessageCircle,
   RefreshCw,
@@ -25,13 +25,16 @@ import { RelationApiError, setPostLike, setTopicBookmark } from "../api/relation
 import {
   createReply,
   getTopic,
-  listRevisions,
   listReplies,
   TopicApiError,
   deleteTopic,
+  listTopicSupplements,
+  createTopicSupplement,
   updateTopic,
+  type SupplementPage,
+  type TopicSupplement,
 } from "../api/topics"
-import type { TopicDetail, TopicReply, TopicRevision } from "../api/topics"
+import type { TopicDetail, TopicReply } from "../api/topics"
 import { plainTextDocument, type RichTextDocument } from "../editor/richContent"
 import { parseTopicTags } from "../utils/tags"
 import { topicDisplayTitle } from "../utils/topicPresentation"
@@ -40,6 +43,7 @@ import { ReplyItem } from "./ReplyItem"
 import { RichTextContent } from "./RichTextContent"
 import { RichTextEditor } from "./RichTextEditor"
 import { UserAvatar } from "./UserAvatar"
+import { PluginUiSurface } from "./PluginUiSurface"
 
 interface TopicDetailViewProps {
   topicId: string
@@ -56,6 +60,8 @@ interface TopicDetailViewProps {
 
 type LoadStatus = "loading" | "ready" | "error"
 const ignoreLoadedTopic = () => undefined
+const MAX_SUPPLEMENTS_PER_TOPIC = 1
+const MAX_SUPPLEMENT_LENGTH = 1000
 
 export function TopicDetailView({
   topicId,
@@ -78,6 +84,16 @@ export function TopicDetailView({
   const [loadStatus, setLoadStatus] = useState<LoadStatus>("loading")
   const [requestVersion, setRequestVersion] = useState(0)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [supplements, setSupplements] = useState<TopicSupplement[]>([])
+  const [supplementPolicy, setSupplementPolicy] = useState<SupplementPage["policy"]>()
+  const supplementRequestRef = useRef<{ key: string; content: string; scope: string } | null>(null)
+  const supplementBusyRef = useRef(false)
+  const supplementScopeRef = useRef("")
+  supplementScopeRef.current = `${topicId}:${session?.user.id ?? ""}`
+  const [supplementContent, setSupplementContent] = useState("")
+  const [supplementSubmitting, setSupplementSubmitting] = useState(false)
+  const [supplementNotice, setSupplementNotice] = useState("")
+  const [supplementError, setSupplementError] = useState("")
   const [content, setContent] = useState("")
   const [richContent, setRichContent] = useState<RichTextDocument>(() => plainTextDocument(""))
   const [replyTarget, setReplyTarget] = useState<TopicReply | null>(null)
@@ -94,10 +110,8 @@ export function TopicDetailView({
   const [draftRichContent, setDraftRichContent] = useState<RichTextDocument>(() => plainTextDocument(""))
   const [draftTags, setDraftTags] = useState("")
   const [editError, setEditError] = useState("")
+  const [editNotice, setEditNotice] = useState("")
   const [revisionConflict, setRevisionConflict] = useState(false)
-  const [revisions, setRevisions] = useState<TopicRevision[]>([])
-  const [revisionStatus, setRevisionStatus] = useState<LoadStatus>("ready")
-  const [showRevisions, setShowRevisions] = useState(false)
   const [bookmarkPending, setBookmarkPending] = useState(false)
   const [likePending, setLikePending] = useState(false)
   const [interactionError, setInteractionError] = useState("")
@@ -148,13 +162,22 @@ export function TopicDetailView({
     onTopicLoadedRef.current(null)
     setReplies([])
     setNextCursor(null)
+    setSupplements([])
+    setSupplementPolicy(undefined)
+    setSupplementSubmitting(false)
+    supplementBusyRef.current = false
+    supplementRequestRef.current = null
+    setSupplementContent("")
+    setSupplementNotice("")
+    setSupplementError("")
     setReplyListError("")
     setReplyStatus("")
 
     Promise.all([
       getTopic(topicId, controller.signal),
       listReplies(topicId, { signal: controller.signal }),
-    ]).then(([loadedTopic, page]) => {
+      listTopicSupplements(topicId, controller.signal),
+    ]).then(([loadedTopic, page, supplementsPage]) => {
       if (!controller.signal.aborted) {
         topicStateRef.current = loadedTopic
         setTopic(loadedTopic)
@@ -165,10 +188,10 @@ export function TopicDetailView({
         setDraftTags(loadedTopic.tags.map((tag) => tag.name).join(", "))
         setEditing(false)
         setRevisionConflict(false)
-        setShowRevisions(false)
-        setRevisions([])
         setReplies(page.replies)
         setNextCursor(page.nextCursor)
+        setSupplements(supplementsPage.supplements)
+        setSupplementPolicy(supplementsPage.policy)
         setLoadStatus("ready")
       }
     }).catch(() => {
@@ -190,6 +213,7 @@ export function TopicDetailView({
     setDraftRichContent(topic.richContent ?? plainTextDocument(topic.content))
     setDraftTags(topic.tags.map((tag) => tag.name).join(", "))
     setEditError("")
+    setEditNotice("")
     setRevisionConflict(false)
     setEditing(true)
   }
@@ -252,7 +276,12 @@ export function TopicDetailView({
       setDraftTags(updated.tags.map((tag) => tag.name).join(", "))
       setEditing(false)
       setRevisionConflict(false)
-      onTopicUpdated(updated)
+      if (updated.editDisposition === "pending_review") {
+        setEditNotice("编辑已提交审核，审核通过前继续显示当前版本")
+      } else {
+        setEditNotice("")
+        onTopicUpdated(updated)
+      }
     } catch (error) {
       if (error instanceof TopicApiError && error.status === 409) {
         setRevisionConflict(true)
@@ -271,22 +300,6 @@ export function TopicDetailView({
       }
     } finally {
       setSubmitting(false)
-    }
-  }
-
-  async function toggleRevisions() {
-    if (!topic || !canEdit) return
-    if (showRevisions) {
-      setShowRevisions(false)
-      return
-    }
-    setShowRevisions(true)
-    setRevisionStatus("loading")
-    try {
-      setRevisions(await listRevisions(topic.id))
-      setRevisionStatus("ready")
-    } catch {
-      setRevisionStatus("error")
     }
   }
 
@@ -364,6 +377,64 @@ export function TopicDetailView({
       }
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const supplementLimit = supplementPolicy?.maxPerTopic ?? MAX_SUPPLEMENTS_PER_TOPIC
+  const supplementUsedCount = supplementPolicy?.usedCount ?? supplements.length
+  const supplementRemainingCount = Math.max(0, supplementLimit - supplementUsedCount)
+  const supplementCanSubmit = canEdit && (supplementPolicy?.enabled ?? false)
+    && (supplementPolicy?.canSubmit ?? false) && supplementRemainingCount > 0
+
+  async function submitSupplement() {
+    if (!session || supplementBusyRef.current || !topic || !supplementCanSubmit) return
+    const scope = supplementScopeRef.current
+    const normalizedContent = supplementContent.trim()
+    setSupplementError("")
+    setSupplementNotice("")
+    if (![...normalizedContent].length) {
+      setSupplementError("请输入补充正文")
+      return
+    }
+    if ([...normalizedContent].length > MAX_SUPPLEMENT_LENGTH) {
+      setSupplementError("补充内容不能超过 1,000 个字符")
+      return
+    }
+    if (supplementRemainingCount <= 0) {
+      setSupplementError("该帖补充次数已达上限")
+      return
+    }
+    setSupplementSubmitting(true)
+    supplementBusyRef.current = true
+    if (supplementRequestRef.current?.content !== normalizedContent || supplementRequestRef.current.scope !== scope) {
+      supplementRequestRef.current = { key: createIdempotencyKey(), content: normalizedContent, scope }
+    }
+    try {
+      const created = await createTopicSupplement(topic.id, normalizedContent, {
+        csrfToken: session.csrfToken,
+        idempotencyKey: supplementRequestRef.current.key,
+      })
+      if (supplementScopeRef.current !== scope) return
+      const alreadyListed = supplements.some((item) => item.id === created.id)
+      setSupplements((current) => current.some((item) => item.id === created.id) ? current : [...current, created])
+      if (!alreadyListed) setSupplementPolicy((current) => current ? {
+        ...current,
+        usedCount: current.usedCount + 1,
+        canSubmit: current.usedCount + 1 < current.maxPerTopic,
+      } : current)
+      supplementRequestRef.current = null
+      setSupplementContent("")
+      setSupplementNotice("补充已发布")
+    } catch (error) {
+      if (supplementScopeRef.current !== scope) return
+      setSupplementError(error instanceof TopicApiError
+        ? error.fields.body?.[0] ?? error.message
+        : "补充提交失败，请稍后重试")
+    } finally {
+      if (supplementScopeRef.current === scope) {
+        supplementBusyRef.current = false
+        setSupplementSubmitting(false)
+      }
     }
   }
 
@@ -658,11 +729,14 @@ export function TopicDetailView({
             </div>
           </form>
         ) : (
-          <RichTextContent
-            className="topic-detail__content"
-            document={topic.richContent ?? plainTextDocument(topic.content)}
-          />
+              <RichTextContent
+                className="topic-detail__content"
+                document={topic.richContent ?? plainTextDocument(topic.content)}
+                imageLayout="strip"
+              />
         )}
+        <TopicPollPanel key={topicId+":"+(session?.user.id??"")} topicId={topicId} userId={session?.user.id} csrfToken={session?.csrfToken} onLogin={onLogin} />
+        {editNotice && <p className="interaction-alert" role="status">{editNotice}</p>}
         <div className="topic-interactions" aria-label="主题互动">
           <button
             className="secondary-button topic-interactions__like"
@@ -731,10 +805,6 @@ export function TopicDetailView({
         )}
         {canEdit && !editing && (
           <div className="topic-detail__revision-actions">
-            <button className="secondary-button" type="button" onClick={() => void toggleRevisions()}>
-              <History size={15} aria-hidden="true" />
-              {showRevisions ? "收起修订历史" : "查看修订历史"}
-            </button>
             <button className="secondary-button reply-action--danger" type="button" onClick={() => setConfirmingDelete(true)}>
               <Trash2 size={15} aria-hidden="true" />
               删除主题
@@ -753,19 +823,64 @@ export function TopicDetailView({
             </div>
           </div>
         )}
-        {showRevisions && (
-          <div className="topic-revisions" aria-live="polite">
-            {revisionStatus === "loading" ? <span>正在加载修订历史</span> : revisionStatus === "error" ? (
-              <span role="alert">修订历史暂时无法加载</span>
-            ) : revisions.length === 0 ? <span>暂无修订历史</span> : revisions.map((revision) => (
-              <article key={revision.id} className="topic-revision">
-                <header><strong>第 {revision.revisionNumber} 版</strong><time>{revision.createdAt}</time></header>
-                <RichTextContent document={revision.richContent ?? plainTextDocument(revision.content)} />
-              </article>
-            ))}
-          </div>
-        )}
       </article>
+
+      {(supplementPolicy?.enabled || supplements.length > 0) && (
+        <section className="topic-supplement-section" aria-labelledby="supplement-heading">
+          <div className="topic-supplement-section__heading">
+            <h2 id="supplement-heading">补充</h2>
+            {canEdit && <span>剩余 {supplementRemainingCount}/{supplementLimit} 次</span>}
+          </div>
+          {supplements.length === 0 ? (
+            <div className="topic-supplement-empty">还没有补充内容</div>
+          ) : (
+            <ol className="topic-supplement-list">
+              {supplements
+                .map((supplement) => (
+                  <li
+                    className="topic-supplement-item"
+                    key={supplement.id}
+                    data-status={supplement.status}
+                  >
+                    <header>
+                      <span>{supplement.author.displayName}</span>
+                      <small>{supplement.updatedAt}</small>
+                    </header>
+                    <p>{supplement.content}</p>
+                    <strong>状态：{{ approved: "已发布", hidden: "已隐藏" }[supplement.status]}</strong>
+                  </li>
+                ))}
+            </ol>
+          )}
+          {canEdit && supplementPolicy?.enabled && (
+            <form className="topic-supplement-form" onSubmit={(event) => { event.preventDefault(); void submitSupplement() }} aria-busy={supplementSubmitting}>
+              <label>
+                <span>补充正文（每帖上限：{supplementLimit}）</span>
+                <textarea
+                  rows={4}
+                  value={supplementContent}
+                  disabled={supplementSubmitting || !supplementCanSubmit}
+                  onChange={(event) => setSupplementContent(event.target.value)}
+                  placeholder="补充说明（仅作者追加，不替换正文）"
+                />
+              </label>
+              {supplementError && <p className="composer-form-error" role="alert">{supplementError}</p>}
+              {supplementNotice && <p className="reply-section__notice" role="status">{supplementNotice}</p>}
+              <div className="reply-section__actions">
+                <button
+                  className="primary-button"
+                  type="submit"
+                  disabled={supplementSubmitting || !supplementCanSubmit}
+                >
+                  {supplementSubmitting ? <LoaderCircle className="topic-loading__spinner" size={15} aria-hidden="true" /> : null}
+                  {supplementSubmitting ? "正在提交" : "提交补充"}
+                </button>
+              </div>
+            </form>
+          )}
+        </section>
+      )}
+      <PluginUiSurface slot="topic_detail" subjectId={topic.id} />
 
       <section className="reply-section" aria-labelledby="reply-heading">
         <div className="reply-section__heading">

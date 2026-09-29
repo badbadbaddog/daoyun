@@ -383,27 +383,30 @@ pub(crate) async fn install_plugin(
     )
     .await?;
     let component_sha256 = format!("{:x}", Sha256::digest(&component));
-    let capabilities = manifest
+    let mut capabilities: Vec<_> = manifest
         .capabilities
         .iter()
         .copied()
         .map(capability_key)
         .map(str::to_owned)
         .collect();
-    let data_scopes = manifest
+    capabilities.sort_unstable();
+    let mut data_scopes: Vec<_> = manifest
         .data_scopes
         .iter()
         .copied()
         .map(data_scope_key)
         .map(str::to_owned)
         .collect();
-    let event_subscriptions = manifest
+    data_scopes.sort_unstable();
+    let mut event_subscriptions: Vec<_> = manifest
         .event_subscriptions
         .iter()
         .copied()
         .map(event_subscription_key)
         .map(str::to_owned)
         .collect();
+    event_subscriptions.sort_unstable();
     let plugin = database
         .install_plugin(
             session.user.id,
@@ -792,6 +795,26 @@ pub(crate) async fn plugin_ui_surface(
     let Path((slot, subject_id)) =
         path.map_err(|_| validation_error(request_id, "path", "插件插槽路径参数不正确"))?;
     let (actor_id, mut response_headers) = match slot {
+        PluginUiSlot::TopicDetail => {
+            let (session, mut headers) =
+                authenticate_optional_session(&database, &auth_runtime, &headers, request_id)
+                    .await?;
+            database
+                .list_topic_supplements(subject_id, session.map(|s| s.user.id))
+                .await
+                .map_err(|_| {
+                    error_response(
+                        StatusCode::NOT_FOUND,
+                        error_codes::TOPIC_NOT_FOUND,
+                        "帖子不可访问",
+                        request_id,
+                    )
+                })?;
+            headers.insert(CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
+            headers.insert(VARY, HeaderValue::from_static("Cookie"));
+            // The 0.1.0 guest ABI has no topic slot. Never reinterpret a topic as a user.
+            return Ok((headers, Json(ApiResponse::new(Vec::new(), request_id))));
+        }
         PluginUiSlot::UserProfile => {
             let (session, response_headers) =
                 authenticate_optional_session(&database, &auth_runtime, &headers, request_id)
@@ -829,7 +852,7 @@ pub(crate) async fn plugin_ui_surface(
         plugin_runtime,
         actor_id,
         subject_id,
-        map_host_ui_slot(slot),
+        map_host_ui_slot(slot, request_id)?,
         request_id.into(),
     )
     .await
@@ -889,6 +912,13 @@ pub(crate) async fn plugin_ui_surface_action(
         path.map_err(|_| validation_error(request_id, "path", "插件动作路径参数不正确"))?;
     let headers = request.headers().clone();
     let actor_id = match slot {
+        PluginUiSlot::TopicDetail => {
+            return Err(validation_error(
+                request_id,
+                "slot",
+                "当前插件契约尚不支持帖子动作",
+            ));
+        }
         PluginUiSlot::UserProfile => {
             let session =
                 authenticate_state_change(&database, &auth_runtime, &headers, request_id).await?;
@@ -945,7 +975,7 @@ pub(crate) async fn plugin_ui_surface_action(
         actor_id,
         request_id.into(),
         plugin_host::business::UiAction {
-            slot: map_host_ui_slot(slot),
+            slot: map_host_ui_slot(slot, request_id)?,
             action_key: request.action_key,
             subject_id: Some(subject_id.to_string()),
             idempotency_key: request.idempotency_key,
@@ -966,6 +996,13 @@ async fn ensure_surface_subject(
     request_id: RequestId,
 ) -> Result<(), ApiError> {
     let exists = match slot {
+        PluginUiSlot::TopicDetail => {
+            return Err(validation_error(
+                request_id,
+                "slot",
+                "帖子插槽需要帖子访问校验",
+            ));
+        }
         PluginUiSlot::UserProfile => database.active_user_exists(subject_id).await,
         PluginUiSlot::MembershipPanel | PluginUiSlot::AdminUser => {
             database.admin_user_exists(subject_id).await
@@ -987,13 +1024,24 @@ async fn ensure_surface_subject(
     }
 }
 
-const fn map_host_ui_slot(slot: PluginUiSlot) -> plugin_host::business::UiSlot {
-    match slot {
+#[allow(clippy::result_large_err)]
+fn map_host_ui_slot(
+    slot: PluginUiSlot,
+    request_id: RequestId,
+) -> Result<plugin_host::business::UiSlot, ApiError> {
+    Ok(match slot {
         PluginUiSlot::UserProfile => plugin_host::business::UiSlot::UserProfile,
         PluginUiSlot::MembershipPanel => plugin_host::business::UiSlot::MembershipPanel,
         PluginUiSlot::AdminUser => plugin_host::business::UiSlot::AdminUser,
         PluginUiSlot::AdminPlugin => plugin_host::business::UiSlot::AdminPlugin,
-    }
+        PluginUiSlot::TopicDetail => {
+            return Err(validation_error(
+                request_id,
+                "slot",
+                "当前插件契约尚不支持帖子插槽",
+            ));
+        }
+    })
 }
 
 const fn map_contract_ui_slot(slot: plugin_host::business::UiSlot) -> PluginUiSlot {
@@ -1149,6 +1197,19 @@ fn map_manifest(request: api_contract::PluginManifestRequest) -> Result<PluginMa
                 .capabilities
                 .into_iter()
                 .map(|capability| match capability {
+                    ContractBusinessPluginCapability::TopicSupplements => {
+                        PluginCapability::TopicSupplements
+                    }
+                    ContractBusinessPluginCapability::TopicEditReview => {
+                        PluginCapability::TopicEditReview
+                    }
+                    ContractBusinessPluginCapability::MembershipRedemption => {
+                        PluginCapability::MembershipRedemption
+                    }
+                    ContractBusinessPluginCapability::CommunityAnalytics => {
+                        PluginCapability::CommunityAnalytics
+                    }
+                    ContractBusinessPluginCapability::TopicPolls => PluginCapability::TopicPolls,
                     ContractBusinessPluginCapability::UiPanel => PluginCapability::UiPanel,
                     ContractBusinessPluginCapability::EventsSubscribe => {
                         PluginCapability::EventsSubscribe
@@ -1358,6 +1419,11 @@ const fn capability_key(capability: PluginCapability) -> &'static str {
         PluginCapability::NotificationsWrite => "notifications.write",
         PluginCapability::StorageReadWrite => "storage.read_write",
         PluginCapability::TasksSchedule => "tasks.schedule",
+        PluginCapability::TopicSupplements => "topic.supplements",
+        PluginCapability::TopicEditReview => "topic.edit_review",
+        PluginCapability::MembershipRedemption => "membership.redemption",
+        PluginCapability::CommunityAnalytics => "community.analytics",
+        PluginCapability::TopicPolls => "topic.polls",
     }
 }
 
@@ -1402,6 +1468,11 @@ fn parse_host_capability(value: &str) -> Option<PluginCapability> {
         "notifications.write" => PluginCapability::NotificationsWrite,
         "storage.read_write" => PluginCapability::StorageReadWrite,
         "tasks.schedule" => PluginCapability::TasksSchedule,
+        "topic.supplements" => PluginCapability::TopicSupplements,
+        "topic.edit_review" => PluginCapability::TopicEditReview,
+        "membership.redemption" => PluginCapability::MembershipRedemption,
+        "community.analytics" => PluginCapability::CommunityAnalytics,
+        "topic.polls" => PluginCapability::TopicPolls,
         _ => return None,
     })
 }
@@ -1418,6 +1489,11 @@ fn parse_contract_capability(value: &str) -> Option<ContractPluginCapability> {
         "notifications.write" => ContractPluginCapability::NotificationsWrite,
         "storage.read_write" => ContractPluginCapability::StorageReadWrite,
         "tasks.schedule" => ContractPluginCapability::TasksSchedule,
+        "topic.supplements" => ContractPluginCapability::TopicSupplements,
+        "topic.edit_review" => ContractPluginCapability::TopicEditReview,
+        "membership.redemption" => ContractPluginCapability::MembershipRedemption,
+        "community.analytics" => ContractPluginCapability::CommunityAnalytics,
+        "topic.polls" => ContractPluginCapability::TopicPolls,
         _ => return None,
     })
 }

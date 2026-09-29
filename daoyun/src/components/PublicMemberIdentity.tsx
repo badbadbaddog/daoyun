@@ -3,7 +3,7 @@ import { usePublicMembershipSummary } from "../features/membership/usePublicMemb
 
 interface MemberIdentityBadgesProps {
   summary: PublicMembershipSummary | null
-  variant?: "compact" | "detail" | "profile"
+  variant?: "compact" | "detail" | "feed" | "profile"
   maxMedals?: number
 }
 
@@ -33,7 +33,12 @@ export function MemberIdentityBadges({ summary, variant = "compact", maxMedals =
       ))}
       {medals.length > 0 && (
         <span className="public-member-medals" aria-label="公开勋章">
-          {medals.map((medal) => (
+          {medals.map((medal) => variant === "feed" ? (
+            <span className="public-member-medal" key={medal.key} title={medal.displayName}>
+              <img src={medal.assetUrl} alt="" loading="lazy" />
+              <span>{medal.displayName}</span>
+            </span>
+          ) : (
             <img
               key={medal.key}
               src={medal.assetUrl}

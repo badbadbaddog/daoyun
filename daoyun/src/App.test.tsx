@@ -1,3 +1,4 @@
+import {saveDraft} from "./api/drafts"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -19,7 +20,7 @@ import { getPublicSiteBranding } from "./api/branding"
 import { listFeed } from "./api/feed"
 import { getAdminAccess } from "./api/admin"
 import { listModerationBoards } from "./api/moderation"
-import { createReply, createTopic, getTopic, listReplies, listTags, listTopics } from "./api/topics"
+import { createReply, createTopic, getTopic, listReplies, listTags, listTopicSupplements, listTopics } from "./api/topics"
 import type { ListTopicsOptions } from "./api/topics"
 import { getUserProfile, listUserRelations } from "./api/users"
 import { listBookmarks, setPostLike, setTopicBookmark } from "./api/relations"
@@ -32,6 +33,8 @@ import {
 import type { Board } from "./types/community"
 import { rememberOidcSettingsReturn } from "./utils/oidcSettingsReturn"
 
+vi.mock("./api/drafts",async()=>({...await vi.importActual<typeof import("./api/drafts")>("./api/drafts"),saveDraft:vi.fn()}))
+vi.mock("./api/polls",async()=>({...await vi.importActual<typeof import("./api/polls")>("./api/polls"),getPollPolicy:vi.fn().mockResolvedValue({enabled:false,can_create:false}),getTopicPoll:vi.fn().mockResolvedValue(null)}))
 vi.mock("./api/boards", () => ({
   listBoards: vi.fn(),
   getBoard: vi.fn(),
@@ -76,6 +79,7 @@ vi.mock("./api/topics", () => ({
   createTopic: vi.fn(),
   getTopic: vi.fn(),
   listReplies: vi.fn(),
+  listTopicSupplements: vi.fn(),
   createReply: vi.fn(),
 }))
 
@@ -233,6 +237,7 @@ const brandingFixture = {
 }
 
 beforeEach(() => {
+  vi.mocked(saveDraft).mockReset().mockImplementation(async(id,revision,content)=>({id,revision:revision+1,content,updated_at:new Date().toISOString()}))
   vi.mocked(listBoards).mockReset()
   vi.mocked(listBoards).mockReturnValue(new Promise(() => {}))
   vi.mocked(getBoard).mockReset()
@@ -268,6 +273,10 @@ beforeEach(() => {
     hasLockedContent: false,
   })
   vi.mocked(listReplies).mockReset().mockResolvedValue({ replies: [], nextCursor: null })
+  vi.mocked(listTopicSupplements).mockReset().mockResolvedValue({
+    supplements: [],
+    policy: { enabled: false, maxPerTopic: 1, usedCount: 0, canSubmit: false },
+  })
   vi.mocked(createReply).mockReset()
   vi.mocked(getInstallationStatus).mockReset()
   vi.mocked(getInstallationStatus).mockResolvedValue({ isInitialized: true })
@@ -530,7 +539,7 @@ describe("DaoYun community home", () => {
 
     await user.click(await screen.findByRole("link", { name: "收藏" }))
     expect(await screen.findByRole("heading", { name: "我的收藏" })).toBeInTheDocument()
-    expect(listBookmarks).toHaveBeenCalled()
+    await waitFor(() => expect(listBookmarks).toHaveBeenCalled())
     expect(window.location.hash).toBe("#bookmarks")
   })
 
@@ -703,13 +712,13 @@ describe("DaoYun community home", () => {
     const user = userEvent.setup()
     render(<App />)
 
-    expect(await screen.findByRole("heading", { name: boardFixtures[0].name })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: boardFixtures[0].name, level: 1 })).toBeInTheDocument()
     await user.click(await screen.findByRole("heading", { name: topicFixtures[0].title }))
     expect(await screen.findByText("完整主题正文")).toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: "返回主题列表" }))
 
-    expect(await screen.findByRole("heading", { name: boardFixtures[0].name })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: boardFixtures[0].name, level: 1 })).toBeInTheDocument()
     expect(window.location.hash).toBe("#board/engineering")
   })
 
@@ -976,7 +985,6 @@ describe("DaoYun community home", () => {
 
     render(<App />)
     await user.click(await screen.findByRole("button", { name: "分享此刻的想法" }))
-    await user.click(screen.getByRole("button", { name: "添加标题" }))
     await user.type(screen.getByRole("textbox", { name: "标题（可选）" }), "真实发布主题")
     await user.type(screen.getByRole("textbox", { name: "正文" }), "真实正文")
     const composer = within(screen.getByRole("dialog", { name: "发布内容" }))

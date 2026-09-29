@@ -79,3 +79,13 @@ describe("SearchPage", () => {
     expect(onScopeChange).toHaveBeenCalledWith("boards")
   })
 })
+
+it("shows filter-only content and clears filters without removing the search page",()=>{
+ const onFiltersChange=vi.fn()
+ render(<SearchPage query="" scope="topics" topics={[topic]} boards={[]} users={[]} tags={[]} loading={false} error={null} onScopeChange={vi.fn()} onLoadMore={vi.fn()} nextCursor={null} loadingMore={false} errorMore={null} filters={{author:"rustacean",from:"2026-08-01"}} onFiltersChange={onFiltersChange} availableBoards={[board]}/>)
+ expect(screen.getByRole("link",{name:/Rust 搜索主题/})).toBeInTheDocument()
+ expect(screen.getByLabelText("作者用户名")).toHaveValue("rustacean")
+ expect(screen.getByLabelText("开始日期")).toHaveValue("2026-08-01")
+ fireEvent.click(screen.getByRole("button",{name:"清除筛选"}))
+ expect(onFiltersChange).toHaveBeenCalledWith({})
+})

@@ -11,6 +11,11 @@ export type PluginCapability =
   | "notifications.write"
   | "storage.read_write"
   | "tasks.schedule"
+  | "topic.supplements"
+  | "topic.edit_review"
+  | "membership.redemption"
+  | "community.analytics"
+  | "topic.polls"
 export type PluginDataScope =
   | "site.read"
   | "actor.read"
@@ -45,7 +50,7 @@ export interface PluginUiSchema {
   blocks: PluginUiBlock[]
 }
 
-export type PluginUiSlot = "user_profile" | "membership_panel" | "admin_user" | "admin_plugin"
+export type PluginUiSlot = "user_profile" | "membership_panel" | "admin_user" | "admin_plugin" | "topic_detail"
 
 export interface PluginUiContribution {
   slot: PluginUiSlot
@@ -136,6 +141,118 @@ export async function listPlugins(signal?: AbortSignal): Promise<Plugin[]> {
     signal,
   })
   return parseData(response, isPluginDtoList, (items) => items.map(mapPlugin))
+}
+
+export function parsePluginManifest(value: unknown): PluginManifestInput {
+  if (!isRecord(value) || value.schema_version !== 1
+    || typeof value.key !== "string" || !/^[a-z][a-z0-9_]{2,63}$/.test(value.key)
+    || !isBoundedText(value.name, 1, 80) || !isBoundedText(value.description, 0, 500)
+    || typeof value.version !== "string" || !/^(0|[1-9][0-9]{0,9})\.(0|[1-9][0-9]{0,9})\.(0|[1-9][0-9]{0,9})$/.test(value.version)
+    || !Array.isArray(value.capabilities) || !value.capabilities.every(isPluginCapability)
+    || value.capabilities.length < 1 || value.capabilities.length > 16
+    || new Set(value.capabilities).size !== value.capabilities.length) {
+    throw new PluginApiError(422, "plugin.invalid_manifest", "插件清单格式无效")
+  }
+  const scopes: unknown = value.data_scopes ?? []
+  const events: unknown = value.event_subscriptions ?? []
+  if (!Array.isArray(scopes) || !scopes.every(isPluginDataScope) || scopes.length > 8
+    || new Set(scopes).size !== scopes.length
+    || !Array.isArray(events) || !events.every(isPluginEventSubscription) || events.length > 6
+    || new Set(events).size !== events.length
+    || !validBusinessContract(value.business_api_version ?? null, value.capabilities, scopes, events)) {
+    throw new PluginApiError(422, "plugin.invalid_manifest", "插件能力或数据范围无效")
+  }
+  const base = { schemaVersion: 1 as const, key: value.key, name: value.name, version: value.version, description: value.description }
+  if (value.business_api_version === "0.1.0") {
+    const capabilities = [...value.capabilities].sort((left, right) => Number(left === "ui.panel") - Number(right === "ui.panel"))
+    return { ...base, capabilities: capabilities as PluginBusinessManifestCapabilities, businessApiVersion: "0.1.0", dataScopes: scopes, eventSubscriptions: events }
+  }
+  return { ...base, capabilities: value.capabilities as LegacyPluginManifestInput["capabilities"] }
+}
+
+export async function loadOfficialSupplementPackage(signal?: AbortSignal): Promise<InstallPluginInput> {
+  const base = "/plugins/official-topic-supplements"
+  const [manifestResponse, componentResponse] = await Promise.all([
+    fetch(`${base}/plugin.json`, { signal }), fetch(`${base}/plugin.wasm`, { signal }),
+  ])
+  if (!manifestResponse.ok || !componentResponse.ok) throw new Error("官方插件文件未发布，请重新构建插件资源")
+  const manifest = parsePluginManifest(await manifestResponse.json())
+  if (manifest.key !== "official_topic_supplements") throw new Error("官方插件清单不匹配")
+  const bytes = new Uint8Array(await componentResponse.arrayBuffer())
+  if (bytes.length > 8 * 1024 * 1024 || bytes[0] !== 0 || bytes[1] !== 97 || bytes[2] !== 115 || bytes[3] !== 109) {
+    throw new Error("官方插件组件无效")
+  }
+  let binary = ""
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  return { manifest, componentBase64: btoa(binary) }
+}
+
+export async function loadOfficialEditReviewPackage(signal?: AbortSignal): Promise<InstallPluginInput> {
+  const base = "/plugins/official-topic-edit-review"
+  const [manifestResponse, componentResponse] = await Promise.all([
+    fetch(`${base}/plugin.json`, { signal }), fetch(`${base}/plugin.wasm`, { signal }),
+  ])
+  if (!manifestResponse.ok || !componentResponse.ok) throw new Error("官方插件文件未发布，请重新构建插件资源")
+  const manifest = parsePluginManifest(await manifestResponse.json())
+  if (manifest.key !== "official_topic_edit_review") throw new Error("官方插件清单不匹配")
+  const bytes = new Uint8Array(await componentResponse.arrayBuffer())
+  if (bytes.length > 8 * 1024 * 1024 || bytes[0] !== 0 || bytes[1] !== 97 || bytes[2] !== 115 || bytes[3] !== 109) {
+    throw new Error("官方插件组件无效")
+  }
+  let binary = ""
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  return { manifest, componentBase64: btoa(binary) }
+}
+
+export async function loadOfficialRedemptionPackage(signal?: AbortSignal): Promise<InstallPluginInput> {
+  const base = "/plugins/official-points-redemption"
+  const [manifestResponse, componentResponse] = await Promise.all([
+    fetch(`${base}/plugin.json`, { signal }), fetch(`${base}/plugin.wasm`, { signal }),
+  ])
+  if (!manifestResponse.ok || !componentResponse.ok) throw new Error("官方插件文件未发布，请重新构建插件资源")
+  const manifest = parsePluginManifest(await manifestResponse.json())
+  if (manifest.key !== "official_points_redemption") throw new Error("官方插件清单不匹配")
+  const bytes = new Uint8Array(await componentResponse.arrayBuffer())
+  if (bytes.length > 8 * 1024 * 1024 || bytes[0] !== 0 || bytes[1] !== 97 || bytes[2] !== 115 || bytes[3] !== 109) {
+    throw new Error("官方插件组件无效")
+  }
+  let binary = ""
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  return { manifest, componentBase64: btoa(binary) }
+}
+
+export async function loadOfficialAnalyticsPackage(signal?: AbortSignal): Promise<InstallPluginInput> {
+  const base = "/plugins/official-community-analytics"
+  const [manifestResponse, componentResponse] = await Promise.all([
+    fetch(`${base}/plugin.json`, { signal }), fetch(`${base}/plugin.wasm`, { signal }),
+  ])
+  if (!manifestResponse.ok || !componentResponse.ok) throw new Error("官方插件文件未发布，请重新构建插件资源")
+  const manifest = parsePluginManifest(await manifestResponse.json())
+  if (manifest.key !== "official_community_analytics") throw new Error("官方插件清单不匹配")
+  const bytes = new Uint8Array(await componentResponse.arrayBuffer())
+  if (bytes.length > 8 * 1024 * 1024 || bytes[0] !== 0 || bytes[1] !== 97 || bytes[2] !== 115 || bytes[3] !== 109) {
+    throw new Error("官方插件组件无效")
+  }
+  let binary = ""
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  return { manifest, componentBase64: btoa(binary) }
+}
+
+export async function loadOfficialPollsPackage(signal?: AbortSignal): Promise<InstallPluginInput> {
+  const base = "/plugins/official-polls"
+  const [manifestResponse, componentResponse] = await Promise.all([
+    fetch(`${base}/plugin.json`, { signal }), fetch(`${base}/plugin.wasm`, { signal }),
+  ])
+  if (!manifestResponse.ok || !componentResponse.ok) throw new Error("官方插件文件未发布，请重新构建插件资源")
+  const manifest = parsePluginManifest(await manifestResponse.json())
+  if (manifest.key !== "official_polls") throw new Error("官方插件清单不匹配")
+  const bytes = new Uint8Array(await componentResponse.arrayBuffer())
+  if (bytes.length > 8 * 1024 * 1024 || bytes[0] !== 0 || bytes[1] !== 97 || bytes[2] !== 115 || bytes[3] !== 109) {
+    throw new Error("官方插件组件无效")
+  }
+  let binary = ""
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  return { manifest, componentBase64: btoa(binary) }
 }
 
 export async function installPlugin(input: InstallPluginInput, csrfToken: string, signal?: AbortSignal): Promise<Plugin> {
@@ -441,7 +558,7 @@ function isPluginDto(value: unknown): value is PluginDto {
 function isPluginUiContributionDtoList(value: unknown): value is PluginUiContributionDto[] {
   return Array.isArray(value) && value.every((item) => isRecord(item)
     && hasExactKeys(item, ["slot", "schema"])
-    && ["user_profile", "membership_panel", "admin_user", "admin_plugin"].includes(String(item.slot))
+    && ["user_profile", "membership_panel", "admin_user", "admin_plugin", "topic_detail"].includes(String(item.slot))
     && isPluginUiSchemaDto(item.schema))
 }
 
@@ -451,7 +568,7 @@ function isPluginUiSurfaceContributionDtoList(value: unknown): value is PluginUi
     && isUuid(item.plugin_id)
     && typeof item.plugin_key === "string"
     && /^[a-z][a-z0-9_]{2,63}$/u.test(item.plugin_key)
-    && ["user_profile", "membership_panel", "admin_user"].includes(String(item.slot))
+    && ["user_profile", "membership_panel", "admin_user", "topic_detail"].includes(String(item.slot))
     && isPluginUiSchemaDto(item.schema))
 }
 
@@ -512,7 +629,7 @@ function isPluginCapability(value: unknown): value is PluginCapability {
   return typeof value === "string" && [
     "content.transform", "ui.panel", "events.subscribe", "core.query", "points.write",
     "experience.write", "entitlements.write", "notifications.write", "storage.read_write",
-    "tasks.schedule",
+    "tasks.schedule", "topic.supplements", "topic.edit_review", "membership.redemption", "community.analytics", "topic.polls",
   ].includes(value)
 }
 

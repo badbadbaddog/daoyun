@@ -1,4 +1,4 @@
-import { ChevronsDown, ChevronsUp, LoaderCircle, Plus, Search, X } from "lucide-react"
+import { ArrowRight, ChevronsDown, ChevronsUp, Folder, LoaderCircle, Plus, Search, X } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 
 import {
@@ -42,7 +42,7 @@ interface BoardEditorState {
   mode: "create" | "edit"
   parentId: string | null
   board: AdminBoard | null
-  section: "basic" | "content" | "access" | "governance" | "danger"
+  section: "basic" | "appearance" | "access" | "governance"
 }
 
 type AccessPolicyDraft = Pick<AdminContentAccessPolicyInput, "operator" | "subjects">
@@ -80,9 +80,14 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
     setEditor({ mode: "create", parentId, board: null, section: "basic" })
     setDraft(emptyDraft(parentId, siblings.length))
     setMessage("")
+    setRevisionConflict(false)
+    setAccessDraft(null)
+    setAccessPolicy(null)
   }
 
   function startEdit(board: AdminBoard, section: BoardEditorState["section"] = "basic") {
+    setAccessDraft(null)
+    setAccessPolicy(null)
     setEditor({ mode: "edit", parentId: board.parentId, board, section })
     setDraft({
       parentId: board.parentId,
@@ -99,6 +104,14 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
     if (section === "access") void loadAccessPolicy(board)
   }
 
+  function changeEditorSection(section: BoardEditorState["section"]) {
+    if (!editor || pendingId || accessLoading) return
+    setEditor({ ...editor, section })
+    setMessage("")
+    setRevisionConflict(false)
+    if (section === "access" && editor.board && !accessDraft) void loadAccessPolicy(editor.board)
+  }
+
   async function loadAccessPolicy(board: AdminBoard) {
     setAccessLoading(true)
     setAccessPolicy(null)
@@ -110,7 +123,11 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
       setAccessPolicy(policy)
       setAccessDraft({ operator: policy.operator, subjects: policy.subjects })
     } catch (reason) {
-      setMessage(apiMessage(reason, "访问策略读取失败，请稍后重试。"))
+      if (reason instanceof AdminApiError && reason.status === 404 && reason.code === "content.access_policy_not_found") {
+        setAccessDraft({ operator: "any_of", subjects: [emptyAccessSubject("authenticated")] })
+      } else {
+        setMessage(apiMessage(reason, "访问策略读取失败，请稍后重试。"))
+      }
     } finally {
       setAccessLoading(false)
     }
@@ -133,10 +150,10 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
     if (!editor || !beginMutation(editor.board?.id ?? "create")) return
     setMessage("")
     try {
-      if (editor.mode === "edit" && editor.section === "access" && editor.board && accessPolicy && accessDraft) {
+      if (editor.mode === "edit" && editor.section === "access" && editor.board && accessDraft) {
         await putAdminContentAccessPolicy("board", editor.board.id, {
           ...accessDraft,
-          expectedRevision: accessPolicy.revision,
+          expectedRevision: accessPolicy?.revision,
         }, csrfToken)
         setEditor(null)
         setMessage("访问策略已保存")
@@ -330,10 +347,10 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
   const deletionBlocked = !deletionImpact?.canDelete
 
   return (
-    <section className="admin-panel admin-board-panel" aria-labelledby="board-admin-heading">
+    <section className="admin-panel admin-board-panel admin-catalog" aria-labelledby="board-admin-heading">
       <div className="admin-panel__heading">
         <div><p>内容组织</p><h2 id="board-admin-heading">版块管理</h2><span>按层级管理社区入口，每次只保存一个动作。</span></div>
-        <span className="admin-badge">{boards.length} 个版块</span>
+        <div className="admin-catalog-summary"><strong>全部版块 <span>{boards.length}</span></strong><span>{rootBoards(boards).length} 个顶级版块</span><span>{boards.filter((board) => board.visibility === "hidden").length} 个隐藏</span></div>
       </div>
       <div className="admin-board-toolbar">
         <label className="admin-board-search"><Search size={15} aria-hidden="true" /><span className="sr-only">搜索版块</span><input type="search" aria-label="搜索版块" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索名称或 Slug" /></label>
@@ -341,6 +358,7 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
         <button className="secondary-button" type="button" onClick={() => setExpandedIds(new Set())}><ChevronsUp size={14} aria-hidden="true" />全部收起</button>
         {canWrite && <button className="primary-button" type="button" onClick={() => startCreate(null)} disabled={syncRequired}><Plus size={14} aria-hidden="true" />新建顶级版块</button>}
       </div>
+      <div className="admin-board-columns" aria-hidden="true"><span>版块名称 / 层级</span><span>可见状态</span><span>内容数量</span><span>操作</span></div>
       {visibleTree.length > 0 ? (
         <BoardTree
           nodes={visibleTree}
@@ -362,8 +380,9 @@ export function BoardAdminPanel({ boards, csrfToken, canWrite, onChange }: Board
         />
       ) : <p className="admin-empty" role="status">{query ? "没有匹配的版块" : "尚未创建版块"}</p>}
       {syncRequired && <p className="form-alert" role="alert">服务端已完成操作，但无法同步最新顺序。请刷新页面后再继续编辑。</p>}
-      {message && <p className={message.includes("失败") ? "form-alert" : "admin-success"} role={message.includes("失败") ? "alert" : "status"}>{message}</p>}
-      {editor && <BoardEditor editor={editor} draft={draft} accessPolicy={accessPolicy} accessDraft={accessDraft} accessLoading={accessLoading} saving={pendingId !== null} conflict={revisionConflict} error={message} onDraft={setDraft} onAccessDraft={setAccessDraft} onCancel={() => { setEditor(null); setRevisionConflict(false) }} onRefresh={() => void refreshEditorConflict()} onSubmit={saveEditor} parentName={boards.find((board) => board.id === editor.parentId)?.name ?? null} />}
+      {message && !editor && !deleting && <p className={message.includes("失败") ? "form-alert" : "admin-success"} role={message.includes("失败") ? "alert" : "status"}>{message}</p>}
+      <footer className="admin-catalog-footer"><span>按层级展示 · 最多三级</span><span>{query ? "搜索结果保留父级路径；清除搜索后可调整顺序。" : "点击版块名称编辑，更多菜单可调整层级和顺序。"}</span></footer>
+      {editor && <BoardEditor editor={editor} draft={draft} accessPolicy={accessPolicy} accessDraft={accessDraft} accessLoading={accessLoading} saving={pendingId !== null} conflict={revisionConflict} error={message} onSection={changeEditorSection} onDraft={setDraft} onAccessDraft={setAccessDraft} onCancel={() => { setEditor(null); setRevisionConflict(false); setMessage("") }} onRefresh={() => void refreshEditorConflict()} onSubmit={saveEditor} parentName={boards.find((board) => board.id === editor.parentId)?.name ?? null} />}
       {merging && (
         <ModalDialog titleId="board-merge-heading" className="admin-confirm-panel" backdropClassName="dialog-backdrop admin-confirm-backdrop" busy={mergeLoading || pendingId === merging.id} returnFocus={mergeReturnFocusRef.current} onClose={() => setMerging(null)}>
           <div><h3 id="board-merge-heading">合并“{merging.name}”</h3><button className="icon-button" type="button" onClick={() => setMerging(null)} disabled={mergeLoading || pendingId === merging.id} aria-label="关闭合并确认" title="关闭"><X size={15} /></button></div>
@@ -394,17 +413,36 @@ function currentDialogReturnFocus() {
   return activeElement.closest(".action-menu")?.querySelector<HTMLElement>("[aria-haspopup='menu']") ?? activeElement
 }
 
-function BoardEditor({ editor, draft, accessPolicy, accessDraft, accessLoading, saving, conflict, error, onDraft, onAccessDraft, onCancel, onRefresh, onSubmit, parentName }: { editor: BoardEditorState; draft: AdminBoardInput; accessPolicy: AdminContentAccessPolicy | null; accessDraft: AccessPolicyDraft | null; accessLoading: boolean; saving: boolean; conflict: boolean; error: string; onDraft: (draft: AdminBoardInput) => void; onAccessDraft: (draft: AccessPolicyDraft | null) => void; onCancel: () => void; onRefresh: () => void; onSubmit: (event: React.FormEvent) => void; parentName: string | null }) {
+function BoardEditor({ editor, draft, accessPolicy, accessDraft, accessLoading, saving, conflict, error, onSection, onDraft, onAccessDraft, onCancel, onRefresh, onSubmit, parentName }: { editor: BoardEditorState; draft: AdminBoardInput; accessPolicy: AdminContentAccessPolicy | null; accessDraft: AccessPolicyDraft | null; accessLoading: boolean; saving: boolean; conflict: boolean; error: string; onSection: (section: BoardEditorState["section"]) => void; onDraft: (draft: AdminBoardInput) => void; onAccessDraft: (draft: AccessPolicyDraft | null) => void; onCancel: () => void; onRefresh: () => void; onSubmit: (event: React.FormEvent) => void; parentName: string | null }) {
   const heading = editor.mode === "edit" ? `编辑“${editor.board?.name ?? "版块"}”` : parentName ? `在“${parentName}”下新增子版块` : "新建顶级版块"
-  return <Drawer title={heading} description={editor.board ? `当前 revision ${editor.board.revision}` : "创建后可继续配置访问策略和治理人员"} onClose={onCancel} busy={saving}><form className="admin-form admin-board-editor" onSubmit={onSubmit}>
-    <nav className="admin-board-editor__sections" aria-label="版块设置分区"><a href="#board-basic">基本信息</a><a href="#board-content">内容规则</a><a href="#board-access">访问权限</a><a href="#board-governance">治理人员</a><a href="#board-danger">危险操作</a></nav>
-    <fieldset id="board-basic"><legend>基本信息</legend>
-    <div className="admin-form__grid"><label><span>版块名称</span><input value={draft.name} onChange={(event) => onDraft({ ...draft, name: event.target.value })} maxLength={80} required /></label><label><span>版块 Slug</span><input value={draft.slug} onChange={(event) => onDraft({ ...draft, slug: event.target.value })} maxLength={80} required /></label></div>
-    <label><span>版块描述</span><textarea rows={2} value={draft.description} onChange={(event) => onDraft({ ...draft, description: event.target.value })} maxLength={280} /></label>
-    <div className="admin-form__grid"><label><span>图标 Slug</span><input value={draft.icon} onChange={(event) => onDraft({ ...draft, icon: event.target.value })} maxLength={32} required /></label><label><span>色调</span><select value={draft.tone} onChange={(event) => onDraft({ ...draft, tone: event.target.value as BoardTone })}><option value="green">绿色</option><option value="blue">蓝色</option><option value="amber">琥珀</option><option value="rose">玫红</option></select></label></div>
-    <label><span>可见状态（与访问策略分离）</span><select value={draft.visibility} onChange={(event) => onDraft({ ...draft, visibility: event.target.value as AdminBoardVisibility })}><option value="public">公开</option><option value="hidden">隐藏</option></select></label></fieldset>
-    <fieldset id="board-content"><legend>内容规则</legend><p>主题、回复和附件规则沿用服务端社区权限与版块限制。</p></fieldset>
-    <fieldset id="board-access"><legend>访问权限</legend>
+  const busy = saving || accessLoading
+  return <Drawer title={heading} description={parentName ? `上级版块：${parentName}` : "社区目录中的顶级入口"} onClose={onCancel} busy={busy}>
+    <form className="admin-form admin-board-editor admin-board-editor--focused" onSubmit={onSubmit}>
+      <nav className="admin-workspace-tabs" aria-label="版块设置分区">
+        {([{ key: "basic", label: "基本信息" }, { key: "appearance", label: "外观展示" }, ...(editor.mode === "edit" ? [{ key: "access", label: "访问权限" }, { key: "governance", label: "治理人员" }] : [])] as Array<{ key: BoardEditorState["section"]; label: string }>).map((section) => <button key={section.key} type="button" aria-pressed={editor.section === section.key} disabled={busy && editor.section !== section.key} aria-disabled={busy} onClick={() => onSection(section.key)}>{section.label}</button>)}
+      </nav>
+      <div className="admin-board-editor__preview">
+        <span className={`admin-board-mark admin-board-mark--${draft.tone}`} aria-hidden="true"><Folder size={22} /></span>
+        <div><strong>{draft.name || "新版块"}</strong><span>{draft.description || "添加一句描述，让成员了解这里适合讨论什么。"}</span></div>
+        <span className="admin-badge">{draft.visibility === "public" ? "公开" : "隐藏"}</span>
+      </div>
+      {editor.section === "basic" && <fieldset disabled={busy}>
+        <legend>基本信息</legend>
+        <label><span>版块名称</span><input value={draft.name} onChange={(event) => onDraft({ ...draft, name: event.target.value })} maxLength={80} required placeholder="例如：社区交流" /></label>
+        <label><span>版块 Slug</span><input aria-label="版块 Slug" value={draft.slug} onChange={(event) => onDraft({ ...draft, slug: event.target.value })} maxLength={80} required placeholder="community" /><small>版块的固定标识，建议使用简短英文与连字符。</small></label>
+        <label><span>版块描述</span><textarea rows={3} value={draft.description} onChange={(event) => onDraft({ ...draft, description: event.target.value })} maxLength={280} placeholder="介绍版块定位与讨论范围" /></label>
+        <label><span>可见状态（与访问策略分离）</span><select aria-label="可见状态（与访问策略分离）" value={draft.visibility} onChange={(event) => onDraft({ ...draft, visibility: event.target.value as AdminBoardVisibility })}><option value="public">公开</option><option value="hidden">隐藏</option></select><small>隐藏后不出现在社区目录；访问权限请单独设置。</small></label>
+      </fieldset>}
+      {editor.section === "appearance" && <fieldset disabled={busy}>
+        <legend>外观展示</legend>
+        <label><span>图标 Slug</span><input aria-label="图标 Slug" value={draft.icon} onChange={(event) => onDraft({ ...draft, icon: event.target.value })} maxLength={32} required /><small>保留当前图标名称，或填写站点支持的图标名称。</small></label>
+        <label><span>色调</span><select value={draft.tone} onChange={(event) => onDraft({ ...draft, tone: event.target.value as BoardTone })}><option value="green">绿色</option><option value="blue">蓝色</option><option value="amber">琥珀</option><option value="rose">玫红</option></select></label>
+      </fieldset>}
+      {editor.section === "access" && <fieldset disabled={busy}>
+        <legend>谁可以访问这个版块</legend>
+        <p>选择允许访问的成员范围。可见状态和访问权限分别保存。</p>
+        {!accessLoading && !accessPolicy && accessDraft && <p className="admin-policy-draft-note">尚未设置独立访问策略。以下是待保存草稿，保存后才会生效。</p>}
+        {!accessLoading && !accessDraft && <button className="secondary-button" type="button" onClick={onRefresh}>重新加载访问策略</button>}
       {editor.mode === "create" && <p>创建版块后可配置访问策略。</p>}
       {editor.mode === "edit" && accessLoading && <p role="status">正在加载访问策略…</p>}
       {editor.mode === "edit" && accessDraft && <>
@@ -416,14 +454,21 @@ function BoardEditor({ editor, draft, accessPolicy, accessDraft, accessLoading, 
           {accessDraft.subjects.length > 1 && <button className="secondary-button" type="button" onClick={() => onAccessDraft({ ...accessDraft, subjects: accessDraft.subjects.filter((_, itemIndex) => itemIndex !== index) })}>移除主体 {index + 1}</button>}
         </div>)}
         <button className="secondary-button" type="button" onClick={() => onAccessDraft({ ...accessDraft, subjects: [...accessDraft.subjects, emptyAccessSubject("authenticated")] })}>添加访问主体</button>
-        {accessPolicy && <p>当前访问策略 revision {accessPolicy.revision}</p>}
+
       </>}
-    </fieldset>
-    <fieldset id="board-governance"><legend>治理人员</legend><p>治理角色继续使用 RBAC 与版块 scope，不写入社区用户组或标准权益。</p></fieldset>
-    <fieldset id="board-danger"><legend>危险操作</legend><p>合并和删除必须先读取影响预览，并返回审计编号。</p></fieldset>
-    {conflict && <RevisionConflictNotice onRefresh={onRefresh} />}{error && !conflict && <p className="form-alert" role="alert">{error}</p>}
-    <button className="primary-button" type="submit" disabled={saving || (editor.section === "access" && (accessLoading || !accessDraft))}>{saving && <LoaderCircle className="topic-loading__spinner" size={15} aria-hidden="true" />}{editor.section === "access" ? "保存访问策略" : editor.mode === "edit" ? "保存版块" : editor.parentId ? "创建子版块" : "创建顶级版块"}</button>
-  </form></Drawer>
+
+      </fieldset>}
+      {editor.section === "governance" && <section className="admin-board-governance">
+        <h4>为这个版块分配管理人员</h4>
+        <p>在角色与权限中新增人员授权，选择板块角色和“{editor.board?.name}”，即可分配对应的治理权限。</p>
+        <a className="secondary-button" href="#admin/authorization">前往角色与权限<ArrowRight size={15} aria-hidden="true" /></a>
+      </section>}
+      {conflict && <RevisionConflictNotice onRefresh={onRefresh} />}{error && !conflict && <p className="form-alert" role="alert">{error}</p>}
+      <div className="admin-editor-footer"><button className="secondary-button" type="button" disabled={busy} onClick={onCancel}>取消</button>
+        {editor.section !== "governance" && <button className="primary-button" type="submit" disabled={busy || (editor.section === "access" ? !accessDraft : !draft.name.trim() || !draft.slug.trim())}>{saving && <LoaderCircle className="topic-loading__spinner" size={15} aria-hidden="true" />}{editor.section === "access" ? "保存访问策略" : editor.mode === "edit" ? "保存版块" : editor.parentId ? "创建子版块" : "创建顶级版块"}</button>}
+      </div>
+    </form>
+  </Drawer>
 }
 
 function emptyDraft(parentId: string | null, position: number): AdminBoardInput { return { parentId, slug: "", name: "", description: "", icon: "messages", tone: "green", position, visibility: "public" } }

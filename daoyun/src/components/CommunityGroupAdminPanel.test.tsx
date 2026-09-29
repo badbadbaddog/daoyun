@@ -13,6 +13,68 @@ afterEach(() => {
 })
 
 describe("CommunityGroupAdminPanel", () => {
+  it("offers reversible status changes without an archive action", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse([groupDto({ is_default: false })]))
+    vi.stubGlobal("fetch", fetchMock)
+    render(<CommunityGroupAdminPanel csrfToken="csrf-token" canWrite />)
+    await screen.findByRole("button", { name: "编辑注册会员" })
+    expect(screen.queryByRole("button", { name: "归档注册会员" })).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "编辑注册会员" }))
+    const status = screen.getByRole("combobox", { name: "用户组状态" })
+    await user.selectOptions(status, "disabled")
+    expect(status).toHaveValue("disabled")
+    await user.selectOptions(status, "active")
+    expect(status).toHaveValue("active")
+    expect(screen.queryByRole("option", { name: "归档" })).not.toBeInTheDocument()
+  })
+
+  it("separates editor sections and preserves the draft when switching sections", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse([groupDto()])))
+    render(<CommunityGroupAdminPanel csrfToken="csrf-token" canWrite />)
+    await user.click(await screen.findByRole("button", { name: "编辑注册会员" }))
+    await user.clear(screen.getByRole("textbox", { name: "显示名称" }))
+    await user.type(screen.getByRole("textbox", { name: "显示名称" }), "会员新名称")
+    expect(screen.queryByRole("spinbutton", { name: "每日主题数" })).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "社区权限" }))
+    await user.click(screen.getByRole("checkbox", { name: "发布主题" }))
+    await user.click(screen.getByRole("button", { name: "使用额度" }))
+    expect(screen.getByRole("spinbutton", { name: "每日主题数" })).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "基本信息" }))
+    expect(screen.getByRole("textbox", { name: "显示名称" })).toHaveValue("会员新名称")
+    await user.click(screen.getByRole("button", { name: "社区权限" }))
+    expect(screen.getByRole("checkbox", { name: "发布主题" })).toBeChecked()
+    await user.keyboard("{Escape}")
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole("button", { name: "编辑注册会员" })).toHaveFocus())
+  })
+
+  it("validates quotas even after switching away from their section", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse([groupDto()]))
+    vi.stubGlobal("fetch", fetchMock)
+    render(<CommunityGroupAdminPanel csrfToken="csrf-token" canWrite />)
+    await user.click(await screen.findByRole("button", { name: "编辑注册会员" }))
+    await user.click(screen.getByRole("button", { name: "使用额度" }))
+    await user.clear(screen.getByRole("spinbutton", { name: "每日主题数" }))
+    await user.type(screen.getByRole("spinbutton", { name: "每日主题数" }), "1000001")
+    await user.click(screen.getByRole("button", { name: "基本信息" }))
+    await user.click(screen.getByRole("button", { name: "保存用户组" }))
+    expect(screen.getByRole("alert")).toHaveTextContent("请检查")
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps archived groups read-only and explains that archival is permanent", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse([groupDto({ is_default: false, status: "archived" })])))
+    render(<CommunityGroupAdminPanel csrfToken="csrf-token" canWrite />)
+    await user.click(await screen.findByRole("button", { name: "编辑注册会员" }))
+    expect(screen.getByRole("textbox", { name: "显示名称" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "保存用户组" })).toBeDisabled()
+    expect(screen.getByText("该用户组已归档，仅可查看，无法恢复或修改。")).toBeVisible()
+  })
+
   it("shows and changes the default group for future registrations", async () => {
     const user = userEvent.setup()
     const replacementGroup = groupDto({
@@ -121,6 +183,7 @@ describe("CommunityGroupAdminPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "编辑注册会员" }))
     expect(screen.getByRole("dialog", { name: "编辑用户组" })).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "使用额度" }))
 
     await user.clear(screen.getByRole("spinbutton", { name: "每日上传数量" }))
     await user.type(screen.getByRole("spinbutton", { name: "每日上传数量" }), "12")
@@ -173,7 +236,7 @@ describe("CommunityGroupAdminPanel", () => {
 
     expect(await screen.findByText("数据已被其他管理员更新")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "刷新最新数据" }))
-    expect(await screen.findByText(/revision 4/)).toBeInTheDocument()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     expect(name).toHaveValue("本地草稿会员")
 
     await user.click(screen.getByRole("button", { name: "保存用户组" }))
@@ -299,7 +362,7 @@ describe("CommunityGroupAdminPanel", () => {
 })
 
 describe("DY-ADMIN-MEMBER-002 group safeguards", () => {
-  it("shows archive impact metadata and protects the active default base group", async () => {
+  it("shows membership metadata and keeps the default base group active", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(jsonResponse([groupDto({
       member_count: 128,
       expiring_member_count: 7,
@@ -312,8 +375,9 @@ describe("DY-ADMIN-MEMBER-002 group safeguards", () => {
     expect(within(row).getByText("128 位成员")).toBeInTheDocument()
     expect(within(row).getByText("7 位即将到期")).toBeInTheDocument()
     expect(within(row).getByText("3 个访问策略引用")).toBeInTheDocument()
-    expect(within(row).getByRole("button", { name: "归档注册会员" })).toBeDisabled()
-    expect(within(row).getByText("默认基础组不可归档")).toBeInTheDocument()
+    expect(within(row).queryByRole("button", { name: "归档注册会员" })).not.toBeInTheDocument()
+    await userEvent.click(within(row).getByRole("button", { name: "编辑注册会员" }))
+    expect(screen.getByRole("combobox", { name: "用户组状态" })).toBeDisabled()
   })
 
   it("creates a sorted additional group with complete permissions and quotas", async () => {
@@ -327,7 +391,8 @@ describe("DY-ADMIN-MEMBER-002 group safeguards", () => {
     await user.type(screen.getByRole("textbox", { name: "内部键" }), "contributors")
     await user.type(screen.getByRole("textbox", { name: "显示名称" }), "贡献者")
     await user.type(screen.getByRole("textbox", { name: "用户组说明" }), "社区贡献者")
-    await user.click(screen.getByRole("checkbox", { name: "topic.create" }))
+    await user.click(screen.getByRole("button", { name: "社区权限" }))
+    await user.click(screen.getByRole("checkbox", { name: "发布主题" }))
     await user.click(screen.getByRole("button", { name: "创建用户组" }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
@@ -336,66 +401,8 @@ describe("DY-ADMIN-MEMBER-002 group safeguards", () => {
     expect(await screen.findByText("贡献者已创建")).toBeInTheDocument()
   })
 
-  it("keeps archive confirmation modal, closes with Escape, and restores the archive trigger", async () => {
-    const user = userEvent.setup()
-    const additional = groupDto({ id: "0198d874-e991-7b62-8b38-3986f55c8d71", internal_key: "event_member", display_name: "活动成员", is_base: false, is_default: false, member_count: 12, expiring_member_count: 3, access_policy_reference_count: 2 })
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(jsonResponse([groupDto(), additional])))
 
-    render(<CommunityGroupAdminPanel csrfToken="csrf-token" canWrite />)
-    const trigger = await screen.findByRole("button", { name: "归档活动成员" })
-    await user.click(trigger)
-    const dialog = screen.getByRole("dialog", { name: "归档活动成员" })
-    const cancel = screen.getByRole("button", { name: "取消" })
-    const confirm = screen.getByRole("button", { name: "确认归档" })
-    await waitFor(() => expect(cancel).toHaveFocus())
-    await user.tab({ shift: true })
-    expect(confirm).toHaveFocus()
-    await user.tab()
-    expect(cancel).toHaveFocus()
 
-    await user.keyboard("{Escape}")
-    expect(dialog).not.toBeInTheDocument()
-    await waitFor(() => expect(trigger).toHaveFocus())
-  })
-
-  it("refreshes an archive target revision after a conflict before retrying", async () => {
-    const user = userEvent.setup()
-    const additional = groupDto({ id: "0198d874-e991-7b62-8b38-3986f55c8d71", internal_key: "event_member", display_name: "活动成员", is_base: false, is_default: false, member_count: 12, revision: 3 })
-    const latest = { ...additional, revision: 4 }
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse([groupDto(), additional]))
-      .mockResolvedValueOnce(jsonError(409, "community.group_revision_conflict", "用户组已被其他管理员更新"))
-      .mockResolvedValueOnce(jsonResponse([groupDto(), latest]))
-      .mockResolvedValueOnce(jsonResponse({ ...latest, status: "archived", revision: 5 }))
-    vi.stubGlobal("fetch", fetchMock)
-
-    render(<CommunityGroupAdminPanel csrfToken="csrf-token" canWrite />)
-    await user.click(await screen.findByRole("button", { name: "归档活动成员" }))
-    await user.click(screen.getByRole("button", { name: "确认归档" }))
-    expect(await screen.findByText("数据已被其他管理员更新")).toBeInTheDocument()
-
-    await user.click(screen.getByRole("button", { name: "刷新最新数据" }))
-    await user.click(screen.getByRole("button", { name: "确认归档" }))
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
-    expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toMatchObject({ expected_revision: 4, status: "archived" })
-  })
-
-  it("confirms archive impact and writes the current revision", async () => {
-    const user = userEvent.setup()
-    const additional = groupDto({ id: "0198d874-e991-7b62-8b38-3986f55c8d71", internal_key: "event_member", display_name: "活动成员", is_base: false, is_default: false, member_count: 12, expiring_member_count: 3, access_policy_reference_count: 2 })
-    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse([groupDto(), additional])).mockResolvedValueOnce(jsonResponse({ ...additional, status: "archived", revision: 4 }))
-    vi.stubGlobal("fetch", fetchMock)
-
-    render(<CommunityGroupAdminPanel csrfToken="csrf-token" canWrite />)
-    await user.click(await screen.findByRole("button", { name: "归档活动成员" }))
-    expect(screen.getByRole("dialog", { name: "归档活动成员" })).toHaveTextContent("12 位有效成员")
-    expect(screen.getByRole("dialog", { name: "归档活动成员" })).toHaveTextContent("2 个访问策略引用")
-    await user.click(screen.getByRole("button", { name: "确认归档" }))
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
-    expect(JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body))).toMatchObject({ expected_revision: 3, status: "archived" })
-    expect(await screen.findByText(/活动成员已归档/)).toBeInTheDocument()
-  })
 })
 
 function groupDto(overrides: Record<string, unknown> = {}) {

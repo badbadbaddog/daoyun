@@ -1,7 +1,6 @@
 import {
   Flag,
   Edit3,
-  History,
   LoaderCircle,
   RefreshCw,
   Reply as ReplyIcon,
@@ -19,11 +18,10 @@ import { createReport, ReportApiError, type ReportReason } from "../api/reports"
 import { RelationApiError, setPostLike } from "../api/relations"
 import {
   deleteReply,
-  listReplyRevisions,
   TopicApiError,
   updateReply,
 } from "../api/topics"
-import type { ReplyRevision, TopicReply } from "../api/topics"
+import type { TopicReply } from "../api/topics"
 import { plainTextDocument, type RichTextDocument } from "../editor/richContent"
 import { PublicMemberIdentity } from "./PublicMemberIdentity"
 import { RichTextContent } from "./RichTextContent"
@@ -39,8 +37,6 @@ interface ReplyItemProps {
   onRefresh: () => void
   onLogin: () => void
 }
-
-type LoadStatus = "loading" | "ready" | "error"
 
 export function ReplyItem({
   reply,
@@ -59,11 +55,9 @@ export function ReplyItem({
   )
   const [busyAction, setBusyAction] = useState<"edit" | "delete" | "like" | null>(null)
   const [error, setError] = useState("")
+  const [editNotice, setEditNotice] = useState("")
   const [conflict, setConflict] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const [showRevisions, setShowRevisions] = useState(false)
-  const [revisionStatus, setRevisionStatus] = useState<LoadStatus>("ready")
-  const [revisions, setRevisions] = useState<ReplyRevision[]>([])
   const [reporting, setReporting] = useState(false)
   const [reportReason, setReportReason] = useState<ReportReason>("spam")
   const [reportDetails, setReportDetails] = useState("")
@@ -80,9 +74,9 @@ export function ReplyItem({
     setDraft(reply.content)
     setDraftRichContent(reply.richContent ?? plainTextDocument(reply.content))
     setError("")
+    setEditNotice("")
     setConflict(false)
     setConfirmingDelete(false)
-    setShowRevisions(false)
     setEditing(true)
   }
 
@@ -109,13 +103,16 @@ export function ReplyItem({
         content,
         richContent: draftRichContent,
       }, { csrfToken: session.csrfToken })
-      onUpdated(updated)
+      if (updated.editDisposition === "pending_review") {
+        setEditNotice("回复编辑已提交审核，审核通过前继续显示当前版本")
+      } else {
+        setEditNotice("")
+        onUpdated(updated)
+      }
       setDraft(updated.content)
       setDraftRichContent(updated.richContent ?? plainTextDocument(updated.content))
       setEditing(false)
       setConflict(false)
-      setShowRevisions(false)
-      setRevisions([])
     } catch (caught) {
       if (caught instanceof TopicApiError && caught.status === 409) {
         setConflict(true)
@@ -127,22 +124,6 @@ export function ReplyItem({
       }
     } finally {
       setBusyAction(null)
-    }
-  }
-
-  async function toggleRevisions() {
-    if (!canEdit) return
-    if (showRevisions) {
-      setShowRevisions(false)
-      return
-    }
-    setShowRevisions(true)
-    setRevisionStatus("loading")
-    try {
-      setRevisions(await listReplyRevisions(reply.topicId, reply.id))
-      setRevisionStatus("ready")
-    } catch {
-      setRevisionStatus("error")
     }
   }
 
@@ -315,6 +296,7 @@ export function ReplyItem({
             document={reply.richContent ?? plainTextDocument(reply.content)}
           />
         )}
+        {editNotice && <p className="interaction-alert" role="status">{editNotice}</p>}
 
         {!editing && (
           <div className="reply-item__toolbar" role="group" aria-label={`第 ${reply.floorNumber} 楼操作`}>
@@ -347,15 +329,6 @@ export function ReplyItem({
                 <button className="secondary-button" type="button" aria-label="编辑回复" onClick={beginEditing}>
                   <Edit3 size={14} aria-hidden="true" />
                   编辑
-                </button>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  aria-label={showRevisions ? "收起回复修订历史" : "查看回复修订历史"}
-                  onClick={() => void toggleRevisions()}
-                >
-                  <History size={14} aria-hidden="true" />
-                  修订
                 </button>
                 <button
                   className="secondary-button reply-action--danger"
@@ -409,18 +382,6 @@ export function ReplyItem({
         )}
         {!editing && error && <p className="composer-form-error" role="alert">{error}</p>}
 
-        {showRevisions && (
-          <div className="reply-revisions" aria-live="polite">
-            {revisionStatus === "loading" ? <span>正在加载回复修订历史</span> : revisionStatus === "error" ? (
-              <span role="alert">回复修订历史暂时无法加载</span>
-            ) : revisions.length === 0 ? <span>暂无回复修订历史</span> : revisions.map((revision) => (
-              <div key={revision.id} className="reply-revision">
-                <div><strong>第 {revision.revisionNumber} 版</strong><time>{revision.createdAt}</time></div>
-                <RichTextContent document={revision.richContent ?? plainTextDocument(revision.content)} />
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </article>
   )

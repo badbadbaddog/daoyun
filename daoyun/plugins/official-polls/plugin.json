@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "key": "official_polls",
+  "name": "单选投票",
+  "version": "0.1.0",
+  "description": "在主题中创建单选投票，按权限与截止时间参与，一人一票。",
+  "business_api_version": "0.1.0",
+  "capabilities": [
+    "topic.polls",
+    "ui.panel"
+  ],
+  "data_scopes": [],
+  "event_subscriptions": []
+}

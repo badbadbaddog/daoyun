@@ -380,10 +380,10 @@ function isMembershipMedalsResponse(value: unknown): value is MembershipMedalsRe
 function isMembershipMedalDto(value: unknown): value is MembershipMedalDto {
   return isRecord(value)
     && typeof value.key === "string"
-    && /^medal_(?:0[1-9]|1[0-7])$/.test(value.key)
-    && value.display_name === `勋章 ${value.key.slice(-2)}`
+    && /^[a-z][a-z0-9_]{2,63}$/.test(value.key)
+    && isNonEmptyString(value.display_name)
     && typeof value.asset_url === "string"
-    && value.asset_url.startsWith("/assets/membership/medals/")
+    && (/^(?:\/assets\/membership\/medals\/medal(?:[1-9]|1[0-7])\.gif|\/api\/v1\/membership\/medal-assets\/upload_[a-f0-9]{64})$/.test(value.asset_url))
     && typeof value.sha256 === "string"
     && /^[0-9a-f]{64}$/.test(value.sha256)
     && typeof value.granted_at === "string"
