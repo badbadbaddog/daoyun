@@ -1,0 +1,387 @@
+{
+  "project": "DaoYun",
+  "version": "1.0",
+  "date": "2026-09-30",
+  "plan_status": "PLANNED",
+  "code_modified_in_this_delivery": false,
+  "executor": "FastSpider_FS",
+  "codex_sessions_allowed": false,
+  "tasks": [
+    {
+      "id": "DYV2-001",
+      "title": "基线核查与源码/路由映射",
+      "dependencies": [],
+      "gate": "G0",
+      "status": "PLANNED",
+      "acceptance": "B-01–B-06；至少区分旧缺陷、环境阻塞、新改造范围；每个命令有实际结果；未连接/未运行不得填 PASS。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-001-result.md"
+    },
+    {
+      "id": "DYV2-002",
+      "title": "冻结产品规则、能力契约与验收夹具",
+      "dependencies": [
+        "DYV2-001"
+      ],
+      "gate": "G0",
+      "status": "PLANNED",
+      "acceptance": "B-07–B-10；每个字段有来源或明确移除；每个必需流程有角色和可重复场景；未证实的增强功能不阻塞默认方案。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-002-result.md"
+    },
+    {
+      "id": "DYV2-003",
+      "title": "语义令牌、主题和密度兼容",
+      "dependencies": [
+        "DYV2-002"
+      ],
+      "gate": "G1",
+      "status": "PLANNED",
+      "acceptance": "V-01–V-07；无白底黑字硬编码破坏其他主题；品牌配置不被默认色覆盖；文字/焦点按实测对比。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-003-result.md"
+    },
+    {
+      "id": "DYV2-004",
+      "title": "公共交互原语收口",
+      "dependencies": [
+        "DYV2-003"
+      ],
+      "gate": "G1",
+      "status": "PLANNED",
+      "acceptance": "I-01–I-10；键盘闭环、Esc、关闭回焦、未保存内容确认、重复点击和错误输入保留全部可复现。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-004-result.md"
+    },
+    {
+      "id": "DYV2-005",
+      "title": "前台公共壳与导航状态",
+      "dependencies": [
+        "DYV2-004"
+      ],
+      "gate": "G1",
+      "status": "PLANNED",
+      "acceptance": "N-01–N-08；无空链接；当前页面高亮正确；右栏收起不丢关键入口；未登录/安装状态正常。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-005-result.md"
+    },
+    {
+      "id": "DYV2-006",
+      "title": "内容展示组件与授权媒体适配",
+      "dependencies": [
+        "DYV2-004",
+        "DYV2-005"
+      ],
+      "gate": "G1",
+      "status": "PLANNED",
+      "acceptance": "C-01–C-10；受限媒体不进入封面/摘要/数量；只显示真实统计；点击子动作不触发整卡导航。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-006-result.md"
+    },
+    {
+      "id": "DYV2-007",
+      "title": "首页发现流重构",
+      "dependencies": [
+        "DYV2-005",
+        "DYV2-006"
+      ],
+      "gate": "G2",
+      "status": "PLANNED",
+      "acceptance": "H-01–H-07 + C-01–C-10；不改推荐权重；正文/图片/元信息和动作布局一致；第二页错误不丢第一页。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-007-result.md"
+    },
+    {
+      "id": "DYV2-008",
+      "title": "版块目录与层级导航",
+      "dependencies": [
+        "DYV2-005",
+        "DYV2-006"
+      ],
+      "gate": "G2",
+      "status": "PLANNED",
+      "acceptance": "BO-01–BO-07；无成员数/加入圈子；有权限的子版块可达；不擅自造分类实体。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-008-result.md"
+    },
+    {
+      "id": "DYV2-009",
+      "title": "版块详情与紧凑主题列表",
+      "dependencies": [
+        "DYV2-008",
+        "DYV2-006"
+      ],
+      "gate": "G2",
+      "status": "PLANNED",
+      "acceptance": "BO-08–BO-14；版块置顶不混全站推荐；无标题主题可点；手机能进入子版块。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-009-result.md"
+    },
+    {
+      "id": "DYV2-010",
+      "title": "统一发布器与草稿/9图排序",
+      "dependencies": [
+        "DYV2-004",
+        "DYV2-005",
+        "DYV2-009"
+      ],
+      "gate": "G2",
+      "status": "PLANNED",
+      "acceptance": "P-01–P-12；无交易字段/强制预览；重新加载后的排序正确；失败不丢输入；不能重复创建帖子。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-010-result.md"
+    },
+    {
+      "id": "DYV2-011",
+      "title": "帖子详情、富文本与插件状态",
+      "dependencies": [
+        "DYV2-006",
+        "DYV2-010"
+      ],
+      "gate": "G2",
+      "status": "PLANNED",
+      "acceptance": "T-01–T-09 + X-01–X-05；9图不重复；待审内容不公开；私有附件不泄露；作者和他人动作有差异。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-011-result.md"
+    },
+    {
+      "id": "DYV2-012",
+      "title": "评论、引用与稳定楼层深链接",
+      "dependencies": [
+        "DYV2-004",
+        "DYV2-011"
+      ],
+      "gate": "G2",
+      "status": "PLANNED",
+      "acceptance": "R-01–R-10；不按数组索引重新编号；被隐藏引用不能泄露；排序只提供真实支持模式。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-012-result.md"
+    },
+    {
+      "id": "DYV2-013",
+      "title": "公开个人主页与本人入口",
+      "dependencies": [
+        "DYV2-005",
+        "DYV2-006",
+        "DYV2-012"
+      ],
+      "gate": "G3",
+      "status": "PLANNED",
+      "acceptance": "U-01–U-08；不请求或展示私有权益/积分/草稿；不新增访客、认证勾和可编辑封面假入口。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-013-result.md"
+    },
+    {
+      "id": "DYV2-014",
+      "title": "本人会员中心与兑换能力",
+      "dependencies": [
+        "DYV2-004",
+        "DYV2-005",
+        "DYV2-013"
+      ],
+      "gate": "G3",
+      "status": "PLANNED",
+      "acceptance": "M-01–M-08 + X-01–X-05；EXP 不等于积分；到期状态正确；插件异常不使会员页空白。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-014-result.md"
+    },
+    {
+      "id": "DYV2-015",
+      "title": "搜索、收藏与内容返回一致性",
+      "dependencies": [
+        "DYV2-005",
+        "DYV2-006",
+        "DYV2-007",
+        "DYV2-009",
+        "DYV2-013"
+      ],
+      "gate": "G3",
+      "status": "PLANNED",
+      "acceptance": "S-01–S-06；不改变搜索范围语义；匿名访问本人收藏正确处理；浏览器后退不会回空首页。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-015-result.md"
+    },
+    {
+      "id": "DYV2-016",
+      "title": "通知、私信、登录及账号安全统一",
+      "dependencies": [
+        "DYV2-004",
+        "DYV2-005"
+      ],
+      "gate": "G3",
+      "status": "PLANNED",
+      "acceptance": "A-01–A-09；私信不串账号/会话；不暴露恢复码；已读/归档沿用既有语义；未配置 IdP 不假验证。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-016-result.md"
+    },
+    {
+      "id": "DYV2-017",
+      "title": "后台外壳、六分组与统一表格",
+      "dependencies": [
+        "DYV2-004",
+        "DYV2-005"
+      ],
+      "gate": "G4",
+      "status": "PLANNED",
+      "acceptance": "AD-01–AD-08；现有功能无遗漏；不只隐藏按钮做授权；切换筛选不保留危险选中。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-017-result.md"
+    },
+    {
+      "id": "DYV2-018",
+      "title": "后台工作台与真实数据口径",
+      "dependencies": [
+        "DYV2-017"
+      ],
+      "gate": "G4",
+      "status": "PLANNED",
+      "acceptance": "W-01–W-08；未知不当 0；插件未启用不画假曲线；不显示未完成计量的总浏览量。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-018-result.md"
+    },
+    {
+      "id": "DYV2-019",
+      "title": "内容治理：主题、评论、举报、审核、风控",
+      "dependencies": [
+        "DYV2-012",
+        "DYV2-017"
+      ],
+      "gate": "G4",
+      "status": "PLANNED",
+      "acceptance": "G-01–G-09；无权 API 拒绝；待审旧版本公开；重复/并发不错误覆盖；具体审计关联可追溯。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-019-result.md"
+    },
+    {
+      "id": "DYV2-020",
+      "title": "用户、版块与角色权限工作区",
+      "dependencies": [
+        "DYV2-008",
+        "DYV2-009",
+        "DYV2-013",
+        "DYV2-017",
+        "DYV2-019"
+      ],
+      "gate": "G4",
+      "status": "PLANNED",
+      "acceptance": "G-10–G-19；子版块层级完整；隐藏不等于权限；回滚不能只看前端 24h；无权范围不可读写。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-020-result.md"
+    },
+    {
+      "id": "DYV2-021",
+      "title": "会员经济后台与操作回执",
+      "dependencies": [
+        "DYV2-014",
+        "DYV2-017",
+        "DYV2-020"
+      ],
+      "gate": "G4",
+      "status": "PLANNED",
+      "acceptance": "E-01–E-08；不要求运营手填 UUID/内部 reason key；双击/超时不重复记账；不得授予治理权限。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-021-result.md"
+    },
+    {
+      "id": "DYV2-022",
+      "title": "品牌、邮件、插件、数据与运维统一",
+      "dependencies": [
+        "DYV2-003",
+        "DYV2-017",
+        "DYV2-018",
+        "DYV2-021"
+      ],
+      "gate": "G4",
+      "status": "PLANNED",
+      "acceptance": "Y-01–Y-09 + X-01–X-05；现有导航/页脚限制保留；不能提供未实现首页模式切换；插件权限不扩大。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-022-result.md"
+    },
+    {
+      "id": "DYV2-023",
+      "title": "全链路、响应式、可访问性与性能总回归",
+      "dependencies": [
+        "DYV2-007",
+        "DYV2-008",
+        "DYV2-009",
+        "DYV2-010",
+        "DYV2-011",
+        "DYV2-012",
+        "DYV2-013",
+        "DYV2-014",
+        "DYV2-015",
+        "DYV2-016",
+        "DYV2-018",
+        "DYV2-019",
+        "DYV2-020",
+        "DYV2-021",
+        "DYV2-022"
+      ],
+      "gate": "G5",
+      "status": "PLANNED",
+      "acceptance": "全部 B/V/I/N/C/H/BO/P/T/R/U/M/S/A/AD/W/G/E/Y/X 用例 + Q-01–Q-09；必需检查有真实证据。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-023-result.md"
+    },
+    {
+      "id": "DYV2-024",
+      "title": "候选构建、回退演练、清理与最终交接",
+      "dependencies": [
+        "DYV2-023"
+      ],
+      "gate": "G5",
+      "status": "PLANNED",
+      "acceptance": "Q-10–Q-16；旧链接/旧草稿/授权和插件可用；干净检出复验；回退不回滚帖子/积分数据；无未经授权生产部署。",
+      "evidence": [],
+      "code_commit": null,
+      "tested_source": null,
+      "handoff_path_suggested": "docs/handoffs/ui-v2/dyv2-024-result.md"
+    }
+  ]
+}

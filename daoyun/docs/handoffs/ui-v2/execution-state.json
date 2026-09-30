@@ -1,0 +1,1473 @@
+{
+  "project": "DaoYun",
+  "date": "2026-09-30",
+  "plan_status": "IN_PROGRESS",
+  "scope": "First public-shell and home-feed implementation candidate; no complete Gate acceptance",
+  "plan_snapshot": "daoyun-ui-v2-plan/06-task-registry.json",
+  "acceptance_snapshot": "daoyun-ui-v2-plan/07-acceptance-registry.json",
+  "executor": "Codex_local_tools",
+  "executor_override": {
+    "original": "FastSpider_FS",
+    "reason": "A1 offline and exec_command CET failure",
+    "authorization": "用户明确选择：使用当前本地工具继续（推荐）",
+    "date": "2026-09-30"
+  },
+  "code_commit": "f9e1e16348bed285304f46917c856870915e96c1",
+  "tested_source_manifest_sha256": "6815b8fa6388d53f317001cf3dd82c675049d2d7331842b51aff021080d57cde",
+  "verification": "docs/handoffs/ui-v2/verification.json",
+  "handoff": "docs/handoffs/ui-v2/first-increment-2026-09-30.md",
+  "gates": {
+    "G0": "NOT_ACCEPTED",
+    "G1": "NOT_ACCEPTED",
+    "G2": "NOT_ACCEPTED",
+    "G3": "NOT_ACCEPTED",
+    "G4": "NOT_ACCEPTED",
+    "G5": "NOT_ACCEPTED"
+  },
+  "tasks": [
+    {
+      "id": "DYV2-001",
+      "title": "基线核查与源码/路由映射",
+      "status": "IN_PROGRESS",
+      "evidence": [
+        "docs/handoffs/ui-v2/first-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/verification.json"
+      ],
+      "code_commit": "f9e1e16348bed285304f46917c856870915e96c1"
+    },
+    {
+      "id": "DYV2-002",
+      "title": "冻结产品规则、能力契约与验收夹具",
+      "status": "IN_PROGRESS",
+      "evidence": [
+        "docs/handoffs/ui-v2/first-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/verification.json"
+      ],
+      "code_commit": "f9e1e16348bed285304f46917c856870915e96c1"
+    },
+    {
+      "id": "DYV2-003",
+      "title": "语义令牌、主题和密度兼容",
+      "status": "IN_PROGRESS",
+      "evidence": [
+        "docs/handoffs/ui-v2/first-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/verification.json"
+      ],
+      "code_commit": "f9e1e16348bed285304f46917c856870915e96c1"
+    },
+    {
+      "id": "DYV2-004",
+      "title": "公共交互原语收口",
+      "status": "IN_PROGRESS",
+      "evidence": [
+        "docs/handoffs/ui-v2/first-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/verification.json"
+      ],
+      "code_commit": "f9e1e16348bed285304f46917c856870915e96c1"
+    },
+    {
+      "id": "DYV2-005",
+      "title": "前台公共壳与导航状态",
+      "status": "IN_PROGRESS",
+      "evidence": [
+        "docs/handoffs/ui-v2/first-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/verification.json"
+      ],
+      "code_commit": "f9e1e16348bed285304f46917c856870915e96c1"
+    },
+    {
+      "id": "DYV2-006",
+      "title": "内容展示组件与授权媒体适配",
+      "status": "IN_PROGRESS",
+      "evidence": [
+        "docs/handoffs/ui-v2/first-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/verification.json"
+      ],
+      "code_commit": "f9e1e16348bed285304f46917c856870915e96c1"
+    },
+    {
+      "id": "DYV2-007",
+      "title": "首页发现流重构",
+      "status": "IN_PROGRESS",
+      "evidence": [
+        "docs/handoffs/ui-v2/first-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/verification.json"
+      ],
+      "code_commit": "f9e1e16348bed285304f46917c856870915e96c1"
+    },
+    {
+      "id": "DYV2-008",
+      "title": "版块目录与层级导航",
+      "status": "PLANNED",
+      "evidence": [],
+      "code_commit": null
+    },
+    {
+      "id": "DYV2-009",
+      "title": "版块详情与紧凑主题列表",
+      "status": "PLANNED",
+      "evidence": [],
+      "code_commit": null
+    },
+    {
+      "id": "DYV2-010",
+      "title": "统一发布器与草稿/9图排序",
+      "status": "PLANNED",
+      "evidence": [],
+      "code_commit": null
+    },
+    {
+      "id": "DYV2-011",
+      "title": "帖子详情、富文本与插件状态",
+      "status": "PLANNED",
+      "evidence": [],
+      "code_commit": null
+    },
+    {
+      "id": "DYV2-012",
+      "title": "评论、引用与稳定楼层深链接",
+      "status": "PLANNED",
+      "evidence": [],
+      "code_commit": null
+    },
+    {
+      "id": "DYV2-013",
+      "title": "公开个人主页与本人入口",
+      "status": "PLANNED",
+      "evidence": [],
+      "code_commit": null
+    },
+    {
+      "id": "DYV2-014",
+      "title": "本人会员中心与兑换能力",
+      "status": "PLANNED",
+      "evidence": [],
+      "code_commit": null
+    },
+    {
+      "id": "DYV2-015",
+      "title": "搜索、收藏与内容返回一致性",
+      "status": "PLANNED",
+      "evidence": [],
+      "code_commit": null
+    },
+    {
+      "id": "DYV2-016",
+      "title": "通知、私信、登录及账号安全统一",
+      "status": "PLANNED",
+      "evidence": [],
+      "code_commit": null
+    },
+    {
+      "id": "DYV2-017",
+      "title": "后台外壳、六分组与统一表格",
+      "status": "PLANNED",
+      "evidence": [],
+      "code_commit": null
+    },
+    {
+      "id": "DYV2-018",
+      "title": "后台工作台与真实数据口径",
+      "status": "PLANNED",
+      "evidence": [],
+      "code_commit": null
+    },
+    {
+      "id": "DYV2-019",
+      "title": "内容治理：主题、评论、举报、审核、风控",
+      "status": "PLANNED",
+      "evidence": [],
+      "code_commit": null
+    },
+    {
+      "id": "DYV2-020",
+      "title": "用户、版块与角色权限工作区",
+      "status": "PLANNED",
+      "evidence": [],
+      "code_commit": null
+    },
+    {
+      "id": "DYV2-021",
+      "title": "会员经济后台与操作回执",
+      "status": "PLANNED",
+      "evidence": [],
+      "code_commit": null
+    },
+    {
+      "id": "DYV2-022",
+      "title": "品牌、邮件、插件、数据与运维统一",
+      "status": "PLANNED",
+      "evidence": [],
+      "code_commit": null
+    },
+    {
+      "id": "DYV2-023",
+      "title": "全链路、响应式、可访问性与性能总回归",
+      "status": "PLANNED",
+      "evidence": [],
+      "code_commit": null
+    },
+    {
+      "id": "DYV2-024",
+      "title": "候选构建、回退演练、清理与最终交接",
+      "status": "PLANNED",
+      "evidence": [],
+      "code_commit": null
+    }
+  ],
+  "cases": [
+    {
+      "id": "B-01",
+      "title": "目录/仓库边界",
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/verification.json",
+        "docs/handoffs/ui-v2/first-increment-2026-09-30.md"
+      ]
+    },
+    {
+      "id": "B-02",
+      "title": "技术与命令映射",
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/verification.json",
+        "docs/handoffs/ui-v2/first-increment-2026-09-30.md"
+      ]
+    },
+    {
+      "id": "B-03",
+      "title": "改前运行状态",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "B-04",
+      "title": "能力与配置盘点",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "B-05",
+      "title": "测试证据真实性",
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/verification.json",
+        "docs/handoffs/ui-v2/first-increment-2026-09-30.md"
+      ]
+    },
+    {
+      "id": "B-06",
+      "title": "保护现场",
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/verification.json",
+        "docs/handoffs/ui-v2/first-increment-2026-09-30.md"
+      ]
+    },
+    {
+      "id": "B-07",
+      "title": "字段来源",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "B-08",
+      "title": "需求纠偏",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "B-09",
+      "title": "角色和夹具",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "B-10",
+      "title": "旧链路基线",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "V-01",
+      "title": "语义色",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "V-02",
+      "title": "品牌覆盖",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "V-03",
+      "title": "四种预设",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "V-04",
+      "title": "密度",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "V-05",
+      "title": "文字对比",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "V-06",
+      "title": "形态一致",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "V-07",
+      "title": "文本适应",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "I-01",
+      "title": "异步四态",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "I-02",
+      "title": "按钮忙碌态",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "I-03",
+      "title": "错误保留输入",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "I-04",
+      "title": "打开弹层焦点",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "I-05",
+      "title": "焦点约束",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "I-06",
+      "title": "关闭回焦",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "I-07",
+      "title": "未保存保护",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "I-08",
+      "title": "冲突恢复",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "I-09",
+      "title": "错误关联与脱敏",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "I-10",
+      "title": "触摸/键盘可达",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "N-01",
+      "title": "刷新直达",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "N-02",
+      "title": "前后退",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "N-03",
+      "title": "旧链接",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "N-04",
+      "title": "五宽度",
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/verification.json",
+        "docs/handoffs/ui-v2/first-increment-2026-09-30.md"
+      ]
+    },
+    {
+      "id": "N-05",
+      "title": "右栏收起",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "N-06",
+      "title": "匿名与本人入口",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "N-07",
+      "title": "导航语义",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "N-08",
+      "title": "安装分流",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "C-01",
+      "title": "无标题",
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/verification.json",
+        "docs/handoffs/ui-v2/first-increment-2026-09-30.md"
+      ]
+    },
+    {
+      "id": "C-02",
+      "title": "无图",
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/verification.json",
+        "docs/handoffs/ui-v2/first-increment-2026-09-30.md"
+      ]
+    },
+    {
+      "id": "C-03",
+      "title": "单图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "C-04",
+      "title": "双图",
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/verification.json",
+        "docs/handoffs/ui-v2/first-increment-2026-09-30.md"
+      ]
+    },
+    {
+      "id": "C-05",
+      "title": "三图",
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/verification.json",
+        "docs/handoffs/ui-v2/first-increment-2026-09-30.md"
+      ]
+    },
+    {
+      "id": "C-06",
+      "title": "九图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "C-07",
+      "title": "受限图片",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "C-08",
+      "title": "指标顺序",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "C-09",
+      "title": "子动作隔离",
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/verification.json",
+        "docs/handoffs/ui-v2/first-increment-2026-09-30.md"
+      ]
+    },
+    {
+      "id": "C-10",
+      "title": "异常内容",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "H-01",
+      "title": "单列",
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/verification.json",
+        "docs/handoffs/ui-v2/first-increment-2026-09-30.md"
+      ]
+    },
+    {
+      "id": "H-02",
+      "title": "三流",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "H-03",
+      "title": "推荐不变",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "H-04",
+      "title": "加载更多",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "H-05",
+      "title": "翻页失败",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "H-06",
+      "title": "切换竞态",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "H-07",
+      "title": "空关注与右栏故障",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-01",
+      "title": "层级来源",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-02",
+      "title": "非圈子",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-03",
+      "title": "同名节点",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-04",
+      "title": "私有节点",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-05",
+      "title": "目录导航",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-06",
+      "title": "关注能力",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-07",
+      "title": "目录空错态",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-08",
+      "title": "详情范围",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-09",
+      "title": "子版块手机入口",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-10",
+      "title": "排序",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-11",
+      "title": "置顶分离",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-12",
+      "title": "无标题紧凑行",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-13",
+      "title": "发布上下文",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-14",
+      "title": "版内搜索",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-01",
+      "title": "标题可空",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-02",
+      "title": "单一发布流程",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-03",
+      "title": "九图上限",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-04",
+      "title": "顺序持久",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-05",
+      "title": "非拖拽排序",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-06",
+      "title": "上传失败",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-07",
+      "title": "附件权限",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-08",
+      "title": "双草稿恢复",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-09",
+      "title": "跨账号/标签页",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-10",
+      "title": "会话过期",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-11",
+      "title": "重复与未知结果",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-12",
+      "title": "移动键盘",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "T-01",
+      "title": "正文完整",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "T-02",
+      "title": "无标题详情",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "T-03",
+      "title": "图片顺序与查看",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "T-04",
+      "title": "作者动作",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "T-05",
+      "title": "审核旧公开版",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "T-06",
+      "title": "摘要传播",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "T-07",
+      "title": "受限/删除",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "T-08",
+      "title": "分享/修订",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "T-09",
+      "title": "辅助失效",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "R-01",
+      "title": "稳定楼层",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "R-02",
+      "title": "楼层直达",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "R-03",
+      "title": "回复对象",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "R-04",
+      "title": "深层关系",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "R-05",
+      "title": "分页和展开",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "R-06",
+      "title": "隐藏引用",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "R-07",
+      "title": "编辑/删除权限",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "R-08",
+      "title": "失败保留",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "R-09",
+      "title": "排序支持",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "R-10",
+      "title": "移动讨论",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "U-01",
+      "title": "本人/他人",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "U-02",
+      "title": "公开请求最小化",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "U-03",
+      "title": "公开身份",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "U-04",
+      "title": "标签层级",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "U-05",
+      "title": "收藏私密",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "U-06",
+      "title": "未实现能力",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "U-07",
+      "title": "公开回复",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "U-08",
+      "title": "极端资料",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "M-01",
+      "title": "模型分离",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "M-02",
+      "title": "动态等级",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "M-03",
+      "title": "积分与流水",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "M-04",
+      "title": "权益到期",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "M-05",
+      "title": "隐私切换",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "M-06",
+      "title": "兑换关闭",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "M-07",
+      "title": "兑换幂等",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "M-08",
+      "title": "奖励时区",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "S-01",
+      "title": "搜索类型",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "S-02",
+      "title": "组合筛选",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "S-03",
+      "title": "分页竞态",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "S-04",
+      "title": "权限摘要",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "S-05",
+      "title": "收藏取消",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "S-06",
+      "title": "空错登录态",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "A-01",
+      "title": "通知到楼层",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "A-02",
+      "title": "已读",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "A-03",
+      "title": "失效目标",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "A-04",
+      "title": "私信发送状态",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "A-05",
+      "title": "账号缓存隔离",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "A-06",
+      "title": "登录与返回",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "A-07",
+      "title": "设备会话",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "A-08",
+      "title": "增强认证配置",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "A-09",
+      "title": "敏感截图日志",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "AD-01",
+      "title": "六组导航",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "AD-02",
+      "title": "局部权限",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "AD-03",
+      "title": "旧后台链接",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "AD-04",
+      "title": "筛选分页",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "AD-05",
+      "title": "当前页批选",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "AD-06",
+      "title": "详情与抽屉",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "AD-07",
+      "title": "表格重排",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "AD-08",
+      "title": "版本与结果",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "W-01",
+      "title": "待办优先",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "W-02",
+      "title": "范围口径",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "W-03",
+      "title": "零/未知/错误",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "W-04",
+      "title": "趋势来源",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "W-05",
+      "title": "排除虚构指标",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "W-06",
+      "title": "陈旧健康",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "W-07",
+      "title": "局部失败",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "W-08",
+      "title": "刷新机制",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-01",
+      "title": "主题上下文",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-02",
+      "title": "评论上下文",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-03",
+      "title": "举报处理",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-04",
+      "title": "审核差异",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-05",
+      "title": "旧公开版本",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-06",
+      "title": "处置原因",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-07",
+      "title": "处置并发",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-08",
+      "title": "作用域拒绝",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-09",
+      "title": "治理前台联动",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-10",
+      "title": "用户限制恢复",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-11",
+      "title": "高权账号保护",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-12",
+      "title": "版块树移动",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-13",
+      "title": "显隐和访问",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-14",
+      "title": "合并预览",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-15",
+      "title": "合并提交",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-16",
+      "title": "回滚资格",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-17",
+      "title": "合并回滚",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-18",
+      "title": "权限差异",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-19",
+      "title": "领域隔离",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "E-01",
+      "title": "用户选择",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "E-02",
+      "title": "切换清空",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "E-03",
+      "title": "积分调整",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "E-04",
+      "title": "重试幂等",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "E-05",
+      "title": "revision 冲突",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "E-06",
+      "title": "权益期限",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "E-07",
+      "title": "成长勋章用户组",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "E-08",
+      "title": "结果追溯",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Y-01",
+      "title": "品牌持久",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Y-02",
+      "title": "配置上限",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Y-03",
+      "title": "首页模式",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Y-04",
+      "title": "邮件脱敏",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Y-05",
+      "title": "插件安装权限",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Y-06",
+      "title": "高级工具隔离",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Y-07",
+      "title": "数据口径",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Y-08",
+      "title": "运维陈旧",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Y-09",
+      "title": "全模块覆盖",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "X-01",
+      "title": "宿主关闭",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "X-02",
+      "title": "未装/停用/启用",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "X-03",
+      "title": "账号/对象限制",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "X-04",
+      "title": "插件失败",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "X-05",
+      "title": "历史保留",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-01",
+      "title": "核心端到端",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-02",
+      "title": "角色全矩阵",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-03",
+      "title": "五宽度总验收",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-04",
+      "title": "键盘与读屏代表路径",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-05",
+      "title": "真实手机",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-06",
+      "title": "构建依赖体积",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-07",
+      "title": "实验室性能",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-08",
+      "title": "线上性能观察边界",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-09",
+      "title": "全仓门禁",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-10",
+      "title": "干净工作区",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-11",
+      "title": "源码证据关系",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-12",
+      "title": "旧草稿链接偏好",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-13",
+      "title": "UI回退",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-14",
+      "title": "旧代码清理",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-15",
+      "title": "部署授权",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-16",
+      "title": "最终交接",
+      "result": "NOT_RUN",
+      "evidence": []
+    }
+  ],
+  "counts": {
+    "tasks": 24,
+    "tasks_done": 0,
+    "tasks_in_progress": 7,
+    "cases": 201,
+    "case_pass": 11,
+    "case_not_run": 190
+  },
+  "remaining": [
+    "G0 original-page baseline, all-role fixtures and six-plugin actual installation/enabling/capability checks",
+    "Authorized visible image count and complete 4–9 image viewer contract",
+    "Real API write and auth flows, feed paging/race/failure E2E",
+    "DYV2-008 through DYV2-024 and complete G0–G5 acceptance"
+  ]
+}

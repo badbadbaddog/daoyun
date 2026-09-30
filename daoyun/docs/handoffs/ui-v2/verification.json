@@ -1,0 +1,396 @@
+{
+  "project": "DaoYun",
+  "date": "2026-09-30",
+  "baseline_commit": "e3a4db170f2a30d3e49161d58e59b260d8cce7d9",
+  "code_commit": "f9e1e16348bed285304f46917c856870915e96c1",
+  "tested_source_manifest_sha256": "6815b8fa6388d53f317001cf3dd82c675049d2d7331842b51aff021080d57cde",
+  "tested_source_manifest": [
+    {
+      "path": "e2e/community-responsive.spec.ts",
+      "sha256": "9290e6b2f50a563eaa6db76bbc6f14a4dadc5c15404a73dc88bde12456df6da6",
+      "status": "present"
+    },
+    {
+      "path": "e2e/fixtures.ts",
+      "sha256": "b357c3817ef610bcbae599bdad4b4caccb3e7456e9a0122171883e4793efc112",
+      "status": "present"
+    },
+    {
+      "path": "e2e/ui-v2-home.spec.ts",
+      "sha256": "52fa2b287ee02065336218075e2e607fd6b397cc44a3d513d8b432d607c3e5f0",
+      "status": "present"
+    },
+    {
+      "path": "e2e/ui-v2-live-home.spec.ts",
+      "sha256": "19a4f91f3726b8e1c6913c86b73d324eeb98e20c05c357bcd57ccba3c08d8747",
+      "status": "present"
+    },
+    {
+      "path": "src/App.test.tsx",
+      "sha256": "afd65c96e7569c929d2e1b190f1a22776de29f4a052fc9b663cbf94fb9f4fd4d",
+      "status": "present"
+    },
+    {
+      "path": "src/app/CommunityApp.tsx",
+      "sha256": "5e5e678643f04c71ce3e5e333c3d953163960122cef3b126da9276d7d66b8ec1",
+      "status": "present"
+    },
+    {
+      "path": "src/components/HomeShowcase.test.tsx",
+      "sha256": null,
+      "status": "deleted"
+    },
+    {
+      "path": "src/components/HomeShowcase.tsx",
+      "sha256": null,
+      "status": "deleted"
+    },
+    {
+      "path": "src/components/LeftSidebar.test.tsx",
+      "sha256": "52c3b5c3ba2721be48af69de3cf258d01d16a7a54f853158320d992a9426b6b3",
+      "status": "present"
+    },
+    {
+      "path": "src/components/LeftSidebar.tsx",
+      "sha256": "e57a57fd551ab161a2ecdc20d348146fa3f579f8a7c1c170c908f067b0317c57",
+      "status": "present"
+    },
+    {
+      "path": "src/components/PublicMemberIdentity.test.tsx",
+      "sha256": "e133516372d6584261cdeff2bbf380d765e475cd726cf350f9307ad6d8eb2387",
+      "status": "present"
+    },
+    {
+      "path": "src/components/PublicMemberIdentity.tsx",
+      "sha256": "21e6241dba3017db19799ba5072fe19f043423135f61911250f8553fe441905e",
+      "status": "present"
+    },
+    {
+      "path": "src/components/SiteHeader.search.test.tsx",
+      "sha256": "a24d3901682e529fa1583c5e5e4a2e9fdf194c57c7b2491e742abe1be76e4e0e",
+      "status": "present"
+    },
+    {
+      "path": "src/components/SiteHeader.tsx",
+      "sha256": "39c99fcf19929ee9618d0f5e171b4eea4d25456dbf1be05b9ff4629a2713826a",
+      "status": "present"
+    },
+    {
+      "path": "src/components/TopicRow.test.tsx",
+      "sha256": "a9d2379f0e42307ef8eb01857ca85aee3437e96a5ffd6e3d73fc873e52df2c05",
+      "status": "present"
+    },
+    {
+      "path": "src/components/TopicRow.tsx",
+      "sha256": "fab89d868cf92384cb1687bdb1f5fd5c0353758ed08d79eb3a75cae44bd1b5b0",
+      "status": "present"
+    },
+    {
+      "path": "src/features/boards/BoardTopicFeed.tsx",
+      "sha256": "d60bacf24a5c2363518d2cd08ef06a2386361decbb6d7ea1d2d86297ee80a8c8",
+      "status": "present"
+    },
+    {
+      "path": "src/styles.community.css",
+      "sha256": "32ba98d5348929e3abb4cd783535b534444fe799d05039da855d76c2e113da6d",
+      "status": "present"
+    },
+    {
+      "path": "src/styles.home.css",
+      "sha256": "8ef03bd9e04dcb57c482a00857655243f37eb8fb8100b79f23547db685288f4e",
+      "status": "present"
+    },
+    {
+      "path": "src/styles.responsive.test.ts",
+      "sha256": "4797b51ae82f73778bd97c762c0a02582c8276ef8f958befe64ce3a6759e3e41",
+      "status": "present"
+    }
+  ],
+  "command_cwd": "C:\\Users\\111\\Documents\\Playground\\daoyun",
+  "git_root": "C:/Users/111/Documents/Playground",
+  "branch": "codex/daoyun-home-foundation",
+  "executor": "Codex local Node REPL filesystem and child_process",
+  "user_authorization": "使用当前本地工具继续（推荐）",
+  "environment": {
+    "node": "v24.18.0",
+    "pnpm": "9.12.3",
+    "rust": "1.94.1-x86_64-pc-windows-gnu",
+    "postgres": "16",
+    "web": "http://127.0.0.1:5173",
+    "api": "http://127.0.0.1:3000",
+    "database_port": 55433
+  },
+  "plan_snapshot_checksums": [
+    {
+      "file": "01-product-and-ui-spec.md",
+      "ok": true
+    },
+    {
+      "file": "02-execution-plan.md",
+      "ok": true
+    },
+    {
+      "file": "03-acceptance-matrix.md",
+      "ok": true
+    },
+    {
+      "file": "04-fastspider-brief.md",
+      "ok": true
+    },
+    {
+      "file": "05-handoff-template.md",
+      "ok": true
+    },
+    {
+      "file": "06-task-registry.json",
+      "ok": true
+    },
+    {
+      "file": "07-acceptance-registry.json",
+      "ok": true
+    },
+    {
+      "file": "08-plan-validation.md",
+      "ok": true
+    },
+    {
+      "file": "README.md",
+      "ok": true
+    }
+  ],
+  "test_results": {
+    "frontend": {
+      "passed": 797,
+      "files": 103,
+      "mode": "CI single worker"
+    },
+    "browser": {
+      "passed": 40,
+      "mocked": 30,
+      "real_anonymous_home": 10,
+      "projects": [
+        "chromium-desktop",
+        "chromium-mobile"
+      ],
+      "widths": [
+        320,
+        390,
+        768,
+        1024,
+        1440
+      ]
+    },
+    "rust": {
+      "passed": 450,
+      "failed": 0,
+      "ignored": 2,
+      "suites": 73
+    },
+    "ignored_rust_tests": [
+      "test official_growth_component_runs_from_outbox_through_worker_to_ledger ... ignored, run after building plugins/official-growth-rewards for wasm32-wasip2",
+      "test official_growth_component_instantiates_with_only_bounded_wasi_cli_imports ... ignored, run after building plugins/official-growth-rewards for wasm32-wasip2"
+    ]
+  },
+  "screenshots": [
+    {
+      "path": "artifacts/ui-v2/2026-09-30/home-320.png",
+      "mode": "mock UI"
+    },
+    {
+      "path": "artifacts/ui-v2/2026-09-30/home-390.png",
+      "mode": "mock UI"
+    },
+    {
+      "path": "artifacts/ui-v2/2026-09-30/home-1440.png",
+      "mode": "mock UI"
+    },
+    {
+      "path": "artifacts/ui-v2/2026-09-30/board-1440.png",
+      "mode": "mock UI"
+    },
+    {
+      "path": "artifacts/ui-v2/2026-09-30/topic-1440.png",
+      "mode": "mock UI"
+    },
+    {
+      "path": "artifacts/ui-v2/2026-09-30/profile-1440.png",
+      "mode": "mock UI"
+    },
+    {
+      "path": "artifacts/ui-v2/2026-09-30/live-home-1440-viewport.png",
+      "mode": "real anonymous API"
+    }
+  ],
+  "notes": [
+    "No production deployment.",
+    "No development database seed/reset; SQLx tests use isolated test databases.",
+    "The original plan is a frozen snapshot; execution-state.json records current partial progress.",
+    "Mocked UI evidence does not prove real API writes or role/permission behavior.",
+    "A prior concurrent Vitest run failed one async text query; unchanged source passed the CI worker configuration.",
+    "Performance figures compare two work-in-progress builds, not an independently rebuilt baseline commit."
+  ],
+  "commands": [
+    {
+      "command": "pnpm typecheck",
+      "exit_code": 0,
+      "status": "PASS",
+      "started_at": "2026-09-30T11:51:36.016Z",
+      "duration_ms": 13971,
+      "log": "artifacts/ui-v2/2026-09-30/type-verified.log",
+      "log_sha256": "c83f3f8761f075eada96b1298d983555db48061e130ef14477173044b214fae3"
+    },
+    {
+      "command": "pnpm test:e2e:typecheck",
+      "exit_code": 0,
+      "status": "PASS",
+      "started_at": "2026-09-30T12:06:33.541Z",
+      "duration_ms": 4597,
+      "log": "artifacts/ui-v2/2026-09-30/e2e-types-release.log",
+      "log_sha256": "a8c4b2f8f69fc28d5150d39f60dab9219f45bab9f239ba1471415f4a8f82fb40"
+    },
+    {
+      "command": "pnpm exec vitest run --maxWorkers=1 --minWorkers=1",
+      "exit_code": 0,
+      "status": "PASS",
+      "started_at": "2026-09-30T12:09:13.897Z",
+      "duration_ms": 371970,
+      "log": "artifacts/ui-v2/2026-09-30/unit-ci.log",
+      "log_sha256": "db297ca654aa0460789c43328ae8ca258d38208703d47b35b112e77a3dd19555"
+    },
+    {
+      "command": "pnpm build",
+      "exit_code": 0,
+      "status": "PASS",
+      "started_at": "2026-09-30T12:06:33.490Z",
+      "duration_ms": 50043,
+      "log": "artifacts/ui-v2/2026-09-30/build-release.log",
+      "log_sha256": "af07fd1dbeedb8860c1b9bf3853be2d70a06b47f54870d3939c30c82fd06cd22"
+    },
+    {
+      "command": "pnpm exec playwright test e2e/ui-v2-home.spec.ts e2e/community-responsive.spec.ts e2e/ui-v2-live-home.spec.ts --workers=2",
+      "exit_code": 0,
+      "status": "PASS",
+      "started_at": "2026-09-30T12:08:09.444Z",
+      "duration_ms": 55124,
+      "log": "artifacts/ui-v2/2026-09-30/browser-release.log",
+      "log_sha256": "d88396b89c6d9985276229bf665ff2e512fbb2cc63a16e8d308ddd663a486d22",
+      "env": {
+        "DAOYUN_WEB_URL": "http://127.0.0.1:5173",
+        "DAOYUN_LOCAL_E2E": "1"
+      }
+    },
+    {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "status": "PASS",
+      "started_at": "2026-09-30T12:06:33.646Z",
+      "duration_ms": 4991,
+      "log": "artifacts/ui-v2/2026-09-30/rust-format.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "rustup run 1.94.1-x86_64-pc-windows-gnu cargo test --workspace -j 1 -- --test-threads=1",
+      "exit_code": 0,
+      "status": "PASS",
+      "started_at": "2026-09-30T11:55:28.292Z",
+      "duration_ms": 1125249,
+      "log": "artifacts/ui-v2/2026-09-30/rust-with-db.log",
+      "log_sha256": "775f7ce191f89368e64f88c7268c2310c4ac2770259fb6d40e56cacad35f91c7",
+      "env": {
+        "DATABASE_URL": "postgresql://daoyun@127.0.0.1:55433/daoyun_dev",
+        "CARGO_BUILD_JOBS": "1",
+        "PATH_PREFIX": "C:/msys64/mingw64/bin;C:/Users/111/.cargo/bin"
+      }
+    },
+    {
+      "command": "rustup run 1.94.1-x86_64-pc-windows-gnu cargo clippy --workspace --all-targets -j 1 -- -D warnings",
+      "exit_code": 0,
+      "status": "PASS",
+      "started_at": "2026-09-30T12:17:09.994Z",
+      "duration_ms": 69409,
+      "log": "artifacts/ui-v2/2026-09-30/rust-clippy.log",
+      "log_sha256": "75832184debaf60e2f663a61eacb70b36703c03dee75bb05c2ffc0ed1e154fd8"
+    }
+  ],
+  "cli_invocation_note": "Due to exec_command CET failure, pnpm was invoked through its Corepack JS entry. Vitest/Playwright were invoked through their existing Node CLI entries with equivalent process.argv. Rust commands used child_process.spawn with windowsHide=true.",
+  "reference_files": [
+    {
+      "path": "src/app/CommunityShell.tsx",
+      "sha256": "363dbab8cc6ea6dd76b69b374445db11782e3400e70bf7ca5a0db516c6f4c1b7"
+    },
+    {
+      "path": "src/components/TopicFeed.tsx",
+      "sha256": "2d564fb26ee572b201e64f8ce725c9d995f67d6b54e295d8b8d8119fc0eb0f77"
+    },
+    {
+      "path": "src/components/UserProfileView.tsx",
+      "sha256": "1fd191f88665c724ab3dab970b140cf281e34efb6afeb6fb07683d64226ec484"
+    },
+    {
+      "path": "src/api/users.ts",
+      "sha256": "dc494a1669f8deec89f5921644cc61d0152d6d87d18bd590614087c8faf10036"
+    },
+    {
+      "path": "src/api/membership.ts",
+      "sha256": "256dd130913e47fa2f83339a2d90a23f421db535bb2ca43d8880390336871d44"
+    },
+    {
+      "path": "src/api/branding.ts",
+      "sha256": "0364ab8bf8d504be0fcc9a428204238a747ba263bdada5cdd25ebec07c8c0bd4"
+    },
+    {
+      "path": "src/components/BookmarksView.tsx",
+      "sha256": "04c31495ed6e50cd2036d4a2291d0abab2caf900225ea7fd051ffe40f64174d0"
+    },
+    {
+      "path": "src/app/AdminApp.tsx",
+      "sha256": "bd1987e4443be108d2eee282c2588c092b0d745c196ee9986c232b9ab906e0cf"
+    },
+    {
+      "path": "src/api/feed.ts",
+      "sha256": "36fc383396c840c5ed2d8330a7be42c95b80c7edd562abb665ae4bd6c8f8661b"
+    },
+    {
+      "path": "src/router/communityRoute.ts",
+      "sha256": "f069fc81e14ebb60ceb73af7ed08cb558e2d0bc2265e52029c7e690f84fba823"
+    },
+    {
+      "path": "src/styles.boards.css",
+      "sha256": "afe1f8af9d1669a712d26c9e43f8d72d0ce018badf56fdf705e4771d065fe22a"
+    },
+    {
+      "path": "packages/design-tokens/tokens.css",
+      "sha256": "b379bfd9f0abb607d091670cb7b42f529fd478f57cc14f8354e7ae7eb29c03f4"
+    }
+  ],
+  "known_nonpassing_runs": [
+    {
+      "job": "unit-release",
+      "exit_code": 1,
+      "result": "796 passed, 1 async topic body query timed out",
+      "log": "artifacts/ui-v2/2026-09-30/unit-release.log",
+      "resolved_by": "Unchanged source passed unit-ci with existing CI worker configuration"
+    },
+    {
+      "job": "rust-baseline",
+      "exit_code": 101,
+      "result": "DATABASE_URL missing for SQLx tests",
+      "log": "artifacts/ui-v2/2026-09-30/rust-baseline.log",
+      "resolved_by": "rust-with-db with local DATABASE_URL and isolated SQLx databases"
+    },
+    {
+      "job": "nav-layout-red",
+      "exit_code": 1,
+      "result": "Desktop navigation groups laid out horizontally; behavior regression confirmed before fix",
+      "log": "artifacts/ui-v2/2026-09-30/nav-layout-red.log",
+      "resolved_by": "browser-release"
+    },
+    {
+      "job": "header-layout-red",
+      "exit_code": 1,
+      "result": "320px login text wrapped; behavior regression confirmed before fix",
+      "log": "artifacts/ui-v2/2026-09-30/header-layout-red.log",
+      "resolved_by": "browser-release"
+    }
+  ]
+}

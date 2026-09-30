@@ -1,0 +1,4 @@
+*.md text eol=lf whitespace=-blank-at-eol
+*.json text eol=lf
+SHA256SUMS.txt text eol=lf
+*.png binary

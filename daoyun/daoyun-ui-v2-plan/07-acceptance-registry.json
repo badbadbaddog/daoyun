@@ -1,0 +1,2018 @@
+{
+  "project": "DaoYun",
+  "version": "1.0",
+  "date": "2026-09-30",
+  "case_count": 201,
+  "cases": [
+    {
+      "id": "B-01",
+      "category": "基线与契约",
+      "title": "目录/仓库边界",
+      "steps": "检查项目路径、Git 根、分支、HEAD 与工作树",
+      "expected": "真实位置和未提交内容记录；没有进入错误项目或清理用户数据",
+      "evidence_type": "只读日志",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "B-02",
+      "category": "基线与契约",
+      "title": "技术与命令映射",
+      "steps": "读取当前清单、锁文件、CI 和脚本",
+      "expected": "命令来自现有项目；版本/前提完整；不引用历史通过数",
+      "evidence_type": "清单/日志",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "B-03",
+      "category": "基线与契约",
+      "title": "改前运行状态",
+      "steps": "在隔离环境打开关键页面并走主流程",
+      "expected": "基线缺陷、环境阻塞和可用能力分开记录",
+      "evidence_type": "真实 E2E/截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "B-04",
+      "category": "基线与契约",
+      "title": "能力与配置盘点",
+      "steps": "检查插件宿主、六插件、认证和品牌配置",
+      "expected": "已有代码、已安装、已启用、有权限四者可区分",
+      "evidence_type": "契约映射",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "B-05",
+      "category": "基线与契约",
+      "title": "测试证据真实性",
+      "steps": "核对命令目录、退出码、测试源码与截图来源",
+      "expected": "每个 PASS 有实际日志；未执行为 NOT_RUN/BLOCKED",
+      "evidence_type": "报告核对",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "B-06",
+      "category": "基线与契约",
+      "title": "保护现场",
+      "steps": "核对父仓库未提交/未跟踪文件前后差异",
+      "expected": "无无关删除、覆盖、格式化或混入提交",
+      "evidence_type": "Git 差异",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "B-07",
+      "category": "基线与契约",
+      "title": "字段来源",
+      "steps": "逐项核对首屏、个人资料、版块和工作台字段",
+      "expected": "有真实来源；未知与 0 区分；未实现装饰移除",
+      "evidence_type": "映射表",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "B-08",
+      "category": "基线与契约",
+      "title": "需求纠偏",
+      "steps": "对照 D01–D16 和原示意图",
+      "expected": "单列、无成员数/假浏览量/访客系统；单一编辑器",
+      "evidence_type": "规格审查",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "B-09",
+      "category": "基线与契约",
+      "title": "角色和夹具",
+      "steps": "准备匿名、会员、作者、受限会员、版主、局部/全站管理员",
+      "expected": "角色与权限可复现，不共用一个超级管理员跑全部用例",
+      "evidence_type": "夹具清单",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "B-10",
+      "category": "基线与契约",
+      "title": "旧链路基线",
+      "steps": "保存当前主题/版块/用户/楼层/后台可复制地址",
+      "expected": "后续可做改前改后对照，不以重命名掩盖回归",
+      "evidence_type": "路由记录",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "V-01",
+      "category": "视觉、主题与密度",
+      "title": "语义色",
+      "steps": "检查主要页面样式来源",
+      "expected": "品牌/正文/状态色使用已有映射；无页面随意硬编码",
+      "evidence_type": "样式审查",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "V-02",
+      "category": "视觉、主题与密度",
+      "title": "品牌覆盖",
+      "steps": "保存不同合法主色/Logo，再访问前后台",
+      "expected": "已有品牌配置生效且不被 V2 默认值覆盖",
+      "evidence_type": "E2E/截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "V-03",
+      "category": "视觉、主题与密度",
+      "title": "四种预设",
+      "steps": "切换浅色、深色、紧凑、高对比代表页面",
+      "expected": "无不可读、消失图标/焦点；偏好刷新后保留",
+      "evidence_type": "截图/交互",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "V-04",
+      "category": "视觉、主题与密度",
+      "title": "密度",
+      "steps": "切换舒适/紧凑，再打开长内容及后台列表",
+      "expected": "只改变排版密度，不丢内容或动作",
+      "evidence_type": "交互/截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "V-05",
+      "category": "视觉、主题与密度",
+      "title": "文字对比",
+      "steps": "测量真实前景/背景组合和禁用/占位语义",
+      "expected": "普通文字达到 4.5:1；大字 3:1；不是只看色号",
+      "evidence_type": "对比工具/人工",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "V-06",
+      "category": "视觉、主题与密度",
+      "title": "形态一致",
+      "steps": "检查卡片、列表、弹层、菜单和主要按钮",
+      "expected": "6–8px 圆角为主；无多层卡片/大幅宣传装饰",
+      "evidence_type": "视觉对照",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "V-07",
+      "category": "视觉、主题与密度",
+      "title": "文本适应",
+      "steps": "放大文本并使用长中文/长 URL/缺字体场景",
+      "expected": "标题/正文不重叠；详情不被强行截断；字体回退可读",
+      "evidence_type": "浏览器/截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "I-01",
+      "category": "公共交互与覆盖层",
+      "title": "异步四态",
+      "steps": "分别模拟首次加载、空值、失败和成功",
+      "expected": "四态独立且有可理解文案；不以空列表掩盖错误",
+      "evidence_type": "组件交互",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "I-02",
+      "category": "公共交互与覆盖层",
+      "title": "按钮忙碌态",
+      "steps": "连续点击同一提交按钮并制造慢响应",
+      "expected": "可感知处理中；不产生重复动作",
+      "evidence_type": "集成/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "I-03",
+      "category": "公共交互与覆盖层",
+      "title": "错误保留输入",
+      "steps": "提交表单返回校验错误/网络失败",
+      "expected": "错误定位到字段；内容保留；可修改重试",
+      "evidence_type": "组件/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "I-04",
+      "category": "公共交互与覆盖层",
+      "title": "打开弹层焦点",
+      "steps": "键盘打开菜单、抽屉、确认弹窗",
+      "expected": "焦点进入合理位置，不落在背景",
+      "evidence_type": "键盘人工/自动",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "I-05",
+      "category": "公共交互与覆盖层",
+      "title": "焦点约束",
+      "steps": "打开模态框后 Tab/Shift+Tab，尝试背景操作",
+      "expected": "焦点约束于弹层；背景不可操作",
+      "evidence_type": "键盘人工/自动",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "I-06",
+      "category": "公共交互与覆盖层",
+      "title": "关闭回焦",
+      "steps": "Esc/关闭弹层及删除触发元素场景",
+      "expected": "回到触发控件或合理后继，不丢失焦点",
+      "evidence_type": "键盘交互",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "I-07",
+      "category": "公共交互与覆盖层",
+      "title": "未保存保护",
+      "steps": "编辑后点击关闭/返回/切换对象",
+      "expected": "按当前存储语义提示或保存；不静默丢失",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "I-08",
+      "category": "公共交互与覆盖层",
+      "title": "冲突恢复",
+      "steps": "提交旧 revision 并返回 409",
+      "expected": "保留输入，展示冲突，刷新/重新编辑后提交",
+      "evidence_type": "真实 API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "I-09",
+      "category": "公共交互与覆盖层",
+      "title": "错误关联与脱敏",
+      "steps": "触发服务错误并检查界面/日志",
+      "expected": "可记录安全 request_id；无令牌/密码/私信正文",
+      "evidence_type": "日志/网络审查",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "I-10",
+      "category": "公共交互与覆盖层",
+      "title": "触摸/键盘可达",
+      "steps": "检查主要点击区、排序按钮、焦点和非颜色提示",
+      "expected": "主要移动操作按项目 44px 目标；可键盘操作；状态不只靠颜色",
+      "evidence_type": "尺寸/人工",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "N-01",
+      "category": "导航与响应式壳",
+      "title": "刷新直达",
+      "steps": "分别直接打开首页、版块、主题、用户、后台",
+      "expected": "停留目标而非全部回首页；数据与高亮一致",
+      "evidence_type": "真实 E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "N-02",
+      "category": "导航与响应式壳",
+      "title": "前后退",
+      "steps": "带筛选和滚动进入主题后连续前后退",
+      "expected": "列表状态和位置恢复；无重复路由状态",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "N-03",
+      "category": "导航与响应式壳",
+      "title": "旧链接",
+      "steps": "访问 B-10 记录的旧 hash/楼层地址",
+      "expected": "保持兼容或按既定规则规范化",
+      "evidence_type": "路由单元/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "N-04",
+      "category": "导航与响应式壳",
+      "title": "五宽度",
+      "steps": "在 320/390/768/1024/1440 检查公共壳",
+      "expected": "整页无横向溢出；导航与核心动作可达",
+      "evidence_type": "截图/布局断言",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "N-05",
+      "category": "导航与响应式壳",
+      "title": "右栏收起",
+      "steps": "从 1440 缩小至 1024/390",
+      "expected": "必要发布/版块/回复功能仍可访问",
+      "evidence_type": "响应式交互",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "N-06",
+      "category": "导航与响应式壳",
+      "title": "匿名与本人入口",
+      "steps": "退出/登录/查看他人主页",
+      "expected": "登录入口和本人菜单正确，不能操作为他人",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "N-07",
+      "category": "导航与响应式壳",
+      "title": "导航语义",
+      "steps": "依次使用社区、通知、私信、我的、收藏",
+      "expected": "无重复近义入口/假按钮；每个入口有目标",
+      "evidence_type": "人工/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "N-08",
+      "category": "导航与响应式壳",
+      "title": "安装分流",
+      "steps": "隔离环境模拟未安装与已安装状态",
+      "expected": "安装向导和已安装社区分流不被新壳破坏",
+      "evidence_type": "集成",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "C-01",
+      "category": "共享帖子与媒体",
+      "title": "无标题",
+      "steps": "展示 title 为空、只有正文的帖子",
+      "expected": "不强制写“无标题”；摘要可点且无伪持久化标题",
+      "evidence_type": "单元/截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "C-02",
+      "category": "共享帖子与媒体",
+      "title": "无图",
+      "steps": "展示纯文字帖",
+      "expected": "无媒体容器/假照片；动作行顺序一致",
+      "evidence_type": "截图/组件",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "C-03",
+      "category": "共享帖子与媒体",
+      "title": "单图",
+      "steps": "展示一张横图、竖图和方图",
+      "expected": "一个方形预览，适度尺寸；不放大铺满整个 Feed",
+      "evidence_type": "截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "C-04",
+      "category": "共享帖子与媒体",
+      "title": "双图",
+      "steps": "展示两张图",
+      "expected": "同排两个方形预览，真实顺序",
+      "evidence_type": "截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "C-05",
+      "category": "共享帖子与媒体",
+      "title": "三图",
+      "steps": "展示三张图",
+      "expected": "三张均出现，不拿第一张代替整组",
+      "evidence_type": "截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "C-06",
+      "category": "共享帖子与媒体",
+      "title": "九图",
+      "steps": "展示含九张可访问图片的帖子",
+      "expected": "Feed 前三张+明确数量；详情查看全部；不超上限",
+      "evidence_type": "组件/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "C-07",
+      "category": "共享帖子与媒体",
+      "title": "受限图片",
+      "steps": "首张为私有/回复可见，后面有公开图",
+      "expected": "封面、摘要、alt、数量和请求均不泄露受限媒体",
+      "evidence_type": "API/网络断言",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "C-08",
+      "category": "共享帖子与媒体",
+      "title": "指标顺序",
+      "steps": "交替浏览文字/媒体/紧凑行/个人帖子",
+      "expected": "共同动作相对顺序一致；无假浏览数或未知占零",
+      "evidence_type": "组件/截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "C-09",
+      "category": "共享帖子与媒体",
+      "title": "子动作隔离",
+      "steps": "点喜欢、收藏、作者、图片与标题",
+      "expected": "各自正确触发，不同时打开整张帖子",
+      "evidence_type": "交互",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "C-10",
+      "category": "共享帖子与媒体",
+      "title": "异常内容",
+      "steps": "损坏图片、长标签、长用户名、链接、极端计数",
+      "expected": "有退化显示，无布局挤爆、正文拼接和假成功",
+      "evidence_type": "边界测试",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "H-01",
+      "category": "首页",
+      "title": "单列",
+      "steps": "访问宽屏和移动首页",
+      "expected": "均为连续单列非瀑布；主列宽度可读",
+      "evidence_type": "截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "H-02",
+      "category": "首页",
+      "title": "三流",
+      "steps": "切换推荐/关注/最新并查看请求",
+      "expected": "使用各自真实查询和权限范围，不仅切文字",
+      "evidence_type": "API/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "H-03",
+      "category": "首页",
+      "title": "推荐不变",
+      "steps": "同数据下比对改前后推荐结果",
+      "expected": "不改变既有权重/全站置顶逻辑，不宣称画像推荐",
+      "evidence_type": "契约/集成",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "H-04",
+      "category": "首页",
+      "title": "加载更多",
+      "steps": "加载多页并重复触发尾部请求",
+      "expected": "按 ID 去重，游标正确，不丢已加载数据",
+      "evidence_type": "集成",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "H-05",
+      "category": "首页",
+      "title": "翻页失败",
+      "steps": "第二页接口失败后重试",
+      "expected": "第一页保留，错误位于尾部，重试不重复",
+      "evidence_type": "交互/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "H-06",
+      "category": "首页",
+      "title": "切换竞态",
+      "steps": "快速切三流并故意让旧请求后返回",
+      "expected": "旧响应不覆盖当前页内容",
+      "evidence_type": "请求竞态测试",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "H-07",
+      "category": "首页",
+      "title": "空关注与右栏故障",
+      "steps": "无关注内容，同时辅助接口失败",
+      "expected": "有真实空态；右栏故障不阻断主 Feed",
+      "evidence_type": "集成/截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-01",
+      "category": "版块目录与详情",
+      "title": "层级来源",
+      "steps": "展示有三层节点的真实树",
+      "expected": "父/子关系保留，不凭设计新造分类",
+      "evidence_type": "集成",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-02",
+      "category": "版块目录与详情",
+      "title": "非圈子",
+      "steps": "查看目录和详情的所有统计/操作",
+      "expected": "无版块成员数或加入圈子文案",
+      "evidence_type": "文本断言/截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-03",
+      "category": "版块目录与详情",
+      "title": "同名节点",
+      "steps": "搜索不同父级中的同名子版块",
+      "expected": "显示路径，进入正确节点",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-04",
+      "category": "版块目录与详情",
+      "title": "私有节点",
+      "steps": "以匿名/普通会员查看受限树",
+      "expected": "无权限节点名称、计数和摘要按契约过滤",
+      "evidence_type": "API/隐私",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-05",
+      "category": "版块目录与详情",
+      "title": "目录导航",
+      "steps": "点击父项、展开、进入子项、后退",
+      "expected": "可达且不丢展开/搜索状态",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-06",
+      "category": "版块目录与详情",
+      "title": "关注能力",
+      "steps": "有/无真实版块关注契约分别验证",
+      "expected": "已支持则跨会话一致；未支持不展示假开关",
+      "evidence_type": "能力测试",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-07",
+      "category": "版块目录与详情",
+      "title": "目录空错态",
+      "steps": "没有版块/搜索为空/API 错误",
+      "expected": "区分状态并提供合理恢复入口",
+      "evidence_type": "组件/截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-08",
+      "category": "版块目录与详情",
+      "title": "详情范围",
+      "steps": "父/子版块各放不同主题再进入父版",
+      "expected": "默认仅本版；聚合只有真实契约且范围说明清楚",
+      "evidence_type": "API/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-09",
+      "category": "版块目录与详情",
+      "title": "子版块手机入口",
+      "steps": "在 320/390 查看多个子版块",
+      "expected": "可展开/换行访问，不因右栏消失而丢入口",
+      "evidence_type": "真机/截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-10",
+      "category": "版块目录与详情",
+      "title": "排序",
+      "steps": "按最新/活跃/热门/精华切换并刷新",
+      "expected": "调用正确查询，URL/排序保持",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-11",
+      "category": "版块目录与详情",
+      "title": "置顶分离",
+      "steps": "同主题配置全站推荐与版块置顶差异",
+      "expected": "两者按真实作用域渲染，不串规则",
+      "evidence_type": "集成",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-12",
+      "category": "版块目录与详情",
+      "title": "无标题紧凑行",
+      "steps": "版块中包含无标题文字/图片帖",
+      "expected": "可识别、可点击，未被列表样式迫使改标题",
+      "evidence_type": "截图/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-13",
+      "category": "版块目录与详情",
+      "title": "发布上下文",
+      "steps": "从可发/只读/未登录版块点发布",
+      "expected": "可发默认当前版块；其他状态明确且后端再校验",
+      "evidence_type": "E2E/API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "BO-14",
+      "category": "版块目录与详情",
+      "title": "版内搜索",
+      "steps": "使用版块搜索并前后退",
+      "expected": "版块筛选不丢，不能偷偷变全站搜索",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-01",
+      "category": "发布器与草稿",
+      "title": "标题可空",
+      "steps": "不填标题但写合法正文发布",
+      "expected": "真实成功，不由 UI 强加标题必填",
+      "evidence_type": "真实 API E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-02",
+      "category": "发布器与草稿",
+      "title": "单一发布流程",
+      "steps": "分别从首页/版块/草稿进入",
+      "expected": "共用编辑器与业务模型；无交易字段/强制预览",
+      "evidence_type": "路由/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-03",
+      "category": "发布器与草稿",
+      "title": "九图上限",
+      "steps": "上传 9 张再尝试第 10 张",
+      "expected": "上限和反馈明确，服务端仍拒绝非法超限",
+      "evidence_type": "API/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-04",
+      "category": "发布器与草稿",
+      "title": "顺序持久",
+      "steps": "排序图片后保存草稿、刷新、发布",
+      "expected": "顺序一致且正文附件引用不紊乱",
+      "evidence_type": "真实 E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-05",
+      "category": "发布器与草稿",
+      "title": "非拖拽排序",
+      "steps": "仅用键盘/按钮调整顺序",
+      "expected": "同样能排序，聚焦位置合理",
+      "evidence_type": "键盘交互",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-06",
+      "category": "发布器与草稿",
+      "title": "上传失败",
+      "steps": "一张上传失败后重试/移除",
+      "expected": "单项可恢复；不静默忽略失败图后发布",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-07",
+      "category": "发布器与草稿",
+      "title": "附件权限",
+      "steps": "切换版块并提交不允许附件或他人附件",
+      "expected": "前端提示，服务端独立拒绝，不绕过扫描/MIME/归属",
+      "evidence_type": "API负向测试",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-08",
+      "category": "发布器与草稿",
+      "title": "双草稿恢复",
+      "steps": "本地/服务器存在不同版本",
+      "expected": "分别展示来源和状态，可选择，不静默覆盖",
+      "evidence_type": "集成/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-09",
+      "category": "发布器与草稿",
+      "title": "跨账号/标签页",
+      "steps": "两账号和两标签页交替编辑/退出",
+      "expected": "草稿和请求不串用；不泄露另一个账号正文",
+      "evidence_type": "隔离测试",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-10",
+      "category": "发布器与草稿",
+      "title": "会话过期",
+      "steps": "编辑中撤销会话后发布、重新登录",
+      "expected": "保留安全编辑上下文，重验权限后可继续",
+      "evidence_type": "真实 E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-11",
+      "category": "发布器与草稿",
+      "title": "重复与未知结果",
+      "steps": "连续发布/超时后恢复",
+      "expected": "沿用既有提交语义，无重复主题/丢正文",
+      "evidence_type": "API/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "P-12",
+      "category": "发布器与草稿",
+      "title": "移动键盘",
+      "steps": "真机长文、图排序、切换输入法和收起键盘",
+      "expected": "发布/最后字段可达，无三层固定栏重叠；缺真机标阻塞",
+      "evidence_type": "真机记录",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "T-01",
+      "category": "帖子详情",
+      "title": "正文完整",
+      "steps": "打开长正文、代码、表格、引用、链接帖",
+      "expected": "原内容语义保留，详情不硬截断",
+      "evidence_type": "内容夹具/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "T-02",
+      "category": "帖子详情",
+      "title": "无标题详情",
+      "steps": "打开无标题主题",
+      "expected": "正文直接展示，标题空不导致无布局/无可访问名称",
+      "evidence_type": "组件/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "T-03",
+      "category": "帖子详情",
+      "title": "图片顺序与查看",
+      "steps": "打开九图帖并切换图片",
+      "expected": "全部授权图片可查看，正文与文末不重复渲染",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "T-04",
+      "category": "帖子详情",
+      "title": "作者动作",
+      "steps": "以作者、普通用户、授权版主访问",
+      "expected": "动作范围正确，服务端拒绝越权",
+      "evidence_type": "角色/API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "T-05",
+      "category": "帖子详情",
+      "title": "审核旧公开版",
+      "steps": "编辑触发审核，匿名/作者/审核员分别打开",
+      "expected": "匿名只见旧公开版；有权者可见待审提示/内容",
+      "evidence_type": "真实 API E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "T-06",
+      "category": "帖子详情",
+      "title": "摘要传播",
+      "steps": "待审修改后查看首页/搜索/分享摘要",
+      "expected": "待审内容不意外传播为公开版本",
+      "evidence_type": "跨页面集成",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "T-07",
+      "category": "帖子详情",
+      "title": "受限/删除",
+      "steps": "测试受限、已删除、不存在主题",
+      "expected": "依据真实权限语义退化，不泄露对象或正文",
+      "evidence_type": "API/截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "T-08",
+      "category": "帖子详情",
+      "title": "分享/修订",
+      "steps": "复制链接、打开修订历史和返回",
+      "expected": "是真实可访问链接；修订按权限查看",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "T-09",
+      "category": "帖子详情",
+      "title": "辅助失效",
+      "steps": "作者侧栏/插件区失败时看正文与评论",
+      "expected": "主内容可读且可操作，错误局部隔离",
+      "evidence_type": "错误注入",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "R-01",
+      "category": "评论与楼层",
+      "title": "稳定楼层",
+      "steps": "分页、排序、删除评论再看楼层",
+      "expected": "楼层不按当前数组位置重编号",
+      "evidence_type": "单元/集成",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "R-02",
+      "category": "评论与楼层",
+      "title": "楼层直达",
+      "steps": "直接访问非首屏楼层链接",
+      "expected": "加载目标并定位，刷新仍可达",
+      "evidence_type": "真实 E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "R-03",
+      "category": "评论与楼层",
+      "title": "回复对象",
+      "steps": "回复某条、切换回复对象、取消引用",
+      "expected": "对象明确，提交 parent/reply 关系正确",
+      "evidence_type": "交互/API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "R-04",
+      "category": "评论与楼层",
+      "title": "深层关系",
+      "steps": "连续产生多层回复",
+      "expected": "视觉不无限缩进，真实引用关系保留",
+      "evidence_type": "集成/截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "R-05",
+      "category": "评论与楼层",
+      "title": "分页和展开",
+      "steps": "展开多条子回复，加载更多一级回复",
+      "expected": "不重复、不全量加载整个讨论；失败可重试",
+      "evidence_type": "网络/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "R-06",
+      "category": "评论与楼层",
+      "title": "隐藏引用",
+      "steps": "引用后原内容变受限/隐藏",
+      "expected": "无权者不会从引用/摘要看到隐藏正文",
+      "evidence_type": "隐私测试",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "R-07",
+      "category": "评论与楼层",
+      "title": "编辑/删除权限",
+      "steps": "作者与他人编辑删除回复",
+      "expected": "操作符合现有权限，修订/占位可追溯",
+      "evidence_type": "API/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "R-08",
+      "category": "评论与楼层",
+      "title": "失败保留",
+      "steps": "提交回复返回校验/网络/额度错误",
+      "expected": "输入和对象保留，解释原因，不假成功",
+      "evidence_type": "交互/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "R-09",
+      "category": "评论与楼层",
+      "title": "排序支持",
+      "steps": "检查所有排序按钮与查询",
+      "expected": "无契约的最热排序不出现；不前端排序局部页面冒充全部",
+      "evidence_type": "契约测试",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "R-10",
+      "category": "评论与楼层",
+      "title": "移动讨论",
+      "steps": "真机打开回复框、长输入、返回阅读",
+      "expected": "焦点和键盘不遮挡关键输入/操作，楼层位置可恢复",
+      "evidence_type": "真机/截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "U-01",
+      "category": "公开主页",
+      "title": "本人/他人",
+      "steps": "分别打开本人和他人主页",
+      "expected": "本人编辑；他人按权限关注/私信；不关注自己",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "U-02",
+      "category": "公开主页",
+      "title": "公开请求最小化",
+      "steps": "检查公开主页网络响应和缓存",
+      "expected": "不请求积分、私有权益、草稿和完整私信等字段",
+      "evidence_type": "网络/契约",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "U-03",
+      "category": "公开主页",
+      "title": "公开身份",
+      "steps": "设置公开/内部组与勋章混合",
+      "expected": "只展示明确公开的等级/组/勋章",
+      "evidence_type": "API/截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "U-04",
+      "category": "公开主页",
+      "title": "标签层级",
+      "steps": "查看作者在首页、详情和主页",
+      "expected": "Feed 最多一身份标签，治理身份有真实作用域",
+      "evidence_type": "组件/角色",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "U-05",
+      "category": "公开主页",
+      "title": "收藏私密",
+      "steps": "直接构造访问他人收藏入口",
+      "expected": "无公开假页签，服务端拒绝不允许查询",
+      "evidence_type": "API/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "U-06",
+      "category": "公开主页",
+      "title": "未实现能力",
+      "steps": "查看封面编辑、访客、认证、动态等入口",
+      "expected": "无契约则不渲染假功能；不把生成图当依据",
+      "evidence_type": "文本/交互审查",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "U-07",
+      "category": "公开主页",
+      "title": "公开回复",
+      "steps": "仅在已有公开回复能力下访问跨版块回复",
+      "expected": "遵循原帖和版块可见性，不泄露私有回复",
+      "evidence_type": "API/隐私",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "U-08",
+      "category": "公开主页",
+      "title": "极端资料",
+      "steps": "最高等级、长简介、无头像、无帖子、封禁等",
+      "expected": "动态等级正确，状态清晰，不固定20级或出现溢出",
+      "evidence_type": "组件/截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "M-01",
+      "category": "本人会员中心",
+      "title": "模型分离",
+      "steps": "查看成长、积分、组和权益",
+      "expected": "术语/数值各自独立，EXP 不当可用积分",
+      "evidence_type": "组件/数据核对",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "M-02",
+      "category": "本人会员中心",
+      "title": "动态等级",
+      "steps": "修改测试等级配置并达最高级",
+      "expected": "按配置展示，最高等级不用负剩余/异常进度",
+      "evidence_type": "集成",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "M-03",
+      "category": "本人会员中心",
+      "title": "积分与流水",
+      "steps": "正常/空流水/查询失败",
+      "expected": "余额与流水来自真实契约，失败不显示余额0",
+      "evidence_type": "API/交互",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "M-04",
+      "category": "本人会员中心",
+      "title": "权益到期",
+      "steps": "生效前、有效、耗尽、过期状态",
+      "expected": "剩余/期限语义正确，过期不显示仍有效",
+      "evidence_type": "边界集成",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "M-05",
+      "category": "本人会员中心",
+      "title": "隐私切换",
+      "steps": "退出并切换另一个用户",
+      "expected": "旧会员信息不残留于页面/缓存",
+      "evidence_type": "隐私 E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "M-06",
+      "category": "本人会员中心",
+      "title": "兑换关闭",
+      "steps": "宿主/插件关闭或无权限",
+      "expected": "不提供可执行兑换，其他面板可用",
+      "evidence_type": "能力测试",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "M-07",
+      "category": "本人会员中心",
+      "title": "兑换幂等",
+      "steps": "确认兑换后连续点击或网络超时",
+      "expected": "沿用服务端幂等，不重复扣分和发权益",
+      "evidence_type": "真实 API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "M-08",
+      "category": "本人会员中心",
+      "title": "奖励时区",
+      "steps": "在 UTC 日界线两侧看规则/记录",
+      "expected": "说明按现有 UTC 规则，未私自改为浏览器午夜",
+      "evidence_type": "边界测试",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "S-01",
+      "category": "搜索与收藏",
+      "title": "搜索类型",
+      "steps": "切换主题/版块/用户/标签",
+      "expected": "真实查询和结果组件对应，不仅改文案",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "S-02",
+      "category": "搜索与收藏",
+      "title": "组合筛选",
+      "steps": "选择作者/版块/标签/时间后刷新、复制地址",
+      "expected": "支持的筛选完整恢复，URL 不含敏感正文",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "S-03",
+      "category": "搜索与收藏",
+      "title": "分页竞态",
+      "steps": "快速改词、分页、返回上一查询",
+      "expected": "无旧结果覆盖/重复，失败保留已有结果",
+      "evidence_type": "集成",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "S-04",
+      "category": "搜索与收藏",
+      "title": "权限摘要",
+      "steps": "搜索私有/待审/隐藏内容",
+      "expected": "不可见内容和摘要不泄露",
+      "evidence_type": "API/隐私",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "S-05",
+      "category": "搜索与收藏",
+      "title": "收藏取消",
+      "steps": "收藏、进入本人收藏、取消后返回主题",
+      "expected": "状态一致，无重复或假成功",
+      "evidence_type": "真实 E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "S-06",
+      "category": "搜索与收藏",
+      "title": "空错登录态",
+      "steps": "空搜索、接口错、匿名收藏",
+      "expected": "状态分别正确，保留返回目标",
+      "evidence_type": "组件/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "A-01",
+      "category": "通知、私信与账号",
+      "title": "通知到楼层",
+      "steps": "从回复通知直达非首屏评论",
+      "expected": "正确目标和楼层，不只开主题首页",
+      "evidence_type": "真实 E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "A-02",
+      "category": "通知、私信与账号",
+      "title": "已读",
+      "steps": "单条/全部已读并刷新",
+      "expected": "未读数与列表状态按服务器一致",
+      "evidence_type": "API/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "A-03",
+      "category": "通知、私信与账号",
+      "title": "失效目标",
+      "steps": "通知目标被删除或权限撤销",
+      "expected": "友好退化，无白屏/信息泄露",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "A-04",
+      "category": "通知、私信与账号",
+      "title": "私信发送状态",
+      "steps": "发送、分页、失败重试、归档",
+      "expected": "不串会话，失败不会冒充送达/已读",
+      "evidence_type": "真实 API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "A-05",
+      "category": "通知、私信与账号",
+      "title": "账号缓存隔离",
+      "steps": "切换账号并打开旧私信/通知链接",
+      "expected": "服务端授权且前端清理私有缓存",
+      "evidence_type": "安全 E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "A-06",
+      "category": "通知、私信与账号",
+      "title": "登录与返回",
+      "steps": "登录/邮箱验证/会话过期后回原内容",
+      "expected": "回原合法上下文，不开放任意外部跳转",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "A-07",
+      "category": "通知、私信与账号",
+      "title": "设备会话",
+      "steps": "撤销指定测试会话并继续操作",
+      "expected": "被撤销会话按既有规则失效，UI 明确反馈",
+      "evidence_type": "真实 API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "A-08",
+      "category": "通知、私信与账号",
+      "title": "增强认证配置",
+      "steps": "未配置/已配置/失败状态的认证设置",
+      "expected": "不伪装 OIDC/Passkey/MFA 已启用或实测；秘密不泄露",
+      "evidence_type": "配置/安全审查",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "A-09",
+      "category": "通知、私信与账号",
+      "title": "敏感截图日志",
+      "steps": "检查恢复码/密钥/密码操作的录制产物",
+      "expected": "截图和日志脱敏，敏感值不进常规分析",
+      "evidence_type": "产物审查",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "AD-01",
+      "category": "后台公共壳与列表",
+      "title": "六组导航",
+      "steps": "逐一访问全部旧后台模块",
+      "expected": "重新分组但无功能遗漏/错误跳转",
+      "evidence_type": "覆盖表/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "AD-02",
+      "category": "后台公共壳与列表",
+      "title": "局部权限",
+      "steps": "以版主/局部管理员直达不同模块",
+      "expected": "UI 适配且 API 拒绝未授权；不能读额外总数",
+      "evidence_type": "角色/API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "AD-03",
+      "category": "后台公共壳与列表",
+      "title": "旧后台链接",
+      "steps": "访问改前保存的后台详情/筛选地址",
+      "expected": "可直达并保持筛选和高亮",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "AD-04",
+      "category": "后台公共壳与列表",
+      "title": "筛选分页",
+      "steps": "选过滤、换页、详情返回",
+      "expected": "条件保持，选择对象不串页",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "AD-05",
+      "category": "后台公共壳与列表",
+      "title": "当前页批选",
+      "steps": "选几行后切换查询/页码并执行动作",
+      "expected": "明确当前页范围；不会误操作全站搜索结果",
+      "evidence_type": "交互/API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "AD-06",
+      "category": "后台公共壳与列表",
+      "title": "详情与抽屉",
+      "steps": "桌面/手机进入详情并保存/取消",
+      "expected": "有上下文、未保存保护、可触达操作",
+      "evidence_type": "截图/交互",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "AD-07",
+      "category": "后台公共壳与列表",
+      "title": "表格重排",
+      "steps": "五宽度查看长字段/必要二维表格",
+      "expected": "仅局部表格横滚；整个页面不横滚；关键列可达",
+      "evidence_type": "布局/截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "AD-08",
+      "category": "后台公共壳与列表",
+      "title": "版本与结果",
+      "steps": "冲突、超时、权限撤销后提交",
+      "expected": "不静默覆盖/假成功；结果可追溯",
+      "evidence_type": "真实 API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "W-01",
+      "category": "后台工作台",
+      "title": "待办优先",
+      "steps": "有举报/审核/风险任务时进入",
+      "expected": "第一屏优先可处理事项，入口带正确筛选",
+      "evidence_type": "E2E/截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "W-02",
+      "category": "后台工作台",
+      "title": "范围口径",
+      "steps": "用不同范围管理员查看指标",
+      "expected": "明确本人/版块/全站与时间范围，无越权统计",
+      "evidence_type": "API/字典",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "W-03",
+      "category": "后台工作台",
+      "title": "零/未知/错误",
+      "steps": "分别返回0、缺字段、失败",
+      "expected": "只真实零显示0，未知/错误各有语义",
+      "evidence_type": "组件",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "W-04",
+      "category": "后台工作台",
+      "title": "趋势来源",
+      "steps": "开启/关闭报表插件并检查曲线请求",
+      "expected": "有聚合才画图，关闭不造数据",
+      "evidence_type": "网络/截图",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "W-05",
+      "category": "后台工作台",
+      "title": "排除虚构指标",
+      "steps": "扫描总浏览、注册审核、插件可更新等模块",
+      "expected": "无已验证来源不出现",
+      "evidence_type": "契约/文本",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "W-06",
+      "category": "后台工作台",
+      "title": "陈旧健康",
+      "steps": "健康数据过期/失联时访问工作台",
+      "expected": "显示未知/过期或故障，不一律绿正常",
+      "evidence_type": "错误注入",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "W-07",
+      "category": "后台工作台",
+      "title": "局部失败",
+      "steps": "某一摘要接口失败",
+      "expected": "其他待办可用，失败模块可重试",
+      "evidence_type": "集成",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "W-08",
+      "category": "后台工作台",
+      "title": "刷新机制",
+      "steps": "编辑详情或页面隐藏期间检查刷新",
+      "expected": "按现有策略不覆盖正在操作数据；刷新时间清楚",
+      "evidence_type": "交互/网络",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-01",
+      "category": "内容、用户、版块与权限治理",
+      "title": "主题上下文",
+      "steps": "筛选并打开无标题/有图/受限主题",
+      "expected": "对象和版块明确，动作匹配状态",
+      "evidence_type": "真实 E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-02",
+      "category": "内容、用户、版块与权限治理",
+      "title": "评论上下文",
+      "steps": "从后台评论打开原帖与引用",
+      "expected": "楼层和回复关系清楚，不只显示一段孤立正文",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-03",
+      "category": "内容、用户、版块与权限治理",
+      "title": "举报处理",
+      "steps": "打开举报、查看证据、执行组合处置",
+      "expected": "结果和历史可追溯，重复请求不重复处置",
+      "evidence_type": "真实 API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-04",
+      "category": "内容、用户、版块与权限治理",
+      "title": "审核差异",
+      "steps": "审核旧版与待审新版",
+      "expected": "差异可理解；通过/拒绝理由和结果准确",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-05",
+      "category": "内容、用户、版块与权限治理",
+      "title": "旧公开版本",
+      "steps": "审核未完成时前台查看原内容",
+      "expected": "旧版继续公开，新版仅权限内可见",
+      "evidence_type": "跨端 E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-06",
+      "category": "内容、用户、版块与权限治理",
+      "title": "处置原因",
+      "steps": "执行隐藏/移动/驳回等需理由动作",
+      "expected": "沿用当前字段校验和服务端限制，不让运营手填内部 key",
+      "evidence_type": "API/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-07",
+      "category": "内容、用户、版块与权限治理",
+      "title": "处置并发",
+      "steps": "两管理员编辑/处理同一对象",
+      "expected": "revision 冲突明确，无悄悄覆盖",
+      "evidence_type": "真实 API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-08",
+      "category": "内容、用户、版块与权限治理",
+      "title": "作用域拒绝",
+      "steps": "构造无权限版块治理请求",
+      "expected": "服务端拒绝，审计/错误不泄露额外信息",
+      "evidence_type": "负向 API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-09",
+      "category": "内容、用户、版块与权限治理",
+      "title": "治理前台联动",
+      "steps": "主题被隐藏/移动后回前台旧链接",
+      "expected": "按真实语义更新，旧缓存不继续泄露隐藏正文",
+      "evidence_type": "跨端 E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-10",
+      "category": "内容、用户、版块与权限治理",
+      "title": "用户限制恢复",
+      "steps": "限制/暂停/恢复测试账号",
+      "expected": "状态与能力一致，关联内容可核对",
+      "evidence_type": "真实 E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-11",
+      "category": "内容、用户、版块与权限治理",
+      "title": "高权账号保护",
+      "steps": "尝试不允许的自降权/高权对象操作",
+      "expected": "沿用服务端保护，不因新 UI 绕过",
+      "evidence_type": "负向 API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-12",
+      "category": "内容、用户、版块与权限治理",
+      "title": "版块树移动",
+      "steps": "移动/排序含子节点的版块",
+      "expected": "层级正确、不产生循环、搜索状态不误排",
+      "evidence_type": "集成/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-13",
+      "category": "内容、用户、版块与权限治理",
+      "title": "显隐和访问",
+      "steps": "改变可见性和访问策略分别测试",
+      "expected": "hidden 与 access policy 不是同一开关",
+      "evidence_type": "API/角色",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-14",
+      "category": "内容、用户、版块与权限治理",
+      "title": "合并预览",
+      "steps": "合并前查看源/目标/影响/阻断",
+      "expected": "使用真实预览、版本与当前限制",
+      "evidence_type": "真实 API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-15",
+      "category": "内容、用户、版块与权限治理",
+      "title": "合并提交",
+      "steps": "执行可合法完成的隔离测试合并",
+      "expected": "没有部分迁移；审计和结果一致",
+      "evidence_type": "真实集成",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-16",
+      "category": "内容、用户、版块与权限治理",
+      "title": "回滚资格",
+      "steps": "在允许/过期/对象已变化条件下检查回滚",
+      "expected": "服务器给出资格；不能只凭前端24h判断",
+      "evidence_type": "边界 API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-17",
+      "category": "内容、用户、版块与权限治理",
+      "title": "合并回滚",
+      "steps": "满足条件时走既有回滚流程",
+      "expected": "恢复范围与审计正确，不重写另一套迁移",
+      "evidence_type": "真实集成",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-18",
+      "category": "内容、用户、版块与权限治理",
+      "title": "权限差异",
+      "steps": "调整人员角色和板块作用域",
+      "expected": "差异明确、旧 revision 冲突可恢复",
+      "evidence_type": "真实 API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "G-19",
+      "category": "内容、用户、版块与权限治理",
+      "title": "领域隔离",
+      "steps": "授予社区组/权益后检查治理能力",
+      "expected": "不因前台身份标签取得后台治理权限",
+      "evidence_type": "安全集成",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "E-01",
+      "category": "会员经济后台",
+      "title": "用户选择",
+      "steps": "搜索用户→选择→查看状态→操作",
+      "expected": "不要求手输 UUID；选错对象可明确发现",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "E-02",
+      "category": "会员经济后台",
+      "title": "切换清空",
+      "steps": "为 A 输入操作后切到 B",
+      "expected": "A 的数量/原因/版本不会误提交给 B",
+      "evidence_type": "交互/API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "E-03",
+      "category": "会员经济后台",
+      "title": "积分调整",
+      "steps": "执行合法增减并查看流水",
+      "expected": "前后余额、原因、操作者与审计一致",
+      "evidence_type": "真实集成",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "E-04",
+      "category": "会员经济后台",
+      "title": "重试幂等",
+      "steps": "双击/相同请求重放/超时后恢复",
+      "expected": "不重复记账或发权益，未知状态不冒充成功",
+      "evidence_type": "真实 API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "E-05",
+      "category": "会员经济后台",
+      "title": "revision 冲突",
+      "steps": "读取旧状态后其他管理员更新",
+      "expected": "旧提交阻止或按既有规则处理，保留输入并刷新",
+      "evidence_type": "真实 API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "E-06",
+      "category": "会员经济后台",
+      "title": "权益期限",
+      "steps": "发放/撤销/到期与配额耗尽",
+      "expected": "时间和剩余准确，公开资料不泄露私有来源",
+      "evidence_type": "集成",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "E-07",
+      "category": "会员经济后台",
+      "title": "成长勋章用户组",
+      "steps": "各工作区分别操作测试对象",
+      "expected": "EXP/积分/组/勋章不串字段和权限语义",
+      "evidence_type": "E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "E-08",
+      "category": "会员经济后台",
+      "title": "结果追溯",
+      "steps": "操作完成后查看相关账本/审计",
+      "expected": "结果链接真实，有权限控制；不能前端自行改余额",
+      "evidence_type": "集成",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Y-01",
+      "category": "系统、数据与运维",
+      "title": "品牌持久",
+      "steps": "改合法 Logo/主色/页脚，刷新前后台",
+      "expected": "保存真实生效，可恢复已有配置，不只前端临时变化",
+      "evidence_type": "真实 E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Y-02",
+      "category": "系统、数据与运维",
+      "title": "配置上限",
+      "steps": "测试导航/页脚的当前最大条数与非法地址",
+      "expected": "保留现有规则；按盘点为最多8条则维持，不只 UI 校验",
+      "evidence_type": "API/边界",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Y-03",
+      "category": "系统、数据与运维",
+      "title": "首页模式",
+      "steps": "检查品牌配置中的首页类型",
+      "expected": "当前固定推荐则不提供假切换选项",
+      "evidence_type": "契约/交互",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Y-04",
+      "category": "系统、数据与运维",
+      "title": "邮件脱敏",
+      "steps": "读取/修改SMTP并检查日志、错误和返回字段",
+      "expected": "秘密脱敏；配置成功不冒称邮件投递成功",
+      "evidence_type": "安全/集成",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Y-05",
+      "category": "系统、数据与运维",
+      "title": "插件安装权限",
+      "steps": "按现有流程安装、审阅权限、启停",
+      "expected": "高风险授权明确，宿主和服务端仍限制能力",
+      "evidence_type": "真实 E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Y-06",
+      "category": "系统、数据与运维",
+      "title": "高级工具隔离",
+      "steps": "普通管理员与有权开发者访问 Invoke 等",
+      "expected": "高阶入口与日常管理分离，不扩大权限",
+      "evidence_type": "角色测试",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Y-07",
+      "category": "系统、数据与运维",
+      "title": "数据口径",
+      "steps": "切时间/范围查看增量、累计与留存",
+      "expected": "来自真实聚合且标注范围/时区，零/未知不混",
+      "evidence_type": "API/字典",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Y-08",
+      "category": "系统、数据与运维",
+      "title": "运维陈旧",
+      "steps": "DB/Outbox/服务异常和监测过期",
+      "expected": "故障可定位，状态/时间真实，不泄露密钥",
+      "evidence_type": "错误注入",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Y-09",
+      "category": "系统、数据与运维",
+      "title": "全模块覆盖",
+      "steps": "核对旧模块与新入口/组件映射",
+      "expected": "没有漏掉既有运维/会员/插件/邮件等能力",
+      "evidence_type": "覆盖表审查",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "X-01",
+      "category": "六插件状态交叉矩阵",
+      "title": "宿主关闭",
+      "steps": "关闭插件平台后访问前台/后台/会员",
+      "expected": "未开放状态明确，社区核心可用",
+      "evidence_type": "集成/E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "X-02",
+      "category": "六插件状态交叉矩阵",
+      "title": "未装/停用/启用",
+      "steps": "每个相关插件分别进入三种状态",
+      "expected": "入口和能力一致，不凭组件文件存在判断可用",
+      "evidence_type": "参数化集成",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "X-03",
+      "category": "六插件状态交叉矩阵",
+      "title": "账号/对象限制",
+      "steps": "启用插件但账号或版块无权限",
+      "expected": "不可执行，服务端再次授权",
+      "evidence_type": "负向 API",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "X-04",
+      "category": "六插件状态交叉矩阵",
+      "title": "插件失败",
+      "steps": "制造插件超时/错误/额度耗尽",
+      "expected": "宿主按既有策略限制；局部退化不阻断主页面",
+      "evidence_type": "错误注入",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "X-05",
+      "category": "六插件状态交叉矩阵",
+      "title": "历史保留",
+      "steps": "投票/补充/审核等有历史内容后停用插件",
+      "expected": "遵守各自现有保留规则，不丢历史或绕过审核",
+      "evidence_type": "真实集成",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-01",
+      "category": "总回归、性能与发布候选",
+      "title": "核心端到端",
+      "steps": "首页→版块→发布→详情→回复→通知→返回",
+      "expected": "真实 API/数据库走通，非静态 fixture 成功",
+      "evidence_type": "真实 E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-02",
+      "category": "总回归、性能与发布候选",
+      "title": "角色全矩阵",
+      "steps": "代表场景使用全部角色和读写权限组合",
+      "expected": "未授权读写被拒绝，前端与服务端语义一致",
+      "evidence_type": "角色报告",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-03",
+      "category": "总回归、性能与发布候选",
+      "title": "五宽度总验收",
+      "steps": "核心六页+发布/会员+后台代表列表在五宽度",
+      "expected": "无整页横溢/遮挡/不可达动作，截图有角色与状态",
+      "evidence_type": "截图矩阵",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-04",
+      "category": "总回归、性能与发布候选",
+      "title": "键盘与读屏代表路径",
+      "steps": "仅键盘浏览、发布、回复、治理；检查语义标签",
+      "expected": "焦点可见和返回、表单标签、状态说明、非颜色表达",
+      "evidence_type": "自动扫描+人工",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-05",
+      "category": "总回归、性能与发布候选",
+      "title": "真实手机",
+      "steps": "iOS Safari/Android 浏览器按可用设备测试",
+      "expected": "说明真实设备/版本；软键盘和上传可用，缺失标阻塞",
+      "evidence_type": "真机记录",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-06",
+      "category": "总回归、性能与发布候选",
+      "title": "构建依赖体积",
+      "steps": "同环境比较旧/新首屏脚本和路由 chunk",
+      "expected": "首页不引入整包后台；超过项目预算有明确处置",
+      "evidence_type": "构建报告",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-07",
+      "category": "总回归、性能与发布候选",
+      "title": "实验室性能",
+      "steps": "固定数据/设备/网络多次测量并报告中位数",
+      "expected": "LCP候选/CLS/交互有对比；不得假称真实用户 p75",
+      "evidence_type": "实验室报告",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-08",
+      "category": "总回归、性能与发布候选",
+      "title": "线上性能观察边界",
+      "steps": "有合法线上样本则按设备看p75，否则记录缺失",
+      "expected": "目标 LCP≤2.5s/INP≤200ms/CLS≤0.1；无样本不填PASS",
+      "evidence_type": "样本/监测报告",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-09",
+      "category": "总回归、性能与发布候选",
+      "title": "全仓门禁",
+      "steps": "运行真实 command-map 全量命令",
+      "expected": "每项有版本/目录/退出码；环境错误单独标BLOCKED",
+      "evidence_type": "测试/构建日志",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-10",
+      "category": "总回归、性能与发布候选",
+      "title": "干净工作区",
+      "steps": "独立检出最终候选源码、锁依赖、复验",
+      "expected": "可复现，不依赖本地未跟踪文件/手工改产物",
+      "evidence_type": "独立工作区日志",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-11",
+      "category": "总回归、性能与发布候选",
+      "title": "源码证据关系",
+      "steps": "对比代码SHA/脏树diff/文档提交/测试时间",
+      "expected": "实际被测源码唯一可识别，不伪写未产生的SHA",
+      "evidence_type": "审计核对",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-12",
+      "category": "总回归、性能与发布候选",
+      "title": "旧草稿链接偏好",
+      "steps": "用改前草稿/URL/主题偏好打开新旧构建",
+      "expected": "读写兼容，切换编辑器不丢内容，不清用户存储",
+      "evidence_type": "回退 E2E",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-13",
+      "category": "总回归、性能与发布候选",
+      "title": "UI回退",
+      "steps": "测试环境恢复上一验证构建",
+      "expected": "页面可用，帖子/积分/治理数据不被数据库回滚",
+      "evidence_type": "演练记录",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-14",
+      "category": "总回归、性能与发布候选",
+      "title": "旧代码清理",
+      "steps": "检查静态/动态/插件引用后删除废弃代码",
+      "expected": "只删无引用部分，回归通过且保留旧构建产物",
+      "evidence_type": "引用/构建/测试",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-15",
+      "category": "总回归、性能与发布候选",
+      "title": "部署授权",
+      "steps": "检查交付报告与实际部署记录",
+      "expected": "未授权不自动上线；候选验证不写已生产发布",
+      "evidence_type": "交付审查",
+      "result": "NOT_RUN",
+      "evidence": []
+    },
+    {
+      "id": "Q-16",
+      "category": "总回归、性能与发布候选",
+      "title": "最终交接",
+      "steps": "对照任务注册表、问题表、产物和当前交接",
+      "expected": "完成/阻塞/未提交/待部署/下一步完整，所有链接有效",
+      "evidence_type": "文档审查",
+      "result": "NOT_RUN",
+      "evidence": []
+    }
+  ]
+}
