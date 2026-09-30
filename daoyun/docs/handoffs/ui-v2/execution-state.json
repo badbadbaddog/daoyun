@@ -2,7 +2,7 @@
   "project": "DaoYun",
   "date": "2026-09-30",
   "plan_status": "IN_PROGRESS",
-  "scope": "Second board directory/detail implementation candidate plus isolated role and plugin metadata evidence; no complete Gate acceptance",
+  "scope": "Third authorized media aggregation and complete viewer candidate; publishing and full Gate acceptance remain open",
   "plan_snapshot": "daoyun-ui-v2-plan/06-task-registry.json",
   "acceptance_snapshot": "daoyun-ui-v2-plan/07-acceptance-registry.json",
   "executor": "Codex_local_tools",
@@ -12,10 +12,10 @@
     "authorization": "用户明确选择：使用当前本地工具继续（推荐）",
     "date": "2026-09-30"
   },
-  "code_commit": "fe55887af0c7f2e8edb46c5111edeecdb8746f95",
-  "tested_source_manifest_sha256": "3a212850f1b28d64aca4261a19bfb74c348b5163950b267a4b75a3d6cf49d87c",
-  "verification": "docs/handoffs/ui-v2/second-increment-verification.json",
-  "handoff": "docs/handoffs/ui-v2/second-increment-2026-09-30.md",
+  "code_commit": "2e6bc3031231df680413c1b0789c7609ca2df4b0",
+  "tested_source_manifest_sha256": "57d3879c9f1ceb405397bab35f184bd7676203a1b58c7e05dc55204766bcd0d3",
+  "verification": "docs/handoffs/ui-v2/third-increment-verification.json",
+  "handoff": "docs/handoffs/ui-v2/third-increment-2026-09-30.md",
   "gates": {
     "G0": "NOT_ACCEPTED",
     "G1": "NOT_ACCEPTED",
@@ -83,9 +83,11 @@
       "status": "IN_PROGRESS",
       "evidence": [
         "docs/handoffs/ui-v2/first-increment-2026-09-30.md",
-        "docs/handoffs/ui-v2/verification.json"
+        "docs/handoffs/ui-v2/verification.json",
+        "docs/handoffs/ui-v2/third-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/third-increment-verification.json"
       ],
-      "code_commit": "f9e1e16348bed285304f46917c856870915e96c1"
+      "code_commit": "2e6bc3031231df680413c1b0789c7609ca2df4b0"
     },
     {
       "id": "DYV2-007",
@@ -127,9 +129,12 @@
     {
       "id": "DYV2-011",
       "title": "帖子详情、富文本与插件状态",
-      "status": "PLANNED",
-      "evidence": [],
-      "code_commit": null
+      "status": "IN_PROGRESS",
+      "evidence": [
+        "docs/handoffs/ui-v2/third-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/third-increment-verification.json"
+      ],
+      "code_commit": "2e6bc3031231df680413c1b0789c7609ca2df4b0"
     },
     {
       "id": "DYV2-012",
@@ -505,13 +510,21 @@
       "id": "C-06",
       "title": "九图",
       "result": "NOT_RUN",
-      "evidence": []
+      "evidence": [],
+      "partial_evidence": [
+        "docs/handoffs/ui-v2/third-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/third-increment-verification.json"
+      ],
+      "note": "Display/full-viewer paths passed; publishing API still accepts 20 images, so the nine-image upper bound is not accepted."
     },
     {
       "id": "C-07",
       "title": "受限图片",
-      "result": "NOT_RUN",
-      "evidence": []
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/third-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/third-increment-verification.json"
+      ]
     },
     {
       "id": "C-08",
@@ -800,8 +813,11 @@
     {
       "id": "T-03",
       "title": "图片顺序与查看",
-      "result": "NOT_RUN",
-      "evidence": []
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/third-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/third-increment-verification.json"
+      ]
     },
     {
       "id": "T-04",
@@ -1527,20 +1543,21 @@
   "counts": {
     "tasks": 24,
     "tasks_done": 0,
-    "tasks_in_progress": 9,
+    "tasks_in_progress": 10,
     "cases": 201,
-    "case_pass": 21,
-    "case_not_run": 180
+    "case_pass": 23,
+    "case_not_run": 178
   },
   "remaining": [
+    "DYV2-010 nine-image write cap, failed upload retry/removal, touch sorting and draft order verification",
     "G0 complete role browser, six-plugin business invocation and disabled-history checks; current DB has five installed plugins",
-    "Authorized visible image count and complete 4–9 image viewer contract",
     "Real API writes/auth and dedicated feed paging/race/failure E2E",
     "DYV2-008/009 restricted-tree, untitled-text browser and publish/pin combinations",
     "DYV2-010 through DYV2-024 and complete G0–G5 acceptance"
   ],
   "source_commits": [
     "f9e1e16348bed285304f46917c856870915e96c1",
-    "fe55887af0c7f2e8edb46c5111edeecdb8746f95"
+    "fe55887af0c7f2e8edb46c5111edeecdb8746f95",
+    "2e6bc3031231df680413c1b0789c7609ca2df4b0"
   ]
 }

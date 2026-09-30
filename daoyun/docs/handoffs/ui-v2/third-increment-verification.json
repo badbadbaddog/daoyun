@@ -1,0 +1,720 @@
+{
+  "project": "DaoYun",
+  "date": "2026-09-30",
+  "scope": "Third authorized media contract and complete viewer candidate",
+  "code_commit": "2e6bc3031231df680413c1b0789c7609ca2df4b0",
+  "tested_source_manifest_sha256": "57d3879c9f1ceb405397bab35f184bd7676203a1b58c7e05dc55204766bcd0d3",
+  "source_files": [
+    {
+      "path": "apps/api/src/topics.rs",
+      "sha256": "b4bbd19a74b38c670a7655248540664d0f2f0a1489a93ce57f02fe51d5b7d289",
+      "git_blob_sha256": "b4bbd19a74b38c670a7655248540664d0f2f0a1489a93ce57f02fe51d5b7d289"
+    },
+    {
+      "path": "apps/api/tests/attachments.rs",
+      "sha256": "0028c973dca8bbcb86e02fb294d749767768aebf3dd630b7f5858b2331a12b8c",
+      "git_blob_sha256": "0028c973dca8bbcb86e02fb294d749767768aebf3dd630b7f5858b2331a12b8c"
+    },
+    {
+      "path": "apps/api/tests/topics.rs",
+      "sha256": "b7f97858cc9b170eec8bdb88c696fdd256798948b70e194db91a6bb58481ec46",
+      "git_blob_sha256": "b7f97858cc9b170eec8bdb88c696fdd256798948b70e194db91a6bb58481ec46"
+    },
+    {
+      "path": "crates/api-contract/src/topic.rs",
+      "sha256": "cc147b6bc35c2946b05835fd45cbc35ba2041c221178667980fb57f3894f1bb5",
+      "git_blob_sha256": "cc147b6bc35c2946b05835fd45cbc35ba2041c221178667980fb57f3894f1bb5"
+    },
+    {
+      "path": "crates/api-contract/tests/response_contracts.rs",
+      "sha256": "c2371905c8bb9f7b489428529a13f46f1b9f01a9ae3d39330428210718ed5494",
+      "git_blob_sha256": "c2371905c8bb9f7b489428529a13f46f1b9f01a9ae3d39330428210718ed5494"
+    },
+    {
+      "path": "crates/infrastructure/src/topics.rs",
+      "sha256": "77f7390da87d4f1c3c881e76a009755c7534074c9e0b3c4ee17f509a87d55c93",
+      "git_blob_sha256": "77f7390da87d4f1c3c881e76a009755c7534074c9e0b3c4ee17f509a87d55c93"
+    },
+    {
+      "path": "crates/infrastructure/tests/topics.rs",
+      "sha256": "a6d85f3ae11c1034c3ed1a9141a7840695c6091d6c70b57343a914f053f5b77a",
+      "git_blob_sha256": "a6d85f3ae11c1034c3ed1a9141a7840695c6091d6c70b57343a914f053f5b77a"
+    },
+    {
+      "path": "docs/handoffs/ui-v2/media-contract-change-2026-09-30.md",
+      "sha256": "63b7f0e9c094f4b636cabcaee78d0696e8f007722228298f1a5938dbd3978bd1",
+      "git_blob_sha256": "63b7f0e9c094f4b636cabcaee78d0696e8f007722228298f1a5938dbd3978bd1"
+    },
+    {
+      "path": "e2e/content-image-preview.spec.ts",
+      "sha256": "c24df545d6dd0395562a6fc58473a9f6acec7f8ac80b74aec5931419d61a370a",
+      "git_blob_sha256": "c24df545d6dd0395562a6fc58473a9f6acec7f8ac80b74aec5931419d61a370a"
+    },
+    {
+      "path": "e2e/fixtures.ts",
+      "sha256": "855e4fd58cae807a3485a1e5466298edebbb55d8b21dd77a25d882cb67771f99",
+      "git_blob_sha256": "855e4fd58cae807a3485a1e5466298edebbb55d8b21dd77a25d882cb67771f99"
+    },
+    {
+      "path": "e2e/topic-row-navigation.spec.ts",
+      "sha256": "9f8cab48ea2ad27511be9c54b35e5bc1c9c5955a12f492eb275f82ebd0a86177",
+      "git_blob_sha256": "9f8cab48ea2ad27511be9c54b35e5bc1c9c5955a12f492eb275f82ebd0a86177"
+    },
+    {
+      "path": "e2e/ui-v2-boards.spec.ts",
+      "sha256": "4a80f99eace473be2027963e107f32a7923df8ca4e61ef67fef857a9e1d3702e",
+      "git_blob_sha256": "4a80f99eace473be2027963e107f32a7923df8ca4e61ef67fef857a9e1d3702e"
+    },
+    {
+      "path": "e2e/ui-v2-home.spec.ts",
+      "sha256": "c89925654d79d042818820f05df6925a9876bb7ebc945b40ea165af15e9e11ed",
+      "git_blob_sha256": "c89925654d79d042818820f05df6925a9876bb7ebc945b40ea165af15e9e11ed"
+    },
+    {
+      "path": "e2e/ui-v2-media.spec.ts",
+      "sha256": "b3073428f7a65c8f44be38b4ededf73c868739d9fda04a689686a196e2e1ef89",
+      "git_blob_sha256": "b3073428f7a65c8f44be38b4ededf73c868739d9fda04a689686a196e2e1ef89"
+    },
+    {
+      "path": "src/api/generated.d.ts",
+      "sha256": "83cb700fcb70060bb4c6a38a008ef61f32f65bee7c10a0fb3ed235c6b68cb3cd",
+      "git_blob_sha256": "83cb700fcb70060bb4c6a38a008ef61f32f65bee7c10a0fb3ed235c6b68cb3cd"
+    },
+    {
+      "path": "src/api/topics.test.ts",
+      "sha256": "e57299d5d445917a5d8199fd6ebe3988675e3e93ccf51f133cb14ca8fbb94090",
+      "git_blob_sha256": "e57299d5d445917a5d8199fd6ebe3988675e3e93ccf51f133cb14ca8fbb94090"
+    },
+    {
+      "path": "src/api/topics.ts",
+      "sha256": "7b7f6499c5fa2977af80561286b9dd03f92f6515c78f985e9914a2b51fd7eebb",
+      "git_blob_sha256": "7b7f6499c5fa2977af80561286b9dd03f92f6515c78f985e9914a2b51fd7eebb"
+    },
+    {
+      "path": "src/components/ImagePreviewDialog.test.tsx",
+      "sha256": "dff89c43dcfc448871a082f5b4a66fe6c3a34418e5da99f0e8065daa7344a872",
+      "git_blob_sha256": "dff89c43dcfc448871a082f5b4a66fe6c3a34418e5da99f0e8065daa7344a872"
+    },
+    {
+      "path": "src/components/ImagePreviewDialog.tsx",
+      "sha256": "f9d1bb82ae82c6cf1252e279c5015d30bf0e9a73ffeb90f3ef2de47c136ab3b8",
+      "git_blob_sha256": "f9d1bb82ae82c6cf1252e279c5015d30bf0e9a73ffeb90f3ef2de47c136ab3b8"
+    },
+    {
+      "path": "src/components/RichTextContent.test.tsx",
+      "sha256": "80e50e030defc7b2286ca1377ec1d8ad9252a65a6986c55d68d51934904a9de3",
+      "git_blob_sha256": "80e50e030defc7b2286ca1377ec1d8ad9252a65a6986c55d68d51934904a9de3"
+    },
+    {
+      "path": "src/components/RichTextContent.tsx",
+      "sha256": "82932b286883f3cc35a23fb160bda1561513841cad4ec4eb54fff0d83e1001c3",
+      "git_blob_sha256": "82932b286883f3cc35a23fb160bda1561513841cad4ec4eb54fff0d83e1001c3"
+    },
+    {
+      "path": "src/components/TopicRow.test.tsx",
+      "sha256": "5c2b45644886d1ae15a379179164815629067e2b1e9355c4366e750b4f8e59d0",
+      "git_blob_sha256": "5c2b45644886d1ae15a379179164815629067e2b1e9355c4366e750b4f8e59d0"
+    },
+    {
+      "path": "src/components/TopicRow.tsx",
+      "sha256": "53698c217b496e37831d3d08dc2a552c8d0efd364134c49b14cfb38a073af2e8",
+      "git_blob_sha256": "53698c217b496e37831d3d08dc2a552c8d0efd364134c49b14cfb38a073af2e8"
+    },
+    {
+      "path": "src/styles.home.css",
+      "sha256": "a424dc9d214ae8433bd457018d3e207161b3db94ee5b95894bf813fecb4657bc",
+      "git_blob_sha256": "a424dc9d214ae8433bd457018d3e207161b3db94ee5b95894bf813fecb4657bc"
+    },
+    {
+      "path": "src/types/community.ts",
+      "sha256": "bd96158187bebdd8288567df0f0bab6b61992f4241e908fa1fac940e93ebe66f",
+      "git_blob_sha256": "b5c96d7c7652cea481f748e0c068ab5883937ac4518b3851a7ae86ee9bafe902"
+    }
+  ],
+  "environment": {
+    "cwd": "C:\\Users\\111\\Documents\\Playground\\daoyun",
+    "git_root": "C:/Users/111/Documents/Playground",
+    "branch": "codex/daoyun-home-foundation",
+    "executor": "Codex_local_tools",
+    "versions": {
+      "node": "v24.18.0",
+      "pnpm": "9.12.3",
+      "rustc": "rustc 1.94.1 (e408947bf 2026-03-25)"
+    }
+  },
+  "checks": [
+    {
+      "name": "unit-release",
+      "started_at": "2026-09-30T15:11:12.517Z",
+      "duration_ms": 413355,
+      "exit_code": 0,
+      "args": [
+        "-e",
+        "process.argv=['node','vitest','run','--maxWorkers=1','--minWorkers=1'];require('./node_modules/vitest/vitest.mjs')"
+      ],
+      "log": "artifacts/ui-v2/third-increment-2026-09-30/unit-release.log",
+      "log_sha256": "e915ac4ba7c2dd1ea933e159bca791b79138ee61a105f7557212f82290218315"
+    },
+    {
+      "name": "typecheck-release",
+      "started_at": "2026-09-30T15:11:12.636Z",
+      "duration_ms": 19939,
+      "exit_code": 0,
+      "args": [
+        "C:\\nvm4w\\nodejs\\node_modules\\corepack\\dist\\pnpm.js",
+        "typecheck"
+      ],
+      "log": "artifacts/ui-v2/third-increment-2026-09-30/typecheck-release.log",
+      "log_sha256": "c83f3f8761f075eada96b1298d983555db48061e130ef14477173044b214fae3"
+    },
+    {
+      "name": "e2e-types-media-extra",
+      "started_at": "2026-09-30T15:22:06.038Z",
+      "duration_ms": 3382,
+      "exit_code": 0,
+      "args": [
+        "C:\\nvm4w\\nodejs\\node_modules\\corepack\\dist\\pnpm.js",
+        "test:e2e:typecheck"
+      ],
+      "log": "artifacts/ui-v2/third-increment-2026-09-30/e2e-types-media-extra.log",
+      "log_sha256": "a8c4b2f8f69fc28d5150d39f60dab9219f45bab9f239ba1471415f4a8f82fb40"
+    },
+    {
+      "name": "build-release",
+      "started_at": "2026-09-30T15:11:12.568Z",
+      "duration_ms": 27952,
+      "exit_code": 0,
+      "args": [
+        "C:\\nvm4w\\nodejs\\node_modules\\corepack\\dist\\pnpm.js",
+        "build"
+      ],
+      "log": "artifacts/ui-v2/third-increment-2026-09-30/build-release.log",
+      "log_sha256": "78ef15303c0f24c1ce26bb78d93a7b79b9130d643cb097b2cc2e73a16b78c523"
+    },
+    {
+      "name": "generated-types-check",
+      "started_at": "2026-09-30T15:12:36.739Z",
+      "duration_ms": 1925,
+      "exit_code": 0,
+      "args": [
+        "scripts/generate-api-client.mjs",
+        "--input",
+        "C:\\Users\\111\\Documents\\Playground\\daoyun\\artifacts\\ui-v2\\third-increment-2026-09-30\\openapi.json",
+        "--check"
+      ],
+      "log": "artifacts/ui-v2/third-increment-2026-09-30/generated-types-check.log",
+      "log_sha256": "6459e69c790b978f2696bc9ca8be9631cb06e0fb0b953ad6ec04d216aaa51b30"
+    },
+    {
+      "name": "rust-workspace",
+      "started_at": "2026-09-30T15:06:11.995Z",
+      "duration_ms": 1671422,
+      "exit_code": 0,
+      "args": [
+        "-e",
+        "process.env.PATH=\"C:\\\\msys64\\\\mingw64\\\\bin;C:\\\\Users\\\\111\\\\.cargo\\\\bin;\"+process.env.PATH;process.env.DATABASE_URL='postgresql://daoyun@127.0.0.1:55433/daoyun_dev';const p=require('node:child_process').spawn('rustup',[\"run\",\"1.94.1-x86_64-pc-windows-gnu\",\"cargo\",\"test\",\"--workspace\",\"-j\",\"1\",\"--\",\"--test-threads=1\"],{stdio:'inherit',windowsHide:true});p.on('exit',c=>process.exitCode=c);p.on('error',e=>{console.error(e.message);process.exitCode=1});"
+      ],
+      "log": "artifacts/ui-v2/third-increment-2026-09-30/rust-workspace.log",
+      "log_sha256": "c1316524be9caa820a251c5c1408f35185bc89b54d69875279ccf1a463153120"
+    },
+    {
+      "name": "rust-format-check",
+      "started_at": "2026-09-30T15:06:12.054Z",
+      "duration_ms": 2102,
+      "exit_code": 0,
+      "args": [
+        "-e",
+        "process.env.PATH=\"C:\\\\msys64\\\\mingw64\\\\bin;C:\\\\Users\\\\111\\\\.cargo\\\\bin;\"+process.env.PATH;process.env.DATABASE_URL='postgresql://daoyun@127.0.0.1:55433/daoyun_dev';const p=require('node:child_process').spawn('rustup',[\"run\",\"1.94.1-x86_64-pc-windows-gnu\",\"cargo\",\"fmt\",\"--all\",\"--\",\"--check\"],{stdio:'inherit',windowsHide:true});p.on('exit',c=>process.exitCode=c);p.on('error',e=>{console.error(e.message);process.exitCode=1});"
+      ],
+      "log": "artifacts/ui-v2/third-increment-2026-09-30/rust-format-check.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "rust-clippy",
+      "started_at": "2026-09-30T15:20:14.564Z",
+      "duration_ms": 93477,
+      "exit_code": 0,
+      "args": [
+        "-e",
+        "process.env.PATH=\"C:\\\\msys64\\\\mingw64\\\\bin;C:\\\\Users\\\\111\\\\.cargo\\\\bin;\"+process.env.PATH;process.env.DATABASE_URL='postgresql://daoyun@127.0.0.1:55433/daoyun_dev';const p=require('node:child_process').spawn('rustup',[\"run\",\"1.94.1-x86_64-pc-windows-gnu\",\"cargo\",\"clippy\",\"--workspace\",\"--all-targets\",\"-j\",\"1\",\"--\",\"-D\",\"warnings\"],{stdio:'inherit',windowsHide:true});p.on('exit',c=>process.exitCode=c);p.on('error',e=>{console.error(e.message);process.exitCode=1});"
+      ],
+      "log": "artifacts/ui-v2/third-increment-2026-09-30/rust-clippy.log",
+      "log_sha256": "bb861120cfa9fad60c46f6d5636d7fdfa297545a4c4c9b976413003d43443ec2"
+    },
+    {
+      "name": "browser-final-all",
+      "started_at": "2026-09-30T15:25:11.716Z",
+      "duration_ms": 109316,
+      "exit_code": 0,
+      "args": [
+        "-e",
+        "process.env.DAOYUN_WEB_URL='http://127.0.0.1:5173';process.env.DAOYUN_LOCAL_E2E='1';process.argv=['node','playwright','test','e2e/ui-v2-media.spec.ts','e2e/content-image-preview.spec.ts','e2e/topic-row-navigation.spec.ts','e2e/ui-v2-home.spec.ts','e2e/ui-v2-boards.spec.ts','e2e/ui-v2-live-home.spec.ts','e2e/ui-v2-live-boards.spec.ts','--workers=2'];require('./node_modules/@playwright/test/cli.js')"
+      ],
+      "log": "artifacts/ui-v2/third-increment-2026-09-30/browser-final-all.log",
+      "log_sha256": "35cb72259a2d5f6fa5c35134b8debc7e25740f445610ecbb935f2bce4709226a"
+    }
+  ],
+  "browser": {
+    "mode": "70 route-mocked tests and 20 real anonymous API tests",
+    "distinct_passed": 90,
+    "projects": [
+      "chromium-desktop",
+      "chromium-mobile"
+    ],
+    "widths": [
+      320,
+      390,
+      768,
+      1024,
+      1440
+    ],
+    "real_phone": false,
+    "screenshots": [
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/content-image-preview-previews-content-images-at-1024px-chromium-desktop/image-preview.png",
+        "sha256": "1325d44cca9d4f2630860645354ab0ee07f03405858d15c48ef34f67f7098251"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/content-image-preview-previews-content-images-at-1024px-chromium-desktop/image-zoom.png",
+        "sha256": "9e0d719a66af156919906cbd07fe485541a89737d403f576a20e32c84543d857"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/content-image-preview-previews-content-images-at-1024px-chromium-mobile/image-preview.png",
+        "sha256": "1325d44cca9d4f2630860645354ab0ee07f03405858d15c48ef34f67f7098251"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/content-image-preview-previews-content-images-at-1024px-chromium-mobile/image-zoom.png",
+        "sha256": "9e0d719a66af156919906cbd07fe485541a89737d403f576a20e32c84543d857"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/content-image-preview-previews-content-images-at-1440px-chromium-desktop/image-preview.png",
+        "sha256": "2f25f9c851c4af14767dd8e00b380ce9d5bbe07cded29fd22a9a3875596ab887"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/content-image-preview-previews-content-images-at-1440px-chromium-desktop/image-zoom.png",
+        "sha256": "d859b78f344b56500ddfa02bcf5b35b28b1b52cc27427c36c27e252be3a6112b"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/content-image-preview-previews-content-images-at-1440px-chromium-mobile/image-preview.png",
+        "sha256": "2f25f9c851c4af14767dd8e00b380ce9d5bbe07cded29fd22a9a3875596ab887"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/content-image-preview-previews-content-images-at-1440px-chromium-mobile/image-zoom.png",
+        "sha256": "d859b78f344b56500ddfa02bcf5b35b28b1b52cc27427c36c27e252be3a6112b"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/content-image-preview-previews-content-images-at-320px-chromium-desktop/image-preview.png",
+        "sha256": "54657781c6ca6122676193b7f543a686e21e82560601c38655e9a990b667a798"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/content-image-preview-previews-content-images-at-320px-chromium-desktop/image-zoom.png",
+        "sha256": "a5895dfd8d3eac79e777f2ac2460159cade19b2792d7fac0c31c4f4c852f84e2"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/content-image-preview-previews-content-images-at-320px-chromium-mobile/image-preview.png",
+        "sha256": "54657781c6ca6122676193b7f543a686e21e82560601c38655e9a990b667a798"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/content-image-preview-previews-content-images-at-320px-chromium-mobile/image-zoom.png",
+        "sha256": "a5895dfd8d3eac79e777f2ac2460159cade19b2792d7fac0c31c4f4c852f84e2"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/content-image-preview-previews-content-images-at-768px-chromium-desktop/image-preview.png",
+        "sha256": "27112609bb40147b51f122b3144338d80c9dc5513ac3c3890618ae19f3943023"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/content-image-preview-previews-content-images-at-768px-chromium-desktop/image-zoom.png",
+        "sha256": "d2291ecd3831e14d8406e06216cb6d89b7518999aa0c5a569944bb907bf63d07"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/content-image-preview-previews-content-images-at-768px-chromium-mobile/image-preview.png",
+        "sha256": "27112609bb40147b51f122b3144338d80c9dc5513ac3c3890618ae19f3943023"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/content-image-preview-previews-content-images-at-768px-chromium-mobile/image-zoom.png",
+        "sha256": "d2291ecd3831e14d8406e06216cb6d89b7518999aa0c5a569944bb907bf63d07"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-boards-board-hierarchy-scope-and-navigation-at-1024px-chromium-desktop/board-1024.png",
+        "sha256": "ef951eb98ea88c67917e3aae5788a399da4627e1bf9dfe020624a8a97f3e4fcf"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-boards-board-hierarchy-scope-and-navigation-at-1024px-chromium-desktop/directory-1024.png",
+        "sha256": "09604e08725be2a911c8859b978ad13fe2937fe07143e9bf56f1058bbe104d1e"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-boards-board-hierarchy-scope-and-navigation-at-1024px-chromium-mobile/board-1024.png",
+        "sha256": "ef951eb98ea88c67917e3aae5788a399da4627e1bf9dfe020624a8a97f3e4fcf"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-boards-board-hierarchy-scope-and-navigation-at-1024px-chromium-mobile/directory-1024.png",
+        "sha256": "09604e08725be2a911c8859b978ad13fe2937fe07143e9bf56f1058bbe104d1e"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-boards-board-hierarchy-scope-and-navigation-at-1440px-chromium-desktop/board-1440.png",
+        "sha256": "3bc2ac09ba29e2c92a7ed5a07e2585958df03a168bfe21f0c1bcb25223197db3"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-boards-board-hierarchy-scope-and-navigation-at-1440px-chromium-desktop/directory-1440.png",
+        "sha256": "850303267faa4ff185d7cfeb85888ddf1d8f71f3a9e7acd98abeb90ade439089"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-boards-board-hierarchy-scope-and-navigation-at-1440px-chromium-mobile/board-1440.png",
+        "sha256": "3bc2ac09ba29e2c92a7ed5a07e2585958df03a168bfe21f0c1bcb25223197db3"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-boards-board-hierarchy-scope-and-navigation-at-1440px-chromium-mobile/directory-1440.png",
+        "sha256": "850303267faa4ff185d7cfeb85888ddf1d8f71f3a9e7acd98abeb90ade439089"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-boards-board-hierarchy-scope-and-navigation-at-320px-chromium-desktop/board-320.png",
+        "sha256": "5e4cd3e6cbafbd35a9bfff7b2d87aa139bb4b2cbece3740d7b56b6a72dc40fd6"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-boards-board-hierarchy-scope-and-navigation-at-320px-chromium-desktop/directory-320.png",
+        "sha256": "00cbbe95abf62c228e21e9bce55328791f5b0e81a3606a6d8fa013eda9f62325"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-boards-board-hierarchy-scope-and-navigation-at-320px-chromium-mobile/board-320.png",
+        "sha256": "5e4cd3e6cbafbd35a9bfff7b2d87aa139bb4b2cbece3740d7b56b6a72dc40fd6"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-boards-board-hierarchy-scope-and-navigation-at-320px-chromium-mobile/directory-320.png",
+        "sha256": "00cbbe95abf62c228e21e9bce55328791f5b0e81a3606a6d8fa013eda9f62325"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-boards-board-hierarchy-scope-and-navigation-at-390px-chromium-desktop/board-390.png",
+        "sha256": "e1e75acbbd5ed72082cca39ab4bd92e16f0f189b975599f9497b803c138a1699"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-boards-board-hierarchy-scope-and-navigation-at-390px-chromium-desktop/directory-390.png",
+        "sha256": "83df2247b2019b2cd04eb49a777d8fe5237e3f4c1d5e72344ee7be4378705afe"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-boards-board-hierarchy-scope-and-navigation-at-390px-chromium-mobile/board-390.png",
+        "sha256": "e1e75acbbd5ed72082cca39ab4bd92e16f0f189b975599f9497b803c138a1699"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-boards-board-hierarchy-scope-and-navigation-at-390px-chromium-mobile/directory-390.png",
+        "sha256": "83df2247b2019b2cd04eb49a777d8fe5237e3f4c1d5e72344ee7be4378705afe"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-boards-board-hierarchy-scope-and-navigation-at-768px-chromium-desktop/board-768.png",
+        "sha256": "bc8f9084b8bc41f35613677b38fced05aec1ac7799cbec8dad037963c3873ad0"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-boards-board-hierarchy-scope-and-navigation-at-768px-chromium-desktop/directory-768.png",
+        "sha256": "4dca274d1870ab3ca67dd9abccd73f440ddb1798c597fa448bc4e0e5465701a7"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-boards-board-hierarchy-scope-and-navigation-at-768px-chromium-mobile/board-768.png",
+        "sha256": "bc8f9084b8bc41f35613677b38fced05aec1ac7799cbec8dad037963c3873ad0"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-boards-board-hierarchy-scope-and-navigation-at-768px-chromium-mobile/directory-768.png",
+        "sha256": "4dca274d1870ab3ca67dd9abccd73f440ddb1798c597fa448bc4e0e5465701a7"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-home-home-remains-a-single-content-column-at-1024px-chromium-desktop/home-1024.png",
+        "sha256": "595a379fbaa8bda76391cad07f6c92943afcb4c4ed1a39f79bd093dc311965c6"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-home-home-remains-a-single-content-column-at-1024px-chromium-mobile/home-1024.png",
+        "sha256": "595a379fbaa8bda76391cad07f6c92943afcb4c4ed1a39f79bd093dc311965c6"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-home-home-remains-a-single-content-column-at-1440px-chromium-desktop/home-1440.png",
+        "sha256": "4f3760df50938d99dda42f981c455089c6e35c0fadf2a28b6bbdd5314f16eb39"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-home-home-remains-a-single-content-column-at-1440px-chromium-mobile/home-1440.png",
+        "sha256": "4f3760df50938d99dda42f981c455089c6e35c0fadf2a28b6bbdd5314f16eb39"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-home-home-remains-a-single-content-column-at-320px-chromium-desktop/home-320.png",
+        "sha256": "ea72c725f7ae47c09ae1a702e2345f5929032b87742e6db85f3ddeb7151fe28d"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-home-home-remains-a-single-content-column-at-320px-chromium-mobile/home-320.png",
+        "sha256": "632c267c350e7cabdb9ecb39a6e89f75641b5b4f20606a526d6d865843c0a799"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-home-home-remains-a-single-content-column-at-390px-chromium-desktop/home-390.png",
+        "sha256": "9ef6acece8ca3d624a864fa88332fa2d8876b93e65a65998d6803a2a516eb89d"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-home-home-remains-a-single-content-column-at-390px-chromium-mobile/home-390.png",
+        "sha256": "9ef6acece8ca3d624a864fa88332fa2d8876b93e65a65998d6803a2a516eb89d"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-home-home-remains-a-single-content-column-at-768px-chromium-desktop/home-768.png",
+        "sha256": "b83eda7d9d054e103a092badee75af7779038c7078f8b35f75c2f575d61e53ee"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-home-home-remains-a-single-content-column-at-768px-chromium-mobile/home-768.png",
+        "sha256": "b83eda7d9d054e103a092badee75af7779038c7078f8b35f75c2f575d61e53ee"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-boards-real-API-35679-urrent-board-scope-at-390px-chromium-desktop/live-board-390.png",
+        "sha256": "43ba6e6946f19865d53a994f148ca17f0a079bfb03351c05857f0c2cf8b2d6d5"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-boards-real-API-35679-urrent-board-scope-at-390px-chromium-desktop/live-directory-390.png",
+        "sha256": "428bac4e3473e01a22faeb678d33986a4bff2958af341c39e02cd01b0e0fee06"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-boards-real-API-35679-urrent-board-scope-at-390px-chromium-mobile/live-board-390.png",
+        "sha256": "43ba6e6946f19865d53a994f148ca17f0a079bfb03351c05857f0c2cf8b2d6d5"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-boards-real-API-35679-urrent-board-scope-at-390px-chromium-mobile/live-directory-390.png",
+        "sha256": "428bac4e3473e01a22faeb678d33986a4bff2958af341c39e02cd01b0e0fee06"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-boards-real-API-512be-urrent-board-scope-at-320px-chromium-desktop/live-board-320.png",
+        "sha256": "2a138e46c3785cc4766122ed096f5a3da0a69dd3e27e7a56c20d4bbd418947f1"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-boards-real-API-512be-urrent-board-scope-at-320px-chromium-desktop/live-directory-320.png",
+        "sha256": "12cbec00cdad09d26a78b0d6ee2b753e4725ed3a9cc3199f30717beaa1db3d1b"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-boards-real-API-512be-urrent-board-scope-at-320px-chromium-mobile/live-board-320.png",
+        "sha256": "2a138e46c3785cc4766122ed096f5a3da0a69dd3e27e7a56c20d4bbd418947f1"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-boards-real-API-512be-urrent-board-scope-at-320px-chromium-mobile/live-directory-320.png",
+        "sha256": "12cbec00cdad09d26a78b0d6ee2b753e4725ed3a9cc3199f30717beaa1db3d1b"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-boards-real-API-683fe-urrent-board-scope-at-768px-chromium-desktop/live-board-768.png",
+        "sha256": "0ae034c7276b810f6ebbde38d4c207512629cd8431c8d8b54ed1a849a499153a"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-boards-real-API-683fe-urrent-board-scope-at-768px-chromium-desktop/live-directory-768.png",
+        "sha256": "992c859f27bfada8f0196a68442250760536b17c10195cd2570b3122a6e863cc"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-boards-real-API-683fe-urrent-board-scope-at-768px-chromium-mobile/live-board-768.png",
+        "sha256": "0ae034c7276b810f6ebbde38d4c207512629cd8431c8d8b54ed1a849a499153a"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-boards-real-API-683fe-urrent-board-scope-at-768px-chromium-mobile/live-directory-768.png",
+        "sha256": "992c859f27bfada8f0196a68442250760536b17c10195cd2570b3122a6e863cc"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-boards-real-API-a613a-rrent-board-scope-at-1440px-chromium-desktop/live-board-1440.png",
+        "sha256": "5e3016b111624d36c28561367842bbb85f9477a22ae7c99ed960607fe119e0ff"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-boards-real-API-a613a-rrent-board-scope-at-1440px-chromium-desktop/live-directory-1440.png",
+        "sha256": "643cf4a37f8d6e4d2744670ca73112a9f9236a11112d537a1acea54270cbbc8d"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-boards-real-API-a613a-rrent-board-scope-at-1440px-chromium-mobile/live-board-1440.png",
+        "sha256": "5e3016b111624d36c28561367842bbb85f9477a22ae7c99ed960607fe119e0ff"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-boards-real-API-a613a-rrent-board-scope-at-1440px-chromium-mobile/live-directory-1440.png",
+        "sha256": "643cf4a37f8d6e4d2744670ca73112a9f9236a11112d537a1acea54270cbbc8d"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-boards-real-API-cb394-rrent-board-scope-at-1024px-chromium-desktop/live-board-1024.png",
+        "sha256": "626f685b2ad1ac9641ecf9ccf95d86d528c865fcb413f4bce54c3b10e967ddbf"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-boards-real-API-cb394-rrent-board-scope-at-1024px-chromium-desktop/live-directory-1024.png",
+        "sha256": "09259ed6c35dd420081d718ed29ce1b82f5e5485899e561b514ae84bb7e18bb8"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-boards-real-API-cb394-rrent-board-scope-at-1024px-chromium-mobile/live-board-1024.png",
+        "sha256": "626f685b2ad1ac9641ecf9ccf95d86d528c865fcb413f4bce54c3b10e967ddbf"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-boards-real-API-cb394-rrent-board-scope-at-1024px-chromium-mobile/live-directory-1024.png",
+        "sha256": "09259ed6c35dd420081d718ed29ce1b82f5e5485899e561b514ae84bb7e18bb8"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-home-real-API-h-3adb1-s-authorized-feed-at-1440px-chromium-desktop/live-home-1440.png",
+        "sha256": "3ec4feaa59c33ce727d56b1e7ba196c9eed1cb2b289c01b75d134833cae0ebf9"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-home-real-API-h-3adb1-s-authorized-feed-at-1440px-chromium-mobile/live-home-1440.png",
+        "sha256": "3ec4feaa59c33ce727d56b1e7ba196c9eed1cb2b289c01b75d134833cae0ebf9"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-home-real-API-h-3bf86-rs-authorized-feed-at-390px-chromium-desktop/live-home-390.png",
+        "sha256": "ed3ff2d76aa6ebccab0e54850e77fa6ef4b5d700a191afbd3f0c9d0bd74fd5cb"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-home-real-API-h-3bf86-rs-authorized-feed-at-390px-chromium-mobile/live-home-390.png",
+        "sha256": "ed3ff2d76aa6ebccab0e54850e77fa6ef4b5d700a191afbd3f0c9d0bd74fd5cb"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-home-real-API-h-59b14-rs-authorized-feed-at-768px-chromium-desktop/live-home-768.png",
+        "sha256": "9b3ab55d4e5d32c3b74927c2fbbe718fc40ce9a7530471f2c5967deaaa4a49fc"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-home-real-API-h-59b14-rs-authorized-feed-at-768px-chromium-mobile/live-home-768.png",
+        "sha256": "9b3ab55d4e5d32c3b74927c2fbbe718fc40ce9a7530471f2c5967deaaa4a49fc"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-home-real-API-h-c55e1-rs-authorized-feed-at-320px-chromium-desktop/live-home-320.png",
+        "sha256": "86fa76742d8225f890941dbd9df8aea01ba3e100e630659c1ae3397cd6e07d91"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-home-real-API-h-c55e1-rs-authorized-feed-at-320px-chromium-mobile/live-home-320.png",
+        "sha256": "86fa76742d8225f890941dbd9df8aea01ba3e100e630659c1ae3397cd6e07d91"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-home-real-API-h-cd281-s-authorized-feed-at-1024px-chromium-desktop/live-home-1024.png",
+        "sha256": "7e64c54308ecf2af133c1d526135d770201b2bcb1e3e49136b409a6bb71431ff"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-live-home-real-API-h-cd281-s-authorized-feed-at-1024px-chromium-mobile/live-home-1024.png",
+        "sha256": "7e64c54308ecf2af133c1d526135d770201b2bcb1e3e49136b409a6bb71431ff"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-authorized-nine-image-viewer-at-1024px-chromium-desktop/nine-image-viewer.png",
+        "sha256": "5035e88b16dee967a2570636464ca530f6fd07cdc841d09081507f94b597459e"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-authorized-nine-image-viewer-at-1024px-chromium-desktop/three-image-preview.png",
+        "sha256": "1a2743b5a43b8a388564b0eb13c730bb1e148b2de77f17683e7e55d525d84929"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-authorized-nine-image-viewer-at-1024px-chromium-mobile/nine-image-viewer.png",
+        "sha256": "7e32e69b3ab192369062ab817677c7491dec1821a571e1c80596c24e3b1f89de"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-authorized-nine-image-viewer-at-1024px-chromium-mobile/three-image-preview.png",
+        "sha256": "1a2743b5a43b8a388564b0eb13c730bb1e148b2de77f17683e7e55d525d84929"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-authorized-nine-image-viewer-at-1440px-chromium-desktop/nine-image-viewer.png",
+        "sha256": "1be77b16fd045cba3574e41cac09bc09741c61cbf79f9533a87a61932fa5cbd3"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-authorized-nine-image-viewer-at-1440px-chromium-desktop/three-image-preview.png",
+        "sha256": "e07938b3af6448607f16a34eab1ae260b7db7cb72d6936a443053697fd51a698"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-authorized-nine-image-viewer-at-1440px-chromium-mobile/nine-image-viewer.png",
+        "sha256": "565dbd01c8c71cffa95e28b7a9b97765be6f701fd9b1ebfc2f6568d57c9d6971"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-authorized-nine-image-viewer-at-1440px-chromium-mobile/three-image-preview.png",
+        "sha256": "e07938b3af6448607f16a34eab1ae260b7db7cb72d6936a443053697fd51a698"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-authorized-nine-image-viewer-at-320px-chromium-desktop/nine-image-viewer.png",
+        "sha256": "c20b01f752821acb419336621182ecb4519d2160f91c2a01ee19022707d3b4e1"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-authorized-nine-image-viewer-at-320px-chromium-desktop/three-image-preview.png",
+        "sha256": "384c834adf9b76bdb6e2adee488622b447e17fbd6f83c0366325ceb81f7b4371"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-authorized-nine-image-viewer-at-320px-chromium-mobile/nine-image-viewer.png",
+        "sha256": "c20b01f752821acb419336621182ecb4519d2160f91c2a01ee19022707d3b4e1"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-authorized-nine-image-viewer-at-320px-chromium-mobile/three-image-preview.png",
+        "sha256": "384c834adf9b76bdb6e2adee488622b447e17fbd6f83c0366325ceb81f7b4371"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-authorized-nine-image-viewer-at-390px-chromium-desktop/nine-image-viewer.png",
+        "sha256": "99599c24da0ca62c6b013cd1a965c4202fdd8b91d4b142cc43f90499f8650570"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-authorized-nine-image-viewer-at-390px-chromium-desktop/three-image-preview.png",
+        "sha256": "801e1f487fa2412afde4d0b9f6771d79b367f9aa75e80a7aa595d4c61b9df4ad"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-authorized-nine-image-viewer-at-390px-chromium-mobile/nine-image-viewer.png",
+        "sha256": "99599c24da0ca62c6b013cd1a965c4202fdd8b91d4b142cc43f90499f8650570"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-authorized-nine-image-viewer-at-390px-chromium-mobile/three-image-preview.png",
+        "sha256": "801e1f487fa2412afde4d0b9f6771d79b367f9aa75e80a7aa595d4c61b9df4ad"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-authorized-nine-image-viewer-at-768px-chromium-desktop/nine-image-viewer.png",
+        "sha256": "2ada8dffce2439d29eb71ccf07fb19546e0c9fbeaacbf1308ec330147043fb71"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-authorized-nine-image-viewer-at-768px-chromium-desktop/three-image-preview.png",
+        "sha256": "e2dbde262d9744506fd95a939b86d6c6b47f3b0346e9f305364810a91e4a010b"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-authorized-nine-image-viewer-at-768px-chromium-mobile/nine-image-viewer.png",
+        "sha256": "2ada8dffce2439d29eb71ccf07fb19546e0c9fbeaacbf1308ec330147043fb71"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-authorized-nine-image-viewer-at-768px-chromium-mobile/three-image-preview.png",
+        "sha256": "e2dbde262d9744506fd95a939b86d6c6b47f3b0346e9f305364810a91e4a010b"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-nine-body-imag-281eb-e-ordered-gallery-at-1440px-chromium-desktop/nine-body-images.png",
+        "sha256": "1ffac6b71b05e6d6173ebaf236c8549ca9e0d5849974851daa1eb467d252a605"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-nine-body-imag-281eb-e-ordered-gallery-at-1440px-chromium-mobile/nine-body-images.png",
+        "sha256": "1ffac6b71b05e6d6173ebaf236c8549ca9e0d5849974851daa1eb467d252a605"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-nine-body-imag-6b54d-ne-ordered-gallery-at-390px-chromium-desktop/nine-body-images.png",
+        "sha256": "99599c24da0ca62c6b013cd1a965c4202fdd8b91d4b142cc43f90499f8650570"
+      },
+      {
+        "path": "artifacts/ui-v2/third-increment-2026-09-30/final-browser-90/ui-v2-media-nine-body-imag-6b54d-ne-ordered-gallery-at-390px-chromium-mobile/nine-body-images.png",
+        "sha256": "99599c24da0ca62c6b013cd1a965c4202fdd8b91d4b142cc43f90499f8650570"
+      }
+    ]
+  },
+  "api": {
+    "live_url": "http://127.0.0.1:5173",
+    "ready_status": 200,
+    "summary_visible_image_count": 0,
+    "request_id_header_matches_envelope": true,
+    "live_openapi_matches_export": true,
+    "openapi_sha256": "47ba1d8388651d618d8dc9b0459b54e4a10e70e12ddb5bf5e37a2f160a80d933",
+    "business_database": "preserved; Rust uses isolated sqlx test databases",
+    "plugin_configuration": "unchanged"
+  },
+  "review": {
+    "contract": "Static scoped review reported no reproducible defect",
+    "viewer": "Static scoped review reported no reproducible defect; subsequent main verification found and fixed retry focus, inconsistent cover URL and duplicate banner",
+    "visual": [
+      "320px feed preview with +6",
+      "1440px viewer at 9 / 9"
+    ]
+  },
+  "limitations": [
+    "Nine-image publishing cap remains a separate publishing increment; API rich-content validation is still 20.",
+    "Original image downloads still require existing download permissions and quota; previews keep the server-authorized thumbnail URL.",
+    "Complete G0–G5, role/plugin business matrix, real phone and online performance are not accepted."
+  ],
+  "failures_preserved": [
+    "media-infra-red-fixed",
+    "media-api-red",
+    "media-ui-red-valid-envelope",
+    "viewer-loading-red",
+    "body-gallery-red",
+    "consistency-and-focus-red",
+    "authorized-url-red",
+    "browser-media",
+    "media-api-selected-fixed",
+    "media-api-release"
+  ],
+  "artifacts_directory": "C:/Users/111/Documents/Playground/daoyun/artifacts/ui-v2/third-increment-2026-09-30",
+  "frontend_tests": {
+    "files": 103,
+    "passed": 816
+  },
+  "rust_tests": {
+    "passed": 451,
+    "ignored": 2,
+    "failed": 0
+  }
+}

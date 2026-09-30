@@ -1,11 +1,10 @@
 # 当前交接
 
-更新时间：2026-09-30。DaoYun UI V2 正在执行。最新源码提交为 fe55887af0c7f2e8edb46c5111edeecdb8746f95，包含版块目录、详情紧凑列表、URL 状态保留、账号缓存与分页竞态修复。
+当前工作：DaoYun UI V2 第三增量。源码提交 2e6bc3031231df680413c1b0789c7609ca2df4b0。
 
-详见 [第二批交接](ui-v2/second-increment-2026-09-30.md)、[第二批验证](ui-v2/second-increment-verification.json)、[角色及插件盘点](ui-v2/baseline-fixtures-2026-09-30.json) 与 [执行台账](ui-v2/execution-state.json)。[首批交接](ui-v2/first-increment-2026-09-30.md) 和原始方案快照保留。
+- [第三增量交接](ui-v2/third-increment-2026-09-30.md)
+- [验证清单](ui-v2/third-increment-verification.json)
+- [执行与验收状态](ui-v2/execution-state.json)
+- [独立媒体契约变更](ui-v2/media-contract-change-2026-09-30.md)
 
-本批前端 804 项、浏览器 68 项、隔离 Rust 22 项通过；类型检查和生产构建通过。浏览器含 48 项夹具与 20 项真实 API 匿名只读检查。当前开发库安装 5 个官方插件，其中 3 个启用、2 个停用；成长奖励插件未安装。
-
-24 项任务及 G0–G5 尚未全部完成。下一步补完整角色/插件业务证据、经过授权过滤的媒体总数与 4–9 图契约，再推进发布器等后续页面。不要把夹具 UI 当成真实写流程验收，不要清空开发库。用户已授权 A1 离线时使用当前本地工具继续。
-
-本地预览 http://127.0.0.1:5173/#boards；API 和网关已恢复，数据库复用既有数据。历史交接 [Phase 10](../handoff-phase10-2026-09-03.md) 保留。
+原方案保持冻结，整体 IN_PROGRESS，G0–G5 均未接受。下一步为发布器失败重试、点击排序与后端九图上限。
