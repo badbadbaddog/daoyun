@@ -208,6 +208,16 @@ describe("RichTextEditor", () => {
     await waitFor(() => expect(input.files).toHaveLength(0))
   })
 
+
+  it("rejects a tenth image including images inside a reply gate", async () => {
+    const user=userEvent.setup()
+    const onImageUpload=vi.fn().mockResolvedValue({id:"0198d874-e991-7b62-8b38-3986f55c8d3d"})
+    render(<RichTextEditor value={{type:"doc",content:[{type:"replyGate",content:Array.from({length:9},()=>({type:"image",attrs:{attachmentId:"0198d874-e991-7b62-8b38-3986f55c8d3d",alt:"已上传图片"}}))}]}} onChange={vi.fn()} onImageUpload={onImageUpload} ariaLabel="正文" placeholder="输入正文" maxCharacters={1000} />)
+    await user.upload(screen.getByLabelText("选择正文图片"),new File(["image"],"tenth.png",{type:"image/png"}))
+    expect(onImageUpload).not.toHaveBeenCalled()
+    expect(await screen.findByText("每篇内容最多插入 9 张图片")).toBeInTheDocument()
+  })
+
   it("cancels an unfinished upload when the editor closes", async () => {
     const user = userEvent.setup()
     let uploadSignal: AbortSignal | undefined

@@ -9,6 +9,8 @@ pub struct DraftContent {
     pub board_id: Option<Uuid>,
     pub rich_content: Value,
     #[serde(default)]
+    /// Ordered uploaded images; at most nine together with rich content image nodes.
+    #[schema(max_items = 9)]
     pub images: Vec<DraftImage>,
     // Poll configuration is private draft data; publication validates the enabled provider and permissions.
     #[serde(default)]

@@ -140,3 +140,38 @@ for (const count of [1, 2, 3]) {
     await assertNoHorizontalOverflow(page)
   })
 }
+
+test("theme switching keeps active navigation readable on every frame",async({page})=>{
+  await page.setViewportSize({width:1440,height:900})
+  await mockPublicApi(page)
+  await page.goto("/#hot")
+  await expect(page.locator(".topic-list > .topic-row")).toHaveCount(6)
+  await page.evaluate(()=>{document.documentElement.dataset.brandPreset="high_contrast"})
+  await page.getByRole("button",{name:"切换深色模式"}).click()
+  const ratios=await page.locator(".sidebar-link--active").evaluate(async element=>{
+    const canvas=document.createElement("canvas")
+    canvas.width=canvas.height=1
+    const context=canvas.getContext("2d",{willReadFrequently:true})!
+    const luminance=(color:string)=>{
+      context.clearRect(0,0,1,1)
+      context.fillStyle=color
+      context.fillRect(0,0,1,1)
+      const channels=[...context.getImageData(0,0,1,1).data].slice(0,3).map(value=>{
+        const channel=value/255
+        return channel<=0.04045?channel/12.92:((channel+0.055)/1.055)**2.4
+      })
+      return channels[0]*0.2126+channels[1]*0.7152+channels[2]*0.0722
+    }
+    const ratios:number[]=[]
+    const start=performance.now()
+    while(performance.now()-start<200){
+      const style=getComputedStyle(element)
+      const foreground=luminance(style.color),background=luminance(style.backgroundColor)
+      ratios.push((Math.max(foreground,background)+0.05)/(Math.min(foreground,background)+0.05))
+      await new Promise(requestAnimationFrame)
+    }
+    return ratios
+  })
+  expect(ratios.length).toBeGreaterThan(1)
+  expect(Math.min(...ratios)).toBeGreaterThanOrEqual(4.5)
+})

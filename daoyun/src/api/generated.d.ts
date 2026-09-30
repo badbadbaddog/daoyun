@@ -5462,6 +5462,7 @@ export interface components {
         DraftContent: {
             /** Format: uuid */
             board_id?: string | null;
+            /** @description Ordered uploaded images; at most nine together with rich content image nodes. */
             images?: components["schemas"]["DraftImage"][];
             poll?: unknown;
             rich_content: unknown;

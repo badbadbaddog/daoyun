@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 const MAX_NODES: usize = 20_000;
 const MAX_DEPTH: usize = 32;
-const MAX_IMAGES: usize = 20;
+pub(crate) const MAX_IMAGES: usize = 9;
 const MIN_IMAGE_DIMENSION: u64 = 40;
 const MAX_IMAGE_DIMENSION: u64 = 2_400;
 
@@ -32,6 +32,15 @@ pub(crate) fn validate_and_project(
         return Err(RichContentError);
     }
     Ok((document, text))
+}
+
+pub(crate) fn image_node_count(node: &Value) -> usize {
+    usize::from(node.get("type").and_then(Value::as_str) == Some("image"))
+        + node
+            .get("content")
+            .and_then(Value::as_array)
+            .map(|children| children.iter().map(image_node_count).sum::<usize>())
+            .unwrap_or(0)
 }
 
 pub(crate) fn redact_reply_gates(mut document: Value, unlocked: bool) -> ReplyGateProjection {
@@ -628,6 +637,21 @@ mod tests {
 
         assert!(validate_and_project(resized, 100).is_ok());
         assert!(validate_and_project(invalid, 100).is_err());
+    }
+
+    #[test]
+    fn accepts_nine_images_but_rejects_ten_across_nested_blocks() {
+        let image = json!({"type":"image","attrs":{"attachmentId":"0198d874-e991-7b62-8b38-3986f55c8d3d","alt":"图片"}});
+        let mut images = vec![image.clone(); 9];
+        let document = |nodes: Vec<serde_json::Value>| {
+            json!({"type":"doc","content":[
+                {"type":"paragraph","content":[{"type":"text","text":"正文"}]},
+                {"type":"replyGate","content":nodes}
+            ]})
+        };
+        assert!(validate_and_project(document(images.clone()), 100).is_ok());
+        images.push(image);
+        assert!(validate_and_project(document(images), 100).is_err());
     }
 
     #[test]

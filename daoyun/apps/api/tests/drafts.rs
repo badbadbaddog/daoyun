@@ -41,6 +41,10 @@ async fn draft_contracts_and_authentication_are_registered() {
             assert!(value["headers"]["x-request-id"].is_object());
         }
     }
+    assert_eq!(
+        doc["components"]["schemas"]["DraftContent"]["properties"]["images"]["maxItems"],
+        9
+    );
     let response = app
         .oneshot(
             Request::builder()

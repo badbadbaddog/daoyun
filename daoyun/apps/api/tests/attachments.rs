@@ -492,36 +492,140 @@ async fn draft_image_upload_is_private_image_only_and_expires(pool: PgPool) {
         .expect("other user draft thumbnail request must respond");
     assert_eq!(other_user_preview.status(), StatusCode::NOT_FOUND);
 
-    let topic = app
+    let mut image_ids = vec![uuid::Uuid::parse_str(attachment_id).unwrap()];
+    for _ in 1..9 {
+        let id = uuid::Uuid::now_v7();
+        sqlx::query("INSERT INTO topic_attachments(id,uploader_id,storage_key,original_name,mime_type,size_bytes,sha256,status,scan_status,expires_at) SELECT $1,uploader_id,$1::text,original_name,mime_type,size_bytes,sha256,'ready','clean',expires_at FROM topic_attachments WHERE id=$2")
+            .bind(id).bind(image_ids[0]).execute(&pool).await.unwrap();
+        image_ids.push(id);
+    }
+    // Persist a deliberate reorder through the actual draft endpoint.
+    image_ids.swap(1, 8);
+    let images = image_ids
+        .iter()
+        .map(|id| json!({"attachmentId":id,"fileName":"image.png"}))
+        .collect::<Vec<_>>();
+    let draft_id = uuid::Uuid::now_v7();
+    let draft_path = format!("/api/v1/users/me/drafts/{draft_id}");
+    let draft_content = json!({"title":"","board_id":null,"rich_content":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"图片正文"}]}]},"images":images,"poll":null});
+    let saved = app
         .clone()
         .oneshot(json_request(
-            Method::POST,
-            "/api/v1/topics",
-            json!({
-                "title": "带图片的主题",
-                "content": "图片正文",
-                "rich_content": {
-                    "type": "doc",
-                    "content": [
-                        {
-                            "type": "paragraph",
-                            "content": [{"type": "text", "text": "图片正文"}]
-                        },
-                        {
-                            "type": "image",
-                            "attrs": {"attachmentId": attachment_id, "alt": "内嵌图片"}
-                        }
-                    ]
-                }
-            }),
+            Method::PUT,
+            &draft_path,
+            json!({"expected_revision":0,"content":draft_content}),
             &cookies,
             &csrf,
         ))
         .await
-        .expect("topic with draft image must respond");
+        .unwrap();
+    assert_eq!(saved.status(), StatusCode::OK);
+    let saved_request_id = saved.headers()["x-request-id"].to_str().unwrap().to_owned();
+    let saved = response_json(saved).await;
+    assert_eq!(saved["meta"]["request_id"], saved_request_id);
+    assert_eq!(saved["data"]["content"]["images"], json!(images));
+    let restored = response_json(
+        app.clone()
+            .oneshot(get_request_with_cookies(&draft_path, &cookies))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(restored["data"]["content"]["images"], json!(images));
+
+    let mut too_many = draft_content.clone();
+    too_many["images"]
+        .as_array_mut()
+        .unwrap()
+        .push(images[0].clone());
+    let invalid_draft = app
+        .clone()
+        .oneshot(json_request(
+            Method::PUT,
+            &draft_path,
+            json!({"expected_revision":1,"content":too_many}),
+            &cookies,
+            &csrf,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(invalid_draft.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let invalid_id = invalid_draft.headers()["x-request-id"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let invalid_payload = response_json(invalid_draft).await;
+    assert_eq!(invalid_payload["meta"]["request_id"], invalid_id);
+    assert_eq!(
+        invalid_payload["error"]["code"],
+        "request.validation_failed"
+    );
+
+    let mut embedded_overflow = draft_content.clone();
+    embedded_overflow["rich_content"]["content"].as_array_mut().unwrap().push(json!({"type":"replyGate","content":[{"type":"image","attrs":{"attachmentId":image_ids[0],"alt":"正文图片"}}]}));
+    let embedded_invalid = app
+        .clone()
+        .oneshot(json_request(
+            Method::PUT,
+            &draft_path,
+            json!({"expected_revision":1,"content":embedded_overflow}),
+            &cookies,
+            &csrf,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(embedded_invalid.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let after_invalid = response_json(
+        app.clone()
+            .oneshot(get_request_with_cookies(&draft_path, &cookies))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(after_invalid["data"]["revision"], 1);
+    assert_eq!(after_invalid["data"]["content"]["images"], json!(images));
+
+    let mut nodes = vec![json!({"type":"paragraph","content":[{"type":"text","text":"图片正文"}]})];
+    nodes.extend(
+        image_ids
+            .iter()
+            .map(|id| json!({"type":"image","attrs":{"attachmentId":id,"alt":"内嵌图片"}})),
+    );
+    let mut too_many_nodes = nodes.clone();
+    too_many_nodes.push(nodes[1].clone());
+    let invalid_topic = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/topics",
+            json!({"content":"图片正文","rich_content":{"type":"doc","content":too_many_nodes}}),
+            &cookies,
+            &csrf,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(invalid_topic.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM topic_attachments WHERE topic_id IS NOT NULL"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        0
+    );
+
+    let topic = app.clone().oneshot(json_request(Method::POST, "/api/v1/topics",
+        json!({"content":"图片正文","rich_content":{"type":"doc","content":nodes},"draft":{"id":draft_id,"revision":1}}),
+        &cookies, &csrf)).await.expect("nine-image topic must respond");
     let topic_status = topic.status();
     let topic_payload = response_json(topic).await;
     assert_eq!(topic_status, StatusCode::CREATED, "{topic_payload}");
+    assert_eq!(
+        topic_payload["data"]["rich_content"]["content"],
+        json!(nodes)
+    );
     let topic_id = topic_payload["data"]["id"]
         .as_str()
         .expect("created topic id must exist")
@@ -539,17 +643,6 @@ async fn draft_image_upload_is_private_image_only_and_expires(pool: PgPool) {
         Some(uuid::Uuid::parse_str(&topic_id).expect("topic id must be valid"))
     );
 
-    let mut image_ids = vec![uuid::Uuid::parse_str(attachment_id).unwrap()];
-    for _ in 1..9 {
-        let id = uuid::Uuid::now_v7();
-        sqlx::query("INSERT INTO topic_attachments(id,topic_id,uploader_id,storage_key,original_name,mime_type,size_bytes,sha256,status,scan_status) SELECT $1,topic_id,uploader_id,$1::text,original_name,mime_type,size_bytes,sha256,'ready','clean' FROM topic_attachments WHERE id=$2")
-            .bind(id).bind(image_ids[0]).execute(&pool).await.unwrap();
-        image_ids.push(id);
-    }
-    sqlx::query("UPDATE posts SET rich_content=$2 WHERE topic_id=$1 AND kind='topic'")
-        .bind(uuid::Uuid::parse_str(&topic_id).unwrap())
-        .bind(json!({"type":"doc","content":image_ids.iter().map(|id| json!({"type":"image","attrs":{"attachmentId":id,"alt":"image"}})).collect::<Vec<_>>()}))
-        .execute(&pool).await.unwrap();
     let image_urls = image_ids
         .iter()
         .map(|id| format!("/api/v1/attachments/{id}/thumbnail"))

@@ -338,7 +338,7 @@ describe("TopicComposer", () => {
 
     fireEvent.change(screen.getByLabelText("选择帖子图片"), { target: { files } })
     await screen.findByRole("img", { name: "third.jpg" })
-    fireEvent.keyDown(screen.getByRole("button", { name: "排序图片 1" }), { key: "ArrowRight" })
+    fireEvent.keyDown(screen.getByRole("button", { name: "前移图片 1" }), { key: "ArrowRight" })
     await user.click(screen.getByRole("button", { name: "删除图片 3" }))
     await user.type(screen.getByRole("textbox", { name: "正文" }), "带有有序图片的正文")
     await user.click(screen.getByRole("button", { name: "发布" }))
@@ -349,6 +349,153 @@ describe("TopicComposer", () => {
       { type: "image", attrs: { attachmentId: ids[1], alt: "second.jpg" } },
       { type: "image", attrs: { attachmentId: ids[0], alt: "first.jpg" } },
     ])
+  })
+
+
+  it("retains a failed slot, retries only that file and publishes the selected order", async () => {
+    const user = userEvent.setup()
+    const files = ["first.jpg", "second.jpg"].map(name => new File([name], name, { type: "image/jpeg" }))
+    const ids = ["019fc800-0000-7000-8000-000000000601", "019fc800-0000-7000-8000-000000000602"]
+    vi.mocked(uploadDraftImage).mockRejectedValueOnce(new Error("第一张网络失败")).mockImplementation(async file => ({
+      id: ids[files.indexOf(file)], originalName: file.name, mimeType: file.type, sizeBytes: file.size, expiresAt: "2099-01-01T00:00:00Z",
+    }))
+    vi.mocked(createTopic).mockResolvedValue(topic)
+    render(<TopicComposer open boards={boards} session={session} onClose={vi.fn()} onPublished={vi.fn()} />)
+    await user.type(screen.getByRole("textbox", { name: "正文" }), "失败时保留正文")
+    fireEvent.change(screen.getByLabelText("选择帖子图片"), { target: { files } })
+    await screen.findByRole("img", { name: "second.jpg" })
+    expect(screen.getByRole("button", { name: "发布" })).toBeDisabled()
+    expect(screen.getByText("第一张网络失败")).toBeInTheDocument()
+    expect(screen.getByRole("textbox", { name: "正文" })).toHaveTextContent("失败时保留正文")
+    await user.click(screen.getByRole("button", { name: "重试图片 1" }))
+    await screen.findByRole("img", { name: "first.jpg" })
+    expect(vi.mocked(uploadDraftImage).mock.calls.map(call => call[0])).toEqual([files[0], files[1], files[0]])
+    expect(screen.getAllByRole("img").map(image => image.getAttribute("alt"))).toEqual(["first.jpg", "second.jpg"])
+    await user.click(screen.getByRole("button", { name: "发布" }))
+    expect(vi.mocked(createTopic).mock.calls[0][0].richContent?.content.slice(1).map(image => image.attrs?.attachmentId)).toEqual(ids)
+  })
+
+  it("counts failed images toward nine slots and permits publishing after explicit removal", async () => {
+    const user = userEvent.setup()
+    vi.mocked(uploadDraftImage).mockRejectedValue(new Error("上传失败"))
+    vi.mocked(createTopic).mockResolvedValue(topic)
+    render(<TopicComposer open boards={boards} session={session} onClose={vi.fn()} onPublished={vi.fn()} />)
+    await user.type(screen.getByRole("textbox", { name: "正文" }), "主动移除失败图片")
+    const files = Array.from({length: 9}, (_, index) => new File(["x"], "failed-"+index+".png", {type:"image/png"}))
+    fireEvent.change(screen.getByLabelText("选择帖子图片"), {target:{files}})
+    await screen.findByRole("button", {name:"重试图片 9"})
+    fireEvent.change(screen.getByLabelText("选择帖子图片"), {target:{files:[new File(["x"], "tenth.png", {type:"image/png"})]}})
+    expect(uploadDraftImage).toHaveBeenCalledTimes(9)
+    expect(screen.getByRole("button", {name:"发布"})).toBeDisabled()
+    for (let index = 0; index < 9; index += 1) await user.click(screen.getByRole("button", {name:"删除图片 1"}))
+    await user.click(screen.getByRole("button", {name:"发布"}))
+    expect(vi.mocked(createTopic).mock.calls[0][0].richContent?.content).toHaveLength(1)
+  })
+
+  it("keeps unfinished files in the local draft and requires reselection after reopening", async () => {
+    const user = userEvent.setup()
+    const file = new File(["image"], "recover.jpg", {type:"image/jpeg"})
+    vi.mocked(uploadDraftImage).mockRejectedValueOnce(new Error("连接中断")).mockResolvedValueOnce({
+      id:"019fc800-0000-7000-8000-000000000603",originalName:file.name,mimeType:file.type,sizeBytes:file.size,expiresAt:"2099-01-01T00:00:00Z",
+    })
+    const view=render(<TopicComposer open boards={boards} session={session} onClose={vi.fn()} onPublished={vi.fn()} />)
+    await user.type(screen.getByRole("textbox", {name:"正文"}), "本机恢复正文")
+    fireEvent.change(screen.getByLabelText("选择帖子图片"), {target:{files:[file]}})
+    await screen.findByRole("button", {name:"重试图片 1"})
+    await user.click(screen.getByRole("button", {name:"关闭发布窗口"}))
+    await user.click(screen.getByRole("button", {name:"确认关闭"}))
+    const draftKey="daoyun:composer-draft:v2:"+session.user.id+":global"
+    await waitFor(()=>expect(window.localStorage.getItem(draftKey)).toContain(file.name))
+    const saved=JSON.parse(window.localStorage.getItem(draftKey)!)
+    expect(saved.images[0]).not.toHaveProperty("file")
+    view.unmount()
+    render(<TopicComposer open boards={boards} session={session} onClose={vi.fn()} onPublished={vi.fn()} />)
+    const reselect=await screen.findByRole("button", {name:"重新选择图片 1"})
+    expect(screen.getByRole("textbox", {name:"正文"})).toHaveTextContent("本机恢复正文")
+    expect(screen.getByRole("button", {name:"发布"})).toBeDisabled()
+    expect(uploadDraftImage).toHaveBeenCalledTimes(1)
+    await user.click(reselect)
+    fireEvent.change(screen.getByLabelText("重新选择失败图片"), {target:{files:[file]}})
+    await screen.findByRole("img", {name:file.name})
+    expect(screen.getByRole("button", {name:"发布"})).toBeEnabled()
+  })
+
+  it("restores button-sorted images in both local and server drafts before publishing", async () => {
+    const user=userEvent.setup()
+    const files=["one.png","two.png","three.png"].map(name=>new File([name],name,{type:"image/png"}))
+    const ids=files.map((_,index)=>"019fc800-0000-7000-8000-"+String(610+index).padStart(12,"0"))
+    vi.mocked(uploadDraftImage).mockImplementation(async file=>({id:ids[files.indexOf(file)],originalName:file.name,mimeType:file.type,sizeBytes:file.size,expiresAt:"2099-01-01T00:00:00Z"}))
+    vi.mocked(createTopic).mockResolvedValue(topic)
+    const view=render(<TopicComposer open boards={boards} session={session} onClose={vi.fn()} onPublished={vi.fn()} />)
+    await user.type(screen.getByRole("textbox", {name:"正文"}), "重排后恢复")
+    fireEvent.change(screen.getByLabelText("选择帖子图片"), {target:{files}})
+    await screen.findByRole("img", {name:"three.png"})
+    const move=screen.getByRole("button", {name:"前移图片 3"})
+    await user.click(move)
+    expect(move).toHaveFocus()
+    expect(screen.getAllByRole("img").map(image=>image.getAttribute("alt"))).toEqual(["one.png","three.png","two.png"])
+    const draftKey="daoyun:composer-draft:v2:"+session.user.id+":global"
+    await waitFor(()=>expect(JSON.parse(window.localStorage.getItem(draftKey)!).images.map((image:{attachmentId:string})=>image.attachmentId)).toEqual([ids[0],ids[2],ids[1]]))
+    view.unmount()
+    render(<TopicComposer open boards={boards} session={session} onClose={vi.fn()} onPublished={vi.fn()} />)
+    await screen.findByRole("img", {name:"two.png"})
+    expect(screen.getAllByRole("img").map(image=>image.getAttribute("alt"))).toEqual(["one.png","three.png","two.png"])
+    await user.click(screen.getByRole("button", {name:"发布"}))
+    expect(vi.mocked(saveDraft).mock.calls.at(-1)?.[2].images.map(image=>image.attachmentId)).toEqual([ids[0],ids[2],ids[1]])
+    expect(vi.mocked(createTopic).mock.calls[0][0].richContent?.content.slice(1).map(image=>image.attrs?.attachmentId)).toEqual([ids[0],ids[2],ids[1]])
+  })
+
+  it("cancels the old user's upload when the draft owner changes", async () => {
+    const file=new File(["image"],"owner.jpg",{type:"image/jpeg"})
+    let signal:AbortSignal|undefined
+    let finish:((value:Awaited<ReturnType<typeof uploadDraftImage>>)=>void)|undefined
+    vi.mocked(uploadDraftImage).mockImplementation((_file,_csrf,_progress,currentSignal)=>{signal=currentSignal;return new Promise(resolve=>{finish=resolve})})
+    const view=render(<TopicComposer open boards={boards} session={session} onClose={vi.fn()} onPublished={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText("选择帖子图片"), {target:{files:[file]}})
+    await waitFor(()=>expect(signal).toBeDefined())
+    const secondSession={...session,user:{...session.user,id:"019fc700-0000-7000-8000-000000000098"}}
+    view.rerender(<TopicComposer open boards={boards} session={secondSession} onClose={vi.fn()} onPublished={vi.fn()} />)
+    await waitFor(()=>expect(signal?.aborted).toBe(true))
+    await act(async()=>finish?.({id:"019fc800-0000-7000-8000-000000000619",originalName:file.name,mimeType:file.type,sizeBytes:file.size,expiresAt:"2099-01-01T00:00:00Z"}))
+    expect(screen.queryByRole("img",{name:file.name})).not.toBeInTheDocument()
+    expect(screen.getByText("已上传 0 / 9 张")).toBeInTheDocument()
+  })
+
+
+  it("cancels a batch without losing ready, uploading or waiting image slots", async () => {
+    const user=userEvent.setup()
+    const files=["ready.png","active.png","waiting.png"].map(name=>new File([name],name,{type:"image/png"}))
+    const ids=files.map((_,index)=>"019fc800-0000-7000-8000-"+String(620+index).padStart(12,"0"))
+    let signal:AbortSignal|undefined
+    let finish:((value:Awaited<ReturnType<typeof uploadDraftImage>>)=>void)|undefined
+    const uploaded=(file:File)=>({id:ids[files.indexOf(file)],originalName:file.name,mimeType:file.type,sizeBytes:file.size,expiresAt:"2099-01-01T00:00:00Z"})
+    vi.mocked(uploadDraftImage).mockResolvedValueOnce(uploaded(files[0])).mockImplementationOnce((_file,_csrf,_progress,currentSignal)=>{signal=currentSignal;return new Promise(resolve=>{finish=resolve})}).mockImplementation(async file=>uploaded(file))
+    render(<TopicComposer open boards={boards} session={session} onClose={vi.fn()} onPublished={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText("选择帖子图片"),{target:{files}})
+    await waitFor(()=>expect(uploadDraftImage).toHaveBeenCalledTimes(2))
+    await user.click(screen.getByRole("button",{name:"取消上传"}))
+    expect(signal?.aborted).toBe(true)
+    await screen.findByRole("button",{name:"重试图片 2"})
+    expect(screen.getByRole("button",{name:"重试图片 3"})).toBeEnabled()
+    expect(screen.getByRole("button",{name:"发布"})).toBeDisabled()
+    await act(async()=>finish?.(uploaded(files[1])))
+    expect(screen.queryByRole("img",{name:"active.png"})).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button",{name:"重试图片 2"}))
+    await screen.findByRole("img",{name:"active.png"})
+    await user.click(screen.getByRole("button",{name:"重试图片 3"}))
+    await screen.findByRole("img",{name:"waiting.png"})
+    expect(screen.getAllByRole("img").map(image=>image.getAttribute("alt"))).toEqual(files.map(file=>file.name))
+    expect(screen.getByText("已上传 3 / 9 张")).toBeInTheDocument()
+  })
+
+  it("counts restored body images when reserving upload slots", async () => {
+    const key="daoyun:composer-draft:v2:"+session.user.id+":global"
+    window.localStorage.setItem(key,JSON.stringify({version:2,title:"",boardId:boards[0].id,images:[],savedAt:new Date().toISOString(),richContent:{type:"doc",content:[{type:"paragraph",content:[{type:"text",text:"已有正文图片"}]},...Array.from({length:9},()=>({type:"image",attrs:{attachmentId:"019fc800-0000-7000-8000-000000000630",alt:"正文图片"}}))]}}))
+    render(<TopicComposer open boards={boards} session={session} onClose={vi.fn()} onPublished={vi.fn()} />)
+    await screen.findByText("已上传 9 / 9 张")
+    fireEvent.change(screen.getByLabelText("选择帖子图片"),{target:{files:[new File(["image"],"tenth.png",{type:"image/png"})]}})
+    expect(uploadDraftImage).not.toHaveBeenCalled()
+    expect(screen.getByRole("alert")).toHaveTextContent("最多上传 9 张图片")
   })
 
   it("keeps a signed-out composer open and explains the auth requirement", async () => {

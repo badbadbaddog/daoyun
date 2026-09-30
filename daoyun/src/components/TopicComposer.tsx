@@ -1,13 +1,13 @@
 import {getPollPolicy,isPollInput,type PollInput} from "../api/polls"
 import {PollEditor,newPoll} from "./PollEditor"
-import { GripVertical, ImagePlus, LoaderCircle, Send, Trash2, X } from "lucide-react"
+import { ArrowLeft, ArrowRight, ImagePlus, LoaderCircle, Send, Trash2, X } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { uploadDraftImage } from "../api/attachments"
 import type { AuthSession } from "../api/auth"
 import { createPost } from "../api/posts"
 import { TopicApiError } from "../api/topics"
-import { attachmentThumbnailUrl, plainTextDocument, sanitizeRichContent, toPlainText, type RichTextDocument } from "../editor/richContent"
+import { attachmentThumbnailUrl, plainTextDocument, sanitizeRichContent, toPlainText, type RichTextDocument, type RichTextNode } from "../editor/richContent"
 import type { Board, Topic, TopicTag } from "../types/community"
 import { extractTopicTags } from "../utils/tags"
 import { RichTextEditor } from "./RichTextEditor"
@@ -28,6 +28,11 @@ interface ComposerImage {
   attachmentId: string
   fileName: string
   expiresAt?: string
+  uploadId?: string
+  file?: File
+  status?: "pending" | "uploading" | "failed"
+  error?: string
+  percent?: number
 }
 
 interface ComposerDraft {
@@ -55,6 +60,8 @@ const DRAFT_IMAGE_FALLBACK_RETENTION_MS = 24 * 60 * 60 * 1_000
 export function TopicComposer({ open, boards, session, availableTags = [], defaultBoardId = null, onClose, onPublished }: TopicComposerProps) {
   const serverDraftRef = useRef<DraftHandle>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
+  const replacementInputRef = useRef<HTMLInputElement>(null)
+  const replacementImageRef = useRef<string | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const submittingRef = useRef(false)
   const uploadingRef = useRef(false)
@@ -79,6 +86,10 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
   const [closing, setClosing] = useState(false)
   const [closeConfirmation, setCloseConfirmation] = useState<{ returnFocus: HTMLElement | null } | null>(null)
   const uploading = uploadStatus !== null
+  const embeddedImageCount = countImages(richContent)
+  const imageCount = embeddedImageCount + images.length
+  const uploadedImageCount = embeddedImageCount + images.filter(image => image.attachmentId).length
+  const unresolvedImages = images.some(image => !image.attachmentId)
   const busy = submitting || uploading || closing
   submittingRef.current = submitting || closing
   uploadingRef.current = uploading
@@ -122,6 +133,12 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
     if (restoredDraftKey) {
       writeComposerDraft(restoredDraftKey, { title, richContent, images, boardId, poll })
     }
+    uploadControllerRef.current?.abort()
+    uploadControllerRef.current = null
+    uploadingRef.current = false
+    replacementImageRef.current = null
+    setUploadStatus(null)
+    setImageError("")
     const draft = readComposerDraft(draftKey, session?.user.id)
     const nextRichContent = draft?.richContent ?? plainTextDocument("")
     setPoll(draft?.poll ?? null)
@@ -244,9 +261,12 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
     const errors: FieldErrors = {}
     if (countCharacters(title.trim()) > 160) errors.title = ["标题最多 160 个字符"]
     if (countCharacters(content.trim()) < 1) errors.content = ["请输入正文"]
+    if (unresolvedImages) errors.images = ["请先重试或移除未完成的图片"]
+    if (imageCount > MAX_TOPIC_IMAGES) errors.rich_content = ["最多上传 9 张图片，请移除多余图片"]
     if (poll && !canCreatePoll) errors.poll = ["投票功能未启用或当前账号没有创建权限，请移除投票后发布"]
     return errors
   }
+
 
   async function addImages(files: File[]) {
     if (uploadingRef.current || files.length === 0) return
@@ -254,57 +274,89 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
       setImageError("请先登录后上传图片")
       return
     }
-
-    const remaining = MAX_TOPIC_IMAGES - images.length
+    const remaining = MAX_TOPIC_IMAGES - imageCount
     if (remaining <= 0) {
-      setImageError(`最多上传 ${MAX_TOPIC_IMAGES} 张图片`)
+      setImageError("最多上传 9 张图片")
       return
     }
-    const selectedFiles = files.slice(0, remaining)
-    setImageError(files.length > remaining ? `最多上传 ${MAX_TOPIC_IMAGES} 张图片` : "")
+    const selected = files.slice(0, remaining).map(file => ({
+      attachmentId: "",
+      fileName: file.name,
+      uploadId: createIdempotencyKey(),
+      file,
+      status: "pending" as const,
+    }))
+    setImageError(files.length > remaining ? "最多上传 9 张图片" : "")
+    setImages(current => [...current, ...selected])
+    idempotencyKeyRef.current = null
+    await uploadImages(selected)
+  }
+
+  async function uploadImages(selected: ComposerImage[]) {
+    if (uploadingRef.current || !session) return
     const controller = new AbortController()
     uploadControllerRef.current?.abort()
     uploadControllerRef.current = controller
     uploadingRef.current = true
-    setUploadStatus({ current: 1, total: selectedFiles.length, percent: 0 })
-
-    let failedMessage = ""
+    setUploadStatus({ current: 1, total: selected.length, percent: 0 })
+    const updateImage = (image: ComposerImage, patch: Partial<ComposerImage>) => {
+      setImages(current => current.map(item => imageKey(item) === imageKey(image) ? {...item, ...patch} : item))
+    }
     try {
-      for (let index = 0; index < selectedFiles.length; index += 1) {
+      for (let index = 0; index < selected.length; index += 1) {
         if (controller.signal.aborted || uploadControllerRef.current !== controller) break
-        const file = selectedFiles[index]
-        setUploadStatus({ current: index + 1, total: selectedFiles.length, percent: 0 })
+        const image = selected[index]
+        if (!image.file) continue
+        updateImage(image, {status: "uploading", error: undefined, percent: 0})
+        setUploadStatus({ current: index + 1, total: selected.length, percent: 0 })
         try {
-          const attachment = await uploadDraftImage(
-            file,
-            session.csrfToken,
-            (percent) => {
-              if (!controller.signal.aborted && uploadControllerRef.current === controller) {
-                setUploadStatus({ current: index + 1, total: selectedFiles.length, percent })
-              }
-            },
-            controller.signal,
-          )
+          const attachment = await uploadDraftImage(image.file, session.csrfToken, percent => {
+            if (!controller.signal.aborted && uploadControllerRef.current === controller) {
+              setUploadStatus({current: index + 1, total: selected.length, percent})
+              updateImage(image, {percent})
+            }
+          }, controller.signal)
           if (controller.signal.aborted || uploadControllerRef.current !== controller) break
-          setImages((current) => [...current, {
+          setImages(current => current.map(item => imageKey(item) === imageKey(image) ? {
             attachmentId: attachment.id,
-            fileName: attachment.originalName || file.name,
+            fileName: attachment.originalName || image.fileName,
             expiresAt: attachment.expiresAt,
-          }])
+            uploadId: image.uploadId,
+          } : item))
           idempotencyKeyRef.current = null
         } catch (error) {
           if (!controller.signal.aborted && uploadControllerRef.current === controller) {
-            failedMessage = error instanceof Error ? error.message : "图片上传失败，请重试"
+            updateImage(image, {status: "failed", error: error instanceof Error ? error.message : "图片上传失败，请重试"})
           }
         }
       }
-      if (failedMessage && uploadControllerRef.current === controller) setImageError(failedMessage)
     } finally {
       if (uploadControllerRef.current === controller) {
         uploadControllerRef.current = null
         uploadingRef.current = false
         setUploadStatus(null)
       }
+    }
+  }
+
+  function cancelUpload() {
+    uploadControllerRef.current?.abort()
+    uploadControllerRef.current = null
+    uploadingRef.current = false
+    setUploadStatus(null)
+    setImages(current => current.map(image => image.attachmentId ? image : {
+      ...image, status: "failed", error: "上传已取消，可重试或移除",
+    }))
+  }
+
+  function retryImage(image: ComposerImage) {
+    if (busy) return
+    setImageError("")
+    if (image.file) {
+      void uploadImages([image])
+    } else {
+      replacementImageRef.current = imageKey(image)
+      replacementInputRef.current?.click()
     }
   }
 
@@ -387,8 +439,8 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
           </button>
         </div>
         <form className="dialog-body" aria-busy={busy} onSubmit={(event) => { event.preventDefault(); void submit() }}>
-          {session && <DraftShelf key={draftKey} ref={serverDraftRef} ownerId={session.user.id} csrfToken={session.csrfToken} storageKey={draftKey} ready={restoredDraftKey === draftKey} busy={busy}
-            content={{title,board_id:boardId || null,rich_content:richContent,images:images.map(({attachmentId,fileName})=>({attachmentId,fileName})),poll}}
+          {session && <DraftShelf key={draftKey} ref={serverDraftRef} ownerId={session.user.id} csrfToken={session.csrfToken} storageKey={draftKey} ready={restoredDraftKey === draftKey} busy={busy || unresolvedImages}
+            content={{title,board_id:boardId || null,rich_content:richContent,images:images.filter(image=>image.attachmentId).map(({attachmentId,fileName})=>({attachmentId,fileName})),poll}}
             onRestore={draft=>{setPoll(isPollInput(draft.poll)?draft.poll:null);setTitle(draft.title);setRichContent(draft.rich_content);setContent(toPlainText(draft.rich_content));setImages(draft.images);setBoardId(draft.board_id??"");setFieldErrors({});setFormError("");idempotencyKeyRef.current=null;writeComposerDraft(draftKey,{title:draft.title,richContent:draft.rich_content,images:draft.images,boardId:draft.board_id??"",poll:draft.poll})}} />}
           {boards.length > 1 && (
             <label>
@@ -430,7 +482,8 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
           <div className="composer-image-field">
             <div className="composer-image-field__heading">
               <span className="composer-field__label">图片</span>
-              <span>已上传 {images.length} / {MAX_TOPIC_IMAGES} 张</span>
+              <span>已上传 {uploadedImageCount} / {MAX_TOPIC_IMAGES} 张</span>
+              {uploading && <button className="secondary-button composer-image-cancel" type="button" onClick={cancelUpload}>取消上传</button>}
             </div>
             <div
               className="composer-image-dropzone"
@@ -442,15 +495,15 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
               }}
             >
               {images.length > 0 && (
-                <ol className="composer-image-grid" aria-label="已上传图片">
+                <ol className="composer-image-grid" aria-label="帖子图片">
                   {images.map((image, index) => (
                     <li
-                      className={draggedImageId === image.attachmentId ? "composer-image-item composer-image-item--dragging" : "composer-image-item"}
-                      key={image.attachmentId}
+                      className={draggedImageId === imageKey(image) ? "composer-image-item composer-image-item--dragging" : "composer-image-item"}
+                      key={imageKey(image)}
                       draggable={!busy}
                       onDragStart={(event) => {
-                        setDraggedImageId(image.attachmentId)
-                        event.dataTransfer.setData("text/plain", image.attachmentId)
+                        setDraggedImageId(imageKey(image))
+                        event.dataTransfer.setData("text/plain", imageKey(image))
                       }}
                       onDragEnd={() => setDraggedImageId(null)}
                       onDragOver={(event) => event.preventDefault()}
@@ -463,47 +516,63 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
                           return
                         }
                         const sourceId = event.dataTransfer.getData("text/plain") || draggedImageId
-                        const sourceIndex = images.findIndex((item) => item.attachmentId === sourceId)
+                        const sourceIndex = images.findIndex((item) => imageKey(item) === sourceId)
                         moveImage(sourceIndex, index)
                         setDraggedImageId(null)
                       }}
                     >
-                      <img src={attachmentThumbnailUrl(image.attachmentId) ?? ""} alt={image.fileName} />
-                      <span className="composer-image-item__number">{index + 1}</span>
-                      {index === 0 && <span className="composer-image-item__primary">主图</span>}
-                      <button
-                        className="composer-image-item__sort"
-                        type="button"
-                        disabled={busy}
-                        aria-label={`排序图片 ${index + 1}`}
-                        title="拖动排序，或使用方向键"
-                        onKeyDown={(event) => {
-                          if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-                            event.preventDefault()
-                            moveImage(index, index - 1)
-                          } else if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-                            event.preventDefault()
-                            moveImage(index, index + 1)
-                          }
-                        }}
-                      >
-                        <GripVertical size={15} aria-hidden="true" />
-                      </button>
-                      <button
-                        className="composer-image-item__delete"
-                        type="button"
-                        disabled={busy}
-                        aria-label={`删除图片 ${index + 1}`}
-                        title="删除图片"
-                        onClick={() => removeImage(index)}
-                      >
-                        <Trash2 size={14} aria-hidden="true" />
-                      </button>
+
+                      <div className="composer-image-item__preview">
+                        {image.attachmentId
+                          ? <img src={attachmentThumbnailUrl(image.attachmentId) ?? ""} alt={image.fileName} />
+                          : <div className="composer-image-item__placeholder">
+                            <ImagePlus size={22} aria-hidden="true" />
+                            <span>{image.fileName}</span>
+                          </div>}
+                        <span className="composer-image-item__number">{index + 1}</span>
+                        {index === 0 && <span className="composer-image-item__primary">主图</span>}
+                      </div>
+                      <div className="composer-image-item__status">
+                        {image.status === "failed" ? <p role="alert">{image.error}</p> : <span role="status">
+                          {image.status === "pending" ? "等待上传" : image.status === "uploading"
+                            ? image.percent === 99 ? "图片已上传，正在处理" : `上传中 ${image.percent ?? 0}%`
+                            : "上传成功"}
+                        </span>}
+                        {image.status === "failed" && <button type="button" disabled={busy}
+                          aria-label={`${image.file ? "重试" : "重新选择"}图片 ${index + 1}`}
+                          onClick={() => retryImage(image)}>{image.file ? "重试" : "重新选择"}</button>}
+                      </div>
+                      <div className="composer-image-item__actions">
+                        {([-1, 1] as const).map(direction => <button
+                          key={direction}
+                          className="composer-image-item__sort"
+                          type="button"
+                          disabled={busy}
+                          aria-disabled={direction === -1 ? index === 0 : index === images.length - 1}
+                          aria-label={`${direction === -1 ? "前移" : "后移"}图片 ${index + 1}`}
+                          title={direction === -1 ? "前移图片，也可使用方向键" : "后移图片，也可使用方向键"}
+                          onClick={() => moveImage(index, index + direction)}
+                          onKeyDown={event => {
+                            if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+                              event.preventDefault()
+                              moveImage(index, index - 1)
+                            } else if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+                              event.preventDefault()
+                              moveImage(index, index + 1)
+                            }
+                          }}
+                        >{direction === -1 ? <ArrowLeft size={16} aria-hidden="true" /> : <ArrowRight size={16} aria-hidden="true" />}</button>)}
+                        <button className="composer-image-item__delete" type="button" disabled={busy}
+                          aria-label={`删除图片 ${index + 1}`} title="删除图片" onClick={() => removeImage(index)}>
+                          <Trash2 size={16} aria-hidden="true" />
+                        </button>
+                      </div>
+
                     </li>
                   ))}
                 </ol>
               )}
-              {images.length < MAX_TOPIC_IMAGES && (
+              {imageCount < MAX_TOPIC_IMAGES && (
                 <button
                   className="composer-image-upload"
                   type="button"
@@ -530,10 +599,26 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
                 }}
               />
             </div>
+
+              <input ref={replacementInputRef} className="visually-hidden" type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp" aria-label="重新选择失败图片" disabled={busy || !session}
+                onChange={event => {
+                  const file = event.target.files?.[0]
+                  const image = images.find(item => imageKey(item) === replacementImageRef.current)
+                  event.target.value = ""
+                  replacementImageRef.current = null
+                  if (!file || !image || busy) return
+                  const replacement = {...image, file, fileName: file.name}
+                  setImages(current => current.map(item => imageKey(item) === imageKey(image) ? replacement : item))
+                  idempotencyKeyRef.current = null
+                  void uploadImages([replacement])
+                }} />
+
             <div className="composer-image-field__help">
-              <span>支持 JPG、PNG、GIF、WebP；拖动缩略图可排序</span>
+              <span>支持 JPG、PNG、GIF、WebP；拖动或用前移/后移按钮排序</span>
               <span>第一张为详情页主图，首页展示前 3 张</span>
             </div>
+            {unresolvedImages && <p className="composer-field-error" role="status">未完成图片仅保存在本机；请重试或移除后发布并同步草稿。</p>}
             {imageError && <p className="composer-field-error" role="alert">{imageError}</p>}
           </div>
 
@@ -561,7 +646,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
           {formError && <p className="composer-form-error" role="alert">{formError}</p>}
           <div className="dialog-toolbar">
             <span className="dialog-toolbar__hint">本地草稿自动保存 · 正文输入 #标签 · 最多 9 张图片</span>
-            <button className="primary-button" type="submit" disabled={busy}>
+            <button className="primary-button" type="submit" disabled={busy || unresolvedImages}>
               {submitting ? <LoaderCircle className="topic-loading__spinner" size={16} aria-hidden="true" /> : <Send size={16} aria-hidden="true" />}
               {closing ? "正在保存" : submitting ? "正在发布" : uploading ? "正在上传" : "发布"}
             </button>
@@ -577,7 +662,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
         onConfirm={() => {
           setCloseConfirmation(null)
           setClosing(true)
-          void (serverDraftRef.current?.flush() ?? Promise.resolve()).catch(() => undefined).finally(() => {
+          void (unresolvedImages ? Promise.resolve() : serverDraftRef.current?.flush() ?? Promise.resolve()).catch(() => undefined).finally(() => {
             performClose()
             setClosing(false)
           })
@@ -599,6 +684,14 @@ const FOCUSABLE_SELECTOR = [
   "[contenteditable='true']",
   "[tabindex]:not([tabindex='-1'])",
 ].join(",")
+
+function imageKey(image: ComposerImage): string {
+  return image.uploadId ?? image.attachmentId
+}
+
+function countImages(node: RichTextNode): number {
+  return (node.type === "image" ? 1 : 0) + (node.content?.reduce((count, child) => count + countImages(child), 0) ?? 0)
+}
 
 function withComposerImages(document: RichTextDocument, images: ComposerImage[]): RichTextDocument {
   return {
@@ -625,9 +718,12 @@ function readComposerDraft(key: string, ownerId?: string): ComposerDraft | null 
     const fallbackImagesFresh = Number.isFinite(Date.parse(savedAt))
       && Date.now() - Date.parse(savedAt) < DRAFT_IMAGE_FALLBACK_RETENTION_MS
     const images = Array.isArray(record.images)
-      ? record.images.flatMap((image) => {
+      ? record.images.flatMap<ComposerImage>((image) => {
         if (!image || typeof image !== "object") return []
-        const { attachmentId, fileName, expiresAt } = image as Record<string, unknown>
+        const { attachmentId, fileName, expiresAt, uploadId, status } = image as Record<string, unknown>
+        if (typeof uploadId === "string" && !attachmentId && (status === "pending" || status === "uploading" || status === "failed")) {
+          return [{attachmentId: "", uploadId, fileName: typeof fileName === "string" ? fileName.slice(0, 300) : "未完成图片", status: "failed" as const, error: "请重新选择图片后重试"}]
+        }
         if (typeof attachmentId !== "string" || !attachmentThumbnailUrl(attachmentId)) return []
         const hasFreshExpiry = typeof expiresAt === "string"
           && Number.isFinite(Date.parse(expiresAt))
@@ -666,6 +762,7 @@ function writeComposerDraft(
     window.localStorage.setItem(key, JSON.stringify({
       version: 2,
       ...value,
+      images: value.images.map(({attachmentId, fileName, expiresAt, uploadId, status}) => ({attachmentId, fileName, expiresAt, uploadId, status})),
       savedAt: new Date().toISOString(),
     } satisfies ComposerDraft))
   } catch {

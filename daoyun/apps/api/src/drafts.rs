@@ -120,7 +120,9 @@ pub(crate) async fn save(
         }
     })?;
     if input.content.title.chars().count() > 160
-        || input.content.images.len() > 20
+        || input.content.images.len()
+            + crate::rich_content::image_node_count(&input.content.rich_content)
+            > crate::rich_content::MAX_IMAGES
         || input
             .content
             .images

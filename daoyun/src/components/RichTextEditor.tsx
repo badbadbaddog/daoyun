@@ -208,8 +208,8 @@ export function RichTextEditor({
     editor.state.doc.descendants((node) => {
       if (node.type.name === "image") imageCount += 1
     })
-    if (imageCount >= 20) {
-      setImageUpload({ progress: null, error: "每篇内容最多插入 20 张图片" })
+    if (imageCount >= 9) {
+      setImageUpload({ progress: null, error: "每篇内容最多插入 9 张图片" })
       return
     }
     setImageUpload({ progress: null, error: "" })
