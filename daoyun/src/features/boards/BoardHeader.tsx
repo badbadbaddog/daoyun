@@ -17,7 +17,6 @@ const boardIcons: Record<BoardIcon, typeof MessageSquareText> = {
 }
 
 export function BoardHeader({ board, onCreateTopic }: BoardHeaderProps) {
-  const parentBoard = board.breadcrumb.length > 1 ? board.breadcrumb.at(-2) : null
   const Icon = boardIcons[board.icon] ?? MessageSquareText
 
   return (
@@ -32,8 +31,7 @@ export function BoardHeader({ board, onCreateTopic }: BoardHeaderProps) {
             <h1>{board.name}</h1>
             {board.description && <p className="board-header__description">{board.description}</p>}
             <div className="board-header__meta" aria-label="版块参与信息">
-              {parentBoard && <span>上级：<a href={`#board/${parentBoard.slug}`}>{parentBoard.name}</a></span>}
-              <span>{board.viewer.canReply ? "欢迎参与讨论" : "当前仅开放浏览"}</span>
+              <span>{board.viewer.canReply ? (board.viewer.canCreateTopic ? "可发帖与回复" : "当前账号可回复，不能发帖") : "当前账号仅可浏览"}</span>
               <span>{board.viewer.canUploadAttachment ? "支持附件" : "仅限文本与链接"}</span>
             </div>
           </div>
@@ -41,12 +39,12 @@ export function BoardHeader({ board, onCreateTopic }: BoardHeaderProps) {
         {board.viewer.canCreateTopic && onCreateTopic && (
           <button className="primary-button" type="button" onClick={() => onCreateTopic(board.id)}>
             <PenLine size={16} aria-hidden="true" />
-            发主题
+            发帖
           </button>
         )}
       </div>
       <div className="board-header__stats" role="region" aria-label="版块数据">
-        <span><strong>{formatBoardCount(board.topicCount)}</strong><small><MessageSquareText size={13} aria-hidden="true" />主题</small></span>
+        <span><strong>{formatBoardCount(board.topicCount)}</strong><small><MessageSquareText size={13} aria-hidden="true" />帖子</small></span>
         <span><strong>{formatBoardCount(board.children.length)}</strong><small><Layers3 size={13} aria-hidden="true" />子版块</small></span>
       </div>
     </header>

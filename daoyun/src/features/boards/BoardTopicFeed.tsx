@@ -54,17 +54,28 @@ export function BoardTopicFeed(props: BoardTopicFeedProps) {
 
   return (
     <div className="board-topic-feed">
+      {props.children}
+      {props.state === "ready" && pinnedTopics.length > 0 && (
+        <section className="board-pinned-topics" aria-labelledby="board-pinned-title">
+          <h2 id="board-pinned-title">置顶</h2>
+          <div className="board-pinned-topic-list" role="feed" aria-label="置顶主题列表">
+            {pinnedTopics.map(renderTopic)}
+          </div>
+        </section>
+      )}
+
       <div className="board-feed-controls">
-        <h2 id="board-topics-title">主题</h2>
+        <h2 id="board-topics-title">帖子</h2>
+        <span className="board-feed-scope">仅显示本版帖子</span>
         <label className="board-search">
           <Search size={16} aria-hidden="true" />
-          <span className="sr-only">搜索本社区</span>
+          <span className="sr-only">搜索本版</span>
           <input
             id="board-search-input"
             type="search"
-            aria-label="搜索本社区"
+            aria-label="搜索本版"
             value={props.searchQuery}
-            placeholder="搜索社区内容"
+            placeholder="搜索本版帖子"
             onChange={(event) => props.onSearchChange(event.target.value)}
           />
         </label>
@@ -81,15 +92,6 @@ export function BoardTopicFeed(props: BoardTopicFeedProps) {
           </button>
         ))}
       </div>
-      {props.state === "ready" && pinnedTopics.length > 0 && (
-        <section className="board-pinned-topics" aria-labelledby="board-pinned-title">
-          <h2 id="board-pinned-title">置顶</h2>
-          <div className="board-pinned-topic-list" role="feed" aria-label="置顶主题列表">
-            {pinnedTopics.map(renderTopic)}
-          </div>
-        </section>
-      )}
-      {props.children}
       {props.state === "loading" ? (
         <div className="topic-loading" role="status"><LoaderCircle className="topic-loading__spinner" size={22} />正在加载主题</div>
       ) : props.state === "error" ? (
@@ -100,19 +102,18 @@ export function BoardTopicFeed(props: BoardTopicFeedProps) {
           <button className="secondary-button" type="button" onClick={props.onRetry}><RefreshCw size={15} />重试</button>
         </div>
       ) : props.topics.length === 0 ? (
-        <div className="empty-state" role="status"><FileSearch size={28} /><h3>这个社区还没有主题</h3><p>发布第一个主题，开始讨论。</p></div>
+        <div className="empty-state" role="status"><FileSearch size={28} /><h3>这个版块还没有帖子</h3><p>有发布权限的会员可以在本版发帖。</p></div>
       ) : (
         <section className="board-topic-section" aria-labelledby="board-topic-list-title">
           <div className="board-topic-section__heading">
-            <h2 id="board-topic-list-title">主题</h2>
-            <span>{regularTopics.length} 个主题</span>
+            <h2 id="board-topic-list-title">帖子</h2>
+            <span>已加载 {regularTopics.length} 个帖子</span>
           </div>
           <div id="board-topic-columns" className="board-topic-columns" aria-label="主题列表列名">
-            <span>主题</span>
-            <span>作者</span>
-            <span>回复</span>
+            <span>帖子</span>
             <span>点赞</span>
-            <span>浏览</span>
+            <span>回复</span>
+            <span>收藏</span>
           </div>
           {regularTopics.length > 0 ? (
             <div className="topic-list board-topic-list" role="feed" aria-label="主题列表" aria-describedby="board-topic-columns">

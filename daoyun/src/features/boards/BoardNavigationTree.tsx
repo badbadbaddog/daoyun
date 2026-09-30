@@ -9,6 +9,9 @@ interface BoardNavigationTreeProps {
   nodes: BoardTreeNode[]
   label?: string
   expandAll?: boolean
+  showPaths?: boolean
+  expandedIds?: string[]
+  onExpandedChange?: (ids: string[]) => void
 }
 
 const boardIcons: Record<BoardIcon, typeof MessageSquareText> = {
@@ -18,7 +21,7 @@ const boardIcons: Record<BoardIcon, typeof MessageSquareText> = {
   messages: MessageSquareText,
 }
 
-export function BoardNavigationTree({ nodes, label, expandAll = false }: BoardNavigationTreeProps) {
+export function BoardNavigationTree({ nodes, label, expandAll = false, showPaths = false, expandedIds: savedExpandedIds, onExpandedChange }: BoardNavigationTreeProps) {
   const expandableIds = useMemo(() => collectExpandableIds(nodes), [nodes])
   const defaultExpandedIds = useMemo(() => {
     if (expandAll) return expandableIds
@@ -39,26 +42,26 @@ export function BoardNavigationTree({ nodes, label, expandAll = false }: BoardNa
     })
   }, [defaultExpandedIds, expandAll, expandableIds])
 
+  const activeExpandedIds = savedExpandedIds ? new Set(savedExpandedIds) : expandedIds
   function toggleGroup(boardId: string) {
-    setExpandedIds((current) => {
-      const next = new Set(current)
-      if (next.has(boardId)) next.delete(boardId)
-      else next.add(boardId)
-      return next
-    })
+    const next = new Set(activeExpandedIds)
+    if (next.has(boardId)) next.delete(boardId)
+    else next.add(boardId)
+    setExpandedIds(next)
+    onExpandedChange?.([...next])
   }
 
   return (
     <ul className="board-navigation-tree board-navigation-tree--root" aria-label={label}>
       {nodes.map((node) => {
         const hasChildren = node.children.length > 0
-        const expanded = hasChildren && expandedIds.has(node.board.id)
+        const expanded = hasChildren && activeExpandedIds.has(node.board.id)
         const regionId = `board-group-${node.board.id}`
 
         return (
           <li className="board-directory-group" key={node.board.id}>
             <div className="board-directory-group__header">
-              <BoardDirectoryLink node={node} depth={0} group />
+              <BoardDirectoryLink node={node} depth={0} group path={showPaths ? [node.board.name] : undefined} />
               {hasChildren ? (
                 <button
                   className="board-directory-group__toggle"
@@ -80,7 +83,8 @@ export function BoardNavigationTree({ nodes, label, expandAll = false }: BoardNa
                     key={child.board.id}
                     node={child}
                     depth={1}
-                    expandedIds={expandedIds}
+                    expandedIds={activeExpandedIds}
+                    path={showPaths ? [node.board.name, child.board.name] : undefined}
                     onToggle={toggleGroup}
                   />
                 ))}
@@ -96,22 +100,24 @@ export function BoardNavigationTree({ nodes, label, expandAll = false }: BoardNa
 function BoardTreeItem({
   node,
   depth,
-  expandedIds,
+  expandedIds: activeExpandedIds,
+  path,
   onToggle,
 }: {
   node: BoardTreeNode
   depth: number
   expandedIds: Set<string>
+  path?: string[]
   onToggle: (boardId: string) => void
 }) {
   const hasChildren = node.children.length > 0
-  const expanded = hasChildren && expandedIds.has(node.board.id)
+  const expanded = hasChildren && activeExpandedIds.has(node.board.id)
   const regionId = `board-group-${node.board.id}`
 
   return (
     <li>
       <div className={hasChildren ? "board-directory-nested-group__header" : undefined}>
-        <BoardDirectoryLink node={node} depth={depth} showArrow={!hasChildren} />
+        <BoardDirectoryLink node={node} depth={depth} showArrow={!hasChildren} path={path} />
         {hasChildren && (
           <button
             className="board-directory-group__toggle"
@@ -133,7 +139,8 @@ function BoardTreeItem({
               key={child.board.id}
               node={child}
               depth={depth + 1}
-              expandedIds={expandedIds}
+              expandedIds={activeExpandedIds}
+              path={path ? [...path, child.board.name] : undefined}
               onToggle={onToggle}
             />
           ))}
@@ -158,11 +165,13 @@ function BoardDirectoryLink({
   depth,
   group = false,
   showArrow = true,
+  path,
 }: {
   node: BoardTreeNode
   depth: number
   group?: boolean
   showArrow?: boolean
+  path?: string[]
 }) {
   const Icon = boardIcons[node.board.icon] ?? MessageSquareText
 
@@ -173,6 +182,7 @@ function BoardDirectoryLink({
       </span>
       <span className="board-directory-copy">
         <strong>{node.board.name}</strong>
+        {path && <small className="board-directory-path">{path.join(" / ")}</small>}
         {node.board.description && <small>{node.board.description}</small>}
       </span>
       <span className="board-directory-meta">

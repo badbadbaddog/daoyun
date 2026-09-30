@@ -142,6 +142,7 @@ describe("RightSidebar board directory", () => {
 
     expect(screen.getByRole("heading", { name: "热门版块" })).toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "推荐话题" })).toBeInTheDocument()
+    expect(screen.queryByText(/浏览/)).not.toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "社区数据" })).toBeInTheDocument()
     expect(screen.getByRole("link", { name: /社区广场/ })).toHaveAttribute("href", "#board/general")
     expect(screen.getByRole("button", { name: "打开话题：欢迎来到社区" })).toBeInTheDocument()
@@ -200,6 +201,7 @@ describe("RightSidebar board detail", () => {
     expect(screen.getByRole("heading", { name: "技术分享" })).toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "版块规则 · 发帖须知" })).toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "本版热议" })).toBeInTheDocument()
+    expect(document.querySelector(".right-sidebar--board-detail .lucide-eye")).toBeNull()
     expect(screen.getByText("发布时暂不支持上传附件")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "欢迎来到技术社区" })).toHaveAttribute(
       "href",

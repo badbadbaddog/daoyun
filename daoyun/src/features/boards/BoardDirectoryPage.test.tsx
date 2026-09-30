@@ -92,7 +92,7 @@ describe("BoardDirectoryPage", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "社区版块", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "版块", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "当前位置" })).toContainElement(
       screen.getByRole("link", { name: "首页" }),
     );
@@ -102,18 +102,18 @@ describe("BoardDirectoryPage", () => {
     const directory = screen.getByRole("region", { name: "版块目录" });
     expect(within(directory).getByRole("list", { name: "全部版块列表" })).toBeInTheDocument();
     expect(within(directory).getByRole("button", { name: "收起父版块" })).toHaveAttribute("aria-expanded", "true");
-    const parentLink = within(directory).getByRole("link", { name: /父版块/ });
+    const parentLink = within(directory).getByRole("link", { name: /^父版块/ });
     expect(parentLink).toHaveAttribute("href", "#board/parent");
     expect(parentLink).toHaveTextContent("1 个子版块");
     expect(parentLink).toHaveTextContent("2 个主题");
-    expect(within(directory).getByRole("link", { name: /^子版块 子版块介绍/ })).toHaveAttribute(
+    expect(within(directory).getByRole("link", { name: /^子版块/ })).toHaveAttribute(
       "href",
       "#board/child",
     );
 
     fireEvent.click(within(directory).getByRole("button", { name: "收起父版块" }));
     expect(within(directory).getByRole("button", { name: "展开父版块" })).toHaveAttribute("aria-expanded", "false");
-    expect(within(directory).queryByRole("link", { name: /^子版块 子版块介绍/ })).not.toBeInTheDocument();
+    expect(within(directory).queryByRole("link", { name: /^子版块/ })).not.toBeInTheDocument();
   });
 
   it("keeps the main surface focused on the complete directory", () => {
@@ -129,8 +129,8 @@ describe("BoardDirectoryPage", () => {
     expect(screen.queryByRole("region", { name: "活跃版块" })).not.toBeInTheDocument();
     const directory = screen.getByRole("region", { name: "版块目录" });
     expect(within(directory).getByRole("link", { name: /产品设计/ })).toHaveAttribute("href", "#board/design");
-    expect(within(directory).getByRole("link", { name: /父版块/ })).toHaveAttribute("href", "#board/parent");
-    expect(within(directory).getByRole("link", { name: /^子版块 子版块介绍/ })).toHaveAttribute("href", "#board/child");
+    expect(within(directory).getByRole("link", { name: /^父版块/ })).toHaveAttribute("href", "#board/parent");
+    expect(within(directory).getByRole("link", { name: /^子版块/ })).toHaveAttribute("href", "#board/child");
   });
 
   it("filters communities locally while preserving a matching child's parent context", () => {
@@ -143,22 +143,22 @@ describe("BoardDirectoryPage", () => {
       />,
     );
 
-    fireEvent.change(screen.getByRole("searchbox", { name: "搜索社区" }), {
+    fireEvent.change(screen.getByRole("searchbox", { name: "搜索版块" }), {
       target: { value: "子版块" },
     });
 
     expect(screen.getByText("1 个匹配版块")).toBeInTheDocument();
     const results = screen.getByRole("list", { name: "版块搜索结果" });
     expect(results).toBeInTheDocument();
-    expect(within(results).getByRole("link", { name: /父版块/ })).toBeInTheDocument();
-    expect(within(results).getByRole("link", { name: /^子版块 子版块介绍/ })).toBeInTheDocument();
+    expect(within(results).getByRole("link", { name: /^父版块/ })).toBeInTheDocument();
+    expect(within(results).getByRole("link", { name: /^子版块/ })).toBeInTheDocument();
     expect(within(results).queryByRole("link", { name: /产品设计/ })).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByRole("searchbox", { name: "搜索社区" }), {
+    fireEvent.change(screen.getByRole("searchbox", { name: "搜索版块" }), {
       target: { value: "不存在的社区" },
     });
-    expect(screen.getByText("没有找到相关社区")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "清除社区搜索" }));
+    expect(screen.getByText("没有找到相关版块")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "清除版块搜索" }));
     expect(within(screen.getByRole("region", { name: "版块目录" })).getByRole("link", { name: /产品设计/ })).toBeInTheDocument();
   });
 
@@ -173,7 +173,7 @@ describe("BoardDirectoryPage", () => {
     );
 
     expect(screen.getByRole("button", { name: "收起父版块" })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("link", { name: /^子版块 子版块介绍/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^子版块/ })).toBeInTheDocument();
   });
 
   it("resets expansion to the first available group when refreshed data changes", () => {
@@ -273,7 +273,7 @@ describe("BoardPage", () => {
     expect(screen.getByRole("link", { name: "浏览全部版块" })).toHaveAttribute("href", "#boards");
     expect(screen.getByLabelText("父版块社区概览")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "父版块" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "版块数据" })).toHaveTextContent("2主题");
+    expect(screen.getByRole("region", { name: "版块数据" })).toHaveTextContent("2帖子");
     expect(screen.getByRole("region", { name: "版块数据" })).toHaveTextContent("1子版块");
     const childNavigation = screen.getByRole("region", { name: "子版块导航" });
     const childLink = within(childNavigation).getByRole("link", { name: "子版块" });
@@ -293,12 +293,12 @@ describe("BoardPage", () => {
     expect(screen.getByRole("button", { name: "最新" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByRole("button", { name: "热门" }));
     expect(onSortChange).toHaveBeenCalledWith("hot");
-    expect(screen.getByText("这个社区还没有主题")).toBeInTheDocument();
-    fireEvent.change(screen.getByRole("searchbox", { name: "搜索本社区" }), {
+    expect(screen.getByText("这个版块还没有帖子")).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("searchbox", { name: "搜索本版" }), {
       target: { value: "Rust" },
     });
     expect(onSearchChange).toHaveBeenCalledWith("Rust");
-    fireEvent.click(screen.getByRole("button", { name: "发主题" }));
+    fireEvent.click(screen.getByRole("button", { name: "发帖" }));
     expect(onCreateTopic).toHaveBeenCalledWith(detail.id);
   });
 
@@ -323,15 +323,15 @@ describe("BoardPage", () => {
     expect(container.querySelector(".topic-context-meta"))
       .toContainElement(screen.getByRole("link", { name: boardTopic.board }));
     expect(screen.getByLabelText("主题列表列名")).not.toHaveClass("sr-only");
-    expect(within(screen.getByLabelText("主题列表列名")).getAllByText(/主题|作者|回复|点赞|浏览/))
-      .toHaveLength(5);
+    expect(within(screen.getByLabelText("主题列表列名")).getAllByText(/帖子|点赞|回复|收藏/))
+      .toHaveLength(4);
     expect(screen.getByRole("feed", { name: "主题列表" })).toHaveAttribute("aria-describedby", "board-topic-columns");
     expect(container.querySelector(".board-header__icon .lucide-message-square-text")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("heading", { name: boardTopic.title }));
     expect(onOpenTopic).toHaveBeenCalledWith(boardTopic.id);
   });
 
-  it("places pinned topics before child boards and regular topics", () => {
+  it("places child boards before pins, sort controls and regular posts", () => {
     const pinnedTopic = { ...boardTopic, id: "pinned-topic", title: "置顶说明", pinned: true };
     const regularTopic = { ...boardTopic, id: "regular-topic", title: "普通讨论" };
     const { container } = render(
@@ -348,9 +348,9 @@ describe("BoardPage", () => {
     const children = screen.getByRole("region", { name: "子版块导航" });
     const topics = screen.getByRole("feed", { name: "主题列表" });
 
-    expect(tabs.compareDocumentPosition(pinned) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(pinned.compareDocumentPosition(children) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(children.compareDocumentPosition(topics) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(children.compareDocumentPosition(pinned) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(pinned.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tabs.compareDocumentPosition(topics) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(pinned).getByRole("heading", { name: "置顶说明" })).toBeInTheDocument();
     expect(within(topics).getByRole("heading", { name: "普通讨论" })).toBeInTheDocument();
     expect(within(pinned).getByLabelText("置顶主题")).toBeInTheDocument();
@@ -367,4 +367,48 @@ describe("BoardPage", () => {
     rerender(<BoardPage slug="missing" state={{ kind: "notFound" }} />);
     expect(screen.getByText("社区不存在")).toBeInTheDocument();
   });
+});
+
+// 搜索路径和无标题行为必须来自可见数据，不能把展示回退持久化为标题。
+it("distinguishes identically named descendants by their full visible paths", () => {
+  const third = { ...child, id: "019fc610-0000-7000-8000-000000000031", slug: "css", name: "CSS", parentId: child.id, depth: 2 };
+  const other = { ...third, id: "019fc610-0000-7000-8000-000000000032", slug: "design-css", parentId: unrelated.id, depth: 1 };
+  render(<BoardDirectoryPage boards={[parent, child, unrelated, third, other]} status="ready" error={null} onRetry={vi.fn()} />);
+  fireEvent.change(screen.getByRole("searchbox", { name: "搜索版块" }), { target: { value: "CSS" } });
+  expect(screen.getByText("父版块 / 子版块 / CSS")).toBeInTheDocument();
+  expect(screen.getByText("产品设计 / CSS")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /^CSS.*父版块/ })).toHaveAttribute("href", "#board/css");
+  expect(screen.getByRole("link", { name: /^CSS.*产品设计/ })).toHaveAttribute("href", "#board/design-css");
+});
+
+it.each(["loading", "error", "ready"] as const)("keeps directory %s distinct", status => {
+  const retry = vi.fn();
+  render(<BoardDirectoryPage boards={[]} status={status} error="请求失败" onRetry={retry} />);
+  if (status === "loading") expect(screen.getByRole("status")).toHaveTextContent("正在加载版块");
+  if (status === "error") {
+    expect(screen.getByRole("alert")).toHaveTextContent("请求失败");
+    fireEvent.click(screen.getByRole("button", { name: "重试加载版块" }));
+    expect(retry).toHaveBeenCalledOnce();
+  }
+  if (status === "ready") expect(screen.getByRole("status")).toHaveTextContent("还没有可见版块");
+});
+
+it("keeps featured posts separate from board pins and gives image-only rows a destination", () => {
+  render(<BoardPage slug="parent" state={{ kind: "ready", board: detail }} topics={[
+    { ...boardTopic, id: "featured", title: "全站精华", featured: true, pinned: false },
+    { ...boardTopic, id: "pin", title: "版块公告", pinned: true },
+    { ...boardTopic, id: "image-only", title: "", excerpt: "" },
+  ]} />);
+  const pinned = screen.getByRole("feed", { name: "置顶主题列表" });
+  expect(within(pinned).getByText("版块公告")).toBeInTheDocument();
+  expect(within(pinned).queryByText("全站精华")).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "查看图片帖" })).toHaveAttribute("href", "#topic/image-only");
+  expect(screen.queryByTitle("32 次浏览")).not.toBeInTheDocument();
+  expect(screen.getByText("仅显示本版帖子")).toBeInTheDocument();
+});
+
+it("shows read-only capabilities without an executable publish action", () => {
+  render(<BoardPage slug="parent" state={{ kind: "ready", board: { ...detail, viewer: { ...detail.viewer, canCreateTopic: false, canReply: false } } }} onCreateTopic={vi.fn()} />);
+  expect(screen.queryByRole("button", { name: "发帖" })).not.toBeInTheDocument();
+  expect(screen.getByText("当前账号仅可浏览")).toBeInTheDocument();
 });

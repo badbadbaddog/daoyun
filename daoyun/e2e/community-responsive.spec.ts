@@ -153,17 +153,17 @@ for (const width of acceptanceWidths) {
 
     await page.goto("/#boards")
     expect(await page.evaluate(() => window.scrollY)).toBe(0)
-    await expect(page.getByRole("heading", { name: "社区版块", level: 1 })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "版块", level: 1 })).toBeVisible()
     await expect(page.getByRole("link", { name: "全部版块" })).toHaveAttribute("aria-current", "page")
     await expect(page.getByRole("list", { name: "全部版块列表" })).toBeVisible()
-    await expect(page.getByText("7 个公开版块")).toBeVisible()
+    await expect(page.getByText("7 个可见版块")).toBeVisible()
     await expect(page.locator(".board-directory-link").first()).toBeVisible()
-    const communitySearch = page.getByRole("searchbox", { name: "搜索社区", exact: true })
+    const communitySearch = page.getByRole("searchbox", { name: "搜索版块", exact: true })
     await expect(communitySearch).toBeVisible()
     await communitySearch.fill("工程")
     await expect(page.getByText("1 个匹配版块")).toBeVisible()
     await expect(page.locator(".board-directory-page").getByRole("link", { name: /工程实践/ })).toBeVisible()
-    await page.getByRole("button", { name: "清除社区搜索" }).click()
+    await page.getByRole("button", { name: "清除版块搜索" }).click()
     if (width <= 768) {
       await expect(page.locator(".board-directory-page")).toHaveCSS("border-left-width", "0px")
       await expect(page.locator(".board-directory-page")).toHaveCSS("border-right-width", "0px")
@@ -180,19 +180,15 @@ for (const width of acceptanceWidths) {
     await expect(page.getByRole("heading", { name: "工程实践", level: 1 })).toBeVisible()
     await expect(page.getByLabel("工程实践社区概览")).toBeVisible()
     await expect(page.getByRole("region", { name: "版块数据" })).toBeVisible()
-    await expect(page.getByRole("button", { name: "发主题" })).toBeVisible()
+    await expect(page.getByRole("button", { name: "发帖" })).toBeVisible()
     await expect(page.getByRole("region", { name: "子版块导航" })).toBeVisible()
     const boardChildren = page.getByRole("list", { name: "子版块列表" })
     await expect(boardChildren.getByRole("listitem")).toHaveCount(6)
     await expect(boardChildren.getByRole("link", { name: /编程语言/ })).toHaveAttribute("href", "#board/languages")
     await expect(boardChildren.getByRole("link", { name: /AI 工具/ })).toHaveAttribute("href", "#board/ai-tools")
-    if (width <= 768) {
-      await expect(page.locator(".board-breadcrumb")).toHaveCSS("position", "absolute")
-      await expect(boardChildren).toHaveCSS("overflow-x", "auto")
-      if (width < 768) expect(await boardChildren.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
-    } else {
-      await expect(page.getByRole("navigation", { name: "社区路径" })).toBeVisible()
-    }
+    await expect(page.getByRole("navigation", { name: "社区路径" })).toBeVisible()
+    await expect(boardChildren).toHaveCSS("flex-wrap", "wrap")
+    expect(await boardChildren.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
     await expect(page.getByRole("group", { name: "主题排序" })).toBeVisible()
     await expect(page.getByRole("button", { name: "最新" })).toHaveAttribute("aria-pressed", "true")
     const boardTopicList = page.locator(".board-topic-list")
@@ -207,45 +203,23 @@ for (const width of acceptanceWidths) {
     }
     const boardMediaRow = boardTopicList.locator(".topic-row--media").first()
     await expect(boardMediaRow).toBeVisible()
-    await expect(boardMediaRow).toHaveCSS(
-      "grid-template-areas",
-      width <= 768 ? /marker content bookmark/ : /marker title author replies likes views bookmark/,
-    )
-    await expect(boardMediaRow.locator(".topic-cover")).toHaveCSS("display", "none")
+    await expect(boardMediaRow.locator(".topic-cover")).toBeVisible()
+    await expect(boardMediaRow.locator(".topic-cover")).toHaveCSS("width", "56px")
     await expect(boardMediaRow.locator(".topic-avatar")).toHaveCount(0)
-    await expect(boardMediaRow.locator(".board-topic-marker"))
-      .toHaveCSS("display", "flex")
-    await expect(page.locator(".board-topic-columns"))
-      .toHaveCSS("display", width <= 768 ? "none" : "grid")
-    if (width <= 768) {
+    await expect(boardMediaRow.locator(".board-topic-marker")).toHaveCSS("display", "flex")
+    await expect(page.locator(".board-topic-columns")).toHaveCSS("display", width <= 900 ? "none" : "grid")
+    await expect(page.locator(".board-topic-feed .lucide-eye")).toHaveCount(0)
+    if (width < 768) {
       await expect(page.locator(".site-header")).toHaveCSS("display", "none")
       await expect(page.getByRole("navigation", { name: "版块快捷操作" })).toBeVisible()
-      await expect(page.locator(".board-page")).toHaveCSS("border-left-width", "0px")
-      expect(parseFloat(await page.locator(".board-header").evaluate(element => getComputedStyle(element).borderRadius))).toBeLessThanOrEqual(8)
-      await expect(page.locator(".board-breadcrumb")).toHaveCSS("overflow-x", "hidden")
-      await expect(boardMediaRow).toHaveCSS("min-height", "82px")
+      for (const control of await page.locator(".board-mobile-toolbar__action, .board-feed-tabs button, .board-children a, .board-header .primary-button, .board-topic-feed .topic-stats > button, .board-topic-feed .topic-stats > a").all()) {
+        const bounds = await control.boundingBox()
+        expect(bounds!.width).toBeGreaterThanOrEqual(44)
+        expect(bounds!.height).toBeGreaterThanOrEqual(44)
+      }
     } else {
+      await expect(page.locator(".site-header")).toBeVisible()
       await expect(page.getByRole("navigation", { name: "版块快捷操作" })).toBeHidden()
-      const childGridGap = await boardChildren.evaluate((element) => {
-        const lastItem = element.lastElementChild
-        if (!(lastItem instanceof HTMLElement)) throw new Error("子版块列表为空")
-        return element.getBoundingClientRect().right - lastItem.getBoundingClientRect().right
-      })
-      expect(childGridGap).toBeLessThanOrEqual(1)
-      await expect(boardMediaRow).toHaveCSS("min-height", "82px")
-      const boardInsets = await page.evaluate(() => {
-        const pageElement = document.querySelector<HTMLElement>(".board-page")
-        const headerElement = document.querySelector<HTMLElement>(".board-header")
-        if (!pageElement || !headerElement) throw new Error("版块详情内容不存在")
-        const pageRect = pageElement.getBoundingClientRect()
-        const headerRect = headerElement.getBoundingClientRect()
-        return {
-          left: headerRect.left - pageRect.left,
-          right: pageRect.right - headerRect.right,
-        }
-      })
-      expect(boardInsets.left).toBeGreaterThanOrEqual(16)
-      expect(boardInsets.right).toBeGreaterThanOrEqual(16)
     }
     if (width >= 1280) {
       const boardDesktopLayout = await page.evaluate(() => {

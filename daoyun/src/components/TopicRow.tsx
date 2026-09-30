@@ -1,5 +1,5 @@
 import { useRef, useState } from "react"
-import { Bookmark, Eye, Flame, Heart, LoaderCircle, MessageCircle, MessageSquareText, Pin, Sparkles } from "lucide-react"
+import { Bookmark, Flame, Heart, LoaderCircle, MessageCircle, MessageSquareText, Pin, Sparkles } from "lucide-react"
 
 import type { Topic } from "../types/community"
 import { topicDisplayTitle, topicHasTitle } from "../utils/topicPresentation"
@@ -57,7 +57,7 @@ export function TopicRow({ topic, variant = "feed", statsPlacement = "content", 
     </button>
   )
   const stats = (
-    <div className={`topic-stats topic-stats--${footerActions ? "footer" : "content"}`} role={isFeed ? "group" : undefined} aria-label={isFeed ? "主题操作" : "主题数据"}>
+    <div className={`topic-stats topic-stats--${footerActions ? "footer" : "content"}`} role="group" aria-label="主题操作">
       {onToggleLike ? (
         <button className={`topic-like${topic.liked ? " topic-like--active" : ""}`} type="button"
           aria-label={`${topic.liked ? "取消点赞" : "点赞"}主题：${displayTitle}`} aria-pressed={topic.liked === true}
@@ -67,12 +67,10 @@ export function TopicRow({ topic, variant = "feed", statsPlacement = "content", 
           <span>{topic.likes}</span>
         </button>
       ) : <span title={`${topic.likes} 次点赞`}><Heart size={14} fill={topic.liked ? "currentColor" : "none"} aria-hidden="true" />{topic.likes}</span>}
-      {isFeed ? (
-        <a className="topic-reply" href={`#topic/${topic.id}`} onClick={openTopic} aria-label={`回复主题：${displayTitle}`} title={`${topic.replies} 条回复`}>
+      <a className="topic-reply" href={`#topic/${topic.id}`} onClick={openTopic} aria-label={`回复主题：${displayTitle}`} title={`${topic.replies} 条回复`}>
           <MessageCircle size={14} aria-hidden="true" /><span>{topic.replies}</span>
-        </a>
-      ) : <span title={`${topic.replies} 条回复`}><MessageCircle size={14} aria-hidden="true" />{topic.replies}</span>}
-      {isFeed ? bookmark : <span title={`${topic.views} 次浏览`}><Eye size={14} aria-hidden="true" />{topic.views}</span>}
+      </a>
+      {bookmark}
     </div>
   )
   const metadata = (
@@ -134,6 +132,8 @@ export function TopicRow({ topic, variant = "feed", statsPlacement = "content", 
           {topic.excerpt ? <p className="topic-excerpt">{topic.excerpt}</p> : null}
         </> : topic.excerpt.trim() ? (
           <a className="topic-excerpt topic-excerpt--untitled" href={`#topic/${topic.id}`} onClick={openTopic} ref={titleRef}>{topic.excerpt}</a>
+        ) : !isFeed ? (
+          <a className="topic-excerpt topic-excerpt--untitled" href={`#topic/${topic.id}`} onClick={openTopic} ref={titleRef}>{mediaUrls.length ? "查看图片帖" : "查看帖子"}</a>
         ) : null}
         {topic.tags.length > 0 && <div className="topic-tags" aria-label="主题标签">
           {topic.tags.map(tag => <span className="topic-tag" key={tag.slug}>#{tag.name}</span>)}
@@ -143,7 +143,7 @@ export function TopicRow({ topic, variant = "feed", statsPlacement = "content", 
       </div>
       {mediaUrls.length > 0 ? (
         <div className={`topic-cover topic-cover--count-${mediaUrls.length}`} role="group" aria-label="帖子图片预览">
-          {mediaUrls.map((imageUrl, index) => <button key={imageUrl} type="button" className="topic-image-trigger"
+          {mediaUrls.slice(0, isFeed ? 3 : 1).map((imageUrl, index) => <button key={imageUrl} type="button" className="topic-image-trigger"
             aria-label={`查看第 ${index + 1} 张图片`} title={`查看第 ${index + 1} 张图片`}
             onClick={event => setPreview({ images: mediaUrls.map(src => ({ src, alt: "帖子图片" })), index, trigger: event.currentTarget })}>
             <img src={imageUrl} alt="" loading="lazy" decoding="async" />
@@ -151,7 +151,6 @@ export function TopicRow({ topic, variant = "feed", statsPlacement = "content", 
         </div>
       ) : null}
       {footerActions ? stats : null}
-      {!isFeed ? bookmark : null}
     </article>
     {preview && <ImagePreviewDialog selection={preview} onClose={() => setPreview(null)} />}
     </>

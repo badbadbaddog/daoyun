@@ -1,11 +1,12 @@
 export type CommunityFeed = "latest" | "active" | "hot" | "featured" | "following"
+export type BoardSort = "latest" | "active" | "hot" | "featured"
 export type SearchScope = "all" | "topics" | "boards" | "users" | "tags"
 export type MemberTab = "overview" | "growth" | "points" | "benefits" | "medals"
 
 export type CommunityRoute =
   | { kind: "feed"; feed: CommunityFeed }
-  | { kind: "boardIndex" }
-  | { kind: "board"; slug: string }
+  | { kind: "boardIndex"; query?: string; expanded?: string[] }
+  | { kind: "board"; slug: string; query?: string; sort?: BoardSort }
   | { kind: "search"; query: string; scope: SearchScope; filters?: SearchContentFilters }
   | { kind: "topic"; topicId: string; replyId?: string }
   | { kind: "user"; username: string }
@@ -49,7 +50,12 @@ export function parseHash(input: string): CommunityRoute {
 
   const feed = FEED_BY_HASH[hash]
   if (feed) return { kind: "feed", feed }
-  if (hash === "boards") return { kind: "boardIndex" }
+  if (hash === "boards" || hash.startsWith("boards?")) {
+    const params = new URLSearchParams(hash.split("?", 2)[1] ?? "")
+    const query = normalizeSearchQuery(params.get("q") ?? "")
+    const expanded = params.has("expanded") ? [...new Set((params.get("expanded") ?? "").split(",").filter(id => UUID_PATTERN.test(id)))].slice(0, 64) : undefined
+    return { kind: "boardIndex", ...(query ? { query } : {}), ...(expanded ? { expanded } : {}) }
+  }
   if (hash === "bookmarks") return { kind: "bookmarks" }
   if (hash === "notifications") return { kind: "notifications" }
   if (hash === "member") return { kind: "member", tab: "overview" }
@@ -66,8 +72,15 @@ export function parseHash(input: string): CommunityRoute {
   const legacyBoard = hash.match(/^board-(.+)$/)
   if (legacyBoard) return boardRoute(legacyBoard[1])
 
-  const board = hash.match(/^board\/([^/?#]+)$/)
-  if (board) return boardRoute(board[1])
+  const board = hash.match(/^board\/([^/?#]+)(?:\?(.*))?$/)
+  if (board) {
+    const route = boardRoute(board[1])
+    if (route.kind !== "board") return route
+    const params = new URLSearchParams(board[2] ?? "")
+    const query = normalizeSearchQuery(params.get("q") ?? "")
+    const sort = params.get("sort")
+    return { ...route, ...(query ? { query } : {}), ...(sort === "active" || sort === "hot" || sort === "featured" ? { sort } : {}) }
+  }
 
   if (hash.startsWith("topic/")) return parseTopic(hash)
 
@@ -97,10 +110,19 @@ export function formatRoute(route: CommunityRoute): string {
   switch (route.kind) {
     case "feed":
       return `#${HASH_BY_FEED[route.feed]}`
-    case "boardIndex":
-      return "#boards"
-    case "board":
-      return BOARD_SLUG_PATTERN.test(route.slug) ? `#board/${route.slug}` : "#hot"
+    case "boardIndex": {
+      const params = new URLSearchParams()
+      if (route.query) params.set("q", normalizeSearchQuery(route.query))
+      if (route.expanded) params.set("expanded", [...new Set(route.expanded.filter(id => UUID_PATTERN.test(id)))].slice(0, 64).join(","))
+      return `#boards${params.size ? `?${params}` : ""}`
+    }
+    case "board": {
+      if (!BOARD_SLUG_PATTERN.test(route.slug)) return "#hot"
+      const params = new URLSearchParams()
+      if (route.query) params.set("q", normalizeSearchQuery(route.query))
+      if (route.sort === "active" || route.sort === "hot" || route.sort === "featured") params.set("sort", route.sort)
+      return `#board/${route.slug}${params.size ? `?${params}` : ""}`
+    }
     case "search": {
       const query = normalizeSearchQuery(route.query)
       const scope = SEARCH_SCOPES.has(route.scope) ? route.scope : "all"

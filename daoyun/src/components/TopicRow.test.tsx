@@ -346,3 +346,24 @@ describe("TopicRow", () => {
     expect(container.querySelector(".topic-stats .lucide-heart")).toHaveAttribute("fill", "currentColor")
   })
 })
+
+it("keeps board actions in like, reply, bookmark order without view metrics", async () => {
+  const onOpen = vi.fn();
+  render(<TopicRow topic={topic} variant="board" onOpen={onOpen} onToggleLike={vi.fn()} onToggleBookmark={vi.fn()} bookmarkPending={false} />);
+  const actions = screen.getByRole("group", { name: "主题操作" });
+  expect(Array.from(actions.querySelectorAll("button, a")).map(control => control.getAttribute("aria-label"))).toEqual([
+    `点赞主题：${topic.title}`, `回复主题：${topic.title}`, `取消收藏主题：${topic.title}`,
+  ]);
+  expect(screen.queryByTitle(`${topic.views} 次浏览`)).not.toBeInTheDocument();
+  await userEvent.setup().click(within(actions).getByRole("link", { name: `回复主题：${topic.title}` }));
+  expect(onOpen).toHaveBeenCalledOnce();
+});
+
+it("opens an image-only board post by keyboard without inventing a heading", async () => {
+  const onOpen = vi.fn();
+  render(<TopicRow topic={{ ...topic, title: "", excerpt: "", imageUrl: "/one.webp" }} variant="board" onOpen={onOpen} bookmarkPending={false} />);
+  expect(screen.queryByRole("heading")).not.toBeInTheDocument();
+  screen.getByRole("link", { name: "查看图片帖" }).focus();
+  await userEvent.setup().keyboard("{Enter}");
+  expect(onOpen).toHaveBeenCalledWith(topic.id);
+});

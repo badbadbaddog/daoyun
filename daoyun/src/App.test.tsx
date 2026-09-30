@@ -963,12 +963,10 @@ describe("DaoYun community home", () => {
 
   it("opens the newly published topic returned by the API", async () => {
     const user = userEvent.setup()
-    vi.mocked(listBoards)
-      .mockResolvedValueOnce(boardFixtures)
-      .mockResolvedValueOnce(boardFixtures.map((board) => ({
-        ...board,
-        topicCount: board.topicCount + 1,
-      })))
+    vi.mocked(listBoards).mockImplementation(async () => boardFixtures.map((board) => ({
+      ...board,
+      topicCount: board.topicCount + (vi.mocked(createTopic).mock.calls.length ? 1 : 0),
+    })))
     vi.mocked(getCurrentSession).mockResolvedValue({
       user: {
         id: "019fc700-0000-7000-8000-000000000004",
@@ -990,6 +988,8 @@ describe("DaoYun community home", () => {
     await user.type(screen.getByRole("textbox", { name: "标题（可选）" }), "真实发布主题")
     await user.type(screen.getByRole("textbox", { name: "正文" }), "真实正文")
     const composer = within(screen.getByRole("dialog", { name: "发布内容" }))
+    expect(within(screen.getByRole("navigation", { name: "常用社区" })).getByText("12")).toBeInTheDocument()
+    const boardRequestsBeforePublish = vi.mocked(listBoards).mock.calls.length
     await user.click(composer.getByRole("button", { name: "发布" }))
 
     const publishedTopicId = "019fc800-0000-7000-8000-000000000109"
@@ -998,7 +998,7 @@ describe("DaoYun community home", () => {
     expect(screen.queryByRole("dialog", { name: "发布内容" })).not.toBeInTheDocument()
     expect(await within(screen.getByRole("navigation", { name: "常用社区" })).findByText("13"))
       .toBeInTheDocument()
-    expect(listBoards).toHaveBeenCalledTimes(2)
+    expect(listBoards).toHaveBeenCalledTimes(boardRequestsBeforePublish + 1)
   })
 
   it("restores the saved dark theme", async () => {
@@ -1460,3 +1460,56 @@ async function fillValidInstallationForm(user: ReturnType<typeof userEvent.setup
   await user.type(screen.getByRole("textbox", { name: "显示名称" }), "站点管理员")
   await user.type(screen.getByLabelText("管理员密码"), "correct horse battery staple")
 }
+
+it("clears private board names, posts and publish capability when the account signs out", async () => {
+  const user = userEvent.setup();
+  window.location.hash = "#board/engineering";
+  vi.mocked(getCurrentSession).mockResolvedValue({
+    user: { id: "019fc700-0000-7000-8000-000000000004", username: "member", email: "member@example.com", displayName: "社区成员" },
+    csrfToken: "b".repeat(64),
+  });
+  const privateBoard = { ...boardFixtures[0], name: "仅会员可见版块" };
+  vi.mocked(listBoards).mockImplementation(() => vi.mocked(logout).mock.calls.length ? new Promise(() => {}) : Promise.resolve([privateBoard]));
+  vi.mocked(getBoard).mockImplementation(() => vi.mocked(logout).mock.calls.length ? new Promise(() => {}) : Promise.resolve({
+    ...privateBoard, children: [], breadcrumb: [{ id: privateBoard.id, slug: privateBoard.slug, name: privateBoard.name }],
+    viewer: { canRead: true, canCreateTopic: true, canReply: true, canUploadAttachment: true },
+  }));
+  vi.mocked(logout).mockResolvedValue(true);
+  render(<App />);
+  expect(await screen.findByRole("heading", { name: privateBoard.name, level: 1 })).toBeInTheDocument();
+  expect(within(screen.getByLabelText(privateBoard.name + "社区概览")).getByRole("button", { name: "发帖" })).toBeInTheDocument();
+  await user.click(await screen.findByRole("button", { name: "打开个人菜单" }));
+  await user.click(screen.getByRole("menuitem", { name: "退出登录" }));
+  await waitFor(() => {
+    expect(screen.queryByText(privateBoard.name)).not.toBeInTheDocument();
+    expect(screen.queryByText(topicFixtures[0].title)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "发帖" })).not.toBeInTheDocument();
+  });
+});
+
+it("does not append a late page from the previous board after navigation", async () => {
+  const user = userEvent.setup();
+  window.location.hash = "#board/engineering";
+  const makeBoard = (slug: string) => ({
+    ...boardFixtures[0], slug, name: slug === "engineering" ? "工程实践" : "设计版块", children: [],
+    breadcrumb: [{ id: boardFixtures[0].id, slug, name: slug }],
+    viewer: { canRead: true, canCreateTopic: false, canReply: false, canUploadAttachment: false },
+  });
+  vi.mocked(getBoard).mockImplementation(slug => Promise.resolve(makeBoard(slug)));
+  let resolveOldPage!: (page: Awaited<ReturnType<typeof listTopics>>) => void;
+  const oldPage = new Promise<Awaited<ReturnType<typeof listTopics>>>(resolve => { resolveOldPage = resolve });
+  vi.mocked(listTopics).mockImplementation((options = {}) => {
+    if (options.board === "engineering" && options.cursor) return oldPage;
+    if (options.board === "engineering") return Promise.resolve({ topics: [topicFixtures[0]], nextCursor: "019fc700-0000-7000-8000-000000000099" });
+    if (options.board === "design") return Promise.resolve({ topics: [{ ...topicFixtures[1], title: "设计版块当前帖子" }], nextCursor: null });
+    return Promise.resolve({ topics: [], nextCursor: null });
+  });
+  render(<App />);
+  await screen.findByRole("heading", { name: "工程实践", level: 1 });
+  const main = screen.getByRole("main");
+  await user.click(await within(main).findByRole("button", { name: "加载更多" }));
+  act(() => { window.location.hash = "#board/design"; window.dispatchEvent(new HashChangeEvent("hashchange")); });
+  expect(await within(main).findByText("设计版块当前帖子")).toBeInTheDocument();
+  await act(async () => { resolveOldPage({ topics: [{ ...topicFixtures[0], id: "019fc700-0000-7000-8000-000000000097", title: "旧版块迟到的帖子" }], nextCursor: null }); });
+  expect(within(main).queryByText("旧版块迟到的帖子")).not.toBeInTheDocument();
+});

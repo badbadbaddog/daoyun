@@ -88,13 +88,14 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   const [boardPageState, setBoardPageState] = useState<BoardPageState>({ kind: "loading" })
   const [boardPageRequestVersion, setBoardPageRequestVersion] = useState(0)
   const [boardTopics, setBoardTopics] = useState<Topic[]>([])
+  const boardLoadMoreControllerRef = useRef<AbortController | null>(null)
   const [boardTopicState, setBoardTopicState] = useState<TopicLoadStatus>("loading")
   const [boardTopicError, setBoardTopicError] = useState<string | null>(null)
   const [boardNextCursor, setBoardNextCursor] = useState<string | null>(null)
   const [boardLoadingMore, setBoardLoadingMore] = useState(false)
   const [boardErrorMore, setBoardErrorMore] = useState<string | null>(null)
-  const [boardSearchQuery, setBoardSearchQuery] = useState("")
-  const [boardTopicSort, setBoardTopicSort] = useState<BoardTopicSort>("latest")
+  const boardSearchQuery = route.kind === "board" ? route.query ?? "" : ""
+  const boardTopicSort: BoardTopicSort = route.kind === "board" ? route.sort ?? "latest" : "latest"
   const [boardTopicRequestVersion, setBoardTopicRequestVersion] = useState(0)
   const [composerBoardId, setComposerBoardId] = useState<string | null>(null)
   const [topicRequestVersion, setTopicRequestVersion] = useState(0)
@@ -330,6 +331,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   useEffect(() => {
     const controller = new AbortController()
     setBoardLoadStatus("loading")
+    setBoards([])
 
     listBoards(controller.signal).then((loadedBoards) => {
       if (!controller.signal.aborted) {
@@ -344,7 +346,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
     })
 
     return () => controller.abort()
-  }, [boardRequestVersion])
+  }, [authSession?.user.id, boardRequestVersion])
 
   useEffect(() => {
     if (!selectedBoardSlug) return
@@ -355,8 +357,6 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
     setBoardTopicError(null)
     setBoardNextCursor(null)
     setBoardErrorMore(null)
-    setBoardSearchQuery("")
-    setBoardTopicSort("latest")
     getBoard(selectedBoardSlug, controller.signal).then((board) => {
       if (!controller.signal.aborted) setBoardPageState({ kind: "ready", board })
     }).catch((error: unknown) => {
@@ -366,9 +366,12 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
       else setBoardPageState({ kind: "error", message: "请检查网络连接后重试。" })
     })
     return () => controller.abort()
-  }, [selectedBoardSlug, boardPageRequestVersion])
+  }, [authSession?.user.id, selectedBoardSlug, boardPageRequestVersion])
 
   useEffect(() => {
+    boardLoadMoreControllerRef.current?.abort()
+    boardLoadMoreControllerRef.current = null
+    setBoardLoadingMore(false)
     if (!selectedBoardSlug || boardPageState.kind !== "ready") return
     const controller = new AbortController()
     setBoardTopicState("loading")
@@ -395,7 +398,11 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
         setBoardTopicState("error")
       }
     })
-    return () => controller.abort()
+    return () => {
+      controller.abort()
+      boardLoadMoreControllerRef.current?.abort()
+      boardLoadMoreControllerRef.current = null
+    }
   }, [boardPageState, boardSearchQuery, boardTopicRequestVersion, boardTopicSort, selectedBoardSlug])
 
   useEffect(() => {
@@ -471,7 +478,9 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   }
 
   async function loadMoreBoardTopics() {
-    if (!selectedBoardSlug || !boardNextCursor || boardLoadingMore) return
+    if (!selectedBoardSlug || !boardNextCursor || boardLoadingMore || boardLoadMoreControllerRef.current) return
+    const controller = new AbortController()
+    boardLoadMoreControllerRef.current = controller
     setBoardLoadingMore(true)
     setBoardErrorMore(null)
     const sort = boardTopicSort === "hot" ? "popular" : boardTopicSort === "active" ? "active" : "latest"
@@ -482,7 +491,9 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
         sort,
         featured: boardTopicSort === "featured",
         cursor: boardNextCursor,
+        signal: controller.signal,
       })
+      if (controller.signal.aborted) return
       setBoardTopics((current) => {
         const topicsById = new Map(current.map((topic) => [topic.id, topic]))
         page.topics.forEach((topic) => topicsById.set(topic.id, topic))
@@ -490,9 +501,12 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
       })
       setBoardNextCursor(page.nextCursor)
     } catch {
-      setBoardErrorMore("更多主题加载失败，已保留当前内容。")
+      if (!controller.signal.aborted) setBoardErrorMore("更多主题加载失败，已保留当前内容。")
     } finally {
-      setBoardLoadingMore(false)
+      if (boardLoadMoreControllerRef.current === controller) {
+        boardLoadMoreControllerRef.current = null
+        setBoardLoadingMore(false)
+      }
     }
   }
 
@@ -771,6 +785,10 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   ) : route.kind === "boardIndex" ? (
     <BoardDirectoryPage
       boards={boards}
+      searchQuery={route.query ?? ""}
+      onSearchChange={(query) => navigate({ ...route, query }, { replace: true })}
+      expandedIds={route.expanded}
+      onExpandedChange={(expanded) => navigate({ ...route, expanded }, { replace: true })}
       status={boardLoadStatus}
       error={boardLoadStatus === "error" ? "请检查网络连接后重试。" : null}
       onRetry={() => setBoardRequestVersion((version) => version + 1)}
@@ -787,8 +805,8 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
       errorMore={boardErrorMore}
       searchQuery={boardSearchQuery}
       sort={boardTopicSort}
-      onSearchChange={setBoardSearchQuery}
-      onSortChange={setBoardTopicSort}
+      onSearchChange={(query) => navigate({ ...route, query }, { replace: true })}
+      onSortChange={(sort) => navigate({ ...route, sort })}
       onCreateTopic={(boardId) => openComposer(boardId)}
       onLoadMore={() => void loadMoreBoardTopics()}
       onRetryTopics={() => setBoardTopicRequestVersion((version) => version + 1)}

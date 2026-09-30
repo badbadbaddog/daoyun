@@ -177,7 +177,7 @@ export function RightSidebar({ variant = "default", topics, boards = [], current
                   <span aria-hidden="true">{index + 1}</span>
                   <button type="button" aria-label={`打开话题：${topicDisplayTitle(topic)}`} onClick={() => onOpenTopic(topic.id)}>
                     <strong>{topicDisplayTitle(topic)}</strong>
-                    <small>{topic.replies.toLocaleString("zh-CN")} 回复 · {topic.views.toLocaleString("zh-CN")} 浏览</small>
+                    <small>{topic.replies.toLocaleString("zh-CN")} 回复</small>
                   </button>
                 </li>
               ))}
@@ -257,7 +257,7 @@ export function RightSidebar({ variant = "default", topics, boards = [], current
                   <a href={`#topic/${topic.id}`} onClick={(event) => { event.preventDefault(); onOpenTopic(topic.id) }}>
                     {topicDisplayTitle(topic)}
                   </a>
-                  <span><MessageCircle size={12} aria-hidden="true" />{topic.replies}<Eye size={12} aria-hidden="true" />{topic.views}</span>
+                  <span><MessageCircle size={12} aria-hidden="true" />{topic.replies}</span>
                 </li>
               ))}
             </ol>

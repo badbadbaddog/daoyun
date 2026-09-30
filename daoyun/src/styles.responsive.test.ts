@@ -6,9 +6,8 @@ import { describe, expect, it } from "vitest"
 const styles = readFileSync(resolve(process.cwd(), "src/styles.css"), "utf8")
 const communityStyles = readFileSync(resolve(process.cwd(), "src/styles.community.css"), "utf8")
 const homeStyles = readFileSync(resolve(process.cwd(), "src/styles.home.css"), "utf8")
-const boardStyles = readFileSync(resolve(process.cwd(), "src/styles.boards.css"), "utf8")
 
-// 首页单列布局、卡片顺序和壳宽度改由 e2e/ui-v2-home.spec.ts 验证实际计算布局。
+// 首页与版块的计算布局改由 UI V2 和 community-responsive 浏览器用例验证。
 describe("public community responsive layout", () => {
   it("defines the five required responsive acceptance widths without device-bound layout values", () => {
     expect(styles).toMatch(/@media \(max-width: 380px\)/)
@@ -43,67 +42,10 @@ describe("public community responsive layout", () => {
     )
   })
 
-  it("keeps community detail topics in one compact list column", () => {
-    expect(styles).toMatch(
-      /\.board-topic-list\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);[\s\S]*?gap:\s*0;/,
-    )
-    expect(styles).toMatch(
-      /\.board-topic-list \.topic-row--media\s*\{[\s\S]*?grid-template-areas:\s*"avatar content cover bookmark";/,
-    )
-  })
 
-  it("collapses community information columns before the tablet content area becomes cramped", () => {
-    expect(boardStyles).toMatch(
-      /@media \(max-width: 900px\) \{[\s\S]*?\.board-topic-columns\s*\{[\s\S]*?display:\s*none;/,
-    )
-    expect(boardStyles).toMatch(
-      /@media \(max-width: 900px\) \{[\s\S]*?\.board-topic-list \.topic-author-meta\s*\{[^}]*display:\s*flex;/,
-    )
-  })
 
-  it("uses the reference two-line author identity in community topic rows", () => {
-    expect(communityStyles).toMatch(
-      /\.board-topic-list \.topic-meta\s*\{[^}]*display:\s*grid;[^}]*grid-template-rows:\s*18px 16px;/,
-    )
-    expect(communityStyles).toMatch(
-      /\.board-topic-list \.topic-author-meta,\s*\.board-topic-list \.topic-context-meta\s*\{[^}]*display:\s*flex;/,
-    )
-    expect(communityStyles).toMatch(
-      /\.board-topic-list \.topic-context-meta \.board-tag\s*\{[^}]*display:\s*inline-flex;/,
-    )
-    expect(communityStyles).toMatch(
-      /\.board-topic-list \.topic-context-meta \.board-tag\s*\{[^}]*order:\s*0;/,
-    )
-    expect(communityStyles).toMatch(
-      /\.board-topic-list \.public-member-medal\s*\{[^}]*color:\s*var\(--amber\);/,
-    )
-  })
 
-  it("matches the compact sectioned community detail composition", () => {
-    const boardStyles = communityStyles.slice(communityStyles.indexOf("/* Board detail: match the approved community layout"))
 
-    expect(boardStyles).toMatch(/\.board-page \.board-header\s*\{[^}]*padding:\s*16px;[^}]*border-radius:\s*8px;/)
-    expect(boardStyles).toMatch(/\.board-page \.board-header__main\s*\{[^}]*min-height:\s*0;[^}]*padding:\s*0;/)
-    expect(boardStyles).toMatch(/\.board-page \.board-header__stats\s*\{[^}]*margin:\s*10px 0 0 58px;/)
-    expect(boardStyles).toMatch(/\.board-page \.board-header__stats > span\s*\{[^}]*min-height:\s*0;/)
-    expect(boardStyles).toMatch(/\.board-page \.board-topic-feed\s*\{[^}]*border:\s*1px solid var\(--border\);[^}]*border-radius:\s*8px;/)
-    expect(boardStyles).toMatch(/\.board-pinned-topics\s*\{[^}]*padding:\s*10px 12px 12px;/)
-    expect(boardStyles).toMatch(/\.board-topic-section__heading\s*\{[^}]*min-height:\s*38px;/)
-    expect(boardStyles).toMatch(/\.board-topic-list \.topic-avatar\s*\{[^}]*width:\s*30px;[^}]*height:\s*30px;/)
-    expect(boardStyles).toMatch(/\.board-topic-section \.board-topic-list \.topic-content,[\s\S]*?grid-template-areas:\s*"title stats"\s*"meta stats";/)
-    expect(boardStyles).toMatch(/\.board-topic-section \.board-topic-list \.topic-meta\s*\{[^}]*height:\s*18px;[^}]*flex-direction:\s*row;[^}]*flex-wrap:\s*nowrap;[^}]*justify-content:\s*flex-start;/)
-    expect(boardStyles).toMatch(/\.right-sidebar--board-detail\s*\{[^}]*gap:\s*8px;/)
-  })
-
-  it("removes stacked panel chrome from community pages on mobile", () => {
-    expect(styles).toMatch(
-      /@media \(max-width: 768px\) \{[\s\S]*?\.board-directory-page,[\s\S]*?\.board-page\s*\{[\s\S]*?border-right:\s*0;[\s\S]*?border-left:\s*0;[\s\S]*?\.board-page-title,[\s\S]*?\.board-header,[\s\S]*?\.board-children,[\s\S]*?\.board-topic-feed\s*\{[\s\S]*?border-radius:\s*0;/,
-    )
-    expect(styles).toMatch(
-      /@media \(max-width: 768px\) \{[\s\S]*?\.board-breadcrumb\s*\{[\s\S]*?display:\s*flex;[\s\S]*?overflow-x:\s*auto;/,
-    )
-    expect(styles).not.toMatch(/\.board-breadcrumb\s*\{\s*display:\s*none;/)
-  })
 
   it("keeps a visible mobile detail return action alongside the fixed comment entry", () => {
     expect(styles).toMatch(/\.topic-mobile-comment-entry\s*\{[\s\S]*?display:\s*none;/)

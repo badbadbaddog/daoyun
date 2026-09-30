@@ -123,3 +123,19 @@ it("round-trips all content filters without requiring a keyword",()=>{
  expect(parseHash(formatRoute(route))).toEqual(route)
  expect(formatRoute(route)).toContain("from=2026-08-01")
 })
+
+it("round-trips board search and sorting without widening its content scope", () => {
+  const route = { kind: "board", slug: "engineering", query: "Rust & CSS", sort: "hot" } as const;
+  expect(formatRoute(route)).toBe("#board/engineering?q=Rust+%26+CSS&sort=hot");
+  expect(parseHash(formatRoute(route))).toEqual(route);
+  expect(parseHash("#board/engineering?sort=invalid&q=Rust&scope=all")).toEqual({ kind: "board", slug: "engineering", query: "Rust" });
+  expect(parseHash("#board/Engineering?sort=active")).toEqual({ kind: "feed", feed: "hot" });
+});
+
+it("preserves directory search and expanded visible board IDs in safe URLs", () => {
+  const route = { kind: "boardIndex", query: "CSS", expanded: [topicId] } as const;
+  expect(parseHash(formatRoute({ ...route, expanded: [...route.expanded] }))).toEqual(route);
+  expect(parseHash("#boards?expanded=bad&q=CSS&token=secret")).toEqual({ kind: "boardIndex", query: "CSS", expanded: [] });
+  expect(parseHash("#boards?q=" + "a".repeat(250))).toEqual({ kind: "boardIndex", query: "a".repeat(200) });
+  expect(parseHash(formatRoute({ kind: "boardIndex", expanded: [] }))).toEqual({ kind: "boardIndex", expanded: [] });
+});
