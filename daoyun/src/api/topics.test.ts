@@ -29,6 +29,8 @@ const topicPayload = {
   title: "发布主题",
   excerpt: "这是主题正文",
   image_url: "/api/v1/attachments/019fc800-0000-7000-8000-000000000301/thumbnail",
+  visible_image_count: 1,
+  media_urls: ["/api/v1/attachments/019fc800-0000-7000-8000-000000000301/thumbnail"],
   author: {
     id: "019fc700-0000-7000-8000-000000000004",
     username: "member",
@@ -510,3 +512,21 @@ describe("topics API client", () => {
     })
   })
 })
+
+it("maps an authorized count separately from the three previews", async () => {
+  const urls = Array.from({ length: 9 }, (_, index) => `/api/v1/attachments/019fc800-0000-7000-8000-00000000030${index}/thumbnail`);
+  vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ ...topicPayload, image_url: urls[0], image_urls: urls.slice(0,3), visible_image_count: 9 }], meta: { request_id: "019fc800-0000-7000-8000-000000000102", next_cursor: null } }), { status: 200 }));
+  const result = await listTopics();
+  expect(result.topics[0]).toMatchObject({ imageUrls: urls.slice(0,3), visibleImageCount: 9 });
+});
+
+it.each([-1, 2.5, 2, undefined])("rejects missing or inconsistent visible counts (%s)", async count => {
+  const urls = [0,1,2].map(index => `/api/v1/attachments/019fc800-0000-7000-8000-00000000030${index}/thumbnail`);
+  vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ ...topicPayload, image_url: urls[0], image_urls: urls, visible_image_count: count }], meta: { request_id: "019fc800-0000-7000-8000-000000000102", next_cursor: null } }), { status: 200 }));
+  await expect(listTopics()).rejects.toThrow("主题列表响应格式无效");
+});
+
+it("rejects a cover URL when the server reports no visible images", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ ...topicPayload, image_urls: [], visible_image_count: 0 }], meta: { request_id: "019fc800-0000-7000-8000-000000000102", next_cursor: null } }), { status: 200 }));
+  await expect(listTopics()).rejects.toThrow("主题列表响应格式无效");
+});

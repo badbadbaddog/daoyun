@@ -18,6 +18,7 @@ for (const width of [320, 1440]) {
             board: { id: boardId, slug: "engineering", name: "工程实践", tone: "blue" },
             published_at: "2026-08-05T00:00:00Z", last_activity_at: "2026-08-05T00:00:00Z",
             reply_count: 0, like_count: 0, view_count: 10, viewer_bookmarked: null, viewer_liked: null,
+            visible_image_count: 0, media_urls: [],
             is_featured: false, is_pinned: false, tags: [], has_locked_content: false, content_revision: 1,
           },
           meta: { request_id: requestId },

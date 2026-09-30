@@ -31,6 +31,7 @@ export interface Topic {
   pinned?: boolean
   imageUrl?: string
   imageUrls?: string[]
+  visibleImageCount?: number
   tags: TopicTag[]
 }
 export interface Board {

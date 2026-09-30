@@ -1577,6 +1577,20 @@ async fn openapi_documents_public_topic_list_and_detail() {
     assert_eq!(response.status(), StatusCode::OK);
     let document = response_json(response).await;
 
+    let summary = &document["components"]["schemas"]["TopicSummary"];
+    assert_eq!(summary["properties"]["image_urls"]["maxItems"], 3);
+    assert!(
+        summary["required"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("visible_image_count"))
+    );
+    let detail = &document["components"]["schemas"]["TopicDetail"];
+    assert!(detail["allOf"].as_array().unwrap().iter().any(|schema| {
+        schema["required"]
+            .as_array()
+            .is_some_and(|fields| fields.contains(&serde_json::json!("media_urls")))
+    }));
     let feed_path = &document["paths"]["/api/v1/feed"]["get"];
     assert!(feed_path.is_object());
     assert_eq!(feed_path["operationId"], "getFeed");

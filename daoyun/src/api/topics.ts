@@ -37,6 +37,7 @@ export interface TopicPage {
 export interface TopicDetail extends Topic {
   content: string
   richContent?: RichTextDocument | null
+  mediaUrls?: string[]
   authorId: string
   authorUsername: string
   contentRevision: number
@@ -207,7 +208,7 @@ type TopicSummaryDto = components["schemas"]["TopicSummary"] & {
   image_url?: string | null
   image_urls?: string[]
 }
-type TopicDetailDto = TopicSummaryDto & { content: string; rich_content?: unknown; content_revision: number; has_locked_content: boolean }
+type TopicDetailDto = TopicSummaryDto & { media_urls: string[]; content: string; rich_content?: unknown; content_revision: number; has_locked_content: boolean }
 type TopicRevisionDto = Omit<components["schemas"]["TopicRevision"], "editor"> & { editor: TopicAuthorDto; rich_content?: unknown }
 type ReplyRevisionDto = Omit<components["schemas"]["ReplyRevision"], "editor"> & { editor: TopicAuthorDto; rich_content?: unknown }
 type TopicPageDto = Omit<components["schemas"]["PageResponse_TopicSummary"], "data" | "meta"> & {
@@ -400,6 +401,7 @@ export async function getTopic(topicId: string, signal?: AbortSignal): Promise<T
   }
   return {
     ...mapTopic(payload.data),
+    mediaUrls: payload.data.media_urls,
     content: payload.data.content,
     richContent: readRichContent(payload.data.rich_content),
     authorId: payload.data.author.id,
@@ -729,6 +731,7 @@ function mapTopic(topic: TopicSummaryDto): Topic {
     avatarUrl: topic.author.avatar_url,
     imageUrl: topic.image_url ?? topic.image_urls?.[0] ?? undefined,
     imageUrls: (topic.image_urls ?? (topic.image_url ? [topic.image_url] : [])).slice(0, 3),
+    visibleImageCount: topic.visible_image_count,
     publishedAt: formatRelativeTime(topic.published_at),
     publishedAtIso: topic.published_at,
     replies: topic.reply_count,
@@ -1061,6 +1064,9 @@ function isSupplementStatus(value: unknown): value is TopicSupplement["status"] 
 
 function isTopicDetail(value: unknown): value is TopicDetailDto {
   return isTopicSummary(value)
+    && isTopicImageUrls((value as unknown as Record<string, unknown>).media_urls, value.visible_image_count)
+    && (value as unknown as { media_urls: string[] }).media_urls.length === value.visible_image_count
+    && (value.image_urls ?? (value.image_url ? [value.image_url] : [])).every((url, index) => (value as unknown as { media_urls: string[] }).media_urls[index] === url)
     && typeof (value as unknown as Record<string, unknown>).content === "string"
     && isOptionalRichContent((value as unknown as Record<string, unknown>).rich_content)
     && typeof (value as unknown as Record<string, unknown>).has_locked_content === "boolean"
@@ -1098,6 +1104,9 @@ function isTopicSummary(value: unknown): value is TopicSummaryDto {
     && typeof value.excerpt === "string"
     && (value.image_url === undefined || isNullableTopicImageUrl(value.image_url))
     && (value.image_urls === undefined || isTopicImageUrls(value.image_urls))
+    && isSafeNonNegativeInteger(value.visible_image_count)
+    && (value.image_urls ?? (value.image_url ? [value.image_url] : [])).length === Math.min(3, value.visible_image_count)
+    && (value.image_url ?? null) === (value.image_urls === undefined ? value.image_url ?? null : value.image_urls[0] ?? null)
     && isUuid(value.author.id)
     && isNonEmptyString(value.author.username)
     && isNonEmptyString(value.author.display_name)
@@ -1176,8 +1185,9 @@ function isNullableTopicImageUrl(value: unknown): value is string | null {
       && attachmentThumbnailPattern.test(value))
 }
 
-function isTopicImageUrls(value: unknown): value is string[] {
+function isTopicImageUrls(value: unknown, maxLength = 3): value is string[] {
   return Array.isArray(value)
-    && value.length <= 3
+    && value.length <= maxLength
+    && new Set(value).size === value.length
     && value.every((imageUrl) => isNullableTopicImageUrl(imageUrl) && imageUrl !== null)
 }

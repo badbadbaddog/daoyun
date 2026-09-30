@@ -4291,11 +4291,18 @@ export interface components {
                 view_count: number;
                 viewer_bookmarked?: boolean | null;
                 viewer_liked?: boolean | null;
+                /**
+                 * Format: int32
+                 * @description Number of distinct images accessible to the current viewer.
+                 */
+                visible_image_count: number;
             } & {
                 content: string;
                 /** Format: int32 */
                 content_revision: number;
                 has_locked_content: boolean;
+                /** @description All accessible topic images in document order, without repeating them in the body. */
+                media_urls: string[];
                 rich_content?: unknown;
             };
             meta: components["schemas"]["ResponseMeta"];
@@ -6434,6 +6441,11 @@ export interface components {
                 view_count: number;
                 viewer_bookmarked?: boolean | null;
                 viewer_liked?: boolean | null;
+                /**
+                 * Format: int32
+                 * @description Number of distinct images accessible to the current viewer.
+                 */
+                visible_image_count: number;
             }[];
             meta: components["schemas"]["PageMeta"];
         };
@@ -7151,11 +7163,18 @@ export interface components {
             view_count: number;
             viewer_bookmarked?: boolean | null;
             viewer_liked?: boolean | null;
+            /**
+             * Format: int32
+             * @description Number of distinct images accessible to the current viewer.
+             */
+            visible_image_count: number;
         } & {
             content: string;
             /** Format: int32 */
             content_revision: number;
             has_locked_content: boolean;
+            /** @description All accessible topic images in document order, without repeating them in the body. */
+            media_urls: string[];
             rich_content?: unknown;
         };
         TopicEditSubmission: {
@@ -7278,6 +7297,11 @@ export interface components {
             view_count: number;
             viewer_bookmarked?: boolean | null;
             viewer_liked?: boolean | null;
+            /**
+             * Format: int32
+             * @description Number of distinct images accessible to the current viewer.
+             */
+            visible_image_count: number;
         };
         TopicSupplement: {
             author: components["schemas"]["TopicAuthorSummary"];

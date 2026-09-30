@@ -1760,18 +1760,47 @@ fn valid_tag_slug(value: &str) -> bool {
 }
 
 fn topic_detail(record: PublicTopicDetailRecord) -> Result<TopicDetail, ()> {
-    let (content, rich_content, has_locked_content) = redact_record_content(
+    let allowed_images = &record.summary.image_attachment_ids;
+    let media_urls = allowed_images
+        .iter()
+        .map(|id| format!("/api/v1/attachments/{id}/thumbnail"))
+        .collect();
+    let (content, mut rich_content, has_locked_content) = redact_record_content(
         record.content,
         record.rich_content,
         record.reply_gate_unlocked,
     );
+    if let Some(document) = &mut rich_content {
+        retain_authorized_images(document, allowed_images);
+    }
     Ok(TopicDetail {
+        media_urls,
         summary: topic_summary(record.summary)?,
         content,
         rich_content,
         has_locked_content,
         content_revision: u32::try_from(record.content_revision).map_err(|_| ())?,
     })
+}
+
+fn retain_authorized_images(node: &mut serde_json::Value, allowed: &[Uuid]) {
+    if let Some(children) = node
+        .get_mut("content")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        children.retain(|child| {
+            child.get("type").and_then(serde_json::Value::as_str) != Some("image")
+                || child
+                    .get("attrs")
+                    .and_then(|attrs| attrs.get("attachmentId"))
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|id| Uuid::parse_str(id).ok())
+                    .is_some_and(|id| allowed.contains(&id))
+        });
+        for child in children {
+            retain_authorized_images(child, allowed);
+        }
+    }
 }
 
 pub(crate) fn topic_summary(record: PublicTopicRecord) -> Result<TopicSummary, ()> {
@@ -1803,6 +1832,7 @@ pub(crate) fn topic_summary(record: PublicTopicRecord) -> Result<TopicSummary, (
         image_url: record
             .image_attachment_id
             .map(|attachment_id| format!("/api/v1/attachments/{attachment_id}/thumbnail")),
+        visible_image_count: u32::try_from(record.image_attachment_ids.len()).map_err(|_| ())?,
         image_urls: record
             .image_attachment_ids
             .into_iter()

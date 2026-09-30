@@ -166,7 +166,7 @@ describe("RichTextContent", () => {
     await user.click(screen.getByRole("img", { name: "路线图" }))
     const dialog = screen.getByRole("dialog", { name: "图片预览" })
     expect(within(dialog).getByRole("img", { name: "路线图" })).toHaveAttribute(
-      "src", "/api/v1/attachments/0198d874-e991-7b62-8b38-3986f55c8d31",
+      "src", "/api/v1/attachments/0198d874-e991-7b62-8b38-3986f55c8d31/thumbnail",
     )
     await user.keyboard("{Escape}")
     expect(screen.queryByRole("dialog")).toBeNull()
@@ -205,3 +205,16 @@ describe("RichTextContent", () => {
   })
 
 })
+
+it("previews all visible inline images in body order without repeating them", async () => {
+  const image = (index: number) => ({ type: "image", attrs: { attachmentId: `0198d874-e991-7b62-8b38-3986f55c8d3${index}`, alt: `图片 ${index}` } });
+  const { container } = render(<RichTextContent document={{ type: "doc", content: [image(1), { type: "paragraph", content: [{ type: "text", text: "中间正文" }] }, { type: "replyGate", content: [image(2)] }, image(3), { type: "replyGate", attrs: { locked: true }, content: [image(4)] }] }} />);
+  expect(container.querySelectorAll(".rich-text-content img")).toHaveLength(3);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "预览图片：图片 2" }));
+  const dialog = screen.getByRole("dialog", { name: "图片预览" });
+  expect(within(dialog).getByText("2 / 3")).toBeInTheDocument();
+  await user.keyboard("{ArrowRight}");
+  expect(within(dialog).getByRole("img", { name: "图片 3" })).toHaveAttribute("src", "/api/v1/attachments/0198d874-e991-7b62-8b38-3986f55c8d33/thumbnail");
+  expect(screen.queryByRole("img", { name: "图片 4" })).not.toBeInTheDocument();
+});

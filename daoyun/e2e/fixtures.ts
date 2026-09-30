@@ -12,6 +12,8 @@ const topic = {
   title: "一条关于 Rust 的主题",
   excerpt: "用统一的对象存储和质量门禁让社区发布链路更可靠。",
   image_url: "https://cdn.example.com/quality-cover.webp",
+  visible_image_count: 1,
+  media_urls: ["https://cdn.example.com/quality-cover.webp"],
   author: {
     id: userId,
     username: "quality_author",
@@ -44,6 +46,8 @@ const discussionTopic = {
   title: "如何设计一个真正适合讨论的社区首页？",
   excerpt: "讨论内容应该优先呈现观点与上下文，不应为了统一外观而补上一张并不存在的封面图。",
   image_url: null,
+  visible_image_count: 0,
+  media_urls: [],
   reply_count: 12,
   like_count: 28,
   view_count: 93,

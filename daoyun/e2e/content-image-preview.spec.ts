@@ -17,6 +17,10 @@ for (const width of [320, 768, 1024, 1440]) {
           published_at: "2026-08-05T00:00:00Z", last_activity_at: "2026-08-05T00:00:00Z",
           reply_count: 2, like_count: 0, view_count: 10, viewer_bookmarked: null, viewer_liked: null,
           is_featured: false, is_pinned: false, tags: [], has_locked_content: false, content_revision: 1,
+          visible_image_count: 7,
+          image_url: "/api/v1/attachments/0198d874-e991-7b62-8b38-3986f55c8d31/thumbnail",
+          image_urls: [1,2,3].map(index => `/api/v1/attachments/0198d874-e991-7b62-8b38-3986f55c8d3${index}/thumbnail`),
+          media_urls: [1,2,3,4,5,6,7].map(index => `/api/v1/attachments/0198d874-e991-7b62-8b38-3986f55c8d3${index}/thumbnail`),
           rich_content: {
             type: "doc",
             content: Array.from({ length: 7 }, (_, index) => ({

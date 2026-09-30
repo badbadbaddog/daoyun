@@ -121,7 +121,7 @@ for (const count of [1, 2, 3]) {
     await mockPublicApi(page)
     const images = Array.from({ length: count }, (_, index) => `https://cdn.example.com/preview-${index}.svg`)
     await page.route("https://cdn.example.com/preview-*.svg", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#dbeafe"/></svg>' }))
-    await page.route("**/api/v1/feed?**", route => route.fulfill({ json: { data: [{ ...publicTopicFixture, image_urls: images, image_url: images[0] }], meta: { request_id: requestId, next_cursor: null } } }))
+    await page.route("**/api/v1/feed?**", route => route.fulfill({ json: { data: [{ ...publicTopicFixture, image_urls: images, image_url: images[0], visible_image_count: images.length }], meta: { request_id: requestId, next_cursor: null } } }))
     await page.goto("/#hot")
     const preview = page.locator(".topic-list .topic-cover")
     await expect(preview.locator("img")).toHaveCount(count)

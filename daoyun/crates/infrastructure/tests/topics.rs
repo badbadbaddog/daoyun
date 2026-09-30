@@ -2310,3 +2310,94 @@ async fn draft_publish_consumption_is_atomic_and_replayable(pool: PgPool) {
         1
     );
 }
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn authorized_media_projection_includes_all_images_and_unlocked_gates(pool: PgPool) {
+    let author = fixture_id(1);
+    let reader = fixture_id(2);
+    let board = fixture_id(11);
+    let topic_id = fixture_id(101);
+    insert_user(&pool, author, "image_author", "active").await;
+    insert_user(&pool, reader, "image_reader", "active").await;
+    insert_board(&pool, board, "media", "public").await;
+    insert_topic(
+        &pool,
+        topic_id,
+        board,
+        author,
+        "Images",
+        "2026-09-01T10:00:00Z",
+        0,
+        false,
+        false,
+        "published",
+        false,
+    )
+    .await;
+    let ids = (300..309).map(fixture_id).collect::<Vec<_>>();
+    for id in &ids {
+        sqlx::query("INSERT INTO topic_attachments(id,topic_id,uploader_id,storage_key,original_name,mime_type,size_bytes,sha256,status,scan_status) VALUES($1,$2,$3,$4,'image.png','image/png',4,$5,'ready','clean')")
+            .bind(id).bind(topic_id).bind(author).bind(format!("media/{id}.png")).bind(vec![0u8;32]).execute(&pool).await.unwrap();
+    }
+    let image =
+        |id: &Uuid| json!({"type":"image","attrs":{"attachmentId":id,"alt":"private filename"}});
+    let mut content = ids[..4].iter().map(image).collect::<Vec<_>>();
+    content
+        .push(json!({"type":"replyGate","content":ids[4..].iter().map(image).collect::<Vec<_>>()}));
+    sqlx::query("UPDATE posts SET rich_content=$2 WHERE id=$1")
+        .bind(topic_id)
+        .bind(json!({"type":"doc","content":content}))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let db = Database::from_pool(pool.clone());
+    for (viewer, expected) in [
+        (None, &ids[..4]),
+        (Some(reader), &ids[..4]),
+        (Some(author), &ids[..]),
+    ] {
+        let list = db
+            .list_public_topics(
+                &PublicTopicFilters {
+                    viewer_user_id: viewer,
+                    ..Default::default()
+                },
+                None,
+                20,
+            )
+            .await
+            .unwrap();
+        assert_eq!(list[0].image_attachment_ids, expected);
+        let detail = db
+            .public_topic_for_viewer(topic_id, viewer)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(detail.summary.image_attachment_ids, expected);
+    }
+    let reply = fixture_id(201);
+    insert_reply(&pool, reply, topic_id, reader, "published", false).await;
+    let unlocked = db
+        .list_public_topics(
+            &PublicTopicFilters {
+                viewer_user_id: Some(reader),
+                ..Default::default()
+            },
+            None,
+            20,
+        )
+        .await
+        .unwrap();
+    assert_eq!(unlocked[0].image_attachment_ids, ids);
+    sqlx::query("UPDATE posts SET deleted_at=CURRENT_TIMESTAMP WHERE id=$1")
+        .bind(reply)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let locked = db
+        .public_topic_for_viewer(topic_id, Some(reader))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(locked.summary.image_attachment_ids, ids[..4]);
+}

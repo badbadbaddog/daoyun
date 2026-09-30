@@ -102,3 +102,25 @@ it("does not change images for short, vertical, canceled, pinching or zoomed dra
   expect(screen.getByRole("img", { name: "第一张" })).toBeInTheDocument()
   expect(screen.getByLabelText("缩放比例")).toHaveTextContent("200%")
 })
+
+it("retries authorized gallery loading without displaying stale previews", async () => {
+  const loadImages = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce([{ src: "/authorized.png", alt: "授权图片" }, { src: "/next.png", alt: "下一张图片" }]);
+  render(<ImagePreviewDialog selection={{ images: [{ src: "/old.png", alt: "旧预览" }], index: 0, trigger: document.createElement("button"), loadImages }} onClose={vi.fn()} />);
+  expect(await screen.findByRole("alert")).toHaveTextContent("图片列表加载失败");
+  expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  await userEvent.setup().click(screen.getByRole("button", { name: "重试加载图片" }));
+  expect(await screen.findByRole("img", { name: "授权图片" })).toHaveAttribute("src", "/authorized.png");
+  await userEvent.setup().keyboard("{ArrowRight}");
+  expect(screen.getByRole("img", { name: "下一张图片" })).toBeInTheDocument();
+  expect(loadImages).toHaveBeenCalledTimes(2);
+});
+
+it("aborts a pending gallery request on unmount", () => {
+  let signal: AbortSignal | undefined;
+  const loadImages = vi.fn((requestSignal: AbortSignal) => { signal = requestSignal; return new Promise<Array<{src:string;alt:string}>>(() => {}); });
+  const { unmount } = render(<ImagePreviewDialog selection={{ images: [{ src: "/old.png", alt: "旧预览" }], index: 0, trigger: document.createElement("button"), loadImages }} onClose={vi.fn()} />);
+  expect(screen.getByRole("status")).toHaveTextContent("正在加载图片");
+  expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  unmount();
+  expect(signal?.aborted).toBe(true);
+});

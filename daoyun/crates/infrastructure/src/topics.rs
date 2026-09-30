@@ -2466,10 +2466,12 @@ impl Database {
         .fetch_all(&self.pool)
         .await?;
         let mut detail = PublicTopicDetailRecord::from(row);
+        detail.reply_gate_unlocked =
+            reply_gate_is_unlocked(&self.pool, topic_id, viewer_user_id).await?;
         let cover_candidates = detail
             .rich_content
             .as_ref()
-            .map(|content| public_rich_content_image_ids(content, 3))
+            .map(|content| public_rich_content_image_ids(content, detail.reply_gate_unlocked))
             .filter(|attachment_ids| !attachment_ids.is_empty())
             .map(|attachment_ids| HashMap::from([(topic_id, attachment_ids)]))
             .unwrap_or_default();
@@ -2480,8 +2482,6 @@ impl Database {
             viewer_user_id,
         )
         .await?;
-        detail.reply_gate_unlocked =
-            reply_gate_is_unlocked(&self.pool, topic_id, viewer_user_id).await?;
         detail.summary.tags = tags;
         if let Some(viewer_user_id) = viewer_user_id {
             hydrate_topic_viewer_states(
@@ -2500,27 +2500,33 @@ async fn reply_gate_is_unlocked(
     topic_id: Uuid,
     viewer_user_id: Option<Uuid>,
 ) -> Result<bool, sqlx::Error> {
-    let Some(viewer_user_id) = viewer_user_id else {
-        return Ok(false);
-    };
-    sqlx::query_scalar(
-        "SELECT EXISTS(\
-             SELECT 1 FROM topics WHERE id = $1 AND author_id = $2\
-         ) OR EXISTS(\
-             SELECT 1 FROM posts \
-             WHERE topic_id = $1 AND author_id = $2 AND kind = 'reply' \
-               AND status = 'published' AND deleted_at IS NULL\
-         ) OR EXISTS(\
-             SELECT 1 FROM role_assignments AS assignment \
-             INNER JOIN roles AS role ON role.id = assignment.role_id \
-             WHERE assignment.user_id = $2 AND assignment.scope_id IS NULL \
-               AND role.key = 'super_admin'\
-         )",
+    Ok(
+        unlocked_reply_gate_topics(pool, &[topic_id], viewer_user_id)
+            .await?
+            .contains(&topic_id),
     )
-    .bind(topic_id)
-    .bind(viewer_user_id)
-    .fetch_one(pool)
-    .await
+}
+
+async fn unlocked_reply_gate_topics(
+    pool: &sqlx::PgPool,
+    topic_ids: &[Uuid],
+    viewer_user_id: Option<Uuid>,
+) -> Result<HashSet<Uuid>, sqlx::Error> {
+    let Some(viewer_user_id) = viewer_user_id else {
+        return Ok(HashSet::new());
+    };
+    sqlx::query_scalar::<_, Uuid>(
+        "SELECT topic.id FROM topics AS topic WHERE topic.id = ANY($1::uuid[]) AND (
+            topic.author_id = $2 OR EXISTS(
+                SELECT 1 FROM posts WHERE topic_id = topic.id AND author_id = $2
+                AND kind = 'reply' AND status = 'published' AND deleted_at IS NULL
+            ) OR EXISTS(
+                SELECT 1 FROM role_assignments AS assignment
+                INNER JOIN roles AS role ON role.id = assignment.role_id
+                WHERE assignment.user_id = $2 AND assignment.scope_id IS NULL AND role.key = 'super_admin'
+            )
+        )",
+    ).bind(topic_ids).bind(viewer_user_id).fetch_all(pool).await.map(|ids| ids.into_iter().collect())
 }
 
 async fn hydrate_topic_viewer_states(
@@ -2579,13 +2585,16 @@ pub(crate) async fn hydrate_topic_cover_images(
     .bind(&topic_ids)
     .fetch_all(pool)
     .await?;
+    let unlocked = unlocked_reply_gate_topics(pool, &topic_ids, viewer_user_id).await?;
     let candidates = documents
         .into_iter()
         .filter_map(|document| {
             let attachment_ids = document
                 .rich_content
                 .as_ref()
-                .map(|content| public_rich_content_image_ids(content, 3))
+                .map(|content| {
+                    public_rich_content_image_ids(content, unlocked.contains(&document.topic_id))
+                })
                 .unwrap_or_default();
             (!attachment_ids.is_empty()).then_some((document.topic_id, attachment_ids))
         })
@@ -2633,22 +2642,18 @@ async fn hydrate_topic_cover_candidates(
             .flatten()
             .copied()
             .filter(|attachment_id| available.contains(&(topic.id, *attachment_id)))
-            .take(3)
             .collect();
         topic.image_attachment_id = topic.image_attachment_ids.first().copied();
     }
     Ok(())
 }
 
-fn public_rich_content_image_ids(value: &Value, limit: usize) -> Vec<Uuid> {
-    fn collect(value: &Value, limit: usize, output: &mut Vec<Uuid>) {
-        if output.len() >= limit {
-            return;
-        }
+fn public_rich_content_image_ids(value: &Value, reply_gate_unlocked: bool) -> Vec<Uuid> {
+    fn collect(value: &Value, reply_gate_unlocked: bool, output: &mut Vec<Uuid>) {
         let Some(object) = value.as_object() else {
             return;
         };
-        if object.get("type").and_then(Value::as_str) == Some("replyGate") {
+        if object.get("type").and_then(Value::as_str) == Some("replyGate") && !reply_gate_unlocked {
             return;
         }
         if object.get("type").and_then(Value::as_str) == Some("image")
@@ -2666,16 +2671,12 @@ fn public_rich_content_image_ids(value: &Value, limit: usize) -> Vec<Uuid> {
         }
         if let Some(content) = object.get("content").and_then(Value::as_array) {
             for child in content {
-                collect(child, limit, output);
-                if output.len() >= limit {
-                    break;
-                }
+                collect(child, reply_gate_unlocked, output);
             }
         }
     }
-
-    let mut output = Vec::with_capacity(limit.min(3));
-    collect(value, limit, &mut output);
+    let mut output = Vec::new();
+    collect(value, reply_gate_unlocked, &mut output);
     output
 }
 
@@ -2699,7 +2700,7 @@ mod cover_image_tests {
         });
 
         assert_eq!(
-            public_rich_content_image_ids(&document, 3),
+            public_rich_content_image_ids(&document, false),
             vec![first, second]
         );
     }
@@ -2722,11 +2723,14 @@ mod cover_image_tests {
             ]
         });
 
-        assert_eq!(public_rich_content_image_ids(&document, 3), vec![public]);
+        assert_eq!(
+            public_rich_content_image_ids(&document, false),
+            vec![public]
+        );
     }
 
     #[test]
-    fn rich_content_preview_is_capped_at_three_images() {
+    fn rich_content_candidates_are_not_truncated_before_authorization() {
         let images = [
             Uuid::from_u128(10),
             Uuid::from_u128(11),
@@ -2741,7 +2745,7 @@ mod cover_image_tests {
             })).collect::<Vec<_>>()
         });
 
-        assert_eq!(public_rich_content_image_ids(&document, 3), images[..3]);
+        assert_eq!(public_rich_content_image_ids(&document, false), images);
     }
 }
 

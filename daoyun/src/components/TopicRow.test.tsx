@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import * as topicsApi from "../api/topics"
 import type { Topic } from "../types/community"
 import { TopicRow } from "./TopicRow"
 
@@ -25,7 +26,7 @@ const topic: Topic = {
   tags: [],
 }
 
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 describe("TopicRow", () => {
   it("selects the media-card layout only when a cover is available", () => {
@@ -366,4 +367,33 @@ it("opens an image-only board post by keyboard without inventing a heading", asy
   screen.getByRole("link", { name: "查看图片帖" }).focus();
   await userEvent.setup().keyboard("{Enter}");
   expect(onOpen).toHaveBeenCalledWith(topic.id);
+});
+
+it("loads all nine authorized images and shows the server remaining count", async () => {
+  const urls = Array.from({ length: 9 }, (_, index) => `/image-${index}.webp`);
+  const read = vi.spyOn(topicsApi, "getTopic").mockResolvedValue({ ...topic, imageUrls: urls.slice(0, 3), visibleImageCount: 9, mediaUrls: urls, content: "body", contentRevision: 1, hasLockedContent: false });
+  render(<TopicRow topic={{ ...topic, imageUrls: urls.slice(0, 3), visibleImageCount: 9 }} bookmarkPending={false} />);
+  expect(screen.getByText("+6")).toBeInTheDocument();
+  const user = userEvent.setup();
+  const trigger = screen.getByRole("button", { name: "查看第 3 张图片" });
+  await user.click(trigger);
+  const dialog = await screen.findByRole("dialog", { name: "图片预览" });
+  expect(within(dialog).getByText("3 / 9")).toBeInTheDocument();
+  await user.keyboard("{ArrowRight}");
+  expect(within(dialog).getByRole("img")).toHaveAttribute("src", urls[3]);
+  await user.keyboard("{Escape}");
+  expect(trigger).toHaveFocus();
+  expect(read).toHaveBeenCalledWith(topic.id, expect.any(AbortSignal));
+});
+
+it("does not invent a remaining count from truncated previews", () => {
+  render(<TopicRow topic={{ ...topic, imageUrls: ["/1", "/2", "/3", "/private"] }} bookmarkPending={false} />);
+  expect(screen.queryByText(/^\+\d+$/)).not.toBeInTheDocument();
+});
+
+it("keeps the authorized thumbnail endpoint when opening a preview", async () => {
+  const thumbnail = "/api/v1/attachments/019fc800-0000-7000-8000-000000000301/thumbnail";
+  render(<TopicRow topic={{ ...topic, imageUrls: [thumbnail], visibleImageCount: 1 }} bookmarkPending={false} />);
+  await userEvent.setup().click(screen.getByRole("button", { name: "查看第 1 张图片" }));
+  expect(within(screen.getByRole("dialog")).getByRole("img")).toHaveAttribute("src", thumbnail);
 });

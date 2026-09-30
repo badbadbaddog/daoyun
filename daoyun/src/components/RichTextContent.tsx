@@ -20,14 +20,33 @@ interface RichTextContentProps {
 
 export function RichTextContent({ document, className = "", imageLayout = "inline" }: RichTextContentProps) {
   const [preview, setPreview] = useState<ImagePreviewSelection | null>(null)
+  const images = visibleDocumentImages(document.content)
+  const openPreview: OpenImagePreview = selection => {
+    const index = images.findIndex(image => image.src === selection.images[selection.index]?.src)
+    if (index >= 0) setPreview({ ...selection, images, index })
+  }
   return (
     <>
       <div className={`rich-text-content ${className}`.trim()}>
-        {renderContentNodes(document.content, imageLayout, setPreview)}
+        {renderContentNodes(document.content, imageLayout, openPreview)}
       </div>
       {preview && <ImagePreviewDialog selection={preview} onClose={() => setPreview(null)} />}
     </>
   )
+}
+
+function visibleDocumentImages(nodes: RichTextNode[]): Array<{ src: string; alt: string }> {
+  const images: Array<{ src: string; alt: string }> = []
+  function collect(node: RichTextNode) {
+    if (node.type === "replyGate" && node.attrs?.locked === true) return
+    if (node.type === "image") {
+      const src = attachmentThumbnailUrl(node.attrs?.attachmentId)
+      if (src && !images.some(image => image.src === src)) images.push(previewImage(node, src))
+    }
+    node.content?.forEach(collect)
+  }
+  nodes.forEach(collect)
+  return images
 }
 
 function renderContentNodes(nodes: RichTextNode[], imageLayout: "inline" | "strip", onPreview: OpenImagePreview): ReactNode[] {
@@ -137,7 +156,7 @@ function imageLabel(node: RichTextNode): string {
 }
 
 function previewImage(node: RichTextNode, thumbnail: string) {
-  return { src: thumbnail.replace(/\/thumbnail$/, ""), alt: typeof node.attrs?.alt === "string" ? node.attrs.alt : "" }
+  return { src: thumbnail, alt: typeof node.attrs?.alt === "string" ? node.attrs.alt : "" }
 }
 
 function renderImageNode(node: RichTextNode, key: string, src: string, compact = false): ReactNode {

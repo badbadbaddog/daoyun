@@ -1,6 +1,7 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Bookmark, Flame, Heart, LoaderCircle, MessageCircle, MessageSquareText, Pin, Sparkles } from "lucide-react"
 
+import { getTopic } from "../api/topics"
 import type { Topic } from "../types/community"
 import { topicDisplayTitle, topicHasTitle } from "../utils/topicPresentation"
 import { ImagePreviewDialog, type ImagePreviewSelection } from "./ImagePreviewDialog"
@@ -28,6 +29,9 @@ export function TopicRow({ topic, variant = "feed", statsPlacement = "content", 
   const footerActions = isFeed || statsPlacement === "footer"
   // 只使用服务端提供的公开预览，站点默认封面不能充当帖子图片。
   const mediaUrls = (topic.imageUrls?.length ? topic.imageUrls : topic.imageUrl ? [topic.imageUrl] : []).slice(0, 3)
+  const previewKey = `${topic.id}:${topic.visibleImageCount}:${mediaUrls.join(",")}`
+  useEffect(() => setPreview(null), [previewKey])
+  const remainingCount = Math.max(0, (topic.visibleImageCount ?? 0) - (isFeed ? mediaUrls.length : 1))
   const displayTitle = topicDisplayTitle(topic)
   const hasTitle = topicHasTitle(topic)
   const layout = mediaUrls.length ? "media" : "discussion"
@@ -145,8 +149,14 @@ export function TopicRow({ topic, variant = "feed", statsPlacement = "content", 
         <div className={`topic-cover topic-cover--count-${mediaUrls.length}`} role="group" aria-label="帖子图片预览">
           {mediaUrls.slice(0, isFeed ? 3 : 1).map((imageUrl, index) => <button key={imageUrl} type="button" className="topic-image-trigger"
             aria-label={`查看第 ${index + 1} 张图片`} title={`查看第 ${index + 1} 张图片`}
-            onClick={event => setPreview({ images: mediaUrls.map(src => ({ src, alt: "帖子图片" })), index, trigger: event.currentTarget })}>
+            onClick={event => setPreview({
+              images: mediaUrls.map(src => ({ src, alt: "帖子图片" })), index, trigger: event.currentTarget,
+              loadImages: (topic.visibleImageCount ?? 0) > mediaUrls.length
+                ? async signal => (await getTopic(topic.id, signal)).mediaUrls!.map(src => ({ src, alt: "帖子图片" }))
+                : undefined,
+            })}>
             <img src={imageUrl} alt="" loading="lazy" decoding="async" />
+            {index === (isFeed ? mediaUrls.length - 1 : 0) && remainingCount > 0 && <span className="topic-image-more" aria-hidden="true">+{remainingCount}</span>}
           </button>)}
         </div>
       ) : null}

@@ -539,6 +539,22 @@ async fn draft_image_upload_is_private_image_only_and_expires(pool: PgPool) {
         Some(uuid::Uuid::parse_str(&topic_id).expect("topic id must be valid"))
     );
 
+    let mut image_ids = vec![uuid::Uuid::parse_str(attachment_id).unwrap()];
+    for _ in 1..9 {
+        let id = uuid::Uuid::now_v7();
+        sqlx::query("INSERT INTO topic_attachments(id,topic_id,uploader_id,storage_key,original_name,mime_type,size_bytes,sha256,status,scan_status) SELECT $1,topic_id,uploader_id,$1::text,original_name,mime_type,size_bytes,sha256,'ready','clean' FROM topic_attachments WHERE id=$2")
+            .bind(id).bind(image_ids[0]).execute(&pool).await.unwrap();
+        image_ids.push(id);
+    }
+    sqlx::query("UPDATE posts SET rich_content=$2 WHERE topic_id=$1 AND kind='topic'")
+        .bind(uuid::Uuid::parse_str(&topic_id).unwrap())
+        .bind(json!({"type":"doc","content":image_ids.iter().map(|id| json!({"type":"image","attrs":{"attachmentId":id,"alt":"image"}})).collect::<Vec<_>>()}))
+        .execute(&pool).await.unwrap();
+    let image_urls = image_ids
+        .iter()
+        .map(|id| format!("/api/v1/attachments/{id}/thumbnail"))
+        .collect::<Vec<_>>();
+
     let list = app
         .clone()
         .oneshot(get_request("/api/v1/topics?limit=20"))
@@ -554,16 +570,64 @@ async fn draft_image_upload_is_private_image_only_and_expires(pool: PgPool) {
         .expect("topic with a rich-content image must be listed");
     let image_url = format!("/api/v1/attachments/{attachment_id}/thumbnail");
     assert_eq!(listed_topic["image_url"], image_url);
-    assert_eq!(listed_topic["image_urls"], json!([image_url]));
+    assert_eq!(listed_topic["image_urls"], json!(image_urls[..3]));
+    assert_eq!(listed_topic["visible_image_count"], 9);
 
     let detail = app
+        .clone()
         .oneshot(get_request(&format!("/api/v1/topics/{topic_id}")))
         .await
         .expect("topic detail must respond");
     assert_eq!(detail.status(), StatusCode::OK);
     let detail_payload = response_json(detail).await;
     assert_eq!(detail_payload["data"]["image_url"], image_url);
-    assert_eq!(detail_payload["data"]["image_urls"], json!([image_url]));
+    assert_eq!(detail_payload["data"]["image_urls"], json!(image_urls[..3]));
+    assert_eq!(detail_payload["data"]["visible_image_count"], 9);
+    assert_eq!(detail_payload["data"]["media_urls"], json!(image_urls));
+
+    // Unavailable candidates must not consume the preview slots or leak into detail.
+    let policy_id = uuid::Uuid::now_v7();
+    sqlx::query("INSERT INTO content_access_policies(id,target_type,target_id,operator) VALUES($1,'attachment',$2,'any_of')").bind(policy_id).bind(image_ids[0]).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO content_access_policy_subjects(policy_id,subject_type) VALUES($1,'authenticated')").bind(policy_id).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE topic_attachments SET deleted_at=CURRENT_TIMESTAMP WHERE id=$1")
+        .bind(image_ids[1])
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE topic_attachments SET scan_status='pending' WHERE id=$1")
+        .bind(image_ids[2])
+        .execute(&pool)
+        .await
+        .unwrap();
+    let filtered_list = response_json(
+        app.clone()
+            .oneshot(get_request("/api/v1/topics?limit=20"))
+            .await
+            .unwrap(),
+    )
+    .await;
+    let filtered = filtered_list["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|topic| topic["id"] == topic_id)
+        .unwrap();
+    assert_eq!(filtered["image_urls"], json!(image_urls[3..6]));
+    assert_eq!(filtered["visible_image_count"], 6);
+    let filtered_detail = response_json(
+        app.oneshot(get_request(&format!("/api/v1/topics/{topic_id}")))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(
+        filtered_detail["data"]["media_urls"],
+        json!(image_urls[3..])
+    );
+    let body = filtered_detail["data"]["rich_content"].to_string();
+    for id in &image_ids[..3] {
+        assert!(!body.contains(&id.to_string()));
+    }
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]

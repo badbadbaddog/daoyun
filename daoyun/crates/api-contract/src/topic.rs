@@ -146,7 +146,10 @@ pub struct TopicSummary {
     pub is_featured: bool,
     pub is_pinned: bool,
     pub image_url: Option<String>,
+    #[schema(max_items = 3)]
     pub image_urls: Vec<String>,
+    /// Number of distinct images accessible to the current viewer.
+    pub visible_image_count: u32,
     pub tags: Vec<TopicTag>,
 }
 
@@ -157,6 +160,8 @@ pub struct TopicDetail {
     pub summary: TopicSummary,
     pub content: String,
     pub rich_content: Option<Value>,
+    /// All accessible topic images in document order, without repeating them in the body.
+    pub media_urls: Vec<String>,
     pub has_locked_content: bool,
     pub content_revision: u32,
 }

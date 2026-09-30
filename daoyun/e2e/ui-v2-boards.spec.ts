@@ -17,7 +17,7 @@ const boards = [
 const imageOnlyId = "019fc700-0000-7000-8000-000000000099"
 const parentPosts = [
   publicTopicFixture,
-  { ...publicTopicFixture, id: "019fc700-0000-7000-8000-000000000098", title: "版块公告", image_url: null, is_pinned: true },
+  { ...publicTopicFixture, id: "019fc700-0000-7000-8000-000000000098", title: "版块公告", image_url: null, visible_image_count: 0, media_urls: [], is_pinned: true },
   { ...publicTopicFixture, id: imageOnlyId, title: "", excerpt: "", image_urls: [publicTopicFixture.image_url], is_featured: true },
 ]
 
