@@ -1,14 +1,11 @@
 import {
   Award,
-  BarChart3,
   Bell,
   Bookmark,
-  Compass,
-  Home,
-  LayoutGrid,
   LoaderCircle,
   LogIn,
   LogOut,
+  Menu,
   MessageCircle,
   Moon,
   Plus,
@@ -18,14 +15,19 @@ import {
   UserRound,
   X,
 } from "lucide-react"
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react"
+import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react"
 
+import { createPortal } from "react-dom"
+
+import type { BrandLink } from "../api/admin"
+import { ModalDialog } from "./ui/ModalDialog"
 import type { AuthSession } from "../api/auth"
 import { BrandMark } from "./BrandMark"
 import { PublicMemberIdentity } from "./PublicMemberIdentity"
 import { UserAvatar } from "./UserAvatar"
 
 interface SiteHeaderProps {
+  navigationLinks?: BrandLink[]
   siteName: string
   logoUrl: string | null
   darkMode: boolean
@@ -36,7 +38,6 @@ interface SiteHeaderProps {
   onCompose: () => void
   showCompose?: boolean
   showAccountSummary?: boolean
-  activeNavigation?: "home" | "community" | "discover" | "ranking" | "none"
   onToggleTheme: () => void
   session: AuthSession | null
   onOpenAuth: () => void
@@ -49,6 +50,7 @@ interface SiteHeaderProps {
 }
 
 export function SiteHeader({
+  navigationLinks = [],
   siteName,
   logoUrl,
   darkMode,
@@ -59,7 +61,6 @@ export function SiteHeader({
   onCompose,
   showCompose = true,
   showAccountSummary = false,
-  activeNavigation = "home",
   onToggleTheme,
   session,
   onOpenAuth,
@@ -70,6 +71,9 @@ export function SiteHeader({
   systemAdminAccess,
   managementAccess,
 }: SiteHeaderProps) {
+  const navigationTitleId = useId()
+  const navigationTriggerRef = useRef<HTMLButtonElement>(null)
+  const [navigationOpen, setNavigationOpen] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const accountMenuTriggerRef = useRef<HTMLButtonElement>(null)
@@ -189,6 +193,7 @@ export function SiteHeader({
           className="header-mobile-search-toggle"
           type="button"
           aria-label="打开搜索"
+          title="搜索"
           aria-expanded={mobileSearchOpen}
           onClick={() => {
             setMobileSearchOpen(true)
@@ -218,7 +223,7 @@ export function SiteHeader({
             }}
           />
           {query && (
-            <button className="header-search__clear" type="button" onClick={onClearQuery} aria-label="清空搜索">
+            <button className="header-search__clear" type="button" onClick={onClearQuery} aria-label="清空搜索" title="清空搜索">
               <X size={15} aria-hidden="true" />
             </button>
           )}
@@ -226,25 +231,18 @@ export function SiteHeader({
             className="header-search__mobile-close"
             type="button"
             aria-label="关闭搜索"
+            title="关闭搜索"
             onClick={() => setMobileSearchOpen(false)}
           >
             <X size={16} aria-hidden="true" />
           </button>
         </div>
 
-        {showAccountSummary && (
-          <nav className="header-primary-nav" aria-label="主导航">
-            <a className={headerNavigationLinkClass(activeNavigation === "home")} href="#hot" aria-current={activeNavigation === "home" ? "page" : undefined}><Home size={17} aria-hidden="true" /><span>首页</span></a>
-            <a className={headerNavigationLinkClass(activeNavigation === "community")} href="#boards" aria-current={activeNavigation === "community" ? "page" : undefined}><LayoutGrid size={17} aria-hidden="true" /><span>社区</span></a>
-            <a className={headerNavigationLinkClass(activeNavigation === "discover")} href="#featured" aria-current={activeNavigation === "discover" ? "page" : undefined}><Compass size={17} aria-hidden="true" /><span>发现</span></a>
-            <a className={headerNavigationLinkClass(activeNavigation === "ranking")} href="#active" aria-current={activeNavigation === "ranking" ? "page" : undefined}><BarChart3 size={17} aria-hidden="true" /><span>排行榜</span></a>
-          </nav>
-        )}
-
         <div className="header-actions">
           <button className="icon-button" type="button" onClick={onToggleTheme} aria-label={darkMode ? "切换浅色模式" : "切换深色模式"} title={darkMode ? "浅色模式" : "深色模式"}>
             {darkMode ? <Sun size={18} /> : <Moon size={18} />}
           </button>
+          <button className="icon-button header-navigation-toggle" type="button" ref={navigationTriggerRef} aria-label="打开导航" title="导航" aria-haspopup="dialog" aria-expanded={navigationOpen} onClick={() => setNavigationOpen(true)}><Menu size={18} aria-hidden="true" /></button>
           <a className="icon-button notification-button" href="#messages" aria-label="查看私信" title="私信">
             <MessageCircle size={18} />
           </a>
@@ -339,10 +337,15 @@ export function SiteHeader({
           )}
         </div>
       </div>
+      {navigationOpen && createPortal(
+        <ModalDialog titleId={navigationTitleId} className="navigation-dialog" returnFocus={navigationTriggerRef.current} onClose={() => setNavigationOpen(false)}>
+          <div className="dialog-header"><h2 id={navigationTitleId}>浏览社区</h2><button className="icon-button" type="button" aria-label="关闭导航" title="关闭导航" onClick={() => setNavigationOpen(false)}><X size={18} aria-hidden="true" /></button></div>
+          <nav className="navigation-dialog__links" aria-label="社区快捷导航" onClick={event => { if (event.target instanceof Element && event.target.closest("a")) setNavigationOpen(false) }}>
+            <a href="#hot">首页</a><a href="#boards">社区</a><a href="#bookmarks">收藏</a><a href="#featured">发现</a><a href="#active">排行榜</a>
+            {navigationLinks.map(link => <a href={link.url} key={`${link.label}-${link.url}`}>{link.label}</a>)}
+          </nav>
+        </ModalDialog>, document.body,
+      )}
     </header>
   )
-}
-
-function headerNavigationLinkClass(active: boolean): string {
-  return active ? "header-primary-nav__link header-primary-nav__link--active" : "header-primary-nav__link"
 }

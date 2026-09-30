@@ -18,7 +18,6 @@ import { listTags, listTopics } from "../api/topics"
 import { listUsers } from "../api/users"
 import type { UserSummary } from "../api/users"
 import { FeedTabs } from "../components/FeedTabs"
-import { HomeShowcase } from "../components/HomeShowcase"
 import { LeftSidebar } from "../components/LeftSidebar"
 import { MobileNavigation } from "../components/MobileNavigation"
 import { RightSidebar } from "../components/RightSidebar"
@@ -803,7 +802,6 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
     />
   ) : (
     <>
-      <HomeShowcase topics={topics} onCompose={() => openComposer()} onOpenTopic={openTopic} />
       <FeedTabs active={activeFeed} onChange={selectFeed} />
       <TopicFeed
         topics={topics}
@@ -843,6 +841,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
       surface={route.kind === "feed" || route.kind === "boardIndex" || route.kind === "board" ? "home" : "default"}
       header={(
         <SiteHeader
+          navigationLinks={branding?.navigationLinks ?? []}
           siteName={branding?.siteName ?? "刀云"}
           logoUrl={branding?.logoUrl ?? null}
           darkMode={theme === "dark"}
@@ -856,7 +855,6 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
           onCompose={() => openComposer(boardPageState.kind === "ready" ? boardPageState.board.id : null)}
           showCompose={route.kind !== "board" || (boardPageState.kind === "ready" && boardPageState.board.viewer.canCreateTopic)}
           showAccountSummary
-          activeNavigation={headerNavigationActive(route)}
           onToggleTheme={toggleTheme}
           session={authSession}
           authPending={authLoadStatus === "loading"}
@@ -971,13 +969,6 @@ function primaryNavigationActive(route: CommunityPageRoute) {
   return "none" as const
 }
 
-function headerNavigationActive(route: CommunityPageRoute) {
-  if (route.kind === "board" || route.kind === "boardIndex" || route.kind === "topic") return "community" as const
-  if (route.kind === "search" || (route.kind === "feed" && route.feed === "featured")) return "discover" as const
-  if (route.kind === "feed" && route.feed === "active") return "ranking" as const
-  if (route.kind === "feed") return "home" as const
-  return "none" as const
-}
 
 function mobileNavigationActive(route: CommunityPageRoute) {
   if (route.kind === "board" || route.kind === "boardIndex" || route.kind === "topic") return "community" as const
@@ -1006,7 +997,7 @@ function applyBrandingToDocument(branding: SiteBranding | null) {
     ? `color-mix(in srgb, ${customPrimaryColor} 78%, #000)`
     : undefined)
   setRootProperty(root, "--brand-strong", customPrimaryColor
-    ? `color-mix(in srgb, ${customPrimaryColor} 78%, #000)`
+    ? `color-mix(in srgb, var(--text) 70%, ${customPrimaryColor})`
     : undefined)
   setRootProperty(root, "--brand-soft", customPrimaryColor
     ? `color-mix(in srgb, ${customPrimaryColor} 14%, var(--surface))`

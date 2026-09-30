@@ -3,12 +3,12 @@ import AxeBuilder from "@axe-core/playwright"
 
 import { assertNoHorizontalOverflow, mockPublicApi, topicId } from "./fixtures"
 
-const acceptanceWidths = [320, 375, 768, 1024, 1440] as const
+const acceptanceWidths = [320, 390, 768, 1024, 1440] as const
 
 test("applies the accessible community blue palette and button interaction states", async ({ page }) => {
   await mockPublicApi(page)
   await page.goto("/")
-  await expect(page.getByRole("heading", { name: "记录每一种热爱" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "社区发现" })).toHaveCount(1)
   await expect(page.getByRole("link", { name: "质量回归社区首页" })).toBeVisible()
   await page.evaluate(() => {
     for (const property of [
@@ -93,7 +93,7 @@ for (const width of acceptanceWidths) {
     await expect(page.locator('[data-layout="discussion"]').first()).toBeVisible()
     await assertNoHorizontalOverflow(page)
 
-    const defaultDesktopLayout = width > 1060 ? await page.evaluate(() => {
+    const defaultDesktopLayout = width >= 1280 ? await page.evaluate(() => {
       const shell = document.querySelector<HTMLElement>(".page-shell")
       const header = document.querySelector<HTMLElement>(".site-header__inner")
       if (!shell || !header) throw new Error("公共页面外壳不存在")
@@ -105,7 +105,7 @@ for (const width of acceptanceWidths) {
       }
     }) : null
 
-    if (width <= 768) {
+    if (width < 768) {
       await expect(page.locator(".tag-filter")).toHaveCSS("display", "none")
       await expect(page.locator(".mobile-compose")).toHaveCSS("display", "none")
       await expect(page.locator(".composer-prompt")).toHaveCSS("display", "none")
@@ -126,22 +126,22 @@ for (const width of acceptanceWidths) {
       })
     }
 
-    if (width <= 900) {
+    if (width < 768) {
       await expect(page.locator(".mobile-navigation")).toBeVisible()
       await expect(page.locator(".left-sidebar")).toBeHidden()
     } else {
       await expect(page.locator(".mobile-navigation")).toBeHidden()
       await expect(page.locator(".left-sidebar")).toBeVisible()
     }
-    if (width <= 1060) {
+    if (width < 1280) {
       await expect(page.locator(".right-sidebar")).toBeHidden()
     } else {
       await expect(page.locator(".right-sidebar")).toBeVisible()
     }
 
-    const composeButton = width <= 768
+    const composeButton = width < 768
       ? page.getByRole("button", { name: "从移动导航发布新主题" })
-      : page.getByRole("button", { name: "立即发布" })
+      : page.getByRole("button", { name: "从顶部发布新主题" })
     await composeButton.click()
     await expect(page.getByRole("dialog", { name: "发布内容" })).toBeVisible()
     await assertNoHorizontalOverflow(page)
@@ -170,7 +170,7 @@ for (const width of acceptanceWidths) {
     }
     await assertNoHorizontalOverflow(page)
 
-    if (width === 375 || width === 1440) {
+    if (width === 390 || width === 1440) {
       const accessibility = await new AxeBuilder({ page }).analyze()
       expect(accessibility.violations, JSON.stringify(accessibility.violations, null, 2)).toEqual([])
       await page.screenshot({ path: testInfo.outputPath(`boards-${width}.png`), fullPage: true })
@@ -181,7 +181,7 @@ for (const width of acceptanceWidths) {
     await expect(page.getByLabel("工程实践社区概览")).toBeVisible()
     await expect(page.getByRole("region", { name: "版块数据" })).toBeVisible()
     await expect(page.getByRole("button", { name: "发主题" })).toBeVisible()
-    await expect(page.getByRole("heading", { name: "子版块", level: 2, exact: true })).toBeVisible()
+    await expect(page.getByRole("region", { name: "子版块导航" })).toBeVisible()
     const boardChildren = page.getByRole("list", { name: "子版块列表" })
     await expect(boardChildren.getByRole("listitem")).toHaveCount(6)
     await expect(boardChildren.getByRole("link", { name: /编程语言/ })).toHaveAttribute("href", "#board/languages")
@@ -189,7 +189,7 @@ for (const width of acceptanceWidths) {
     if (width <= 768) {
       await expect(page.locator(".board-breadcrumb")).toHaveCSS("position", "absolute")
       await expect(boardChildren).toHaveCSS("overflow-x", "auto")
-      expect(await boardChildren.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+      if (width < 768) expect(await boardChildren.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
     } else {
       await expect(page.getByRole("navigation", { name: "社区路径" })).toBeVisible()
     }
@@ -209,7 +209,7 @@ for (const width of acceptanceWidths) {
     await expect(boardMediaRow).toBeVisible()
     await expect(boardMediaRow).toHaveCSS(
       "grid-template-areas",
-      /marker content bookmark/,
+      width <= 768 ? /marker content bookmark/ : /marker title author replies likes views bookmark/,
     )
     await expect(boardMediaRow.locator(".topic-cover")).toHaveCSS("display", "none")
     await expect(boardMediaRow.locator(".topic-avatar")).toHaveCount(0)
@@ -221,9 +221,9 @@ for (const width of acceptanceWidths) {
       await expect(page.locator(".site-header")).toHaveCSS("display", "none")
       await expect(page.getByRole("navigation", { name: "版块快捷操作" })).toBeVisible()
       await expect(page.locator(".board-page")).toHaveCSS("border-left-width", "0px")
-      await expect(page.locator(".board-header")).toHaveCSS("border-radius", "0px")
+      expect(parseFloat(await page.locator(".board-header").evaluate(element => getComputedStyle(element).borderRadius))).toBeLessThanOrEqual(8)
       await expect(page.locator(".board-breadcrumb")).toHaveCSS("overflow-x", "hidden")
-      await expect(boardMediaRow).toHaveCSS("min-height", "72px")
+      await expect(boardMediaRow).toHaveCSS("min-height", "82px")
     } else {
       await expect(page.getByRole("navigation", { name: "版块快捷操作" })).toBeHidden()
       const childGridGap = await boardChildren.evaluate((element) => {
@@ -232,7 +232,7 @@ for (const width of acceptanceWidths) {
         return element.getBoundingClientRect().right - lastItem.getBoundingClientRect().right
       })
       expect(childGridGap).toBeLessThanOrEqual(1)
-      await expect(boardMediaRow).toHaveCSS("min-height", "58px")
+      await expect(boardMediaRow).toHaveCSS("min-height", "82px")
       const boardInsets = await page.evaluate(() => {
         const pageElement = document.querySelector<HTMLElement>(".board-page")
         const headerElement = document.querySelector<HTMLElement>(".board-header")
@@ -247,7 +247,7 @@ for (const width of acceptanceWidths) {
       expect(boardInsets.left).toBeGreaterThanOrEqual(16)
       expect(boardInsets.right).toBeGreaterThanOrEqual(16)
     }
-    if (width > 1060) {
+    if (width >= 1280) {
       const boardDesktopLayout = await page.evaluate(() => {
         const shell = document.querySelector<HTMLElement>(".page-shell")
         const header = document.querySelector<HTMLElement>(".site-header__inner")
@@ -262,10 +262,10 @@ for (const width of acceptanceWidths) {
       expect(boardDesktopLayout).toEqual(defaultDesktopLayout)
     }
     await expect(page.locator(".right-sidebar--board-detail"))
-      .toHaveCSS("display", width > 1060 ? "flex" : "none")
+      .toHaveCSS("display", width >= 1280 ? "flex" : "none")
     await assertNoHorizontalOverflow(page)
 
-    if (width === 375 || width === 1440) {
+    if (width === 390 || width === 1440) {
       const accessibility = await new AxeBuilder({ page }).analyze()
       expect(accessibility.violations, JSON.stringify(accessibility.violations, null, 2)).toEqual([])
       await page.screenshot({ path: testInfo.outputPath(`board-${width}.png`), fullPage: true })
@@ -281,8 +281,8 @@ for (const width of acceptanceWidths) {
     await expect(page.locator('.reply-list > li[data-reply-level="1"]')).toHaveCount(1)
     await expect(page.getByText("引用 #1")).toBeVisible()
     await expect(page.locator(".right-sidebar--topic-detail"))
-      .toHaveCSS("display", width > 1060 ? "flex" : "none")
-    if (width > 1060) {
+      .toHaveCSS("display", width >= 1280 ? "flex" : "none")
+    if (width >= 1280) {
       await expect(page.getByRole("complementary", { name: "帖子相关信息" })).toContainText("质量作者")
       await expect(page.getByRole("heading", { name: "相关版块" })).toBeVisible()
     }
@@ -296,7 +296,7 @@ for (const width of acceptanceWidths) {
     }
     await assertNoHorizontalOverflow(page)
 
-    if (width === 375 || width === 1440) {
+    if (width === 390 || width === 1440) {
       const accessibility = await new AxeBuilder({ page }).analyze()
       expect(accessibility.violations, JSON.stringify(accessibility.violations, null, 2)).toEqual([])
       await page.screenshot({ path: testInfo.outputPath(`topic-${width}.png`), fullPage: true })
@@ -306,7 +306,7 @@ for (const width of acceptanceWidths) {
     await expect(page.getByRole("heading", { name: "质量作者", level: 1 })).toBeVisible()
     await assertNoHorizontalOverflow(page)
 
-    if (width === 375 || width === 1440) {
+    if (width === 390 || width === 1440) {
       await page.screenshot({ path: testInfo.outputPath(`profile-${width}.png`), fullPage: true })
     }
 

@@ -53,7 +53,7 @@ export function BoardTopicFeed(props: BoardTopicFeedProps) {
   )
 
   return (
-    <section className="board-topic-feed" aria-labelledby="board-topics-title">
+    <div className="board-topic-feed">
       <div className="board-feed-controls">
         <h2 id="board-topics-title">主题</h2>
         <label className="board-search">
@@ -128,6 +128,6 @@ export function BoardTopicFeed(props: BoardTopicFeedProps) {
           {props.loadingMore ? "正在加载" : "加载更多"}
         </button>
       )}
-    </section>
+    </div>
   )
 }

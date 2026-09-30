@@ -8,6 +8,7 @@ const communityStyles = readFileSync(resolve(process.cwd(), "src/styles.communit
 const homeStyles = readFileSync(resolve(process.cwd(), "src/styles.home.css"), "utf8")
 const boardStyles = readFileSync(resolve(process.cwd(), "src/styles.boards.css"), "utf8")
 
+// 首页单列布局、卡片顺序和壳宽度改由 e2e/ui-v2-home.spec.ts 验证实际计算布局。
 describe("public community responsive layout", () => {
   it("defines the five required responsive acceptance widths without device-bound layout values", () => {
     expect(styles).toMatch(/@media \(max-width: 380px\)/)
@@ -33,55 +34,6 @@ describe("public community responsive layout", () => {
     expect(styles).toMatch(/\.feed-tab\s*\{[\s\S]*?border-radius:\s*0;/)
     expect(styles).toMatch(/\.feed-tab--active\s*\{[\s\S]*?background:\s*transparent;/)
     expect(styles).toMatch(/\.feed-tab--active::after\s*\{[\s\S]*?height:\s*2px;/)
-  })
-
-  it("balances the homepage header, feed rhythm, and sidebar density", () => {
-    const homepageStyles = communityStyles.slice(communityStyles.indexOf("/* Public shell and homepage content layout"))
-
-    expect(homepageStyles).toMatch(/\.app--public\s*\{\s*--header-height:\s*54px;/)
-    expect(homepageStyles).toMatch(/\.app--public \.site-header__inner\s*\{[\s\S]*?grid-template-columns:\s*168px minmax\(280px, 1fr\) auto;/)
-    expect(homepageStyles).toMatch(/\.app--home \.feed-tabs\s*\{[\s\S]*?min-height:\s*46px;[\s\S]*?padding:\s*0 16px;/)
-    expect(homepageStyles).toMatch(/\.app--home \.topic-list\s*\{[\s\S]*?gap:\s*10px;/)
-    expect(homepageStyles).toMatch(/\.app--home \.topic-row--feed\s*\{[^}]*border-radius:\s*8px;/)
-    expect(homepageStyles).toMatch(/\.app--home \.right-sidebar--home\s*\{[\s\S]*?gap:\s*8px;/)
-    expect(homepageStyles).toMatch(/\.app--public \.avatar-button--summary\s*\{[\s\S]*?height:\s*34px;/)
-  })
-
-  it("keeps homepage bookmarks in the footer action row", () => {
-    const homepageStyles = communityStyles.slice(communityStyles.indexOf("/* Public shell and homepage content layout"))
-
-    expect(homepageStyles).toMatch(
-      /\.app--home \.topic-row--feed\.topic-row--stats-footer \.topic-bookmark\s*\{[^}]*position:\s*static;[^}]*grid-column:\s*2;[^}]*grid-row:\s*2;[^}]*justify-self:\s*end;/,
-    )
-    expect(homepageStyles).toMatch(
-      /\.app--home \.topic-row--feed\.topic-row--media\.topic-row--stats-footer \.topic-bookmark\s*\{[^}]*grid-row:\s*3;/,
-    )
-  })
-
-  it("uses two-line author metadata with a labeled feed medal", () => {
-    const homepageStyles = communityStyles.slice(communityStyles.indexOf("/* Public shell and homepage content layout"))
-
-    expect(homepageStyles).toMatch(
-      /\.app--home \.topic-row--feed \.topic-meta\s*\{[^}]*display:\s*grid;[^}]*grid-template-rows:\s*20px 18px;/,
-    )
-    expect(homepageStyles).toMatch(
-      /\.app--home \.topic-row--feed \.topic-author-meta,\s*\.app--home \.topic-row--feed \.topic-context-meta\s*\{[^}]*display:\s*flex;/,
-    )
-    expect(homepageStyles).toMatch(
-      /\.app--home \.topic-row--feed \.topic-author-meta\s*\{[^}]*gap:\s*8px;/,
-    )
-    expect(homepageStyles).toMatch(
-      /\.app--home \.topic-row--feed \.topic-context-meta\s*\{[^}]*gap:\s*6px;/,
-    )
-    expect(homepageStyles).toMatch(
-      /\.app--home \.topic-row--feed \.topic-author-meta > a\s*\{[^}]*font-size:\s*14px;/,
-    )
-    expect(homepageStyles).toMatch(
-      /\.app--home \.topic-row--feed \.topic-context-meta \.board-tag\s*\{[^}]*order:\s*0;/,
-    )
-    expect(homepageStyles).toMatch(
-      /\.app--home \.topic-row--feed \.topic-meta \.public-member-medal\s*\{[^}]*color:\s*var\(--amber\);/,
-    )
   })
 
   it("moves mobile feed content directly below its tabs", () => {
@@ -204,26 +156,4 @@ describe("public community responsive layout", () => {
     )
   })
 
-  it("keeps the public shell aligned when opening a topic from the homepage", () => {
-    const shellStyles = homeStyles.slice(0, homeStyles.indexOf("/* Topic detail: compact content page"))
-    const topicStyles = homeStyles.slice(homeStyles.indexOf("/* Topic detail: compact content page"))
-
-    expect(shellStyles).toMatch(
-      /\.app--public \.site-header__inner,\s*\.app--public \.page-shell\s*\{[^}]*width:\s*min\(1480px, calc\(100% - 32px\)\);/,
-    )
-    expect(shellStyles).toMatch(
-      /\.app--public \.page-shell\s*\{[^}]*grid-template-columns:\s*176px minmax\(0, 1fr\) 320px;[^}]*gap:\s*14px;/,
-    )
-    expect(shellStyles).toMatch(
-      /\.app--public \.left-sidebar\s*\{[^}]*border:\s*1px solid var\(--border\);[^}]*background:\s*var\(--surface\);/,
-    )
-    expect(shellStyles).toMatch(
-      /@media \(max-width:\s*1280px\)\s*\{[\s\S]*?\.app--public \.page-shell\s*\{[^}]*grid-template-columns:\s*170px minmax\(0, 1fr\) 278px;/,
-    )
-    expect(shellStyles).toMatch(
-      /@media \(max-width:\s*1060px\)\s*\{[\s\S]*?\.app--public \.page-shell\s*\{[^}]*grid-template-columns:\s*170px minmax\(0, 1fr\);/,
-    )
-    expect(topicStyles).not.toMatch(/\.app:has\(\.topic-detail\) \.site-header__inner/)
-    expect(topicStyles).not.toMatch(/\.app:has\(\.topic-detail\) \.page-shell/)
-  })
 })

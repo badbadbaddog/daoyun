@@ -1,4 +1,4 @@
-import { Aperture, Bookmark, Code2, Compass, Home, LayoutGrid, MessageSquareText, RefreshCw, Users } from "lucide-react"
+import { Aperture, BarChart3, Bookmark, Code2, Compass, Home, LayoutGrid, MessageSquareText, RefreshCw } from "lucide-react"
 
 import type { BrandLink } from "../api/admin"
 import type { Board } from "../types/community"
@@ -23,29 +23,30 @@ export function LeftSidebar({ boards, loadStatus, onRetry, navigationLinks, acti
   return (
     <aside className="left-sidebar" aria-label="社区导航">
       <nav className="sidebar-nav">
-        <a className={sidebarLinkClass(active === "home")} href="#hot" aria-current={active === "home" ? "page" : undefined}>
+        <a className={sidebarLinkClass((active === "home" || active === "following"))} href="#hot" title="首页" aria-current={(active === "home" || active === "following") ? "page" : undefined}>
           <Home size={18} />
           <span>首页</span>
         </a>
-        <a className={sidebarLinkClass(active === "following")} href="#following" aria-current={active === "following" ? "page" : undefined}>
-          <Users size={18} />
-          <span>关注</span>
-        </a>
-        <a className={sidebarLinkClass(active === "community")} href="#boards" aria-current={active === "community" ? "page" : undefined}>
+        <a className={sidebarLinkClass(active === "community")} href="#boards" title="社区" aria-current={active === "community" ? "page" : undefined}>
           <LayoutGrid size={18} />
           <span>社区</span>
         </a>
-        <a className={sidebarLinkClass(active === "bookmarks")} href="#bookmarks" aria-current={active === "bookmarks" ? "page" : undefined}>
+        <a className={sidebarLinkClass(active === "bookmarks")} href="#bookmarks" title="收藏" aria-current={active === "bookmarks" ? "page" : undefined}>
           <Bookmark size={18} />
           <span>收藏</span>
         </a>
+      </nav>
+
+      <nav className="sidebar-nav sidebar-nav--discovery" aria-label="内容发现">
+        <a className="sidebar-link" href="#featured" title="发现"><Compass size={18} aria-hidden="true" /><span>发现</span></a>
+        <a className="sidebar-link" href="#active" title="排行榜"><BarChart3 size={18} aria-hidden="true" /><span>排行榜</span></a>
       </nav>
 
       {navigationLinks.length > 0 && (
         <>
           <div className="sidebar-section-heading"><span>站点导航</span></div>
           <nav className="sidebar-nav sidebar-nav--custom" aria-label="站点导航">
-            {navigationLinks.map((link) => <a className="sidebar-link" href={link.url} key={`${link.label}-${link.url}`}><Compass size={17} aria-hidden="true" /><span>{link.label}</span></a>)}
+            {navigationLinks.map((link) => <a className="sidebar-link" href={link.url} title={link.label} aria-label={link.label} key={`${link.label}-${link.url}`}><Compass size={17} aria-hidden="true" /><span>{link.label}</span></a>)}
           </nav>
         </>
       )}

@@ -19,7 +19,7 @@ describe("LeftSidebar", () => {
 
     const primaryNavigation = screen.getAllByRole("navigation")[0]
     expect(within(primaryNavigation).getAllByRole("link").map((link) => link.textContent))
-      .toEqual(["首页", "关注", "社区", "收藏"])
+      .toEqual(["首页", "社区", "收藏"])
     expect(within(primaryNavigation).getByRole("link", { name: "社区" }))
       .toHaveAttribute("href", "#boards")
     expect(within(primaryNavigation).getByRole("link", { name: "社区" }))
@@ -28,6 +28,14 @@ describe("LeftSidebar", () => {
       .toHaveAttribute("href", "#hot")
     expect(within(primaryNavigation).getByRole("link", { name: "首页" }))
       .not.toHaveAttribute("aria-current")
+  })
+
+  it("uses the home destination for the following feed", () => {
+    render(<LeftSidebar boards={[]} loadStatus="ready" onRetry={vi.fn()} navigationLinks={[]} active="following" />)
+    expect(screen.getByRole("link", { name: "首页" })).toHaveAttribute("aria-current", "page")
+    expect(screen.queryByRole("link", { name: "关注" })).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "发现" })).toHaveAttribute("href", "#featured")
+    expect(screen.getByRole("link", { name: "排行榜" })).toHaveAttribute("href", "#active")
   })
 
   it("keeps the current board highlighted on board and topic routes", () => {

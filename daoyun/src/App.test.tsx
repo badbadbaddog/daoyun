@@ -478,6 +478,7 @@ describe("DaoYun community home", () => {
       expect(document.documentElement.style.getPropertyValue("--brand")).toBe("#123456")
       expect(document.documentElement.style.getPropertyValue("--brand-hover")).toBe("color-mix(in srgb, #123456 88%, #000)")
       expect(document.documentElement.style.getPropertyValue("--brand-active")).toBe("color-mix(in srgb, #123456 78%, #000)")
+      expect(document.documentElement.style.getPropertyValue("--brand-strong")).toBe("color-mix(in srgb, var(--text) 70%, #123456)")
       expect(document.documentElement.style.getPropertyValue("--brand-foreground")).toBe("#ffffff")
       expect(document.documentElement.style.getPropertyValue("--accent")).toBe("#c2410c")
     })
@@ -788,8 +789,7 @@ describe("DaoYun community home", () => {
     expect(await within(screen.getByRole("main")).findByText(topicFixtures[0].title)).toBeInTheDocument()
   })
 
-  it("loads the authenticated following feed from the sidebar route", async () => {
-    const user = userEvent.setup()
+  it("loads the authenticated following feed from its direct route", async () => {
     vi.mocked(getCurrentSession).mockResolvedValue({
       user: {
         id: "019fc700-0000-7000-8000-000000000001",
@@ -799,14 +799,14 @@ describe("DaoYun community home", () => {
       },
       csrfToken: "a".repeat(64),
     })
+    window.location.hash = "#following"
     render(<App />)
 
-    const communityNavigation = await screen.findByRole("complementary", { name: "社区导航" })
-    await user.click(within(communityNavigation).getByRole("link", { name: "关注" }))
+    await screen.findByRole("tab", { name: "关注", selected: true })
 
-    expect(listFeed).toHaveBeenLastCalledWith("following", expect.objectContaining({
+    await waitFor(() => expect(listFeed).toHaveBeenLastCalledWith("following", expect.objectContaining({
       signal: expect.any(AbortSignal),
-    }))
+    })))
   })
 
   it("refreshes the following feed when returning from a user profile", async () => {
@@ -827,7 +827,9 @@ describe("DaoYun community home", () => {
     expect(await screen.findByRole("heading", { name: topicFixtures[0].author })).toBeInTheDocument()
 
     const communityNavigation = screen.getByRole("complementary", { name: "社区导航" })
-    await user.click(within(communityNavigation).getByRole("link", { name: "关注" }))
+    await user.click(within(communityNavigation).getByRole("link", { name: "首页" }))
+
+    await user.click(await screen.findByRole("tab", { name: "关注" }))
 
     await vi.waitFor(() => {
       const followingRequests = vi.mocked(listTopics).mock.calls.filter(([options]) => (

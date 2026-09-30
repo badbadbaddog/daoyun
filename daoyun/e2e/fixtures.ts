@@ -36,6 +36,8 @@ const topic = {
   tags: [{ slug: "rust", name: "Rust" }],
 }
 
+export const publicTopicFixture = topic
+
 const discussionTopic = {
   ...topic,
   id: "019fc700-0000-7000-8000-000000000005",
@@ -263,6 +265,18 @@ export async function mockPublicApi(page: Page) {
           },
         }),
       })
+      return
+    }
+    if (path === `/api/v1/topics/${topicId}/poll`) {
+      await route.fulfill({ json: envelope(null) })
+      return
+    }
+    if (path === `/api/v1/topics/${topicId}/supplements`) {
+      await route.fulfill({ json: { data: [], meta: { request_id: requestId, next_cursor: null } } })
+      return
+    }
+    if (path.startsWith("/api/v1/plugin-ui/")) {
+      await route.fulfill({ json: envelope([]) })
       return
     }
     if (path === `/api/v1/topics/${topicId}/replies`) {

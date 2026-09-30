@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react"
-import { describe, expect, it } from "vitest"
+import { cleanup, render, screen } from "@testing-library/react"
+import { afterEach, describe, expect, it } from "vitest"
 
 import type { PublicMembershipSummary } from "../api/membership"
 import { MemberIdentityBadges } from "./PublicMemberIdentity"
@@ -31,6 +31,8 @@ const summary: PublicMembershipSummary = {
   }],
 }
 
+afterEach(cleanup)
+
 describe("MemberIdentityBadges", () => {
   it("renders the public growth level, public group and medal without exposing private membership data", () => {
     render(<MemberIdentityBadges summary={summary} variant="detail" maxMedals={2} />)
@@ -41,11 +43,14 @@ describe("MemberIdentityBadges", () => {
     expect(screen.queryByText(/积分|权益|额度/)).not.toBeInTheDocument()
   })
 
-  it("labels the first public medal in feed identity metadata", () => {
-    const { container } = render(<MemberIdentityBadges summary={summary} variant="feed" maxMedals={1} />)
-
-    expect(container.querySelector(".public-member-identity--feed")).toBeInTheDocument()
-    expect(screen.getByText("首批用户")).toBeInTheDocument()
-    expect(container.querySelectorAll(".public-member-medal")).toHaveLength(1)
+  it("limits feed identity to one public group and uses the level as a fallback", () => {
+    const { container, rerender } = render(<MemberIdentityBadges summary={summary} variant="feed" />)
+    expect(screen.getByText("产品体验官")).toBeInTheDocument()
+    expect(screen.queryByText("开拓者")).not.toBeInTheDocument()
+    expect(screen.queryByText("首批用户")).not.toBeInTheDocument()
+    expect(container.querySelectorAll(".public-member-group, .public-member-level")).toHaveLength(1)
+    rerender(<MemberIdentityBadges summary={{ ...summary, publicGroups: [] }} variant="feed" />)
+    expect(screen.getByText("开拓者")).toBeInTheDocument()
+    expect(screen.queryByText("产品体验官")).not.toBeInTheDocument()
   })
 })

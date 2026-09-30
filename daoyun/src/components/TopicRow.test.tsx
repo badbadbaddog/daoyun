@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -289,4 +289,60 @@ describe("TopicRow", () => {
     expect(onOpen).toHaveBeenCalledOnce()
   })
 
+  it("puts author and context before the post body in reading order", () => {
+    const { container } = render(<TopicRow topic={topic} identityVariant="feed" bookmarkPending={false} />)
+    const metadata = container.querySelector(".topic-meta")!
+    const title = screen.getByRole("heading", { name: topic.title })
+    expect(metadata.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it("renders an untitled post as body text without inventing a heading", async () => {
+    const onOpen = vi.fn()
+    render(<TopicRow topic={{ ...topic, title: "", excerpt: "只有正文的动态" }} onOpen={onOpen} bookmarkPending={false} />)
+    expect(screen.queryByRole("heading")).not.toBeInTheDocument()
+    const body = screen.getByRole("link", { name: "只有正文的动态" })
+    await userEvent.setup().click(body)
+    expect(onOpen).toHaveBeenCalledWith(topic.id)
+  })
+
+  it.each([undefined, "/cover.webp"])("keeps like, reply and bookmark in one action row without view counts (cover: %s)", async (imageUrl) => {
+    const onOpen = vi.fn()
+    render(<TopicRow topic={{ ...topic, imageUrl }} onOpen={onOpen} onToggleLike={vi.fn()} onToggleBookmark={vi.fn()} statsPlacement="footer" bookmarkPending={false} />)
+    const actions = screen.getByRole("group", { name: "主题操作" })
+    expect(Array.from(actions.querySelectorAll("button, a")).map(control => control.getAttribute("aria-label")))
+      .toEqual([
+        `点赞主题：${topic.title}`,
+        `回复主题：${topic.title}`,
+        `取消收藏主题：${topic.title}`,
+      ])
+    expect(screen.queryByTitle(`${topic.views} 次浏览`)).not.toBeInTheDocument()
+    await userEvent.setup().click(within(actions).getByRole("link", { name: `回复主题：${topic.title}` }))
+    expect(onOpen).toHaveBeenCalledOnce()
+  })
+
+  it("opens only authorized previews and restores focus after Escape", async () => {
+    const user = userEvent.setup()
+    const onOpen = vi.fn()
+    render(<TopicRow topic={{ ...topic, imageUrls: ["/one.webp", "/two.webp", "/three.webp", "/four.webp"] }} onOpen={onOpen} bookmarkPending={false} />)
+    const trigger = screen.getByRole("button", { name: "查看第 2 张图片" })
+    await user.click(trigger)
+    expect(screen.getByRole("dialog", { name: "图片预览" })).toBeInTheDocument()
+    expect(within(screen.getByRole("dialog")).getByRole("img")).toHaveAttribute("src", "/two.webp")
+    expect(onOpen).not.toHaveBeenCalled()
+    await user.keyboard("{Escape}")
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
+  it("does not invent visible body text for an image-only post", () => {
+    render(<TopicRow topic={{ ...topic, title: "", excerpt: "", imageUrl: "/one.webp" }} bookmarkPending={false} />)
+    expect(screen.queryByRole("heading")).not.toBeInTheDocument()
+    expect(screen.queryByText("内容详情")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "查看第 1 张图片" })).toBeInTheDocument()
+  })
+
+  it("retains the liked state when the like count is read-only", () => {
+    const { container } = render(<TopicRow topic={{ ...topic, liked: true }} variant="board" bookmarkPending={false} />)
+    expect(container.querySelector(".topic-stats .lucide-heart")).toHaveAttribute("fill", "currentColor")
+  })
 })

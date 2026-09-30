@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -7,7 +7,7 @@ import { SiteHeader } from "./SiteHeader"
 afterEach(cleanup)
 
 describe("SiteHeader search", () => {
-  it("shows the desktop discovery navigation on the home surface", () => {
+  it("keeps search and publishing in the header without duplicating primary navigation", () => {
     render(
       <SiteHeader
         siteName="刀云"
@@ -31,14 +31,12 @@ describe("SiteHeader search", () => {
       />,
     )
 
-    const navigation = screen.getByRole("navigation", { name: "主导航" })
-    expect(navigation).toHaveTextContent("首页")
-    expect(navigation).toHaveTextContent("社区")
-    expect(navigation).toHaveTextContent("发现")
-    expect(navigation).toHaveTextContent("排行榜")
+    expect(screen.queryByRole("navigation", { name: "主导航" })).not.toBeInTheDocument()
+    expect(screen.getByRole("searchbox", { name: "搜索社区内容" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "从顶部发布新主题" })).toBeInTheDocument()
   })
 
-  it("marks the route-owned primary destination instead of always marking home", () => {
+  it("labels the compact search controls with tooltips", () => {
     render(
       <SiteHeader
         siteName="刀云"
@@ -50,7 +48,6 @@ describe("SiteHeader search", () => {
         onSearch={vi.fn()}
         onCompose={vi.fn()}
         showAccountSummary
-        activeNavigation="community"
         onToggleTheme={vi.fn()}
         session={null}
         onOpenAuth={vi.fn()}
@@ -63,8 +60,8 @@ describe("SiteHeader search", () => {
       />,
     )
 
-    expect(screen.getByRole("link", { name: "社区" })).toHaveAttribute("aria-current", "page")
-    expect(screen.getByRole("link", { name: "首页" })).not.toHaveAttribute("aria-current")
+    expect(screen.getByRole("button", { name: "打开搜索" })).toHaveAttribute("title", "搜索")
+    expect(screen.getByRole("button", { name: "关闭搜索" })).toHaveAttribute("title", "关闭搜索")
   })
 
   it("opens and closes the compact mobile search affordance", () => {
@@ -218,5 +215,17 @@ describe("SiteHeader search", () => {
     )
     fireEvent.keyDown(screen.getByRole("searchbox", { name: "搜索社区内容" }), { key: "Enter" })
     expect(onSearch).toHaveBeenCalledWith("Rust")
+  })
+  it("keeps compact navigation and configured site links reachable with Escape focus restore", async () => {
+    const user = userEvent.setup()
+    render(<SiteHeader siteName="刀云" logoUrl={null} darkMode={false} query="" onQueryChange={vi.fn()} onClearQuery={vi.fn()} onCompose={vi.fn()} onToggleTheme={vi.fn()} session={null} onOpenAuth={vi.fn()} onLogout={vi.fn()} authPending={false} notificationsUnread={0} onOpenNotifications={vi.fn()} systemAdminAccess="denied" managementAccess="denied" navigationLinks={[{ label: "站点帮助", url: "https://example.com/help" }]} />)
+    const trigger = screen.getByRole("button", { name: "打开导航" })
+    await user.click(trigger)
+    const navigation = screen.getByRole("dialog", { name: "浏览社区" })
+    expect(within(navigation).getByRole("link", { name: "收藏" })).toHaveAttribute("href", "#bookmarks")
+    expect(within(navigation).getByRole("link", { name: "站点帮助" })).toHaveAttribute("href", "https://example.com/help")
+    await user.keyboard("{Escape}")
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
   })
 })
