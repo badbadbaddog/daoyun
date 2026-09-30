@@ -1,0 +1,99 @@
+{
+  "date": "2026-09-30",
+  "mode": "isolated Rust test databases and read-only live metadata",
+  "database_reset_or_seed": false,
+  "role_evidence": [
+    {
+      "role": "anonymous",
+      "sources": [
+        "apps/api/tests/boards.rs:12",
+        "apps/api/tests/boards.rs:91",
+        "apps/api/tests/boards.rs:164"
+      ],
+      "mode": "SQLx isolated API tests and anonymous browser"
+    },
+    {
+      "role": "member/author",
+      "sources": [
+        "scripts/local-development.mjs:12",
+        "crates/infrastructure/tests/community_permissions.rs:48"
+      ],
+      "mode": "existing account definition and isolated permissions"
+    },
+    {
+      "role": "restricted member",
+      "sources": [
+        "apps/api/tests/users.rs:449",
+        "crates/infrastructure/tests/community_permissions.rs:124"
+      ],
+      "mode": "isolated API and permissions"
+    },
+    {
+      "role": "board moderator / exact and subtree manager",
+      "sources": [
+        "crates/infrastructure/tests/authorization.rs:9",
+        "crates/infrastructure/tests/authorization.rs:160"
+      ],
+      "mode": "isolated scoped role assignments"
+    },
+    {
+      "role": "super admin",
+      "sources": [
+        "crates/infrastructure/tests/authorization.rs:160",
+        "apps/api/tests/plugins.rs"
+      ],
+      "mode": "isolated capability and plugin lifecycle tests"
+    }
+  ],
+  "live_plugins": {
+    "observed_at": "2026-09-30T14:12:05.343Z",
+    "source": "artifacts/ui-v2/second-increment-2026-09-30/live-plugin-metadata.csv",
+    "operation": "SELECT key,status,revision,version FROM plugins ORDER BY key",
+    "rows": [
+      {
+        "key": "official_community_analytics",
+        "status": "enabled",
+        "revision": 2,
+        "version": "0.1.0"
+      },
+      {
+        "key": "official_points_redemption",
+        "status": "enabled",
+        "revision": 2,
+        "version": "0.1.0"
+      },
+      {
+        "key": "official_polls",
+        "status": "enabled",
+        "revision": 2,
+        "version": "0.1.0"
+      },
+      {
+        "key": "official_topic_edit_review",
+        "status": "disabled",
+        "revision": 3,
+        "version": "0.1.0"
+      },
+      {
+        "key": "official_topic_supplements",
+        "status": "disabled",
+        "revision": 7,
+        "version": "0.1.0"
+      }
+    ],
+    "missing_from_current_database": [
+      "official_growth_rewards"
+    ],
+    "host_configuration": "DAOYUN_PLUGINS_ENABLED=true in the recovered local API process",
+    "unverified": [
+      "current six-plugin business invocation matrix",
+      "disabled-plugin historical content in browser",
+      "complete role browser matrix"
+    ]
+  },
+  "limits": [
+    "Existing local roles were not reseeded or modified.",
+    "SQLx creates separate migration-backed test databases.",
+    "Role tests and plugin metadata do not accept G0 or B-09 by themselves."
+  ]
+}

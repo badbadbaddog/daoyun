@@ -1,0 +1,807 @@
+{
+  "project": "DaoYun",
+  "date": "2026-09-30",
+  "baseline_commit": "578eda16b6810e9b52477be48f8fc2e442cb01fb",
+  "code_commit": "fe55887af0c7f2e8edb46c5111edeecdb8746f95",
+  "tested_source_manifest_sha256": "3a212850f1b28d64aca4261a19bfb74c348b5163950b267a4b75a3d6cf49d87c",
+  "tested_source_manifest": [
+    {
+      "path": "e2e/community-responsive.spec.ts",
+      "sha256": "8f81f54a0921c8d7aa24757413f30391c1917052a16a3d496dbc3a13a87f30bb",
+      "status": "present"
+    },
+    {
+      "path": "e2e/ui-v2-boards.spec.ts",
+      "sha256": "2819d68153a29decc383f025af0cfcf29aac20f373fc4dde07ceafa0c94c39f6",
+      "status": "present"
+    },
+    {
+      "path": "e2e/ui-v2-live-boards.spec.ts",
+      "sha256": "c740197d982756fe106691ea96b2eb804fd019f6d0c5a04871a51a6695af4a60",
+      "status": "present"
+    },
+    {
+      "path": "src/App.test.tsx",
+      "sha256": "79e32a60d828b525805f3bd746f65d7e95860afdf587a3ec8f23d2a864df8c66",
+      "status": "present"
+    },
+    {
+      "path": "src/app/CommunityApp.tsx",
+      "sha256": "9aeb6919276597b2ded98bff09b7e3db213cc7f9414e23cec96b6a58b2ec3287",
+      "status": "present"
+    },
+    {
+      "path": "src/components/RightSidebar.test.tsx",
+      "sha256": "453eefa58cefd6bd03f32fa8b84ddf8a2b095af17f9a5a42feb8c2b25d13d248",
+      "status": "present"
+    },
+    {
+      "path": "src/components/RightSidebar.tsx",
+      "sha256": "541a9fca79020eb4f5ec53254f9640b9c8469c4d9d88b172563e2f0b1404c3a3",
+      "status": "present"
+    },
+    {
+      "path": "src/components/TopicRow.test.tsx",
+      "sha256": "4a580a93572c430d9af7b68852fb1f89941e6fd19d7e6ca602ec021d160c9a73",
+      "status": "present"
+    },
+    {
+      "path": "src/components/TopicRow.tsx",
+      "sha256": "684e25f15e6e10cd1ee82457d87f635c2065d5b6ebf151d2897a15cd52286bc3",
+      "status": "present"
+    },
+    {
+      "path": "src/features/boards/BoardDirectoryPage.test.tsx",
+      "sha256": "c765ea9dfec707176281fca5c7aad3aaa8afb66a8fc25f678f70c7f90ffac171",
+      "status": "present"
+    },
+    {
+      "path": "src/features/boards/BoardDirectoryPage.tsx",
+      "sha256": "5f8bb8971fa6699423740e8237b08559cc653452970f46208f67a0a45f9ed1b9",
+      "status": "present"
+    },
+    {
+      "path": "src/features/boards/BoardHeader.tsx",
+      "sha256": "553f043ce86e7da64f0a98908baed18e8394da07a27772f7a7bea2c97656c614",
+      "status": "present"
+    },
+    {
+      "path": "src/features/boards/BoardNavigationTree.tsx",
+      "sha256": "142f330586d9a668b141cd98669a57957b39f20e01cfa837e75d7bcb2957a4ab",
+      "status": "present"
+    },
+    {
+      "path": "src/features/boards/BoardTopicFeed.tsx",
+      "sha256": "13c387f5d46377ff503638e5301a1fa14ba48b76fb7cdb846a2d387dc68815f2",
+      "status": "present"
+    },
+    {
+      "path": "src/router/communityRoute.test.ts",
+      "sha256": "1d3751049ebb2dd605fddfceedcf3e792f1f8c60301ed9f711f42361a737a6ac",
+      "status": "present"
+    },
+    {
+      "path": "src/router/communityRoute.ts",
+      "sha256": "461f7eea253a932213c29ed9d9d24d676d4ab1b93cf344ea65e5228a691702eb",
+      "status": "present"
+    },
+    {
+      "path": "src/styles.boards.css",
+      "sha256": "561944d852fa7fa8c61459094dfba730ed7455a009e803e3f0fcaa51a1c888af",
+      "status": "present"
+    },
+    {
+      "path": "src/styles.community.css",
+      "sha256": "df39e0cf3b5b63fd0155921ffd76ea4aa8ce5686d0c5bba230fc2279950b7b1d",
+      "status": "present"
+    },
+    {
+      "path": "src/styles.responsive.test.ts",
+      "sha256": "38933c47a3d2aa512742ce49785bd005fb7f92d4fa035c3e49e7a663256c5442",
+      "status": "present"
+    }
+  ],
+  "command_cwd": "C:\\Users\\111\\Documents\\Playground\\daoyun",
+  "git_root": "C:/Users/111/Documents/Playground",
+  "branch": "codex/daoyun-home-foundation",
+  "executor": "Codex local Node filesystem and persistent child processes",
+  "user_authorization": "使用当前本地工具继续（推荐）",
+  "environment": {
+    "node": "v24.18.0",
+    "pnpm": "9.12.3",
+    "rust": "1.94.1-x86_64-pc-windows-gnu",
+    "postgres": "16",
+    "web": "http://127.0.0.1:5173",
+    "api": "http://127.0.0.1:3000",
+    "database_port": 55433
+  },
+  "test_results": {
+    "frontend": {
+      "passed": 804,
+      "failed": 0,
+      "files": 103,
+      "mode": "single worker"
+    },
+    "browser": {
+      "passed": 68,
+      "failed": 0,
+      "mocked": 48,
+      "real_anonymous_home": 10,
+      "real_anonymous_boards": 10,
+      "projects": [
+        "chromium-desktop",
+        "chromium-mobile"
+      ],
+      "widths": [
+        320,
+        390,
+        768,
+        1024,
+        1440
+      ],
+      "real_phone": false
+    },
+    "rust_selected": {
+      "passed": 22,
+      "failed": 0,
+      "ignored": 0,
+      "infrastructure": 12,
+      "board_and_plugin_api": 9,
+      "restricted_user_api": 1
+    },
+    "prior_rust_workspace": {
+      "source": "docs/handoffs/ui-v2/verification.json",
+      "passed": 450,
+      "ignored": 2,
+      "repeated_this_increment": false
+    }
+  },
+  "commands": [
+    {
+      "command": "pnpm typecheck",
+      "exit_code": 0,
+      "status": "PASS",
+      "started_at": "2026-09-30T14:04:14.918Z",
+      "duration_ms": 11381,
+      "log": "artifacts/ui-v2/second-increment-2026-09-30/typecheck-final.log",
+      "log_sha256": "c83f3f8761f075eada96b1298d983555db48061e130ef14477173044b214fae3"
+    },
+    {
+      "command": "pnpm test:e2e:typecheck",
+      "exit_code": 0,
+      "status": "PASS",
+      "started_at": "2026-09-30T14:04:14.965Z",
+      "duration_ms": 2564,
+      "log": "artifacts/ui-v2/second-increment-2026-09-30/e2e-types-final.log",
+      "log_sha256": "a8c4b2f8f69fc28d5150d39f60dab9219f45bab9f239ba1471415f4a8f82fb40"
+    },
+    {
+      "command": "pnpm exec vitest run --maxWorkers=1 --minWorkers=1",
+      "exit_code": 0,
+      "status": "PASS",
+      "started_at": "2026-09-30T14:04:14.819Z",
+      "duration_ms": 319034,
+      "log": "artifacts/ui-v2/second-increment-2026-09-30/unit-final.log",
+      "log_sha256": "6892c11c85333750eb6be24087d54b8d65fca5bbe8e5f3474d5ecae3f7bbb040"
+    },
+    {
+      "command": "pnpm build",
+      "exit_code": 0,
+      "status": "PASS",
+      "started_at": "2026-09-30T14:04:14.857Z",
+      "duration_ms": 16504,
+      "log": "artifacts/ui-v2/second-increment-2026-09-30/build-final.log",
+      "log_sha256": "0b4c9e349904fdcf8989596cb31049267708be6e666919fc2e17183f55c2881b"
+    },
+    {
+      "command": "pnpm exec playwright test e2e/community-responsive.spec.ts e2e/ui-v2-home.spec.ts e2e/ui-v2-live-home.spec.ts e2e/ui-v2-boards.spec.ts e2e/ui-v2-live-boards.spec.ts --workers=2",
+      "exit_code": 0,
+      "status": "PASS",
+      "started_at": "2026-09-30T14:12:05.378Z",
+      "duration_ms": 81211,
+      "log": "artifacts/ui-v2/second-increment-2026-09-30/browser-release.log",
+      "log_sha256": "f8c0ca42c57882c7bd4ba708960031daeaa3061d9c1e4a4cc77595f41b1a77c1"
+    },
+    {
+      "command": "rustup run 1.94.1-x86_64-pc-windows-gnu cargo test -p infrastructure --test authorization --test community_permissions --test content_access_policies --test board_user_restrictions -j 1 -- --test-threads=1",
+      "exit_code": 0,
+      "status": "PASS",
+      "started_at": "2026-09-30T14:04:55.064Z",
+      "duration_ms": 42680,
+      "log": "artifacts/ui-v2/second-increment-2026-09-30/roles-final.log",
+      "log_sha256": "609b25afae30aa53caca7bd30009e37a8ad5b206843d57c853a3e525baac4d98"
+    },
+    {
+      "command": "rustup run 1.94.1-x86_64-pc-windows-gnu cargo test -p daoyun-api --test boards --test plugins -j 1 -- --test-threads=1",
+      "exit_code": 0,
+      "status": "PASS",
+      "started_at": "2026-09-30T14:04:55.109Z",
+      "duration_ms": 31588,
+      "log": "artifacts/ui-v2/second-increment-2026-09-30/api-final.log",
+      "log_sha256": "3860ac6ad0355a55f29366926d8601a33d74401a2cfdea2bdd29d264766d2f84"
+    },
+    {
+      "command": "rustup run 1.94.1-x86_64-pc-windows-gnu cargo test -p daoyun-api --test users admin_user_status_route_enforces_csrf_revision_rules_and_restricted_session_behavior -j 1 -- --test-threads=1",
+      "exit_code": 0,
+      "status": "PASS",
+      "started_at": "2026-09-30T14:04:55.157Z",
+      "duration_ms": 8447,
+      "log": "artifacts/ui-v2/second-increment-2026-09-30/restricted-final.log",
+      "log_sha256": "d46a3da868d14d2b73f911c828bd5707b26198643991f89aad60561a00af9ffd"
+    }
+  ],
+  "cli_invocation_note": "Commands run through Node wrappers; wrappers persist stdout/stderr and completion metadata. Source SHA256 is the UTF-8 tested working-tree byte fingerprint; Git may normalize CRLF.",
+  "screenshots": [
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-home-real-API-h-cd281-s-authorized-feed-at-1024px-chromium-mobile/live-home-1024.png",
+      "mode": "real anonymous API",
+      "sha256": "aecae8215c9a272267f2eb37ed8fef68eb5f4b94f13f08d0b4802c0f292d7e3c"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-home-real-API-h-cd281-s-authorized-feed-at-1024px-chromium-desktop/live-home-1024.png",
+      "mode": "real anonymous API",
+      "sha256": "af1c23cbc2b50d2302a52b72ef32b0f7ad015f775a919ce0f0697feb3bd0cab9"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-home-real-API-h-c55e1-rs-authorized-feed-at-320px-chromium-mobile/live-home-320.png",
+      "mode": "real anonymous API",
+      "sha256": "987e57ce6bd5b7780e870e0f197c6a9a43471a09b3b85f26f5aa4270539b51aa"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-home-real-API-h-c55e1-rs-authorized-feed-at-320px-chromium-desktop/live-home-320.png",
+      "mode": "real anonymous API",
+      "sha256": "987e57ce6bd5b7780e870e0f197c6a9a43471a09b3b85f26f5aa4270539b51aa"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-home-real-API-h-59b14-rs-authorized-feed-at-768px-chromium-mobile/live-home-768.png",
+      "mode": "real anonymous API",
+      "sha256": "588c7d7c458963c57905c1fa2261afbc4fc4f64bfc8aa07ba502d2112aca0ed9"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-home-real-API-h-59b14-rs-authorized-feed-at-768px-chromium-desktop/live-home-768.png",
+      "mode": "real anonymous API",
+      "sha256": "588c7d7c458963c57905c1fa2261afbc4fc4f64bfc8aa07ba502d2112aca0ed9"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-home-real-API-h-3bf86-rs-authorized-feed-at-390px-chromium-mobile/live-home-390.png",
+      "mode": "real anonymous API",
+      "sha256": "dad65f480cf6d74885161d6fe6c7ae10b5be839525c575af11d1bc6e37daf44b"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-home-real-API-h-3bf86-rs-authorized-feed-at-390px-chromium-desktop/live-home-390.png",
+      "mode": "real anonymous API",
+      "sha256": "dad65f480cf6d74885161d6fe6c7ae10b5be839525c575af11d1bc6e37daf44b"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-home-real-API-h-3adb1-s-authorized-feed-at-1440px-chromium-mobile/live-home-1440.png",
+      "mode": "real anonymous API",
+      "sha256": "c2f583211a58b19bc20d84d370f280f8fc790af8067932807f49a046d2c4b62c"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-home-real-API-h-3adb1-s-authorized-feed-at-1440px-chromium-desktop/live-home-1440.png",
+      "mode": "real anonymous API",
+      "sha256": "c2f583211a58b19bc20d84d370f280f8fc790af8067932807f49a046d2c4b62c"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-boards-real-API-cb394-rrent-board-scope-at-1024px-chromium-mobile/live-board-1024.png",
+      "mode": "real anonymous API",
+      "sha256": "e2429e19af9b0fc6ddd0be2dd36fa678065f2383e9d9945b9bbe4c096b97a5ce"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-boards-real-API-cb394-rrent-board-scope-at-1024px-chromium-mobile/live-directory-1024.png",
+      "mode": "real anonymous API",
+      "sha256": "09259ed6c35dd420081d718ed29ce1b82f5e5485899e561b514ae84bb7e18bb8"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-boards-real-API-cb394-rrent-board-scope-at-1024px-chromium-desktop/live-board-1024.png",
+      "mode": "real anonymous API",
+      "sha256": "e2429e19af9b0fc6ddd0be2dd36fa678065f2383e9d9945b9bbe4c096b97a5ce"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-boards-real-API-cb394-rrent-board-scope-at-1024px-chromium-desktop/live-directory-1024.png",
+      "mode": "real anonymous API",
+      "sha256": "09259ed6c35dd420081d718ed29ce1b82f5e5485899e561b514ae84bb7e18bb8"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-boards-real-API-a613a-rrent-board-scope-at-1440px-chromium-mobile/live-board-1440.png",
+      "mode": "real anonymous API",
+      "sha256": "0a03ba900731ac292ea3611b21d0c620cdc7faca9ecd8ea21b7fad3762b490fd"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-boards-real-API-a613a-rrent-board-scope-at-1440px-chromium-mobile/live-directory-1440.png",
+      "mode": "real anonymous API",
+      "sha256": "de611441170686e6c9349b25df0a084e375298487ab009eedb3d071e5791b931"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-boards-real-API-a613a-rrent-board-scope-at-1440px-chromium-desktop/live-board-1440.png",
+      "mode": "real anonymous API",
+      "sha256": "0a03ba900731ac292ea3611b21d0c620cdc7faca9ecd8ea21b7fad3762b490fd"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-boards-real-API-a613a-rrent-board-scope-at-1440px-chromium-desktop/live-directory-1440.png",
+      "mode": "real anonymous API",
+      "sha256": "643cf4a37f8d6e4d2744670ca73112a9f9236a11112d537a1acea54270cbbc8d"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-boards-real-API-683fe-urrent-board-scope-at-768px-chromium-mobile/live-board-768.png",
+      "mode": "real anonymous API",
+      "sha256": "6014a142d2e137215675fbc2753c0c4bde21c6187b437d3f245ec997dcb04403"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-boards-real-API-683fe-urrent-board-scope-at-768px-chromium-mobile/live-directory-768.png",
+      "mode": "real anonymous API",
+      "sha256": "992c859f27bfada8f0196a68442250760536b17c10195cd2570b3122a6e863cc"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-boards-real-API-683fe-urrent-board-scope-at-768px-chromium-desktop/live-board-768.png",
+      "mode": "real anonymous API",
+      "sha256": "6014a142d2e137215675fbc2753c0c4bde21c6187b437d3f245ec997dcb04403"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-boards-real-API-683fe-urrent-board-scope-at-768px-chromium-desktop/live-directory-768.png",
+      "mode": "real anonymous API",
+      "sha256": "992c859f27bfada8f0196a68442250760536b17c10195cd2570b3122a6e863cc"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-boards-real-API-512be-urrent-board-scope-at-320px-chromium-mobile/live-board-320.png",
+      "mode": "real anonymous API",
+      "sha256": "7449e19036234a31dc1fc41a64f1bfaba0eca30c5da03650ba71ffdc8cec3ee9"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-boards-real-API-512be-urrent-board-scope-at-320px-chromium-mobile/live-directory-320.png",
+      "mode": "real anonymous API",
+      "sha256": "12cbec00cdad09d26a78b0d6ee2b753e4725ed3a9cc3199f30717beaa1db3d1b"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-boards-real-API-512be-urrent-board-scope-at-320px-chromium-desktop/live-board-320.png",
+      "mode": "real anonymous API",
+      "sha256": "7449e19036234a31dc1fc41a64f1bfaba0eca30c5da03650ba71ffdc8cec3ee9"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-boards-real-API-512be-urrent-board-scope-at-320px-chromium-desktop/live-directory-320.png",
+      "mode": "real anonymous API",
+      "sha256": "12cbec00cdad09d26a78b0d6ee2b753e4725ed3a9cc3199f30717beaa1db3d1b"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-boards-real-API-35679-urrent-board-scope-at-390px-chromium-mobile/live-board-390.png",
+      "mode": "real anonymous API",
+      "sha256": "31e7cd8dde5e61003ff31b180944eac9fd1cbb8381c6bb362d70765009af9276"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-boards-real-API-35679-urrent-board-scope-at-390px-chromium-mobile/live-directory-390.png",
+      "mode": "real anonymous API",
+      "sha256": "ece7e53392ce51ced887db0c16e62104abc79b0ef28aac9e97913128e2c95fab"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-boards-real-API-35679-urrent-board-scope-at-390px-chromium-desktop/live-board-390.png",
+      "mode": "real anonymous API",
+      "sha256": "31e7cd8dde5e61003ff31b180944eac9fd1cbb8381c6bb362d70765009af9276"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-live-boards-real-API-35679-urrent-board-scope-at-390px-chromium-desktop/live-directory-390.png",
+      "mode": "real anonymous API",
+      "sha256": "428bac4e3473e01a22faeb678d33986a4bff2958af341c39e02cd01b0e0fee06"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-home-home-remains-a-single-content-column-at-768px-chromium-mobile/home-768.png",
+      "mode": "mock UI",
+      "sha256": "b83eda7d9d054e103a092badee75af7779038c7078f8b35f75c2f575d61e53ee"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-home-home-remains-a-single-content-column-at-768px-chromium-desktop/home-768.png",
+      "mode": "mock UI",
+      "sha256": "b83eda7d9d054e103a092badee75af7779038c7078f8b35f75c2f575d61e53ee"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-home-home-remains-a-single-content-column-at-390px-chromium-mobile/home-390.png",
+      "mode": "mock UI",
+      "sha256": "1f90dd24f80de92c8709f3ca85667df054972d9d1f297f2b934e09b3400549fa"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-home-home-remains-a-single-content-column-at-390px-chromium-desktop/home-390.png",
+      "mode": "mock UI",
+      "sha256": "ada1f9fc8715df7edc44c5b6536531e707796d5c19cbac05af7853a4f9dad04f"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-home-home-remains-a-single-content-column-at-320px-chromium-mobile/home-320.png",
+      "mode": "mock UI",
+      "sha256": "9cc2a1c8e21aee9958100332bea06baface361706b54087f932179f47d29d632"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-home-home-remains-a-single-content-column-at-320px-chromium-desktop/home-320.png",
+      "mode": "mock UI",
+      "sha256": "754db609db0615cdce1cd74e5f361f0674c964baaa5f59159c0bc618bf03d2b4"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-home-home-remains-a-single-content-column-at-1440px-chromium-mobile/home-1440.png",
+      "mode": "mock UI",
+      "sha256": "4f3760df50938d99dda42f981c455089c6e35c0fadf2a28b6bbdd5314f16eb39"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-home-home-remains-a-single-content-column-at-1440px-chromium-desktop/home-1440.png",
+      "mode": "mock UI",
+      "sha256": "4f3760df50938d99dda42f981c455089c6e35c0fadf2a28b6bbdd5314f16eb39"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-home-home-remains-a-single-content-column-at-1024px-chromium-mobile/home-1024.png",
+      "mode": "mock UI",
+      "sha256": "595a379fbaa8bda76391cad07f6c92943afcb4c4ed1a39f79bd093dc311965c6"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-home-home-remains-a-single-content-column-at-1024px-chromium-desktop/home-1024.png",
+      "mode": "mock UI",
+      "sha256": "595a379fbaa8bda76391cad07f6c92943afcb4c4ed1a39f79bd093dc311965c6"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-boards-board-hierarchy-scope-and-navigation-at-768px-chromium-mobile/board-768.png",
+      "mode": "mock UI",
+      "sha256": "bc8f9084b8bc41f35613677b38fced05aec1ac7799cbec8dad037963c3873ad0"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-boards-board-hierarchy-scope-and-navigation-at-768px-chromium-mobile/directory-768.png",
+      "mode": "mock UI",
+      "sha256": "4dca274d1870ab3ca67dd9abccd73f440ddb1798c597fa448bc4e0e5465701a7"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-boards-board-hierarchy-scope-and-navigation-at-768px-chromium-desktop/board-768.png",
+      "mode": "mock UI",
+      "sha256": "bc8f9084b8bc41f35613677b38fced05aec1ac7799cbec8dad037963c3873ad0"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-boards-board-hierarchy-scope-and-navigation-at-768px-chromium-desktop/directory-768.png",
+      "mode": "mock UI",
+      "sha256": "4dca274d1870ab3ca67dd9abccd73f440ddb1798c597fa448bc4e0e5465701a7"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-boards-board-hierarchy-scope-and-navigation-at-390px-chromium-mobile/board-390.png",
+      "mode": "mock UI",
+      "sha256": "e1e75acbbd5ed72082cca39ab4bd92e16f0f189b975599f9497b803c138a1699"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-boards-board-hierarchy-scope-and-navigation-at-390px-chromium-mobile/directory-390.png",
+      "mode": "mock UI",
+      "sha256": "83df2247b2019b2cd04eb49a777d8fe5237e3f4c1d5e72344ee7be4378705afe"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-boards-board-hierarchy-scope-and-navigation-at-390px-chromium-desktop/board-390.png",
+      "mode": "mock UI",
+      "sha256": "e1e75acbbd5ed72082cca39ab4bd92e16f0f189b975599f9497b803c138a1699"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-boards-board-hierarchy-scope-and-navigation-at-390px-chromium-desktop/directory-390.png",
+      "mode": "mock UI",
+      "sha256": "83df2247b2019b2cd04eb49a777d8fe5237e3f4c1d5e72344ee7be4378705afe"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-boards-board-hierarchy-scope-and-navigation-at-320px-chromium-mobile/board-320.png",
+      "mode": "mock UI",
+      "sha256": "5e4cd3e6cbafbd35a9bfff7b2d87aa139bb4b2cbece3740d7b56b6a72dc40fd6"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-boards-board-hierarchy-scope-and-navigation-at-320px-chromium-mobile/directory-320.png",
+      "mode": "mock UI",
+      "sha256": "00cbbe95abf62c228e21e9bce55328791f5b0e81a3606a6d8fa013eda9f62325"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-boards-board-hierarchy-scope-and-navigation-at-320px-chromium-desktop/board-320.png",
+      "mode": "mock UI",
+      "sha256": "5e4cd3e6cbafbd35a9bfff7b2d87aa139bb4b2cbece3740d7b56b6a72dc40fd6"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-boards-board-hierarchy-scope-and-navigation-at-320px-chromium-desktop/directory-320.png",
+      "mode": "mock UI",
+      "sha256": "00cbbe95abf62c228e21e9bce55328791f5b0e81a3606a6d8fa013eda9f62325"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-boards-board-hierarchy-scope-and-navigation-at-1440px-chromium-mobile/board-1440.png",
+      "mode": "mock UI",
+      "sha256": "3bc2ac09ba29e2c92a7ed5a07e2585958df03a168bfe21f0c1bcb25223197db3"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-boards-board-hierarchy-scope-and-navigation-at-1440px-chromium-mobile/directory-1440.png",
+      "mode": "mock UI",
+      "sha256": "850303267faa4ff185d7cfeb85888ddf1d8f71f3a9e7acd98abeb90ade439089"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-boards-board-hierarchy-scope-and-navigation-at-1440px-chromium-desktop/board-1440.png",
+      "mode": "mock UI",
+      "sha256": "3bc2ac09ba29e2c92a7ed5a07e2585958df03a168bfe21f0c1bcb25223197db3"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-boards-board-hierarchy-scope-and-navigation-at-1440px-chromium-desktop/directory-1440.png",
+      "mode": "mock UI",
+      "sha256": "850303267faa4ff185d7cfeb85888ddf1d8f71f3a9e7acd98abeb90ade439089"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-boards-board-hierarchy-scope-and-navigation-at-1024px-chromium-mobile/board-1024.png",
+      "mode": "mock UI",
+      "sha256": "ef951eb98ea88c67917e3aae5788a399da4627e1bf9dfe020624a8a97f3e4fcf"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-boards-board-hierarchy-scope-and-navigation-at-1024px-chromium-mobile/directory-1024.png",
+      "mode": "mock UI",
+      "sha256": "09604e08725be2a911c8859b978ad13fe2937fe07143e9bf56f1058bbe104d1e"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-boards-board-hierarchy-scope-and-navigation-at-1024px-chromium-desktop/board-1024.png",
+      "mode": "mock UI",
+      "sha256": "ef951eb98ea88c67917e3aae5788a399da4627e1bf9dfe020624a8a97f3e4fcf"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/ui-v2-boards-board-hierarchy-scope-and-navigation-at-1024px-chromium-desktop/directory-1024.png",
+      "mode": "mock UI",
+      "sha256": "09604e08725be2a911c8859b978ad13fe2937fe07143e9bf56f1058bbe104d1e"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/community-responsive-keeps-e8e51-ic-journey-usable-at-1440px-chromium-mobile/board-1440.png",
+      "mode": "mock UI",
+      "sha256": "6868b98c2c2f5770c16ed1f8aeb847a0a0a18b286f02f5f7c3c494dc79ae0338"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/community-responsive-keeps-e8e51-ic-journey-usable-at-1440px-chromium-mobile/boards-1440.png",
+      "mode": "mock UI",
+      "sha256": "2202995eed9824efc4e8681c247e096d152ea3943a28438f42def70bbb1afc7c"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/community-responsive-keeps-e8e51-ic-journey-usable-at-1440px-chromium-mobile/profile-1440.png",
+      "mode": "mock UI",
+      "sha256": "d81eb4d8152a3960225a0c95fa130470c3226c4217b825f0625e568b8a9fe62a"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/community-responsive-keeps-e8e51-ic-journey-usable-at-1440px-chromium-mobile/topic-1440.png",
+      "mode": "mock UI",
+      "sha256": "aefa7312ed5447da53c094260ff3322e0d33afd9a3112d1cc53ef4020294e9d6"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/community-responsive-keeps-e8e51-ic-journey-usable-at-1440px-chromium-desktop/board-1440.png",
+      "mode": "mock UI",
+      "sha256": "6868b98c2c2f5770c16ed1f8aeb847a0a0a18b286f02f5f7c3c494dc79ae0338"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/community-responsive-keeps-e8e51-ic-journey-usable-at-1440px-chromium-desktop/boards-1440.png",
+      "mode": "mock UI",
+      "sha256": "2202995eed9824efc4e8681c247e096d152ea3943a28438f42def70bbb1afc7c"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/community-responsive-keeps-e8e51-ic-journey-usable-at-1440px-chromium-desktop/profile-1440.png",
+      "mode": "mock UI",
+      "sha256": "d81eb4d8152a3960225a0c95fa130470c3226c4217b825f0625e568b8a9fe62a"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/community-responsive-keeps-e8e51-ic-journey-usable-at-1440px-chromium-desktop/topic-1440.png",
+      "mode": "mock UI",
+      "sha256": "aefa7312ed5447da53c094260ff3322e0d33afd9a3112d1cc53ef4020294e9d6"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/community-responsive-keeps-70362-lic-journey-usable-at-390px-chromium-mobile/board-390.png",
+      "mode": "mock UI",
+      "sha256": "ed20399de78b98caad898bb7bf1cb8bfb40e5a4a65a062dd3ec1e8cd9b818af0"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/community-responsive-keeps-70362-lic-journey-usable-at-390px-chromium-mobile/boards-390.png",
+      "mode": "mock UI",
+      "sha256": "014e5ac84c3332cfbe43c0b476e66003fd44d8265948eb430ff4ef019f8f45e2"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/community-responsive-keeps-70362-lic-journey-usable-at-390px-chromium-mobile/profile-390.png",
+      "mode": "mock UI",
+      "sha256": "7f54efb9dd85a93e75707a0612ebdbf9dfdd8b7d2fc17f0939c25f2bcd934232"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/community-responsive-keeps-70362-lic-journey-usable-at-390px-chromium-mobile/topic-390.png",
+      "mode": "mock UI",
+      "sha256": "4b5b0414883720f0746cdbdf8eae44390cc6e6da8e9003c73a38a0e1c7bb71d2"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/community-responsive-keeps-70362-lic-journey-usable-at-390px-chromium-desktop/board-390.png",
+      "mode": "mock UI",
+      "sha256": "ed20399de78b98caad898bb7bf1cb8bfb40e5a4a65a062dd3ec1e8cd9b818af0"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/community-responsive-keeps-70362-lic-journey-usable-at-390px-chromium-desktop/boards-390.png",
+      "mode": "mock UI",
+      "sha256": "014e5ac84c3332cfbe43c0b476e66003fd44d8265948eb430ff4ef019f8f45e2"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/community-responsive-keeps-70362-lic-journey-usable-at-390px-chromium-desktop/profile-390.png",
+      "mode": "mock UI",
+      "sha256": "7f54efb9dd85a93e75707a0612ebdbf9dfdd8b7d2fc17f0939c25f2bcd934232"
+    },
+    {
+      "path": "artifacts/ui-v2/second-increment-2026-09-30/final-browser/community-responsive-keeps-70362-lic-journey-usable-at-390px-chromium-desktop/topic-390.png",
+      "mode": "mock UI",
+      "sha256": "4b5b0414883720f0746cdbdf8eae44390cc6e6da8e9003c73a38a0e1c7bb71d2"
+    }
+  ],
+  "known_nonpassing_runs": [
+    {
+      "name": "initial behavior tests",
+      "failed": 15,
+      "passed": 69,
+      "reason": "new board, route and compact-row expectations before implementation",
+      "log_preservation": "tool outputs; original in-memory log lost during REPL reset"
+    },
+    {
+      "name": "account privacy regression",
+      "failed": 1,
+      "reason": "private board contents retained after sign-out before identity dependency fix"
+    },
+    {
+      "name": "board pagination regression",
+      "failed": 1,
+      "reason": "late old-page response appended after navigating to another board before cancellation fix"
+    },
+    {
+      "name": "visual visibility regression",
+      "failed": 1,
+      "reason": "mobile search input opacity was 0",
+      "evidence": "artifacts/ui-v2/second-increment-2026-09-30/visual-red"
+    },
+    {
+      "name": "sidebar view metrics regression",
+      "failed": 2,
+      "reason": "board sidebar retained unmeasured view counters before cleanup"
+    },
+    {
+      "name": "initial full frontend run",
+      "failed": 1,
+      "passed": 803,
+      "reason": "published topic test fixture assumed exactly two listBoards requests; identity refresh added a legitimate request; test now asserts the count update and one publish refresh"
+    },
+    {
+      "name": "mock fixture corrections",
+      "reason": "null summary title and editor field/API query names did not match the existing contracts; fixed the fixture and assertions"
+    },
+    {
+      "name": "browser-final",
+      "failed": 68,
+      "reason": "gateway stopped after REPL reset",
+      "log": "artifacts/ui-v2/second-increment-2026-09-30/browser-final.log"
+    },
+    {
+      "name": "browser-recovered",
+      "failed": 10,
+      "passed": 58,
+      "reason": "first desktop real-API checks saw 502 while the old API stdout connection was broken; recovered API before final browser-release",
+      "log": "artifacts/ui-v2/second-increment-2026-09-30/browser-recovered.log"
+    }
+  ],
+  "review": [
+    {
+      "agent": "boards_scope_review",
+      "result": "No reproducible defect in requested route/identity/cancellation scope",
+      "mode": "read-only static"
+    },
+    {
+      "agent": "boards_ui_review",
+      "result": "No reproducible defect in requested markup/style scope; untitled text browser and explicit like/bookmark E2E remain coverage gaps",
+      "mode": "read-only static"
+    }
+  ],
+  "notes": [
+    "No production deployment.",
+    "No database seed/reset or live plugin toggle.",
+    "SQLx test databases are separate from daoyun_dev.",
+    "Role integration tests and plugin metadata do not accept the full role browser or plugin history matrix.",
+    "Plan and gates remain IN_PROGRESS / NOT_ACCEPTED.",
+    "No authorized image total or 4–9 image viewer contract was added.",
+    "Anonymous 401 and navigation ERR_ABORTED are excluded from existing browser error collectors.",
+    "Build size is a work-in-progress measurement, not an independent release baseline."
+  ],
+  "plan_snapshot_checksums": [
+    {
+      "file": "01-product-and-ui-spec.md",
+      "ok": true
+    },
+    {
+      "file": "02-execution-plan.md",
+      "ok": true
+    },
+    {
+      "file": "03-acceptance-matrix.md",
+      "ok": true
+    },
+    {
+      "file": "04-fastspider-brief.md",
+      "ok": true
+    },
+    {
+      "file": "05-handoff-template.md",
+      "ok": true
+    },
+    {
+      "file": "06-task-registry.json",
+      "ok": true
+    },
+    {
+      "file": "07-acceptance-registry.json",
+      "ok": true
+    },
+    {
+      "file": "08-plan-validation.md",
+      "ok": true
+    },
+    {
+      "file": "README.md",
+      "ok": true
+    }
+  ],
+  "committed_source_lf_checks": [
+    {
+      "path": "e2e/community-responsive.spec.ts",
+      "sha256_normalized_lf": "8f81f54a0921c8d7aa24757413f30391c1917052a16a3d496dbc3a13a87f30bb"
+    },
+    {
+      "path": "e2e/ui-v2-boards.spec.ts",
+      "sha256_normalized_lf": "2819d68153a29decc383f025af0cfcf29aac20f373fc4dde07ceafa0c94c39f6"
+    },
+    {
+      "path": "e2e/ui-v2-live-boards.spec.ts",
+      "sha256_normalized_lf": "c740197d982756fe106691ea96b2eb804fd019f6d0c5a04871a51a6695af4a60"
+    },
+    {
+      "path": "src/App.test.tsx",
+      "sha256_normalized_lf": "5af61330cba1142f3ba9bc26e18e691c0aeccebf4aab3c631323d856272a0a66"
+    },
+    {
+      "path": "src/app/CommunityApp.tsx",
+      "sha256_normalized_lf": "9aeb6919276597b2ded98bff09b7e3db213cc7f9414e23cec96b6a58b2ec3287"
+    },
+    {
+      "path": "src/components/RightSidebar.test.tsx",
+      "sha256_normalized_lf": "453eefa58cefd6bd03f32fa8b84ddf8a2b095af17f9a5a42feb8c2b25d13d248"
+    },
+    {
+      "path": "src/components/RightSidebar.tsx",
+      "sha256_normalized_lf": "38cf05999e293720d69d1d50729096e78a3ad29df0d7d106005b64dca9db10b5"
+    },
+    {
+      "path": "src/components/TopicRow.test.tsx",
+      "sha256_normalized_lf": "4a580a93572c430d9af7b68852fb1f89941e6fd19d7e6ca602ec021d160c9a73"
+    },
+    {
+      "path": "src/components/TopicRow.tsx",
+      "sha256_normalized_lf": "684e25f15e6e10cd1ee82457d87f635c2065d5b6ebf151d2897a15cd52286bc3"
+    },
+    {
+      "path": "src/features/boards/BoardDirectoryPage.test.tsx",
+      "sha256_normalized_lf": "c765ea9dfec707176281fca5c7aad3aaa8afb66a8fc25f678f70c7f90ffac171"
+    },
+    {
+      "path": "src/features/boards/BoardDirectoryPage.tsx",
+      "sha256_normalized_lf": "5f8bb8971fa6699423740e8237b08559cc653452970f46208f67a0a45f9ed1b9"
+    },
+    {
+      "path": "src/features/boards/BoardHeader.tsx",
+      "sha256_normalized_lf": "553f043ce86e7da64f0a98908baed18e8394da07a27772f7a7bea2c97656c614"
+    },
+    {
+      "path": "src/features/boards/BoardNavigationTree.tsx",
+      "sha256_normalized_lf": "142f330586d9a668b141cd98669a57957b39f20e01cfa837e75d7bcb2957a4ab"
+    },
+    {
+      "path": "src/features/boards/BoardTopicFeed.tsx",
+      "sha256_normalized_lf": "13c387f5d46377ff503638e5301a1fa14ba48b76fb7cdb846a2d387dc68815f2"
+    },
+    {
+      "path": "src/router/communityRoute.test.ts",
+      "sha256_normalized_lf": "1d3751049ebb2dd605fddfceedcf3e792f1f8c60301ed9f711f42361a737a6ac"
+    },
+    {
+      "path": "src/router/communityRoute.ts",
+      "sha256_normalized_lf": "461f7eea253a932213c29ed9d9d24d676d4ab1b93cf344ea65e5228a691702eb"
+    },
+    {
+      "path": "src/styles.boards.css",
+      "sha256_normalized_lf": "561944d852fa7fa8c61459094dfba730ed7455a009e803e3f0fcaa51a1c888af"
+    },
+    {
+      "path": "src/styles.community.css",
+      "sha256_normalized_lf": "df39e0cf3b5b63fd0155921ffd76ea4aa8ce5686d0c5bba230fc2279950b7b1d"
+    },
+    {
+      "path": "src/styles.responsive.test.ts",
+      "sha256_normalized_lf": "38933c47a3d2aa512742ce49785bd005fb7f92d4fa035c3e49e7a663256c5442"
+    }
+  ]
+}

@@ -2,7 +2,7 @@
   "project": "DaoYun",
   "date": "2026-09-30",
   "plan_status": "IN_PROGRESS",
-  "scope": "First public-shell and home-feed implementation candidate; no complete Gate acceptance",
+  "scope": "Second board directory/detail implementation candidate plus isolated role and plugin metadata evidence; no complete Gate acceptance",
   "plan_snapshot": "daoyun-ui-v2-plan/06-task-registry.json",
   "acceptance_snapshot": "daoyun-ui-v2-plan/07-acceptance-registry.json",
   "executor": "Codex_local_tools",
@@ -12,10 +12,10 @@
     "authorization": "用户明确选择：使用当前本地工具继续（推荐）",
     "date": "2026-09-30"
   },
-  "code_commit": "f9e1e16348bed285304f46917c856870915e96c1",
-  "tested_source_manifest_sha256": "6815b8fa6388d53f317001cf3dd82c675049d2d7331842b51aff021080d57cde",
-  "verification": "docs/handoffs/ui-v2/verification.json",
-  "handoff": "docs/handoffs/ui-v2/first-increment-2026-09-30.md",
+  "code_commit": "fe55887af0c7f2e8edb46c5111edeecdb8746f95",
+  "tested_source_manifest_sha256": "3a212850f1b28d64aca4261a19bfb74c348b5163950b267a4b75a3d6cf49d87c",
+  "verification": "docs/handoffs/ui-v2/second-increment-verification.json",
+  "handoff": "docs/handoffs/ui-v2/second-increment-2026-09-30.md",
   "gates": {
     "G0": "NOT_ACCEPTED",
     "G1": "NOT_ACCEPTED",
@@ -31,7 +31,8 @@
       "status": "IN_PROGRESS",
       "evidence": [
         "docs/handoffs/ui-v2/first-increment-2026-09-30.md",
-        "docs/handoffs/ui-v2/verification.json"
+        "docs/handoffs/ui-v2/verification.json",
+        "docs/handoffs/ui-v2/baseline-fixtures-2026-09-30.json"
       ],
       "code_commit": "f9e1e16348bed285304f46917c856870915e96c1"
     },
@@ -41,7 +42,8 @@
       "status": "IN_PROGRESS",
       "evidence": [
         "docs/handoffs/ui-v2/first-increment-2026-09-30.md",
-        "docs/handoffs/ui-v2/verification.json"
+        "docs/handoffs/ui-v2/verification.json",
+        "docs/handoffs/ui-v2/baseline-fixtures-2026-09-30.json"
       ],
       "code_commit": "f9e1e16348bed285304f46917c856870915e96c1"
     },
@@ -98,16 +100,22 @@
     {
       "id": "DYV2-008",
       "title": "版块目录与层级导航",
-      "status": "PLANNED",
-      "evidence": [],
-      "code_commit": null
+      "status": "IN_PROGRESS",
+      "evidence": [
+        "docs/handoffs/ui-v2/second-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/second-increment-verification.json"
+      ],
+      "code_commit": "fe55887af0c7f2e8edb46c5111edeecdb8746f95"
     },
     {
       "id": "DYV2-009",
       "title": "版块详情与紧凑主题列表",
-      "status": "PLANNED",
-      "evidence": [],
-      "code_commit": null
+      "status": "IN_PROGRESS",
+      "evidence": [
+        "docs/handoffs/ui-v2/second-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/second-increment-verification.json"
+      ],
+      "code_commit": "fe55887af0c7f2e8edb46c5111edeecdb8746f95"
     },
     {
       "id": "DYV2-010",
@@ -244,7 +252,12 @@
       "id": "B-04",
       "title": "能力与配置盘点",
       "result": "NOT_RUN",
-      "evidence": []
+      "evidence": [],
+      "partial_evidence": [
+        "docs/handoffs/ui-v2/second-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/second-increment-verification.json"
+      ],
+      "note": "Partial evidence is recorded in the second handoff; the complete acceptance combination is not verified."
     },
     {
       "id": "B-05",
@@ -280,7 +293,12 @@
       "id": "B-09",
       "title": "角色和夹具",
       "result": "NOT_RUN",
-      "evidence": []
+      "evidence": [],
+      "partial_evidence": [
+        "docs/handoffs/ui-v2/second-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/second-increment-verification.json"
+      ],
+      "note": "Partial evidence is recorded in the second handoff; the complete acceptance combination is not verified."
     },
     {
       "id": "B-10",
@@ -564,86 +582,136 @@
     {
       "id": "BO-01",
       "title": "层级来源",
-      "result": "NOT_RUN",
-      "evidence": []
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/second-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/second-increment-verification.json"
+      ]
     },
     {
       "id": "BO-02",
       "title": "非圈子",
-      "result": "NOT_RUN",
-      "evidence": []
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/second-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/second-increment-verification.json"
+      ]
     },
     {
       "id": "BO-03",
       "title": "同名节点",
-      "result": "NOT_RUN",
-      "evidence": []
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/second-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/second-increment-verification.json"
+      ]
     },
     {
       "id": "BO-04",
       "title": "私有节点",
       "result": "NOT_RUN",
-      "evidence": []
+      "evidence": [],
+      "partial_evidence": [
+        "docs/handoffs/ui-v2/second-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/second-increment-verification.json"
+      ],
+      "note": "Partial evidence is recorded in the second handoff; the complete acceptance combination is not verified."
     },
     {
       "id": "BO-05",
       "title": "目录导航",
-      "result": "NOT_RUN",
-      "evidence": []
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/second-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/second-increment-verification.json"
+      ]
     },
     {
       "id": "BO-06",
       "title": "关注能力",
-      "result": "NOT_RUN",
-      "evidence": []
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/second-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/second-increment-verification.json"
+      ]
     },
     {
       "id": "BO-07",
       "title": "目录空错态",
-      "result": "NOT_RUN",
-      "evidence": []
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/second-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/second-increment-verification.json"
+      ]
     },
     {
       "id": "BO-08",
       "title": "详情范围",
-      "result": "NOT_RUN",
-      "evidence": []
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/second-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/second-increment-verification.json"
+      ]
     },
     {
       "id": "BO-09",
       "title": "子版块手机入口",
-      "result": "NOT_RUN",
-      "evidence": []
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/second-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/second-increment-verification.json"
+      ]
     },
     {
       "id": "BO-10",
       "title": "排序",
-      "result": "NOT_RUN",
-      "evidence": []
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/second-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/second-increment-verification.json"
+      ]
     },
     {
       "id": "BO-11",
       "title": "置顶分离",
       "result": "NOT_RUN",
-      "evidence": []
+      "evidence": [],
+      "partial_evidence": [
+        "docs/handoffs/ui-v2/second-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/second-increment-verification.json"
+      ],
+      "note": "Partial evidence is recorded in the second handoff; the complete acceptance combination is not verified."
     },
     {
       "id": "BO-12",
       "title": "无标题紧凑行",
       "result": "NOT_RUN",
-      "evidence": []
+      "evidence": [],
+      "partial_evidence": [
+        "docs/handoffs/ui-v2/second-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/second-increment-verification.json"
+      ],
+      "note": "Partial evidence is recorded in the second handoff; the complete acceptance combination is not verified."
     },
     {
       "id": "BO-13",
       "title": "发布上下文",
       "result": "NOT_RUN",
-      "evidence": []
+      "evidence": [],
+      "partial_evidence": [
+        "docs/handoffs/ui-v2/second-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/second-increment-verification.json"
+      ],
+      "note": "Partial evidence is recorded in the second handoff; the complete acceptance combination is not verified."
     },
     {
       "id": "BO-14",
       "title": "版内搜索",
-      "result": "NOT_RUN",
-      "evidence": []
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/second-increment-2026-09-30.md",
+        "docs/handoffs/ui-v2/second-increment-verification.json"
+      ]
     },
     {
       "id": "P-01",
@@ -1459,15 +1527,20 @@
   "counts": {
     "tasks": 24,
     "tasks_done": 0,
-    "tasks_in_progress": 7,
+    "tasks_in_progress": 9,
     "cases": 201,
-    "case_pass": 11,
-    "case_not_run": 190
+    "case_pass": 21,
+    "case_not_run": 180
   },
   "remaining": [
-    "G0 original-page baseline, all-role fixtures and six-plugin actual installation/enabling/capability checks",
+    "G0 complete role browser, six-plugin business invocation and disabled-history checks; current DB has five installed plugins",
     "Authorized visible image count and complete 4–9 image viewer contract",
-    "Real API write and auth flows, feed paging/race/failure E2E",
-    "DYV2-008 through DYV2-024 and complete G0–G5 acceptance"
+    "Real API writes/auth and dedicated feed paging/race/failure E2E",
+    "DYV2-008/009 restricted-tree, untitled-text browser and publish/pin combinations",
+    "DYV2-010 through DYV2-024 and complete G0–G5 acceptance"
+  ],
+  "source_commits": [
+    "f9e1e16348bed285304f46917c856870915e96c1",
+    "fe55887af0c7f2e8edb46c5111edeecdb8746f95"
   ]
 }
