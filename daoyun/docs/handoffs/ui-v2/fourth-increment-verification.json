@@ -1,0 +1,377 @@
+{
+  "project": "DaoYun",
+  "date": "2026-10-01",
+  "scope": "Fourth nine-image publishing and recovery candidate",
+  "code_commit": "3f81a93513bb69662c91d50a08854b66c18dbd63",
+  "tested_source_manifest_sha256": "e4635b93b6435166e1fb97e08a3b06ca4d6ed87188e5f2fe0008e9b8e8d0a126",
+  "source_files": [
+    {
+      "path": "apps/api/src/drafts.rs",
+      "sha256": "6ee73155e17e97e3863512412d50c826014608c3027fe7f0de31ff5dfea41ad6",
+      "git_blob_sha256": "6ee73155e17e97e3863512412d50c826014608c3027fe7f0de31ff5dfea41ad6"
+    },
+    {
+      "path": "apps/api/src/rich_content.rs",
+      "sha256": "e9343539487bf90518026929cbbeb6a53d1d2deced59cf87b9c195223b921dce",
+      "git_blob_sha256": "e9343539487bf90518026929cbbeb6a53d1d2deced59cf87b9c195223b921dce"
+    },
+    {
+      "path": "apps/api/tests/attachments.rs",
+      "sha256": "b2996c8e2c8d40596a64cee7bd150d4c53d4ead0c07528fbb39ace897a733b8d",
+      "git_blob_sha256": "b2996c8e2c8d40596a64cee7bd150d4c53d4ead0c07528fbb39ace897a733b8d"
+    },
+    {
+      "path": "apps/api/tests/drafts.rs",
+      "sha256": "498d6b3f94dacf6475172c22d32e70c084218406769f4e1739e988cce6d5b5a2",
+      "git_blob_sha256": "498d6b3f94dacf6475172c22d32e70c084218406769f4e1739e988cce6d5b5a2"
+    },
+    {
+      "path": "crates/api-contract/src/drafts.rs",
+      "sha256": "1ab104a916ef2ac44727441880799e14fb354ea908615fa86d2e9cfd7dea4c21",
+      "git_blob_sha256": "1ab104a916ef2ac44727441880799e14fb354ea908615fa86d2e9cfd7dea4c21"
+    },
+    {
+      "path": "e2e/ui-v2-publisher.spec.ts",
+      "sha256": "ab1596afd056ee87fd494c609b1e9e97a2a308d81c5458e7b2d6477e1e083a6c",
+      "git_blob_sha256": "ab1596afd056ee87fd494c609b1e9e97a2a308d81c5458e7b2d6477e1e083a6c"
+    },
+    {
+      "path": "src/api/generated.d.ts",
+      "sha256": "b63cfdd8fc6d699f5e8130fbc2880073e9109fec49d74434ab7932c1ce3c68a2",
+      "git_blob_sha256": "b63cfdd8fc6d699f5e8130fbc2880073e9109fec49d74434ab7932c1ce3c68a2"
+    },
+    {
+      "path": "src/components/RichTextEditor.test.tsx",
+      "sha256": "6577a469cee77c4abc32d0ffc8cb6909fa829977e9c93a09facc048cd16682c3",
+      "git_blob_sha256": "6577a469cee77c4abc32d0ffc8cb6909fa829977e9c93a09facc048cd16682c3"
+    },
+    {
+      "path": "src/components/RichTextEditor.tsx",
+      "sha256": "338a48d4f1e4ddd61596d1195ec2a63efd9b03492d4d2d8403dedca5dc23dc0e",
+      "git_blob_sha256": "338a48d4f1e4ddd61596d1195ec2a63efd9b03492d4d2d8403dedca5dc23dc0e"
+    },
+    {
+      "path": "src/components/TopicComposer.test.tsx",
+      "sha256": "6042c1313991ef9147a2dee4f846d73c2f866d9ec8dba9a3d49004315a635c70",
+      "git_blob_sha256": "6042c1313991ef9147a2dee4f846d73c2f866d9ec8dba9a3d49004315a635c70"
+    },
+    {
+      "path": "src/components/TopicComposer.tsx",
+      "sha256": "ed5233578f8df68b838c41f09f60031e4f365504a5d97aa67e9c19a4426ece59",
+      "git_blob_sha256": "ed5233578f8df68b838c41f09f60031e4f365504a5d97aa67e9c19a4426ece59"
+    },
+    {
+      "path": "src/styles.css",
+      "sha256": "0ca936116006fd3fdab9e60e3750f5243f1a8858292d8ac095f8be49494baeb7",
+      "git_blob_sha256": "c9c70428a3f8fd56691c6a1b7342c907e4d829cd064d34e90b4851c9f2e3f6da"
+    },
+    {
+      "path": "docs/handoffs/ui-v2/publisher-contract-change-2026-10-01.md",
+      "sha256": "d1e763187888d93d9bf8f9852f34f380c4508c70777ed2203adc7fd05fd83301",
+      "git_blob_sha256": "d1e763187888d93d9bf8f9852f34f380c4508c70777ed2203adc7fd05fd83301"
+    },
+    {
+      "path": "e2e/ui-v2-home.spec.ts",
+      "sha256": "a0b4d59e53331c57cc6c2a281c76acfb17b9c504862125716924db4502c4bade",
+      "git_blob_sha256": "a0b4d59e53331c57cc6c2a281c76acfb17b9c504862125716924db4502c4bade"
+    },
+    {
+      "path": "src/styles.home.css",
+      "sha256": "92f98291700d5834bf0307f8c977d9f48bce395b735659ebd5040c8b7d4319ac",
+      "git_blob_sha256": "92f98291700d5834bf0307f8c977d9f48bce395b735659ebd5040c8b7d4319ac"
+    }
+  ],
+  "environment": {
+    "cwd": "C:\\Users\\111\\Documents\\Playground\\daoyun",
+    "git_root": "C:/Users/111/Documents/Playground",
+    "branch": "codex/daoyun-home-foundation",
+    "executor": "Codex_local_tools",
+    "versions": {
+      "node": "v24.18.0",
+      "pnpm": "9.12.3",
+      "rustc": "rustc 1.94.1 (e408947bf 2026-03-25)"
+    }
+  },
+  "checks": [
+    {
+      "name": "unit-release",
+      "started_at": "2026-09-30T16:13:44.615Z",
+      "duration_ms": 309287,
+      "exit_code": 0,
+      "args": [
+        "-e",
+        "process.argv=['node','vitest','run','--maxWorkers=1','--minWorkers=1'];require('./node_modules/vitest/vitest.mjs')"
+      ],
+      "log_sha256": "5db7bf570107a1b6265b506a7c85643d2f8bc9972d06e16afb71d8359169ac89"
+    },
+    {
+      "name": "unit-final-publisher",
+      "started_at": "2026-09-30T16:24:48.962Z",
+      "duration_ms": 18337,
+      "exit_code": 0,
+      "args": [
+        "-e",
+        "process.argv=['node','vitest','run','src/components/TopicComposer.test.tsx','src/components/RichTextEditor.test.tsx','src/components/DraftShelf.test.tsx','src/styles.responsive.test.ts','--maxWorkers=1','--minWorkers=1'];require('./node_modules/vitest/vitest.mjs')"
+      ],
+      "log_sha256": "4d60c7287d2fce0eebac5574a941cbca07de0b3ab155902efde25ab086a582de"
+    },
+    {
+      "name": "unit-style-final",
+      "started_at": "2026-09-30T16:35:45.916Z",
+      "duration_ms": 2968,
+      "exit_code": 0,
+      "args": [
+        "-e",
+        "process.argv=['node','vitest','run','src/styles.responsive.test.ts','--maxWorkers=1','--minWorkers=1'];require('./node_modules/vitest/vitest.mjs')"
+      ],
+      "log_sha256": "d23712ada348967eeb869f730d213cb3627ed6c7b04f780eb5e63de057aa5033"
+    },
+    {
+      "name": "typecheck-final",
+      "started_at": "2026-09-30T16:24:48.915Z",
+      "duration_ms": 9781,
+      "exit_code": 0,
+      "args": [
+        "C:\\nvm4w\\nodejs\\node_modules\\corepack\\dist\\pnpm.js",
+        "typecheck"
+      ],
+      "log_sha256": "c83f3f8761f075eada96b1298d983555db48061e130ef14477173044b214fae3"
+    },
+    {
+      "name": "e2e-typecheck-theme-final",
+      "started_at": "2026-09-30T16:35:45.869Z",
+      "duration_ms": 2281,
+      "exit_code": 0,
+      "args": [
+        "C:\\nvm4w\\nodejs\\node_modules\\corepack\\dist\\pnpm.js",
+        "test:e2e:typecheck"
+      ],
+      "log_sha256": "a8c4b2f8f69fc28d5150d39f60dab9219f45bab9f239ba1471415f4a8f82fb40"
+    },
+    {
+      "name": "build-theme-final",
+      "started_at": "2026-09-30T16:35:45.828Z",
+      "duration_ms": 14168,
+      "exit_code": 0,
+      "args": [
+        "C:\\nvm4w\\nodejs\\node_modules\\corepack\\dist\\pnpm.js",
+        "build"
+      ],
+      "log_sha256": "6d2e101d9d8809bd833626e52e58fd324b2c16f8b1b0167d47093f8548d0e3bb"
+    },
+    {
+      "name": "rust-publisher-release",
+      "started_at": "2026-09-30T16:13:44.566Z",
+      "duration_ms": 82937,
+      "exit_code": 0,
+      "args": [
+        "-e",
+        "process.env.PATH=\"C:\\\\msys64\\\\mingw64\\\\bin;C:\\\\Users\\\\111\\\\.cargo\\\\bin;\"+process.env.PATH;process.env.DATABASE_URL='postgresql://daoyun@127.0.0.1:55433/daoyun_dev';const p=require('node:child_process').spawn('rustup',[\"run\",\"1.94.1-x86_64-pc-windows-gnu\",\"cargo\",\"test\",\"-p\",\"daoyun-api\",\"--lib\",\"--test\",\"attachments\",\"--test\",\"topics\",\"--test\",\"drafts\"],{stdio:'inherit',windowsHide:true});p.on('exit',c=>process.exitCode=c);p.on('error',e=>{console.error(e.message);process.exitCode=1});"
+      ],
+      "log_sha256": "05845eb8ad4323f6d2904c144b4ae3b7267f782004b239b47d0b10df873d11e5"
+    },
+    {
+      "name": "rust-format-check",
+      "started_at": "2026-09-30T16:18:19.791Z",
+      "duration_ms": 1863,
+      "exit_code": 0,
+      "args": [
+        "-e",
+        "process.env.PATH=\"C:\\\\msys64\\\\mingw64\\\\bin;C:\\\\Users\\\\111\\\\.cargo\\\\bin;\"+process.env.PATH;process.env.DATABASE_URL='postgresql://daoyun@127.0.0.1:55433/daoyun_dev';const p=require('node:child_process').spawn('rustup',[\"run\",\"1.94.1-x86_64-pc-windows-gnu\",\"cargo\",\"fmt\",\"--all\",\"--\",\"--check\"],{stdio:'inherit',windowsHide:true});p.on('exit',c=>process.exitCode=c);p.on('error',e=>{console.error(e.message);process.exitCode=1});"
+      ],
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "rust-clippy",
+      "started_at": "2026-09-30T16:18:19.833Z",
+      "duration_ms": 22464,
+      "exit_code": 0,
+      "args": [
+        "-e",
+        "process.env.PATH=\"C:\\\\msys64\\\\mingw64\\\\bin;C:\\\\Users\\\\111\\\\.cargo\\\\bin;\"+process.env.PATH;process.env.DATABASE_URL='postgresql://daoyun@127.0.0.1:55433/daoyun_dev';const p=require('node:child_process').spawn('rustup',[\"run\",\"1.94.1-x86_64-pc-windows-gnu\",\"cargo\",\"clippy\",\"--workspace\",\"--all-targets\",\"--\",\"-D\",\"warnings\"],{stdio:'inherit',windowsHide:true});p.on('exit',c=>process.exitCode=c);p.on('error',e=>{console.error(e.message);process.exitCode=1});"
+      ],
+      "log_sha256": "bc6ad2110b45161436aacb63af1f72afe3e07e6ff70a44502492d5b1b778c132"
+    },
+    {
+      "name": "generated-types-check",
+      "started_at": "2026-09-30T16:19:38.121Z",
+      "duration_ms": 1123,
+      "exit_code": 0,
+      "args": [
+        "scripts/generate-api-client.mjs",
+        "--input",
+        "C:\\Users\\111\\Documents\\Playground\\daoyun\\artifacts\\ui-v2\\fourth-increment-2026-09-30\\openapi.json",
+        "--check"
+      ],
+      "log_sha256": "6459e69c790b978f2696bc9ca8be9631cb06e0fb0b953ad6ec04d216aaa51b30"
+    },
+    {
+      "name": "theme-transition-green",
+      "started_at": "2026-09-30T16:37:59.596Z",
+      "duration_ms": 9933,
+      "exit_code": 0,
+      "args": [
+        "-e",
+        "process.env.DAOYUN_WEB_URL='http://127.0.0.1:5173';process.argv=['node','playwright','test','e2e/ui-v2-home.spec.ts','--grep','readable on every frame|existing theme presets','--workers=2'];require('./node_modules/@playwright/test/cli.js')"
+      ],
+      "log_sha256": "6a3c5e645da6b6e0771b303a3e066d0d9185938e85187d7ae82c60b8dba96a4e"
+    },
+    {
+      "name": "browser-release",
+      "started_at": "2026-09-30T16:39:20.637Z",
+      "duration_ms": 103474,
+      "exit_code": 0,
+      "args": [
+        "-e",
+        "process.env.DAOYUN_WEB_URL='http://127.0.0.1:5173';process.env.DAOYUN_LOCAL_E2E='1';process.argv=['node','playwright','test','e2e/ui-v2-media.spec.ts','e2e/content-image-preview.spec.ts','e2e/topic-row-navigation.spec.ts','e2e/ui-v2-home.spec.ts','e2e/ui-v2-boards.spec.ts','e2e/ui-v2-live-home.spec.ts','e2e/ui-v2-live-boards.spec.ts','e2e/ui-v2-publisher.spec.ts','--workers=2'];require('./node_modules/@playwright/test/cli.js')"
+      ],
+      "log_sha256": "f1becb32b43dcf2aec535bc2574daa4f4f15c0715431fae95aabfe01985a6289"
+    }
+  ],
+  "frontend_tests": {
+    "full_passed": 824,
+    "files": 103,
+    "final_related_passed": 47,
+    "style_recheck_passed": 9,
+    "note": "Later changes were a generated description, a button class and two CSS declarations; targeted checks and final browser tests cover them."
+  },
+  "rust_tests": {
+    "passed": 77,
+    "scope": "daoyun-api --lib --test attachments --test topics --test drafts",
+    "workspace_tests_repeated": false,
+    "prior_workspace_evidence": "docs/handoffs/ui-v2/third-increment-verification.json"
+  },
+  "browser": {
+    "passed": 108,
+    "mock": 88,
+    "real_anonymous_read_only": 20,
+    "widths": [
+      320,
+      390,
+      768,
+      1024,
+      1440
+    ],
+    "projects": [
+      "chromium-desktop",
+      "chromium-mobile"
+    ],
+    "both_projects_use_desktop_chromium": true,
+    "screenshots": {
+      "count": 122,
+      "manifest": "artifacts/ui-v2/fourth-increment-2026-09-30/screenshots.json",
+      "manifest_sha256": "b45f6897ef9e3b5b3604354a439d4f85d3194a0088b142d34c66b37ce18572de",
+      "reviewed": [
+        "320px sorted composer",
+        "1440px sorted composer"
+      ]
+    }
+  },
+  "api": {
+    "live_checks": [
+      {
+        "path": "/api/v1/health/ready",
+        "status": 200,
+        "request_id": "01a0f320-c3a9-74a2-983c-dc00e5c8e218",
+        "envelope_request_id": "01a0f320-c3a9-74a2-983c-dc00e5c8e218"
+      },
+      {
+        "path": "/api/v1/topics?limit=1",
+        "status": 200,
+        "request_id": "01a0f320-c3ba-7c40-9f9c-43945d7e95d1",
+        "envelope_request_id": "01a0f320-c3ba-7c40-9f9c-43945d7e95d1",
+        "visible_image_count": 0
+      },
+      {
+        "path": "/api/v1/openapi.json",
+        "status": 200,
+        "request_id": "01a0f320-c416-7510-92fb-a6db0bea40ed",
+        "schema_max_images": 9
+      }
+    ],
+    "live_openapi_matches_export": true,
+    "openapi_sha256": "477c344db731005924ff44db3377b613db82fcf87a816735ca0d9ecd88d0ca6a",
+    "isolated_write_fixture": "one real upload and eight ready/clean attachment fixtures; saved/retrieved ordered draft, rejected overflow, published nine nodes and bound attachments",
+    "business_database": "preserved; SQLx isolated test databases",
+    "plugin_configuration": "unchanged"
+  },
+  "plan_checksums": [
+    {
+      "path": "01-product-and-ui-spec.md",
+      "sha256": "e853929a919dbc2765a3f2dfe68d6db9ac0dd85e3611dbc701d8e122b311783a"
+    },
+    {
+      "path": "02-execution-plan.md",
+      "sha256": "1891fbb40a0d75222f37b2dbaf950bd94694cc218316d6caf752ef938b54a356"
+    },
+    {
+      "path": "03-acceptance-matrix.md",
+      "sha256": "9e4823b85fb852590145b932876a36b5ee8f18039b0fb70e43d8a80642d71647"
+    },
+    {
+      "path": "04-fastspider-brief.md",
+      "sha256": "ecb80588f2a4150acf8bd4b2290d9eac63344d6db0d4580701ecb10a27245bb2"
+    },
+    {
+      "path": "05-handoff-template.md",
+      "sha256": "f8d23264739f70f7761450c8adb3c767a07a57bfe8f08ab1060803622a0bac1e"
+    },
+    {
+      "path": "06-task-registry.json",
+      "sha256": "da6fc77c1520096451ec3e5ebf54904305e5041b0663310f3b2cc086476f612d"
+    },
+    {
+      "path": "07-acceptance-registry.json",
+      "sha256": "47804b502d46deb3c9c26cc5ef9e92b02f5947e92c30d5b28459337b14a1fd5d"
+    },
+    {
+      "path": "08-plan-validation.md",
+      "sha256": "3862176d73d075a673db94f3af0d39166ef85ba9d2ba74b29597bb7a521ff712"
+    },
+    {
+      "path": "README.md",
+      "sha256": "47cda67c8ea4f6b3fb693d57712712ce9950ced42a5b0bc028199a57c2338e0c"
+    }
+  ],
+  "review": {
+    "read_only_scouts": [
+      "publisher_e2e_map",
+      "publisher_queue_review"
+    ],
+    "cancellation_finding": "fixed with retryable retained slots and late-result checks",
+    "draft_deletion_finding": "Existing action has explicit confirmation and revision validation; unchanged. Cross-tab scenarios remain unaccepted.",
+    "main_verified_committed_files": 15
+  },
+  "failures_preserved": [
+    "publisher-ui-red",
+    "publisher-rust-red",
+    "publisher-rust-red-valid",
+    "typecheck-first",
+    "cancel-upload-red",
+    "draft-nine-red",
+    "browser-publisher-first",
+    "browser-final-all",
+    "theme-transition-red"
+  ],
+  "limitations": [
+    "No complete real browser write E2E; browser mock and real API tests are separate.",
+    "No physical phone or soft-keyboard acceptance.",
+    "Cross-tab draft conflicts, session expiry, board capability refresh and complete role/plugin matrix remain unaccepted.",
+    "No deployment."
+  ],
+  "artifacts_directory": "C:\\Users\\111\\Documents\\Playground\\daoyun\\artifacts\\ui-v2\\fourth-increment-2026-09-30",
+  "generated_at": "2026-09-30T16:50:46.211Z",
+  "tested_source_manifest": "artifacts/ui-v2/fourth-increment-2026-09-30/source-manifest.json",
+  "manifest_algorithm": "SHA256 of JSON.stringify(source_files.map(({path,sha256})=>({path,sha256}))) before Git blob hashes",
+  "failure_log_sha256": {
+    "publisher-ui-red": "65025c6931aae5f1b383c93f056a808ca6b29acc1b8bfd8d269ae9de3dcb2917",
+    "publisher-rust-red": "dda5a2bb30afc716ad1c883fe774d5fdad4134d1f213bb0ba80a6002a8b7efa5",
+    "publisher-rust-red-valid": "eafd2784399a9223bf20c99b910fe775377906b4f825fc03a9e88cf82e578566",
+    "typecheck-first": "a476156f688623f59fb287b8c1c8b1658cd4160799b01b8647c9c7a6251f17e8",
+    "cancel-upload-red": "878f63612ce69a9ead9b799f9f0e310229a79f9cae0fc528d1984fb02a7ac3c5",
+    "draft-nine-red": "4ca191acbb64d0afc44412b93ddd119d3e72e98f1f3967f9ae609d5c06693a6a",
+    "browser-publisher-first": "6baab313656b540ccfeb5ea4b16162faaa173b7e8c8fa881a3debe64ee512fa5",
+    "browser-final-all": "a2a1a30daa26eae52d38d2dfe57520761603e770f9d179e97eee8c43a930f65f",
+    "theme-transition-red": "ef9ab12b65aab4dc64619ece51c2f0c498b2147fb3112f3df935769584e528a6"
+  }
+}

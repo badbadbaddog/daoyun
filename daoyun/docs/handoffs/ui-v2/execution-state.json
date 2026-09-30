@@ -1,8 +1,8 @@
 {
   "project": "DaoYun",
-  "date": "2026-09-30",
+  "date": "2026-10-01",
   "plan_status": "IN_PROGRESS",
-  "scope": "Third authorized media aggregation and complete viewer candidate; publishing and full Gate acceptance remain open",
+  "scope": "Fourth publishing increment and third authorized-media candidate; overall acceptance remains incomplete",
   "plan_snapshot": "daoyun-ui-v2-plan/06-task-registry.json",
   "acceptance_snapshot": "daoyun-ui-v2-plan/07-acceptance-registry.json",
   "executor": "Codex_local_tools",
@@ -12,10 +12,10 @@
     "authorization": "用户明确选择：使用当前本地工具继续（推荐）",
     "date": "2026-09-30"
   },
-  "code_commit": "2e6bc3031231df680413c1b0789c7609ca2df4b0",
-  "tested_source_manifest_sha256": "57d3879c9f1ceb405397bab35f184bd7676203a1b58c7e05dc55204766bcd0d3",
-  "verification": "docs/handoffs/ui-v2/third-increment-verification.json",
-  "handoff": "docs/handoffs/ui-v2/third-increment-2026-09-30.md",
+  "code_commit": "3f81a93513bb69662c91d50a08854b66c18dbd63",
+  "tested_source_manifest_sha256": "e4635b93b6435166e1fb97e08a3b06ca4d6ed87188e5f2fe0008e9b8e8d0a126",
+  "verification": "docs/handoffs/ui-v2/fourth-increment-verification.json",
+  "handoff": "docs/handoffs/ui-v2/fourth-increment-2026-10-01.md",
   "gates": {
     "G0": "NOT_ACCEPTED",
     "G1": "NOT_ACCEPTED",
@@ -85,9 +85,11 @@
         "docs/handoffs/ui-v2/first-increment-2026-09-30.md",
         "docs/handoffs/ui-v2/verification.json",
         "docs/handoffs/ui-v2/third-increment-2026-09-30.md",
-        "docs/handoffs/ui-v2/third-increment-verification.json"
+        "docs/handoffs/ui-v2/third-increment-verification.json",
+        "docs/handoffs/ui-v2/fourth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/fourth-increment-verification.json"
       ],
-      "code_commit": "2e6bc3031231df680413c1b0789c7609ca2df4b0"
+      "code_commit": "3f81a93513bb69662c91d50a08854b66c18dbd63"
     },
     {
       "id": "DYV2-007",
@@ -122,9 +124,12 @@
     {
       "id": "DYV2-010",
       "title": "统一发布器与草稿/9图排序",
-      "status": "PLANNED",
-      "evidence": [],
-      "code_commit": null
+      "status": "IN_PROGRESS",
+      "evidence": [
+        "docs/handoffs/ui-v2/fourth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/fourth-increment-verification.json"
+      ],
+      "code_commit": "3f81a93513bb69662c91d50a08854b66c18dbd63"
     },
     {
       "id": "DYV2-011",
@@ -509,13 +514,11 @@
     {
       "id": "C-06",
       "title": "九图",
-      "result": "NOT_RUN",
-      "evidence": [],
-      "partial_evidence": [
-        "docs/handoffs/ui-v2/third-increment-2026-09-30.md",
-        "docs/handoffs/ui-v2/third-increment-verification.json"
-      ],
-      "note": "Display/full-viewer paths passed; publishing API still accepts 20 images, so the nine-image upper bound is not accepted."
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/fourth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/fourth-increment-verification.json"
+      ]
     },
     {
       "id": "C-07",
@@ -730,7 +733,12 @@
       "id": "P-01",
       "title": "标题可空",
       "result": "NOT_RUN",
-      "evidence": []
+      "evidence": [],
+      "partial_evidence": [
+        "docs/handoffs/ui-v2/fourth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/fourth-increment-verification.json"
+      ],
+      "note": "Component/mock browser and isolated API coverage is partial; complete real browser scenario remains unaccepted."
     },
     {
       "id": "P-02",
@@ -741,26 +749,40 @@
     {
       "id": "P-03",
       "title": "九图上限",
-      "result": "NOT_RUN",
-      "evidence": []
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/fourth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/fourth-increment-verification.json"
+      ]
     },
     {
       "id": "P-04",
       "title": "顺序持久",
       "result": "NOT_RUN",
-      "evidence": []
+      "evidence": [],
+      "partial_evidence": [
+        "docs/handoffs/ui-v2/fourth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/fourth-increment-verification.json"
+      ],
+      "note": "Component/mock browser and isolated API coverage is partial; complete real browser scenario remains unaccepted."
     },
     {
       "id": "P-05",
       "title": "非拖拽排序",
-      "result": "NOT_RUN",
-      "evidence": []
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/fourth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/fourth-increment-verification.json"
+      ]
     },
     {
       "id": "P-06",
       "title": "上传失败",
-      "result": "NOT_RUN",
-      "evidence": []
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/fourth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/fourth-increment-verification.json"
+      ]
     },
     {
       "id": "P-07",
@@ -772,13 +794,23 @@
       "id": "P-08",
       "title": "双草稿恢复",
       "result": "NOT_RUN",
-      "evidence": []
+      "evidence": [],
+      "partial_evidence": [
+        "docs/handoffs/ui-v2/fourth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/fourth-increment-verification.json"
+      ],
+      "note": "Component/mock browser and isolated API coverage is partial; complete real browser scenario remains unaccepted."
     },
     {
       "id": "P-09",
       "title": "跨账号/标签页",
       "result": "NOT_RUN",
-      "evidence": []
+      "evidence": [],
+      "partial_evidence": [
+        "docs/handoffs/ui-v2/fourth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/fourth-increment-verification.json"
+      ],
+      "note": "Component/mock browser and isolated API coverage is partial; complete real browser scenario remains unaccepted."
     },
     {
       "id": "P-10",
@@ -790,13 +822,19 @@
       "id": "P-11",
       "title": "重复与未知结果",
       "result": "NOT_RUN",
-      "evidence": []
+      "evidence": [],
+      "partial_evidence": [
+        "docs/handoffs/ui-v2/fourth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/fourth-increment-verification.json"
+      ],
+      "note": "Component/mock browser and isolated API coverage is partial; complete real browser scenario remains unaccepted."
     },
     {
       "id": "P-12",
       "title": "移动键盘",
       "result": "NOT_RUN",
-      "evidence": []
+      "evidence": [],
+      "note": "Requires a physical phone and soft-keyboard record; desktop Chromium viewports do not satisfy this case."
     },
     {
       "id": "T-01",
@@ -1543,13 +1581,13 @@
   "counts": {
     "tasks": 24,
     "tasks_done": 0,
-    "tasks_in_progress": 10,
+    "tasks_in_progress": 11,
     "cases": 201,
-    "case_pass": 23,
-    "case_not_run": 178
+    "case_pass": 27,
+    "case_not_run": 174
   },
   "remaining": [
-    "DYV2-010 nine-image write cap, failed upload retry/removal, touch sorting and draft order verification",
+    "DYV2-010 real browser auth/write chain, board capabilities, dual-draft conflicts, cross-tab isolation, expired sessions, unknown-result recovery and physical phone keyboard",
     "G0 complete role browser, six-plugin business invocation and disabled-history checks; current DB has five installed plugins",
     "Real API writes/auth and dedicated feed paging/race/failure E2E",
     "DYV2-008/009 restricted-tree, untitled-text browser and publish/pin combinations",
@@ -1558,6 +1596,7 @@
   "source_commits": [
     "f9e1e16348bed285304f46917c856870915e96c1",
     "fe55887af0c7f2e8edb46c5111edeecdb8746f95",
-    "2e6bc3031231df680413c1b0789c7609ca2df4b0"
+    "2e6bc3031231df680413c1b0789c7609ca2df4b0",
+    "3f81a93513bb69662c91d50a08854b66c18dbd63"
   ]
 }
