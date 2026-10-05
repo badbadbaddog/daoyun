@@ -1,0 +1,414 @@
+{
+  "project": "DaoYun",
+  "date": "2026-10-01",
+  "scope": "DYV2-010 real browser verification of P-01 and P-04; product implementation unchanged",
+  "head_commit": "40bcff25ec920912bff7f4472bc6174e63b8e2d9",
+  "product_code_commit": "3f81a93513bb69662c91d50a08854b66c18dbd63",
+  "source_status": "New E2E test and handoff updates are uncommitted; all 15 prior source-manifest files are unchanged",
+  "tested_source_manifest_sha256": "dfdc63f07838a938a1701dd15789855f4e1b8493d2c8e25f04801d6cade7620e",
+  "tested_source_manifest": "artifacts/ui-v2/fifth-increment-2026-10-01/source-manifest.json",
+  "manifest_algorithm": "SHA256 of JSON.stringify(files.map(({path,sha256})=>({path,sha256}))) in recorded order",
+  "environment": {
+    "executor": "Codex_local_tools",
+    "fast_spider_used": false,
+    "cwd": "C:/Users/111/Documents/Playground/daoyun",
+    "api_origin": "http://127.0.0.1:3001",
+    "web_origin": "http://127.0.0.1:4174",
+    "postgres_port": 55434,
+    "database": "daoyun_ui_v2_publisher",
+    "database_scope": "New isolated PostgreSQL cluster; original development database and plugins untouched",
+    "member_fixture": "demo_member with existing established_member group and its 20/day upload quota; isolated quota usage reset between runs",
+    "attachment_root": "artifacts/ui-v2/fifth-increment-2026-10-01/attachments",
+    "api_binary": "target/debug/daoyun-api.exe",
+    "api_binary_sha256": "95e33b9b2eea8c169ee4309af536cfaa9772967502e4acd186fd9f46bee3da80",
+    "api_binary_rebuilt": false,
+    "services_stopped": true,
+    "git_root": "C:/Users/111/Documents/Playground",
+    "branch": "codex/daoyun-home-foundation"
+  },
+  "checks": [
+    {
+      "name": "frontend initial",
+      "command": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 32512,
+      "status": "complete",
+      "startedAt": "2026-10-01T02:59:27.724Z",
+      "code": 1,
+      "signal": null,
+      "endedAt": "2026-10-01T03:00:45.589Z",
+      "result": "FAIL",
+      "log": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/frontend-tests.log",
+      "note": "823 passed; existing App detail-text wait timed out once under concurrent load; no product or existing test code changed"
+    },
+    {
+      "name": "App isolated reproduction",
+      "command": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "src/App.test.tsx"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 33172,
+      "status": "complete",
+      "startedAt": "2026-10-01T03:02:04.354Z",
+      "code": 0,
+      "signal": null,
+      "endedAt": "2026-10-01T03:02:18.946Z",
+      "result": "PASS",
+      "files": 1,
+      "tests": 62,
+      "log": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/app-test-reproduction.log"
+    },
+    {
+      "name": "frontend full controlled workers",
+      "command": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--maxWorkers=2"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 33844,
+      "status": "complete",
+      "startedAt": "2026-10-01T03:03:11.350Z",
+      "code": 0,
+      "signal": null,
+      "endedAt": "2026-10-01T03:05:23.270Z",
+      "result": "PASS",
+      "files": 103,
+      "tests": 824,
+      "log": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/frontend-tests-final.log"
+    },
+    {
+      "name": "typecheck",
+      "command": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "-b",
+        "--pretty",
+        "false"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 32348,
+      "status": "complete",
+      "startedAt": "2026-10-01T02:59:27.766Z",
+      "code": 0,
+      "signal": null,
+      "endedAt": "2026-10-01T02:59:55.183Z",
+      "result": "PASS"
+    },
+    {
+      "name": "production build",
+      "command": [
+        "node",
+        "node_modules/vite/bin/vite.js",
+        "build"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 32512,
+      "status": "complete",
+      "startedAt": "2026-10-01T03:00:51.455Z",
+      "code": 0,
+      "signal": null,
+      "endedAt": "2026-10-01T03:00:57.993Z",
+      "result": "PASS",
+      "note": "Vite build follows successful tsc -b, matching the package build script"
+    },
+    {
+      "name": "E2E final typecheck",
+      "command": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "-p",
+        "tsconfig.playwright.json",
+        "--noEmit"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 31752,
+      "status": "complete",
+      "startedAt": "2026-10-01T03:07:55.922Z",
+      "code": 0,
+      "signal": null,
+      "endedAt": "2026-10-01T03:07:58.699Z",
+      "result": "PASS"
+    },
+    {
+      "name": "real publisher reviewed",
+      "pid": 932,
+      "status": "complete",
+      "startedAt": "2026-10-01T03:07:55.875Z",
+      "code": 0,
+      "signal": null,
+      "endedAt": "2026-10-01T03:08:16.971Z",
+      "result": "PASS",
+      "tests": 2,
+      "command": [
+        "node",
+        "node_modules/@playwright/test/cli.js",
+        "test",
+        "e2e/ui-v2-live-publisher.spec.ts",
+        "--workers=1",
+        "--reporter=line",
+        "--output",
+        "C:/Users/111/Documents/Playground/daoyun/artifacts/ui-v2/fifth-increment-2026-10-01/real-publisher-reviewed"
+      ],
+      "env": {
+        "DAOYUN_PUBLISHER_E2E": "1",
+        "DAOYUN_WEB_URL": "http://127.0.0.1:4174",
+        "DAOYUN_API_URL": "http://127.0.0.1:3001",
+        "PLAYWRIGHT_CHROMIUM_EXECUTABLE": "C:/Users/111/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe"
+      },
+      "log": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/real-publisher-reviewed.log"
+    }
+  ],
+  "browser": {
+    "projects": [
+      "chromium-desktop",
+      "chromium-mobile"
+    ],
+    "physical_phone": false,
+    "viewports": [
+      320,
+      390,
+      768,
+      1024,
+      1440
+    ],
+    "route_mocks": false,
+    "actual_uploads_in_final_run": 18,
+    "final_screenshots": 14,
+    "total_screenshots": 60,
+    "screenshot_manifest": "artifacts/ui-v2/fifth-increment-2026-10-01/screenshots-manifest.json",
+    "viewed_samples": [
+      "artifacts/ui-v2/fifth-increment-2026-10-01/real-publisher-fourth/ui-v2-live-publisher-isola-67ad6-ore-and-untitled-publishing-chromium-desktop/real-sorted-1440.png",
+      "artifacts/ui-v2/fifth-increment-2026-10-01/real-publisher-fourth/ui-v2-live-publisher-isola-67ad6-ore-and-untitled-publishing-chromium-desktop/real-sorted-320.png",
+      "artifacts/ui-v2/fifth-increment-2026-10-01/real-publisher-reviewed/ui-v2-live-publisher-isola-67ad6-ore-and-untitled-publishing-chromium-desktop/real-published.png"
+    ],
+    "assertions": [
+      "nine valid PNG uploads return 201",
+      "button reordering preserves focus",
+      "server draft GET, local reload and independent-context cloud restore preserve nine attachment IDs in order",
+      "untitled publish returns 201 and real topic URL with unchanged text",
+      "request_id is a UUID and equals x-request-id",
+      "published detail and anonymous read expose the same ordered nine public media URLs",
+      "image viewer visits all nine images in server order",
+      "no unexpected page errors or console warnings; anonymous session 401 probes are expected"
+    ]
+  },
+  "api": {
+    "live_checks": [
+      {
+        "path": "/api/v1/health/ready",
+        "status": 200,
+        "request_id": "01a0f56b-1869-7751-8b7c-75f4d5053d69",
+        "envelope_request_id": "01a0f56b-1869-7751-8b7c-75f4d5053d69"
+      },
+      {
+        "path": "/api/v1/topics?limit=1",
+        "status": 200,
+        "request_id": "01a0f56b-186e-7941-8057-a22dd36f17e4",
+        "envelope_request_id": "01a0f56b-186e-7941-8057-a22dd36f17e4"
+      },
+      {
+        "path": "/api/v1/openapi.json",
+        "status": 200,
+        "request_id": "01a0f56b-1a71-7bc1-9fe0-77272ee4d40e",
+        "sha256": "8dd95b04cf46ca1156421c74034c5f7b0a412c29e45302fe4a407ed418380182",
+        "maxDraftImages": 9
+      }
+    ],
+    "rust_tests_run": false,
+    "note": "Existing API binary only; no Rust files changed and no workspace Rust rebuild/tests repeated in this verification"
+  },
+  "plan_checksums": [
+    {
+      "path": "01-product-and-ui-spec.md",
+      "sha256": "e853929a919dbc2765a3f2dfe68d6db9ac0dd85e3611dbc701d8e122b311783a"
+    },
+    {
+      "path": "02-execution-plan.md",
+      "sha256": "1891fbb40a0d75222f37b2dbaf950bd94694cc218316d6caf752ef938b54a356"
+    },
+    {
+      "path": "03-acceptance-matrix.md",
+      "sha256": "9e4823b85fb852590145b932876a36b5ee8f18039b0fb70e43d8a80642d71647"
+    },
+    {
+      "path": "04-fastspider-brief.md",
+      "sha256": "ecb80588f2a4150acf8bd4b2290d9eac63344d6db0d4580701ecb10a27245bb2"
+    },
+    {
+      "path": "05-handoff-template.md",
+      "sha256": "f8d23264739f70f7761450c8adb3c767a07a57bfe8f08ab1060803622a0bac1e"
+    },
+    {
+      "path": "06-task-registry.json",
+      "sha256": "da6fc77c1520096451ec3e5ebf54904305e5041b0663310f3b2cc086476f612d"
+    },
+    {
+      "path": "07-acceptance-registry.json",
+      "sha256": "47804b502d46deb3c9c26cc5ef9e92b02f5947e92c30d5b28459337b14a1fd5d"
+    },
+    {
+      "path": "08-plan-validation.md",
+      "sha256": "3862176d73d075a673db94f3af0d39166ef85ba9d2ba74b29597bb7a521ff712"
+    },
+    {
+      "path": "README.md",
+      "sha256": "47cda67c8ea4f6b3fb693d57712712ce9950ced42a5b0bc028199a57c2338e0c"
+    }
+  ],
+  "review": {
+    "owner": "main agent",
+    "result": "PASS",
+    "scope": "Correctness, scope, local-only writes, source/metadata assertions, no new dependency or runtime abstraction"
+  },
+  "failures_preserved": [
+    "real-publisher-first: Playwright trace/video use inside describe was rejected; moved to module scope",
+    "real-publisher-second: default registered_member 5/day quota correctly returned 429, failed slots retained and publish blocked",
+    "real-publisher-third: test incorrectly expected null title; contract returns empty string and test was corrected",
+    "frontend initial: existing App detail-text wait timed out once; isolated and full two-worker reruns passed"
+  ],
+  "log_manifest": [
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/api.log",
+      "sha256": "b9fac14a153d05081a68e784375da851e0f703e33b28e617a2755ea1c93318bc"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/app-test-reproduction-result.json",
+      "sha256": "782354a714bbee2c5a179c51c0a830c4def9eba37b4f65a64d17738a51abf399"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/app-test-reproduction.log",
+      "sha256": "0511d6fa0d4278a103c5e05fb195f520e99fb8d19bfdb0856975f8ee51992094"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/e2e-typecheck-final-result.json",
+      "sha256": "578243269a8c7706614dbb210a3288b43c04dfc0ba81abd20a62b1d4f0b12e7e"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/e2e-typecheck-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/e2e-typecheck-result.json",
+      "sha256": "a497f77faba92572a682359e98ac0f05e5b887c6bc4bd506242fe1d70bd3f423"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/e2e-typecheck.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/frontend-tests-final-result.json",
+      "sha256": "0497923b360a1fab141ae35058f11fbf4a423e0d386637f05e7b6ac0ab5fee42"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/frontend-tests-final.log",
+      "sha256": "378b0ff6a045f2f8d8b2ee9b0070fa36b67f435cd82a47bf9e436bc9379c852e"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/frontend-tests-result.json",
+      "sha256": "c2639f7336ad2b1facf17b185eb9d4f11e509d8c7e498c373ef85947883b94ad"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/frontend-tests.log",
+      "sha256": "bb3d2c073774df46417d623639c654ff346828891578cac4b85e8dbf0dce683a"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/postgres.log",
+      "sha256": "fdaa7a50a37b22e21e235783ded3d8339c884bfd0f60b716d06affce1d27e770"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/production-build-result.json",
+      "sha256": "01a27088b29215c1caee07c60b77cfffdfd0438cfa74e6bd7ad855a442f8e443"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/production-build.log",
+      "sha256": "7b980062160f557911e47bf455a0ee8c53b5c8716b94d090a9a1c8e5831a1bf2"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/real-publisher-final-result.json",
+      "sha256": "2537ea901bd9073c12c7605ea24cac619650545a8432c562af7a869d96bbd1c4"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/real-publisher-final.log",
+      "sha256": "e0f0f6a621679d8810682cdc053128866b2f0e304ec754510332967414ab8575"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/real-publisher-first-result.json",
+      "sha256": "2ff83d6703cc593aa3f3f1c691924ffa6ddeaef02ec181fb79a5d74678161c77"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/real-publisher-first.log",
+      "sha256": "90dfb70309c3b7b6cf7d297093d40e4506e2bba7c99bd73b20eb4541825e7923"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/real-publisher-fourth-result.json",
+      "sha256": "06d6a4eb75faef26da56dbea0a2b092f33aae492e3e623dfabbe473c2df77679"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/real-publisher-fourth.log",
+      "sha256": "c2e31bd9430d2045d152eb799c0b72c3c76de17ae0b42bd2f570874865905c0d"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/real-publisher-reviewed-result.json",
+      "sha256": "0b5890443f1dca56be04867b3990e8c003474d395d6a24bbf546fb4068ca1e54"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/real-publisher-reviewed.log",
+      "sha256": "54ff7be8fb86809569489fe8f97d864bad07f67c73b85cb217bab73b52d9739c"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/real-publisher-second-result.json",
+      "sha256": "211370d16d6ee066cb0b0281c48541f5c74932bb3ab80a537f2ccbb1ad7e0842"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/real-publisher-second.log",
+      "sha256": "6687d849680674e340d0b778c18234f00d8bbf99c7a2564af0b226bb7ad1ba9c"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/real-publisher-third-result.json",
+      "sha256": "817cab0465586512ff9153b06b953818b2cd0681c726938a9c98f9d44007222b"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/real-publisher-third.log",
+      "sha256": "3ba06bd22524d036a953f116c98bbf194c476eb5cfe759735158bd355682b9f1"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/seed.log",
+      "sha256": "99b7c03cd6495ff943acae1c38a494d1780a714e16bb29062927dc20c3c074d3"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/teardown.json",
+      "sha256": "38cc6cc4a8330c4f0fe256ef98c0de541c6cbd99432a0c3ecd02d6259e700e39"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/typecheck-result.json",
+      "sha256": "b1f96a6c0669bcc9b8b73a1176c6255167fa006891c923bc53e479d0d9c77612"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/typecheck.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "artifacts/ui-v2/fifth-increment-2026-10-01/logs/web.log",
+      "sha256": "eeb70f892fd883ac5110668a31081978e8638c6e646b8c9443b81cab6a5c61eb"
+    }
+  ],
+  "limitations": [
+    "P-02, P-07, P-08 conflict matrix, P-09 accounts/tabs, P-10 expired sessions and P-11 unknown-result recovery remain unaccepted",
+    "P-12 requires a physical phone and soft keyboard",
+    "DYV2-010 remains IN_PROGRESS; G0–G5 remain NOT_ACCEPTED",
+    "Initial unconstrained frontend run had one timing failure; the successful full rerun used maxWorkers=2",
+    "API binary was not rebuilt and this is not a clean checkout/source-build acceptance",
+    "No commit or deployment performed"
+  ],
+  "artifacts_directory": "artifacts/ui-v2/fifth-increment-2026-10-01",
+  "generated_at": "2026-10-01T03:11:25.045Z"
+}

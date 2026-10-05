@@ -1,0 +1,421 @@
+{
+  "updated_at": "2026-10-04T19:05:04.394Z",
+  "overall_status": "IN_PROGRESS",
+  "gates": {
+    "G0": "ACCEPTED",
+    "G1": "ACCEPTED",
+    "G2": "ACCEPTED",
+    "G3": "NOT_ACCEPTED",
+    "G4": "NOT_ACCEPTED",
+    "G5": "NOT_ACCEPTED",
+    "G6": "NOT_ACCEPTED"
+  },
+  "task_statuses": {
+    "DYR-027": "PLANNED_CONDITIONAL",
+    "DYR-028": "BLOCKED",
+    "DYR-029": "BLOCKED",
+    "DYR-030": "BLOCKED"
+  },
+  "cases": [
+    {
+      "id": "AC-028-01",
+      "status": "PASS",
+      "scope": "真实 API 覆盖公开转受限后的 feed/search/bookmark/topic/post/original/thumbnail/notification/count/read/read-all；封套/header 一致，业务响应 private,no-store。外部 CDN 不在本地范围。",
+      "evidence": [
+        "artifacts/v3/dyr028-2026-10-04/green-api-policy-media-status.json",
+        "artifacts/v3/dyr028-2026-10-04/green-notification-static-sql-status.json",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-028-02",
+      "status": "PASS",
+      "scope": "用户确认沿用每用户、每窗口累计额度。两个活跃用户各剩一次额度，同步发起共16个不同幂等键请求；每用户恰好一成功七拒绝，usage/topic/idempotency 各一，互不占用。",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-quota-two-users-status.json",
+        "artifacts/v3/dyr030-2026-10-04/quota-per-user-window-verification.json",
+        "crates/infrastructure/tests/topics.rs"
+      ],
+      "verified_at": "2026-10-04T15:43:19.772Z",
+      "clarification": {
+        "source": "user_reply",
+        "answer": "沿用每用户、每窗口额度（推荐）",
+        "resolved_at": "2026-10-04T15:43:19.772Z"
+      }
+    },
+    {
+      "id": "AC-028-03",
+      "status": "PASS",
+      "scope": "诊断允许后撤销唯一授权来源，实际上传拒绝且无副作用；新增组/权益到期在事务写入中拒绝。",
+      "evidence": [
+        "apps/api/tests/admin.rs",
+        "apps/api/tests/topics.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-029-01",
+      "status": "PARTIAL",
+      "scope": "当前候选五轮暖/强制全编译构建、四种release产物五轮启动与各三十次feed/search、五轮浏览器HAR及SQL计数完成，冷/暖范围明确。旧版本前后对比和冷OS采样未执行；不承诺改善比例，也不将原始基线作为当前功能审计前置。",
+      "evidence": [
+        "artifacts/v3/dyr029-2026-10-04/candidate-release-summary.json",
+        "artifacts/v3/dyr029-2026-10-04/candidate-forced-build-summary.json",
+        "artifacts/v3/dyr029-2026-10-04/candidate-browser-home.json",
+        "artifacts/v3/dyr029-2026-10-04/candidate-sql-calls.json"
+      ],
+      "verified_at": "2026-10-04T19:05:04.394Z"
+    },
+    {
+      "id": "AC-029-02",
+      "status": "PASS",
+      "scope": "base/Wasm/S3/combined 四种 --release --locked 构建成功；各五轮核对实际能力、native 模块和历史 S3 对象哈希。",
+      "evidence": [
+        "artifacts/v3/dyr029-2026-10-04/release-build-matrix.json",
+        "artifacts/v3/dyr029-2026-10-04/candidate-api-release-matrix.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-029-03",
+      "status": "NOT_RUN",
+      "scope": "当前回归和候选测量已执行。未进行历史版本性能前后对比，无法判断是否发生显著退化；本项历史退化结论单列，不阻挡当前版本功能、安全与契约审计。",
+      "evidence": [
+        "artifacts/v3/dyr029-2026-10-04/candidate-release-summary.json"
+      ],
+      "verified_at": "2026-10-04T19:05:04.394Z"
+    },
+    {
+      "id": "AC-030-01",
+      "status": "PASS",
+      "scope": "私有独立 Git 副本和固定锁文件复验：前端1093、Rust503（2 ignored），两个官方组件 ignored 单独通过；类型/生产构建/clippy/格式/OpenAPI通过。使用暖 Cargo target；安装钩子显式运行。",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/verification.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-030-02",
+      "status": "PASS",
+      "scope": "按本项期望验收明确恢复/RPO而非盲换镜像：停止写入后完整93表、6对象恢复一致；备份后新增7积分及其他恢复点后状态不在恢复内，不声称RPO=0。另非空旧结构夹具验证迁移、结构回退后业务事实不变。实际旧V2二进制上线回退未执行，保留为单独历史产物验证边界，不阻挡本项恢复与RPO行为验收。",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/pre-start-restore-verification.json",
+        "artifacts/v3/dyr030-2026-10-04/post-backup-delta.json",
+        "artifacts/v3/direct-audit-2026-10-05/migration-invariants-complete-fixture-status.json"
+      ],
+      "verified_at": "2026-10-04T19:05:04.394Z"
+    },
+    {
+      "id": "AC-030-03",
+      "status": "PASS",
+      "scope": "必需用例仍 BLOCKED/NOT_RUN/PARTIAL，整体维持 IN_PROGRESS，G3–G6不接受；原仓库未提交，未部署。",
+      "evidence": [
+        "docs/handoffs/v3/full-regression-release-2026-10-04.md"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-01",
+      "status": "PASS",
+      "scope": "真实签名 OIDC 回调/撤销/重登录、本地 IdP 绑定与替换CSRF；真实Chromium CDP通行密钥注册/断言/删除/撤销后拒绝；恢复库TOTP/MFA解密登录。实体认证器未执行。",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-oidc-csrf-current-status.json",
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-added-current-results.json",
+        "artifacts/v3/dyr030-2026-10-04/restore-api-verification.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-02",
+      "status": "PASS",
+      "scope": "账号 restricted 且组允许回复，实际 HTTP403 user.action_restricted，不泄露私有限制原因，无帖子/额度副作用。",
+      "evidence": [
+        "apps/api/tests/topics.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-03",
+      "status": "PASS",
+      "scope": "exact 当前版块版主只当前治理200；父/兄弟/子均403且无治理与审计副作用。",
+      "evidence": [
+        "apps/api/tests/topics.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-04",
+      "status": "PASS",
+      "scope": "成员私有权益/账本数据不出现在游客和其他成员公开资料响应；草稿API所属检查另行复验。",
+      "evidence": [
+        "apps/api/tests/membership.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json",
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-added-current-results.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-05",
+      "status": "PASS",
+      "scope": "真实组额度10加标准权益额度20：读取上限20；20个创建成功，第21个429，数据库usage/topic/board计数20。",
+      "evidence": [
+        "apps/api/tests/topics.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-06",
+      "status": "PASS",
+      "scope": "组及标准权益分别 ends_at=CURRENT_TIMESTAMP 后，读快照失效，实际写403，无额外额度/主题。",
+      "evidence": [
+        "apps/api/tests/topics.rs",
+        "crates/infrastructure/src/community_permissions_characterization_tests.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-07",
+      "status": "PASS",
+      "scope": "两种既有预审组合由真实管理界面原值保存，permission keys/完整quotas不变，revision仅+1。",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-added-current-results.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-08",
+      "status": "PASS",
+      "scope": "原用量15下调上限10：新上传429，旧对象可读且不删除。",
+      "evidence": [
+        "apps/api/tests/admin.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-09",
+      "status": "PASS",
+      "scope": "旧搜索查询、主题楼层、管理用户筛选刷新/前进后退/共享新标签不丢；缺失主题及回复显示清晰状态。未承诺任意 malformed hash 新语义。",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-added-current-results.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-10",
+      "status": "PASS",
+      "scope": "附加组唯一授权被撤销后实际写403，不受旧诊断/UI缓存影响，无上传与额度副作用。",
+      "evidence": [
+        "apps/api/tests/admin.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-11",
+      "status": "PASS",
+      "scope": "107个普通Cookie会话写操作：105个通过210次真实缺失/错误CSRF，91业务表哈希不变；另2个OIDC绑定/替换操作由已配置真实本地IdP的8次请求覆盖。9个公开/挑战令牌流程按独立认证协议测试，不冒充普通会话CSRF。",
+      "evidence": [
+        "artifacts/v3/dyr028-2026-10-04/csrf-matrix-complete.json",
+        "artifacts/v3/dyr030-2026-10-04/frozen-oidc-csrf-current-status.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-12",
+      "status": "PASS",
+      "scope": "受委派运营员不能授予自身无权授予的角色能力，API拒绝。",
+      "evidence": [
+        "apps/api/tests/admin.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-13",
+      "status": "PASS",
+      "scope": "最后可恢复站点管理账号撤销保护409并保留审计/可恢复通道。",
+      "evidence": [
+        "apps/api/tests/admin.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-14",
+      "status": "PASS",
+      "scope": "混合版块报告批次仅全局授权者可用；scoped reviewer混合请求403且状态/审计不变。任一对象缺失整个事务回滚；成功返回全部report_ids。重复请求非幂等，两个对象revision和审计再次推进，未知结果先读状态，不自动重试。",
+      "evidence": [
+        "apps/api/tests/governance.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-governance-mixed-current-status.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-15",
+      "status": "PASS",
+      "scope": "实际A退出切B、同一版块发布器：正文/图片/本机和云端草稿隔离；恢复A后原草稿保留。两种视窗、全新fixture账号。",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-added-current-results.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-16",
+      "status": "PASS",
+      "scope": "按已核对旧V2本地格式（无publication）与当前格式（可选publication）构造夹具。51条发布器测试通过；三个新增场景覆盖长正文/图片恢复编辑发布、原待确认请求完整重试并保留新编辑、本机/云端草稿并存后完整恢复与发布，旧长正文恢复副本仍完整。此为当前行为兼容测试，不宣称真实历史部署数据升级。",
+      "evidence": [
+        "artifacts/v3/direct-audit-2026-10-05/draft-long-recovery-status.json",
+        "artifacts/v3/direct-audit-2026-10-05/frontend-current-final-status.json",
+        "src/components/TopicComposer.test.tsx"
+      ],
+      "verified_at": "2026-10-04T19:05:04.394Z"
+    },
+    {
+      "id": "AC-X-17",
+      "status": "PASS",
+      "scope": "两个实际标签共享会话；A计数1响应延迟，B全读0，A重新读取0后释放旧响应仍0。headless环境显式触发window focus，真实HTTP响应未伪造。",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-added-current-results.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-18",
+      "status": "PASS",
+      "scope": "旧会话被屏蔽后发送404保留输入；解除后提交一次且消息只一次。API同时覆盖双方方向。",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-added-current-results.json",
+        "apps/api/tests/messages.rs"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-19",
+      "status": "PASS",
+      "scope": "自定义品牌和手动深色偏好在前台/后台切换与重载保留，测试finally恢复品牌配置。",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-added-current-results.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-20",
+      "status": "NOT_RUN",
+      "scope": "没有可操作实体手机软键盘渠道；390px/320px视窗与CDP检查不能替代实体键盘。",
+      "evidence": [],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-21",
+      "status": "PASS",
+      "scope": "缺用户组名称：键盘Enter有文字错误、aria-invalid和关联描述，焦点合理；Escape返回触发按钮，无写请求；Axe0。另有缩放等效布局和隐藏quota错误。",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-added-current-results.json",
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-account-and-errors-results.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-22",
+      "status": "PASS",
+      "scope": "两个独立浏览器上下文编辑同一草稿，旧revision409保留两份正文/图片，可读取新版本或复制恢复；四场景通过。",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-real-conflicts-results.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-23",
+      "status": "PASS",
+      "scope": "基础构建 wasm_supported=false，管理页明确当前构建不支持Wasm；native单选投票available，旧投票内容可提交/重复回放，DB投票1。桌面及窄屏、Axe和五宽度截图通过。",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-native-base-results.json",
+        "artifacts/v3/dyr029-2026-10-04/candidate-api-release-matrix.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-24",
+      "status": "PASS",
+      "scope": "宿主sandbox/fuel/memory/UTF8/import边界及实际官方组件编译、执行回放通过；无任意SQL能力。",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json",
+        "artifacts/v3/dyr030-2026-10-04/frozen-official-component-contract-status.json",
+        "artifacts/v3/dyr028-2026-10-04/official-component-replay-status.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-25",
+      "status": "PASS",
+      "scope": "验收当前支持的Wasm执行器交接：停用并停止旧worker，revision3重新启用，创建新runtime/worker重放6个同事件，经验账户、完整流水、命令回执与事件时间/来源保持不变；完整恢复后的过期租约重放也已通过。产品未实现的内置奖励引擎不作为当前行为的必需前置。",
+      "evidence": [
+        "artifacts/v3/direct-audit-2026-10-05/official-worker-current-status.json",
+        "artifacts/v3/dyr030-2026-10-04/supported-worker-cache-verification.json",
+        "artifacts/v3/dyr030-2026-10-04/restored-growth-replay.json"
+      ],
+      "verified_at": "2026-10-04T19:05:04.394Z"
+    },
+    {
+      "id": "AC-X-26",
+      "status": "PASS",
+      "scope": "新写入切local后，旧S3 original/thumbnail/brand/medal按历史定位哈希读取；历史provider=NULL使用明确legacy S3定位，新local与旧S3并存。",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/provider-switch-verification.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-27",
+      "status": "PARTIAL",
+      "scope": "源站公开→受限→授权恢复的topic/list/original/thumbnail均验证private,no-store；成功公开响应禁止缓存，拒绝响应无旧正文，原静态资产缓存头保留。仓库部署只有PG/API，没有边缘组件；真实CDN缓存命中/清除尚未执行。",
+      "evidence": [
+        "artifacts/v3/dyr028-2026-10-04/green-api-policy-media-status.json",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json",
+        "artifacts/v3/dyr030-2026-10-04/supported-worker-cache-verification.json",
+        "artifacts/v3/dyr030-2026-10-04/frozen-cache-success-policy-status.json"
+      ],
+      "verified_at": "2026-10-04T16:05:15.347Z"
+    },
+    {
+      "id": "AC-X-28",
+      "status": "PASS",
+      "scope": "在独立SQLx测试库应用至旧结构202609160004，插入2账户、3组成员、1精确范围角色授予、2标准权益及4条正负积分流水，再执行当前迁移。16张相关表的完整行内容、主键、revision和时间戳保持一致；余额等于流水合计，逐条balance_after一致，引用无孤儿，两个账号全能力/三个作用域与社区权限/配额均未扩大；重复迁移、结构回退和再次升级仍保持事实。明确为非空合成旧结构夹具。",
+      "evidence": [
+        "artifacts/v3/direct-audit-2026-10-05/migration-invariants-complete-fixture-status.json",
+        "crates/infrastructure/tests/v3_upgrade_invariants.rs"
+      ],
+      "verified_at": "2026-10-04T19:05:04.394Z"
+    },
+    {
+      "id": "AC-X-29",
+      "status": "PASS",
+      "scope": "93张表全部哈希一致，54张非空；6对象SHA相同，配置哈希保留，MFA/SMTP/未投递注册验证码密文真实解密与投递/注册成功；过期租约恢复重试不双发。",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/pre-start-restore-verification.json",
+        "artifacts/v3/dyr030-2026-10-04/registration-code-restored-verification.json",
+        "artifacts/v3/dyr030-2026-10-04/restore-api-verification.json",
+        "artifacts/v3/dyr030-2026-10-04/finance-restored-verification.json"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-30",
+      "status": "PASS",
+      "scope": "完整记录范围、失败修正与未执行项；不把局部PASS改成整体DONE，不声称已提交或上线。",
+      "evidence": [
+        "docs/handoffs/v3/full-regression-release-2026-10-04.md"
+      ],
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    }
+  ],
+  "is_current": false,
+  "superseded_by": "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+  "superseded_at": "2026-10-05T02:44:12.504Z"
+}

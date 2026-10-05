@@ -1,0 +1,747 @@
+{
+  "project": "DaoYun",
+  "date": "2026-10-01",
+  "completed_at": "2026-10-01T16:03:06.860Z",
+  "status": "PASS_FOR_NINTH_INCREMENT_ONLY",
+  "scope": "DYV2-010 P-10 session expiry/revocation recovery with publisher/draft/account regressions",
+  "head_commit": "40bcff25ec920912bff7f4472bc6174e63b8e2d9",
+  "product_code_commit": "3f81a93513bb69662c91d50a08854b66c18dbd63",
+  "source_status": "UNCOMMITTED_WORKING_TREE",
+  "tested_source_manifest_sha256": "17eb197d9c930cdfa48037dcf63d5f9e140f82b584cf5325360f4aace4c856a2",
+  "tested_source_manifest": "artifacts/ui-v2/ninth-increment-2026-10-01/source-manifest.json",
+  "manifest_algorithm": "SHA256 of JSON.stringify(ordered files with path and sha256)",
+  "environment": {
+    "executor": "Codex_local_tools",
+    "fast_spider_used": false,
+    "cwd": "C:/Users/111/Documents/Playground/daoyun",
+    "git_root": "C:/Users/111/Documents/Playground",
+    "branch": "codex/daoyun-home-foundation",
+    "api_origin": "http://127.0.0.1:3001",
+    "web_origin": "http://127.0.0.1:4174",
+    "postgres_port": 15434,
+    "database": "daoyun_ui_v2_session_recovery",
+    "database_scope": "New isolated clone of eighth increment; original development and earlier increment databases retained",
+    "cluster": "artifacts/ui-v2/fifth-increment-2026-10-01/isolated-postgres",
+    "attachment_root": "artifacts/ui-v2/ninth-increment-2026-10-01/attachments",
+    "api_binary": "artifacts/ui-v2/ninth-increment-2026-10-01/runtime/daoyun-api.exe",
+    "api_binary_sha256": "2c7180d8d749baca3a4b310dcfeb1f3db70f0ec952ab38cc1016b1d80934e328",
+    "api_binary_rebuilt": false,
+    "api_binary_unchanged_from_eighth": true,
+    "created_services_stopped": true,
+    "created_web_api_stopped": true,
+    "created_postgres_stopped": true,
+    "original_services_managed": false,
+    "original_services_before": [
+      {
+        "port": 3000,
+        "listening": false
+      },
+      {
+        "port": 5173,
+        "listening": false
+      },
+      {
+        "port": 3001,
+        "listening": false
+      },
+      {
+        "port": 4174,
+        "listening": false
+      },
+      {
+        "port": 15434,
+        "listening": false
+      }
+    ],
+    "original_services_after": [
+      {
+        "port": 3000,
+        "listening": false
+      },
+      {
+        "port": 5173,
+        "listening": false
+      },
+      {
+        "port": 3001,
+        "listening": false
+      },
+      {
+        "port": 4174,
+        "listening": false
+      },
+      {
+        "port": 15434,
+        "listening": false
+      }
+    ],
+    "isolated_database_summary": {
+      "database": "daoyun_ui_v2_session_recovery",
+      "users": 3,
+      "drafts": 8,
+      "attachments": 153,
+      "topics": 83,
+      "restrictions": 2
+    },
+    "created_service_jobs": [
+      {
+        "label": "api",
+        "file": "C:/Users/111/Documents/Playground/daoyun/artifacts/ui-v2/ninth-increment-2026-10-01/runtime/daoyun-api.exe",
+        "args": [],
+        "cwd": "C:/Users/111/Documents/Playground/daoyun",
+        "pid": 13040,
+        "status": "exited",
+        "startedAt": "2026-10-01T15:12:50.221Z",
+        "note": "Owned isolated service stopped after all18 browser checks passed",
+        "code": 1,
+        "signal": null,
+        "completedAt": "2026-10-01T15:58:22.923Z"
+      },
+      {
+        "label": "preview",
+        "file": "C:/nvm4w/nodejs/node.exe",
+        "args": [
+          "C:/Users/111/Documents/Playground/daoyun/node_modules/vite/bin/vite.js",
+          "preview",
+          "--config",
+          "C:/Users/111/Documents/Playground/daoyun/artifacts/ui-v2/ninth-increment-2026-10-01/preview.config.mjs",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "4174",
+          "--strictPort"
+        ],
+        "cwd": "C:/Users/111/Documents/Playground/daoyun",
+        "pid": 15512,
+        "status": "exited",
+        "startedAt": "2026-10-01T15:15:48.122Z",
+        "note": "Owned isolated service stopped after all18 browser checks passed",
+        "code": 1,
+        "signal": null,
+        "completedAt": "2026-10-01T15:58:23.175Z"
+      },
+      {
+        "label": "postgres-stop",
+        "file": "C:/Program Files/PostgreSQL/16/bin/pg_ctl.exe",
+        "args": [
+          "-D",
+          "C:/Users/111/Documents/Playground/daoyun/artifacts/ui-v2/fifth-increment-2026-10-01/isolated-postgres",
+          "stop",
+          "-m",
+          "fast",
+          "-w"
+        ],
+        "cwd": "C:/Users/111/Documents/Playground/daoyun",
+        "pid": 17880,
+        "status": "exited",
+        "startedAt": "2026-10-01T15:58:23.171Z",
+        "code": 0,
+        "signal": null,
+        "completedAt": "2026-10-01T15:58:23.521Z"
+      }
+    ],
+    "fixture_backup": "artifacts/ui-v2/ninth-increment-2026-10-01/fixtures/drafts-before-regression-cleanup.json",
+    "fixture_backup_drafts": 87,
+    "fixture_backup_active_drafts": 39,
+    "fixture": "Own quota reset per recovery case; expiry timestamps satisfy last_seen <= idle; demo draft/quota reset between three regression batches; member feedback upload restriction and read-only board"
+  },
+  "checks": [
+    {
+      "label": "frontend-release-verification",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "C:/Users/111/Documents/Playground/daoyun/node_modules/vitest/vitest.mjs",
+        "run",
+        "--maxWorkers=1"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 27400,
+      "status": "exited",
+      "startedAt": "2026-10-01T15:39:13.201Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T15:44:33.087Z",
+      "log": "artifacts/ui-v2/ninth-increment-2026-10-01/logs/frontend-release-verification.log",
+      "result": "PASS",
+      "test_files": 103,
+      "tests": 844
+    },
+    {
+      "label": "application-types-completion",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "C:/Users/111/Documents/Playground/daoyun/node_modules/typescript/bin/tsc",
+        "-b",
+        "--pretty",
+        "false"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 8752,
+      "status": "exited",
+      "startedAt": "2026-10-01T15:38:50.506Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T15:38:59.239Z",
+      "log": "artifacts/ui-v2/ninth-increment-2026-10-01/logs/application-types-completion.log",
+      "result": "PASS"
+    },
+    {
+      "label": "e2e-types-complete",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "C:/Users/111/Documents/Playground/daoyun/node_modules/typescript/bin/tsc",
+        "-p",
+        "tsconfig.playwright.json",
+        "--noEmit"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 25400,
+      "status": "exited",
+      "startedAt": "2026-10-01T15:52:52.501Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T15:52:54.420Z",
+      "log": "artifacts/ui-v2/ninth-increment-2026-10-01/logs/e2e-types-complete.log",
+      "result": "PASS"
+    },
+    {
+      "label": "production-release-verification",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "C:/Users/111/Documents/Playground/daoyun/node_modules/vite/bin/vite.js",
+        "build"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 17820,
+      "status": "exited",
+      "startedAt": "2026-10-01T15:39:13.234Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T15:39:18.100Z",
+      "log": "artifacts/ui-v2/ninth-increment-2026-10-01/logs/production-release-verification.log",
+      "result": "PASS"
+    },
+    {
+      "label": "recovery-focus-final",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "C:/Users/111/Documents/Playground/daoyun/node_modules/vitest/vitest.mjs",
+        "run",
+        "src/components/TopicComposer.test.tsx",
+        "src/App.test.tsx",
+        "-t",
+        "expired session|reauthentication|session recovery login|latest text",
+        "--maxWorkers=1"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 16476,
+      "status": "exited",
+      "startedAt": "2026-10-01T15:38:50.544Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T15:39:00.325Z",
+      "log": "artifacts/ui-v2/ninth-increment-2026-10-01/logs/recovery-focus-final.log",
+      "result": "PASS",
+      "tests": 6
+    },
+    {
+      "label": "session-browser-final-accepted",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "C:/Users/111/Documents/Playground/daoyun/node_modules/@playwright/test/cli.js",
+        "test",
+        "e2e/ui-v2-live-publisher-session.spec.ts",
+        "--workers=1",
+        "--reporter=json",
+        "--output=C:/Users/111/Documents/Playground/daoyun/artifacts/ui-v2/ninth-increment-2026-10-01/session-browser-final-accepted"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 26572,
+      "status": "exited",
+      "startedAt": "2026-10-01T15:43:51.251Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T15:44:31.208Z",
+      "log": "artifacts/ui-v2/ninth-increment-2026-10-01/logs/session-browser-final-accepted.log",
+      "result": "PASS",
+      "cases": 6,
+      "json": "artifacts/ui-v2/ninth-increment-2026-10-01/session-browser-final-accepted.json"
+    },
+    {
+      "label": "draft-account-regression-accepted",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "C:/Users/111/Documents/Playground/daoyun/node_modules/@playwright/test/cli.js",
+        "test",
+        "e2e/ui-v2-live-draft-conflicts.spec.ts",
+        "e2e/ui-v2-live-account-tabs.spec.ts",
+        "--workers=1",
+        "--reporter=json",
+        "--output=C:/Users/111/Documents/Playground/daoyun/artifacts/ui-v2/ninth-increment-2026-10-01/draft-account-regression-accepted"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 13172,
+      "status": "exited",
+      "startedAt": "2026-10-01T15:52:52.468Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T15:54:12.598Z",
+      "log": "artifacts/ui-v2/ninth-increment-2026-10-01/logs/draft-account-regression-accepted.log",
+      "result": "PASS",
+      "cases": 6,
+      "json": "artifacts/ui-v2/ninth-increment-2026-10-01/draft-account-regression-accepted.json"
+    },
+    {
+      "label": "nine-image-regression-accepted",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "C:/Users/111/Documents/Playground/daoyun/node_modules/@playwright/test/cli.js",
+        "test",
+        "e2e/ui-v2-live-publisher.spec.ts",
+        "--workers=1",
+        "--reporter=json",
+        "--output=C:/Users/111/Documents/Playground/daoyun/artifacts/ui-v2/ninth-increment-2026-10-01/nine-image-regression-accepted"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 20672,
+      "status": "exited",
+      "startedAt": "2026-10-01T15:54:52.987Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T15:55:11.410Z",
+      "log": "artifacts/ui-v2/ninth-increment-2026-10-01/logs/nine-image-regression-accepted.log",
+      "result": "PASS",
+      "cases": 2,
+      "json": "artifacts/ui-v2/ninth-increment-2026-10-01/nine-image-regression-accepted.json"
+    },
+    {
+      "label": "entry-permission-regression-accepted",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "C:/Users/111/Documents/Playground/daoyun/node_modules/@playwright/test/cli.js",
+        "test",
+        "e2e/ui-v2-live-publisher-capabilities.spec.ts",
+        "--workers=1",
+        "--reporter=json",
+        "--output=C:/Users/111/Documents/Playground/daoyun/artifacts/ui-v2/ninth-increment-2026-10-01/entry-permission-regression-accepted"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 28432,
+      "status": "exited",
+      "startedAt": "2026-10-01T15:55:59.130Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T15:56:20.288Z",
+      "log": "artifacts/ui-v2/ninth-increment-2026-10-01/logs/entry-permission-regression-accepted.log",
+      "result": "PASS",
+      "cases": 4,
+      "json": "artifacts/ui-v2/ninth-increment-2026-10-01/entry-permission-regression-accepted.json"
+    },
+    {
+      "name": "Whitespace diff",
+      "result": "PASS",
+      "code": 0
+    }
+  ],
+  "prior_backend_checks": {
+    "rerun_this_increment": false,
+    "reason": "All six prior Rust source entries, public generated types and API binary are unchanged",
+    "verification": "docs/handoffs/ui-v2/eighth-increment-verification.json",
+    "workspace": {
+      "passed": 454,
+      "failed": 0,
+      "ignored": 2
+    },
+    "format": "PASS_IN_EIGHTH_INCREMENT",
+    "clippy": "PASS_IN_EIGHTH_INCREMENT"
+  },
+  "browser": {
+    "session_recovery_cases": 6,
+    "regression_cases": 12,
+    "total_cases": 18,
+    "widths": [
+      320,
+      390,
+      768,
+      1024,
+      1440
+    ],
+    "business_response_mocks": false,
+    "screenshots": 102,
+    "screenshots_manifest": "artifacts/ui-v2/ninth-increment-2026-10-01/screenshots-manifest.json",
+    "network_files": 18,
+    "network_evidence": "artifacts/ui-v2/ninth-increment-2026-10-01/network-evidence-manifest.json",
+    "visually_reviewed": [
+      "artifacts/ui-v2/ninth-increment-2026-10-01/session-browser-final-accepted/ui-v2-live-publisher-sessi-0a6fd-rs-the-editor-after-revoked-chromium-mobile/session-expired-320.png",
+      "artifacts/ui-v2/ninth-increment-2026-10-01/session-browser-final-accepted/ui-v2-live-publisher-sessi-0a6fd-rs-the-editor-after-revoked-chromium-desktop/session-expired-1440.png"
+    ],
+    "unexpected_page_errors": [],
+    "physical_phone": false
+  },
+  "api": {
+    "session_expiry_status": 401,
+    "session_expiry_code": "auth.unauthenticated",
+    "csrf_failure_status": 403,
+    "csrf_failure_code": "auth.csrf_failed",
+    "quota_rejection_status": 429,
+    "quota_rejection_code": "community.quota_exceeded",
+    "foreign_draft_status": 404,
+    "foreign_draft_code": "draft.not_found",
+    "request_id_header_envelope_checked": true,
+    "rust_sources_changed": false,
+    "schema_or_dto_changed": false
+  },
+  "source_integrity": {
+    "utf8": true,
+    "prior_source_entries": [
+      {
+        "path": "apps/api/src/drafts.rs",
+        "sha256": "6ee73155e17e97e3863512412d50c826014608c3027fe7f0de31ff5dfea41ad6",
+        "previous_sha256": "6ee73155e17e97e3863512412d50c826014608c3027fe7f0de31ff5dfea41ad6",
+        "unchanged": true
+      },
+      {
+        "path": "apps/api/src/rich_content.rs",
+        "sha256": "e9343539487bf90518026929cbbeb6a53d1d2deced59cf87b9c195223b921dce",
+        "previous_sha256": "e9343539487bf90518026929cbbeb6a53d1d2deced59cf87b9c195223b921dce",
+        "unchanged": true
+      },
+      {
+        "path": "apps/api/tests/attachments.rs",
+        "sha256": "ac990ca2fab1582adac7c15520d03a1290850c41e1ada6fcc1212b4c0740978f",
+        "previous_sha256": "ac990ca2fab1582adac7c15520d03a1290850c41e1ada6fcc1212b4c0740978f",
+        "unchanged": true
+      },
+      {
+        "path": "apps/api/tests/drafts.rs",
+        "sha256": "498d6b3f94dacf6475172c22d32e70c084218406769f4e1739e988cce6d5b5a2",
+        "previous_sha256": "498d6b3f94dacf6475172c22d32e70c084218406769f4e1739e988cce6d5b5a2",
+        "unchanged": true
+      },
+      {
+        "path": "crates/api-contract/src/drafts.rs",
+        "sha256": "1ab104a916ef2ac44727441880799e14fb354ea908615fa86d2e9cfd7dea4c21",
+        "previous_sha256": "1ab104a916ef2ac44727441880799e14fb354ea908615fa86d2e9cfd7dea4c21",
+        "unchanged": true
+      },
+      {
+        "path": "e2e/ui-v2-publisher.spec.ts",
+        "sha256": "ab1596afd056ee87fd494c609b1e9e97a2a308d81c5458e7b2d6477e1e083a6c",
+        "previous_sha256": "ab1596afd056ee87fd494c609b1e9e97a2a308d81c5458e7b2d6477e1e083a6c",
+        "unchanged": true
+      },
+      {
+        "path": "src/api/generated.d.ts",
+        "sha256": "b63cfdd8fc6d699f5e8130fbc2880073e9109fec49d74434ab7932c1ce3c68a2",
+        "previous_sha256": "b63cfdd8fc6d699f5e8130fbc2880073e9109fec49d74434ab7932c1ce3c68a2",
+        "unchanged": true
+      },
+      {
+        "path": "src/components/RichTextEditor.test.tsx",
+        "sha256": "6577a469cee77c4abc32d0ffc8cb6909fa829977e9c93a09facc048cd16682c3",
+        "previous_sha256": "6577a469cee77c4abc32d0ffc8cb6909fa829977e9c93a09facc048cd16682c3",
+        "unchanged": true
+      },
+      {
+        "path": "src/components/RichTextEditor.tsx",
+        "sha256": "338a48d4f1e4ddd61596d1195ec2a63efd9b03492d4d2d8403dedca5dc23dc0e",
+        "previous_sha256": "338a48d4f1e4ddd61596d1195ec2a63efd9b03492d4d2d8403dedca5dc23dc0e",
+        "unchanged": true
+      },
+      {
+        "path": "src/components/TopicComposer.test.tsx",
+        "sha256": "40d1313f9e9956f2d0ee492004563d35bfdd75ff6dbeee02ed6e0c22d65f4f2d",
+        "previous_sha256": "1960bbd5ed81fbefe196b867adb421a5953ea2e26396fb889e6d486caa281d67",
+        "unchanged": false
+      },
+      {
+        "path": "src/components/TopicComposer.tsx",
+        "sha256": "4bc827f8b4e837952191a53d882c2be5285563e9d6e127a0587903084df6e915",
+        "previous_sha256": "b92ae41b540e320da6db0e4ffafa34ac0cf5665fe30aab881db6d9876e983ab1",
+        "unchanged": false
+      },
+      {
+        "path": "src/styles.css",
+        "sha256": "0ca936116006fd3fdab9e60e3750f5243f1a8858292d8ac095f8be49494baeb7",
+        "previous_sha256": "0ca936116006fd3fdab9e60e3750f5243f1a8858292d8ac095f8be49494baeb7",
+        "unchanged": true
+      },
+      {
+        "path": "docs/handoffs/ui-v2/publisher-contract-change-2026-10-01.md",
+        "sha256": "d1e763187888d93d9bf8f9852f34f380c4508c70777ed2203adc7fd05fd83301",
+        "previous_sha256": "d1e763187888d93d9bf8f9852f34f380c4508c70777ed2203adc7fd05fd83301",
+        "unchanged": true
+      },
+      {
+        "path": "e2e/ui-v2-home.spec.ts",
+        "sha256": "a0b4d59e53331c57cc6c2a281c76acfb17b9c504862125716924db4502c4bade",
+        "previous_sha256": "a0b4d59e53331c57cc6c2a281c76acfb17b9c504862125716924db4502c4bade",
+        "unchanged": true
+      },
+      {
+        "path": "src/styles.home.css",
+        "sha256": "92f98291700d5834bf0307f8c977d9f48bce395b735659ebd5040c8b7d4319ac",
+        "previous_sha256": "92f98291700d5834bf0307f8c977d9f48bce395b735659ebd5040c8b7d4319ac",
+        "unchanged": true
+      },
+      {
+        "path": "e2e/ui-v2-live-publisher.spec.ts",
+        "sha256": "84dcc4c17ee0bc86baed31347ef68a99f860c676685e1aa14fe25f60b11c501b",
+        "previous_sha256": "84dcc4c17ee0bc86baed31347ef68a99f860c676685e1aa14fe25f60b11c501b",
+        "unchanged": true
+      },
+      {
+        "path": "e2e/ui-v2-live-draft-conflicts.spec.ts",
+        "sha256": "ee26fd6cb42a5d4d37d2ad0fc165aa77647f04989b427682ffb18f07c48b625d",
+        "previous_sha256": "ee26fd6cb42a5d4d37d2ad0fc165aa77647f04989b427682ffb18f07c48b625d",
+        "unchanged": true
+      },
+      {
+        "path": "src/components/DraftShelf.tsx",
+        "sha256": "429d77a2a23e8c82d89c6495bc54b1863875c37fd105ed1687d2be68b95f6979",
+        "previous_sha256": "7a613c9a48540cef65e0a119838fa03b0d74f49faa5eb3980b83819622629cb6",
+        "unchanged": false
+      },
+      {
+        "path": "src/components/DraftShelf.test.tsx",
+        "sha256": "bdb8fb9208de275ce4eeee7849c53b20637b4c1811cc8cb70246e120ae30d40b",
+        "previous_sha256": "cc5b787f80a92d55dc4cf1e799830ffcfebe081fea229914ef19fb724ae8bfce",
+        "unchanged": false
+      },
+      {
+        "path": "src/api/drafts.ts",
+        "sha256": "f781d5022edec521db91200cc0fa7885f94a39cafbe4b8ef50a68db692b07778",
+        "previous_sha256": "f781d5022edec521db91200cc0fa7885f94a39cafbe4b8ef50a68db692b07778",
+        "unchanged": true
+      },
+      {
+        "path": "src/app/CommunityApp.tsx",
+        "sha256": "e30f4c8f28a2b7445f3f2c92cae7a201e82f97692000fb7479a55dec99655997",
+        "previous_sha256": "358acc90a8aa615c583019c057e86bd5608494c7da4d75ee9d2098bba243f7bf",
+        "unchanged": false
+      },
+      {
+        "path": "src/api/auth.ts",
+        "sha256": "2e245ff1b436e837b8d54ae8bcf87d3c9aaa2fc57f837746ac7283e4f069d2ff",
+        "previous_sha256": "36be8ece42bde1640154881e4adb616b21299f65ac546e59ce241311d0ceeadd",
+        "unchanged": false
+      },
+      {
+        "path": "src/App.test.tsx",
+        "sha256": "f34c5bbb2703371889a79e1a29dd6682fd20a688669596b39f7a3471bec82cb8",
+        "previous_sha256": "03defe0059e768d1b61533fbdd9be270f7b6ce53c507690b53f8db429c58604a",
+        "unchanged": false
+      },
+      {
+        "path": "src/api/auth.test.ts",
+        "sha256": "0ed611391d87e190bc48c7cf4dda8be47ac5ab1e21c7a9aba65a759d8fb738af",
+        "previous_sha256": "0ed611391d87e190bc48c7cf4dda8be47ac5ab1e21c7a9aba65a759d8fb738af",
+        "unchanged": true
+      },
+      {
+        "path": "e2e/ui-v2-live-account-tabs.spec.ts",
+        "sha256": "eefd193aa073ab7d187301982c47180bcaca0bbf2caed2a4879b3757f1466a5d",
+        "previous_sha256": "0c079b358b966470d476adb72b6e56f5af21f31fafcfef09d29a9c283f91d3d0",
+        "unchanged": false
+      },
+      {
+        "path": "crates/infrastructure/src/topics.rs",
+        "sha256": "cc43ec4f536681acf878be82cb3206a54895a9868fef3bf29b36761fbafdb4cf",
+        "previous_sha256": "cc43ec4f536681acf878be82cb3206a54895a9868fef3bf29b36761fbafdb4cf",
+        "unchanged": true
+      },
+      {
+        "path": "e2e/ui-v2-live-publisher-capabilities.spec.ts",
+        "sha256": "3ed8b7030c6a02ac88e6eb8bba56a020f49c4ede40a12f97794504c733bbdb62",
+        "previous_sha256": "3ed8b7030c6a02ac88e6eb8bba56a020f49c4ede40a12f97794504c733bbdb62",
+        "unchanged": true
+      },
+      {
+        "path": "docs/handoffs/ui-v2/publisher-permissions-contract-2026-10-01.md",
+        "sha256": "801b0c9470a338f79e9a0cad306115cec4a2b2bad011a2255e3767d65f56bbbb",
+        "previous_sha256": "801b0c9470a338f79e9a0cad306115cec4a2b2bad011a2255e3767d65f56bbbb",
+        "unchanged": true
+      }
+    ],
+    "plan_checksums": [
+      {
+        "path": "01-product-and-ui-spec.md",
+        "sha256": "e853929a919dbc2765a3f2dfe68d6db9ac0dd85e3611dbc701d8e122b311783a",
+        "unchanged": true
+      },
+      {
+        "path": "02-execution-plan.md",
+        "sha256": "1891fbb40a0d75222f37b2dbaf950bd94694cc218316d6caf752ef938b54a356",
+        "unchanged": true
+      },
+      {
+        "path": "03-acceptance-matrix.md",
+        "sha256": "9e4823b85fb852590145b932876a36b5ee8f18039b0fb70e43d8a80642d71647",
+        "unchanged": true
+      },
+      {
+        "path": "04-fastspider-brief.md",
+        "sha256": "ecb80588f2a4150acf8bd4b2290d9eac63344d6db0d4580701ecb10a27245bb2",
+        "unchanged": true
+      },
+      {
+        "path": "05-handoff-template.md",
+        "sha256": "f8d23264739f70f7761450c8adb3c767a07a57bfe8f08ab1060803622a0bac1e",
+        "unchanged": true
+      },
+      {
+        "path": "06-task-registry.json",
+        "sha256": "da6fc77c1520096451ec3e5ebf54904305e5041b0663310f3b2cc086476f612d",
+        "unchanged": true
+      },
+      {
+        "path": "07-acceptance-registry.json",
+        "sha256": "47804b502d46deb3c9c26cc5ef9e92b02f5947e92c30d5b28459337b14a1fd5d",
+        "unchanged": true
+      },
+      {
+        "path": "08-plan-validation.md",
+        "sha256": "3862176d73d075a673db94f3af0d39166ef85ba9d2ba74b29597bb7a521ff712",
+        "unchanged": true
+      },
+      {
+        "path": "README.md",
+        "sha256": "47cda67c8ea4f6b3fb693d57712712ce9950ced42a5b0bc028199a57c2338e0c",
+        "unchanged": true
+      }
+    ],
+    "production_assets_manifest": "artifacts/ui-v2/ninth-increment-2026-10-01/production-assets-manifest.json",
+    "production_assets": 86,
+    "production_assets_match_browser_tested_assets": true,
+    "source_files_match_tested_manifest": true
+  },
+  "review": {
+    "status": "COMPLETE",
+    "mode": "Four one-shot read-only scouts; main-agent exact implementation, test and browser verification",
+    "agents": [
+      "/root/session_revoke_contract_nine",
+      "/root/session_browser_fixture_nine",
+      "/root/session_owner_review_nine",
+      "/root/session_shelf_review_nine"
+    ],
+    "resolved_findings": [
+      "Persist current editor input when a delayed request reports401",
+      "Ignore401 from an aborted old CSRF lifetime",
+      "Resume recovery focus after auth modal cleanup",
+      "Wait for verified account upload capability in old cross-tab fixture"
+    ],
+    "findings": [],
+    "limitations": [
+      "Already authenticated server commits are not undone by client cancellation",
+      "P-11 unknown-result recovery remains pending",
+      "P-12 requires a physical phone and soft keyboard"
+    ],
+    "fast_spider_used": false
+  },
+  "failures_preserved": [
+    {
+      "label": "publisher-session-red",
+      "kind": "CONFIRMED_BEHAVIOR_RED",
+      "note": "401 did not preserve and suspend the publisher before recovery implementation"
+    },
+    {
+      "label": "draft-expiry-red-confirmed",
+      "kind": "CONFIRMED_BEHAVIOR_RED",
+      "note": "Unauthorized draft save did not notify expiry or retire queued writes"
+    },
+    {
+      "label": "latest-input-red-confirmed",
+      "kind": "CONFIRMED_BEHAVIOR_RED",
+      "note": "Delayed expiry persisted request-start content instead of latest editor input"
+    },
+    {
+      "label": "stale-draft-expiry-red",
+      "kind": "CONFIRMED_BEHAVIOR_RED",
+      "note": "A late 401 from a retired CSRF lifetime cleared the newly verified session"
+    },
+    {
+      "label": "recovery-focus-red",
+      "kind": "CONFIRMED_BEHAVIOR_RED",
+      "note": "Recovery button did not receive focus, so the alert could remain above dialog scroll"
+    },
+    {
+      "label": "session-browser-completion",
+      "kind": "CONFIRMED_BROWSER_FOCUS_RACE",
+      "note": "Auth modal restored desktop focus to the home trigger after cancel; composer recovery now runs after modal cleanup"
+    },
+    {
+      "label": "session-browser",
+      "kind": "FIXTURE_QUOTA_KEY",
+      "note": "Initial forced quota used topic.create instead of topic.create.daily; corrected fixture"
+    },
+    {
+      "label": "session-browser-release-verification",
+      "kind": "FIXTURE_ACCUMULATED_UPLOAD_QUOTA",
+      "note": "Repeated batches used all20 isolated member upload slots; each session case now resets only its isolated owner quota"
+    },
+    {
+      "label": "session-browser-accepted",
+      "kind": "FIXTURE_SESSION_EXPIRY_CONSTRAINT",
+      "note": "Idle expiry before last_seen_at violated the database check; fixture now sets both timestamps to the already-past created_at"
+    },
+    {
+      "label": "draft-expiry-red",
+      "kind": "SKIPPED_NOT_RED",
+      "note": "Failed test insertion yielded no matching test; not treated as red evidence"
+    },
+    {
+      "labels": [
+        "latest-input-red",
+        "latest-input-green",
+        "production-build-final"
+      ],
+      "kind": "FIXTURE_ERROR_CONSTRUCTOR",
+      "note": "Incorrect new BoardApiError argument order caused a type failure; corrected and then confirmed an actual behavior red"
+    },
+    {
+      "labels": [
+        "publisher-session-green",
+        "publisher-app-session-green",
+        "publisher-recovery-targeted"
+      ],
+      "kind": "APP_FIXTURE_LOCATORS",
+      "note": "Scoped submit control and used the existing auth-close label; targeted and final full checks passed"
+    },
+    {
+      "label": "frontend-completion",
+      "kind": "SUPERSEDED",
+      "note": "Stopped owned run when browser focus race required a source change; final full run passed844"
+    },
+    {
+      "label": "publisher-regression-accepted",
+      "kind": "FIXTURE_DRAFT_CAPACITY_AND_BATCH_QUOTA",
+      "note": "Repeated and cloned drafts crowded the first20 shelf rows; the combined browser batch consumed upload.daily20. Backed up87 isolated drafts (39 active), cleared only demo-owner fixtures, then split regression batches."
+    },
+    {
+      "label": "draft-account-regression-final",
+      "kind": "FIXTURE_CAPABILITY_TIMING",
+      "note": "setInputFiles bypassed the disabled picker while new account board capabilities were pending; await enabled control before selecting images"
+    }
+  ],
+  "accepted_cases": [
+    "P-10"
+  ],
+  "revalidated_cases": [
+    "P-01",
+    "P-02",
+    "P-04",
+    "P-07",
+    "P-08",
+    "P-09"
+  ],
+  "remaining": [
+    "DYV2-010 P-11 unknown-result/duplicate submission recovery and P-12 physical phone keyboard",
+    "G0 complete role browser, six-plugin business invocation and disabled-history checks; current DB has five installed plugins",
+    "Real API writes/auth and dedicated feed paging/race/failure E2E",
+    "DYV2-008/009 restricted-tree, untitled-text browser and publish/pin combinations",
+    "DYV2-010 through DYV2-024 and complete G0–G5 acceptance"
+  ],
+  "logs_manifest": "artifacts/ui-v2/ninth-increment-2026-10-01/logs-manifest.json",
+  "completed_local_date": "2026-10-02",
+  "final_evidence_integrity": true
+}

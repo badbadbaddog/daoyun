@@ -1,0 +1,470 @@
+{
+  "project": "DaoYun",
+  "date": "2026-10-01",
+  "scope": "DYV2-010 real P-08 dual draft conflict recovery; no product implementation changes",
+  "head_commit": "40bcff25ec920912bff7f4472bc6174e63b8e2d9",
+  "product_code_commit": "3f81a93513bb69662c91d50a08854b66c18dbd63",
+  "source_status": "Two new real E2E files and handoff updates are uncommitted; prior 16 source-manifest entries unchanged",
+  "tested_source_manifest_sha256": "4edffff855d488ffc86339db9f7b1abb93069204516171af055c3c00f098609e",
+  "tested_source_manifest": "artifacts/ui-v2/sixth-increment-2026-10-01/source-manifest.json",
+  "manifest_algorithm": "SHA256 of JSON.stringify(files.map(({path,sha256})=>({path,sha256}))) in recorded order",
+  "environment": {
+    "executor": "Codex_local_tools",
+    "fast_spider_used": false,
+    "cwd": "C:/Users/111/Documents/Playground/daoyun",
+    "git_root": "C:/Users/111/Documents/Playground",
+    "branch": "codex/daoyun-home-foundation",
+    "api_origin": "http://127.0.0.1:3001",
+    "web_origin": "http://127.0.0.1:4174",
+    "postgres_port": 55434,
+    "database": "daoyun_ui_v2_drafts",
+    "database_scope": "New database in fifth increment isolated cluster; fifth publisher database retained and original development database untouched",
+    "cluster": "artifacts/ui-v2/fifth-increment-2026-10-01/isolated-postgres",
+    "member_fixture": "Existing demo_member in the new isolated database; registered_member 5/day quota unchanged. Two successful 4-upload runs; only this isolated account usage was reset before evidence persistence recheck.",
+    "attachment_root": "artifacts/ui-v2/sixth-increment-2026-10-01/attachments",
+    "api_binary": "target/debug/daoyun-api.exe",
+    "api_binary_sha256": "95e33b9b2eea8c169ee4309af536cfaa9772967502e4acd186fd9f46bee3da80",
+    "api_binary_rebuilt": false,
+    "created_services_stopped": true,
+    "original_services_before": [
+      {
+        "port": 3000,
+        "status": 404
+      },
+      {
+        "port": 5173,
+        "status": 200
+      },
+      {
+        "port": 4173,
+        "status": "not-listening"
+      },
+      {
+        "port": 3001,
+        "status": "not-listening"
+      },
+      {
+        "port": 4174,
+        "status": "not-listening"
+      }
+    ],
+    "original_services_after": [
+      {
+        "port": 3000,
+        "status": 404
+      },
+      {
+        "port": 5173,
+        "status": 200
+      },
+      {
+        "port": 3001,
+        "status": "not-listening"
+      },
+      {
+        "port": 4174,
+        "status": "not-listening"
+      }
+    ],
+    "original_services_managed": false
+  },
+  "checks": [
+    {
+      "name": "real draft conflicts initial",
+      "label": "draft-conflicts-first",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "node_modules/@playwright/test/cli.js",
+        "test",
+        "e2e/ui-v2-live-draft-conflicts.spec.ts",
+        "--workers=1",
+        "--reporter=line",
+        "--output",
+        "C:/Users/111/Documents/Playground/daoyun/artifacts/ui-v2/sixth-increment-2026-10-01/draft-conflicts-first"
+      ],
+      "pid": 36752,
+      "status": "exited",
+      "startedAt": "2026-10-01T03:30:52.472Z",
+      "code": null,
+      "signal": "SIGTERM",
+      "completedAt": "2026-10-01T03:32:57.098Z",
+      "result": "FAIL_INTERRUPTED",
+      "note": "A nonexistent title toggle locator timed out. Remaining cases stopped; corrected the test to use the existing optional title input and fixed image count wording.",
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "log": "artifacts/ui-v2/sixth-increment-2026-10-01/logs/draft-conflicts-first.log"
+    },
+    {
+      "name": "real draft conflicts before network persistence fix",
+      "label": "draft-conflicts-second",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "node_modules/@playwright/test/cli.js",
+        "test",
+        "e2e/ui-v2-live-draft-conflicts.spec.ts",
+        "--workers=1",
+        "--max-failures=1",
+        "--reporter=line",
+        "--output",
+        "C:/Users/111/Documents/Playground/daoyun/artifacts/ui-v2/sixth-increment-2026-10-01/draft-conflicts-second"
+      ],
+      "pid": 34208,
+      "status": "exited",
+      "startedAt": "2026-10-01T03:33:20.772Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T03:33:58.178Z",
+      "result": "PASS",
+      "tests": 4,
+      "actual_uploads": 4,
+      "projects": [
+        "chromium-desktop",
+        "chromium-mobile"
+      ],
+      "env": {
+        "DAOYUN_PUBLISHER_E2E": "1",
+        "DAOYUN_WEB_URL": "http://127.0.0.1:4174",
+        "DAOYUN_API_URL": "http://127.0.0.1:3001",
+        "PLAYWRIGHT_CHROMIUM_EXECUTABLE": "C:/Users/111/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe"
+      },
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "log": "artifacts/ui-v2/sixth-increment-2026-10-01/logs/draft-conflicts-second.log"
+    },
+    {
+      "name": "frontend full controlled workers",
+      "label": "frontend-tests",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--maxWorkers=2"
+      ],
+      "pid": 35572,
+      "status": "exited",
+      "startedAt": "2026-10-01T03:34:21.132Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T03:36:25.490Z",
+      "result": "PASS",
+      "files": 103,
+      "tests": 824,
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "log": "artifacts/ui-v2/sixth-increment-2026-10-01/logs/frontend-tests.log"
+    },
+    {
+      "name": "frontend typecheck",
+      "label": "typecheck",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "node_modules/typescript/bin/tsc",
+        "-b",
+        "--pretty",
+        "false"
+      ],
+      "pid": 32008,
+      "status": "exited",
+      "startedAt": "2026-10-01T03:36:52.083Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T03:37:01.251Z",
+      "result": "PASS",
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "log": "artifacts/ui-v2/sixth-increment-2026-10-01/logs/typecheck.log"
+    },
+    {
+      "name": "E2E typecheck before network persistence fix",
+      "label": "e2e-typecheck-final",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "node_modules/typescript/bin/tsc",
+        "-p",
+        "tsconfig.playwright.json",
+        "--noEmit"
+      ],
+      "pid": 31956,
+      "status": "exited",
+      "startedAt": "2026-10-01T03:36:52.047Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T03:36:53.876Z",
+      "result": "PASS",
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "log": "artifacts/ui-v2/sixth-increment-2026-10-01/logs/e2e-typecheck-final.log"
+    },
+    {
+      "name": "production build",
+      "label": "production-build",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "node_modules/vite/bin/vite.js",
+        "build"
+      ],
+      "pid": 17964,
+      "status": "exited",
+      "startedAt": "2026-10-01T03:37:55.521Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T03:38:00.515Z",
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "result": "PASS",
+      "log": "artifacts/ui-v2/sixth-increment-2026-10-01/logs/production-build.log",
+      "note": "Vite build follows successful tsc -b; all 74 built asset hashes match the previously built assets used for this browser run."
+    },
+    {
+      "name": "real draft conflicts reviewed",
+      "label": "draft-conflicts-reviewed",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "node_modules/@playwright/test/cli.js",
+        "test",
+        "e2e/ui-v2-live-draft-conflicts.spec.ts",
+        "--workers=1",
+        "--max-failures=1",
+        "--reporter=line",
+        "--output",
+        "C:/Users/111/Documents/Playground/daoyun/artifacts/ui-v2/sixth-increment-2026-10-01/draft-conflicts-reviewed"
+      ],
+      "pid": 37696,
+      "status": "exited",
+      "startedAt": "2026-10-01T03:43:55.251Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T03:44:30.995Z",
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "result": "PASS",
+      "tests": 4,
+      "log": "artifacts/ui-v2/sixth-increment-2026-10-01/logs/draft-conflicts-reviewed.log",
+      "env": {
+        "DAOYUN_PUBLISHER_E2E": "1",
+        "DAOYUN_WEB_URL": "http://127.0.0.1:4174",
+        "DAOYUN_API_URL": "http://127.0.0.1:3001",
+        "PLAYWRIGHT_CHROMIUM_EXECUTABLE": "C:/Users/111/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe"
+      }
+    },
+    {
+      "name": "E2E reviewed typecheck",
+      "label": "e2e-typecheck-reviewed",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "node_modules/typescript/bin/tsc",
+        "-p",
+        "tsconfig.playwright.json",
+        "--noEmit"
+      ],
+      "pid": 34176,
+      "status": "exited",
+      "startedAt": "2026-10-01T03:43:46.137Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T03:43:47.877Z",
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "result": "PASS",
+      "log": "artifacts/ui-v2/sixth-increment-2026-10-01/logs/e2e-typecheck-reviewed.log"
+    }
+  ],
+  "browser": {
+    "projects": [
+      "chromium-desktop",
+      "chromium-mobile"
+    ],
+    "physical_phone": false,
+    "viewports": [
+      320,
+      390,
+      768,
+      1024,
+      1440
+    ],
+    "route_mocks": false,
+    "independent_authenticated_contexts_per_case": 2,
+    "actual_uploads_in_final_run": 4,
+    "final_screenshots": 24,
+    "total_screenshots": 49,
+    "screenshot_manifest": "artifacts/ui-v2/sixth-increment-2026-10-01/screenshots-manifest.json",
+    "viewed_samples": [
+      "artifacts/ui-v2/sixth-increment-2026-10-01/draft-conflicts-second/ui-v2-live-draft-conflicts-2c734-rsions-via-read-and-recover-chromium-desktop/conflict-320.png",
+      "artifacts/ui-v2/sixth-increment-2026-10-01/draft-conflicts-second/ui-v2-live-draft-conflicts-2c734-rsions-via-read-and-recover-chromium-desktop/both-versions-preserved.png"
+    ],
+    "assertions": [
+      "Real stale expected_revision returns 409 draft.conflict with a correlated UUID request id",
+      "Local text and unsynced status remain visible; both conflict choices are available and new draft switching is disabled",
+      "Blocked publish sends no topic POST and no additional PUT for the original draft",
+      "Direct save-copy creates a new ID at revision 1 with local title, body and the original attachment ID",
+      "Read-server shows current server title/body and synced status; the local recovery copy survives a full reload",
+      "Explicit recovery saves local content as a new draft while original server content remains unchanged",
+      "Both server and local drafts are listed and local body/image restore correctly after close and reload",
+      "No unexpected console warnings or page errors; anonymous auth/session 401 and deliberate draft 409 are expected"
+    ],
+    "network_evidence_manifest": "artifacts/ui-v2/sixth-increment-2026-10-01/network-evidence-manifest.json",
+    "network_evidence_files": 4,
+    "total_actual_uploads": 8
+  },
+  "api": {
+    "live_checks": [
+      {
+        "path": "/api/v1/health/ready",
+        "status": 200,
+        "request_id": "01a0f587-c75a-7760-a6a7-988503838eb1",
+        "envelope_request_id": "01a0f587-c75a-7760-a6a7-988503838eb1"
+      },
+      {
+        "path": "/api/v1/topics?limit=1",
+        "status": 200,
+        "request_id": "01a0f587-c768-7ba0-bf42-98b24bce235d",
+        "envelope_request_id": "01a0f587-c768-7ba0-bf42-98b24bce235d"
+      },
+      {
+        "path": "/api/v1/openapi.json",
+        "status": 200,
+        "request_id": "01a0f587-c774-7400-87a3-8aebc298f421",
+        "sha256": "8dd95b04cf46ca1156421c74034c5f7b0a412c29e45302fe4a407ed418380182",
+        "draftImagesMax": 9
+      }
+    ],
+    "rust_tests_run": false,
+    "note": "No Rust files changed. Existing API binary only; G5 clean source rebuild and Rust workspace gates were not repeated."
+  },
+  "source_integrity": {
+    "prior_source_entries": [
+      {
+        "path": "apps/api/src/drafts.rs",
+        "unchanged": true
+      },
+      {
+        "path": "apps/api/src/rich_content.rs",
+        "unchanged": true
+      },
+      {
+        "path": "apps/api/tests/attachments.rs",
+        "unchanged": true
+      },
+      {
+        "path": "apps/api/tests/drafts.rs",
+        "unchanged": true
+      },
+      {
+        "path": "crates/api-contract/src/drafts.rs",
+        "unchanged": true
+      },
+      {
+        "path": "e2e/ui-v2-publisher.spec.ts",
+        "unchanged": true
+      },
+      {
+        "path": "src/api/generated.d.ts",
+        "unchanged": true
+      },
+      {
+        "path": "src/components/RichTextEditor.test.tsx",
+        "unchanged": true
+      },
+      {
+        "path": "src/components/RichTextEditor.tsx",
+        "unchanged": true
+      },
+      {
+        "path": "src/components/TopicComposer.test.tsx",
+        "unchanged": true
+      },
+      {
+        "path": "src/components/TopicComposer.tsx",
+        "unchanged": true
+      },
+      {
+        "path": "src/styles.css",
+        "unchanged": true
+      },
+      {
+        "path": "docs/handoffs/ui-v2/publisher-contract-change-2026-10-01.md",
+        "unchanged": true
+      },
+      {
+        "path": "e2e/ui-v2-home.spec.ts",
+        "unchanged": true
+      },
+      {
+        "path": "src/styles.home.css",
+        "unchanged": true
+      },
+      {
+        "path": "e2e/ui-v2-live-publisher.spec.ts",
+        "unchanged": true
+      }
+    ],
+    "plan_checksums": [
+      {
+        "path": "01-product-and-ui-spec.md",
+        "sha256": "e853929a919dbc2765a3f2dfe68d6db9ac0dd85e3611dbc701d8e122b311783a",
+        "unchanged": true
+      },
+      {
+        "path": "02-execution-plan.md",
+        "sha256": "1891fbb40a0d75222f37b2dbaf950bd94694cc218316d6caf752ef938b54a356",
+        "unchanged": true
+      },
+      {
+        "path": "03-acceptance-matrix.md",
+        "sha256": "9e4823b85fb852590145b932876a36b5ee8f18039b0fb70e43d8a80642d71647",
+        "unchanged": true
+      },
+      {
+        "path": "04-fastspider-brief.md",
+        "sha256": "ecb80588f2a4150acf8bd4b2290d9eac63344d6db0d4580701ecb10a27245bb2",
+        "unchanged": true
+      },
+      {
+        "path": "05-handoff-template.md",
+        "sha256": "f8d23264739f70f7761450c8adb3c767a07a57bfe8f08ab1060803622a0bac1e",
+        "unchanged": true
+      },
+      {
+        "path": "06-task-registry.json",
+        "sha256": "da6fc77c1520096451ec3e5ebf54904305e5041b0663310f3b2cc086476f612d",
+        "unchanged": true
+      },
+      {
+        "path": "07-acceptance-registry.json",
+        "sha256": "47804b502d46deb3c9c26cc5ef9e92b02f5947e92c30d5b28459337b14a1fd5d",
+        "unchanged": true
+      },
+      {
+        "path": "08-plan-validation.md",
+        "sha256": "3862176d73d075a673db94f3af0d39166ef85ba9d2ba74b29597bb7a521ff712",
+        "unchanged": true
+      },
+      {
+        "path": "README.md",
+        "sha256": "47cda67c8ea4f6b3fb693d57712712ce9950ced42a5b0bc028199a57c2338e0c",
+        "unchanged": true
+      }
+    ],
+    "utf8": true,
+    "production_assets_match_browser_tested_assets": true,
+    "production_assets_manifest": "artifacts/ui-v2/sixth-increment-2026-10-01/production-assets-manifest.json"
+  },
+  "review": {
+    "owner": "main agent",
+    "result": "PASS",
+    "scope": "Real conflict paths, scope of fixture writes, response/request version assertions, no session token recording, no new dependency or product abstraction"
+  },
+  "failures_preserved": [
+    "First draft-conflicts run: nonexistent add-title button locator timed out; remaining cases stopped. Test corrected to fill the existing optional title field and use 1/9 image count. No product change.",
+    "Initial network artifact integrity check found no persisted body attachments under the line reporter. Explicit UTF-8 JSON writing added and all four browser cases rerun; network-evidence-reviewed-check passed."
+  ],
+  "source_inspection": {
+    "case": "P-09",
+    "browser_verified": false,
+    "artifact": "artifacts/ui-v2/sixth-increment-2026-10-01/session-isolation-inspection.json"
+  },
+  "accepted_cases": [
+    "P-08"
+  ],
+  "remaining": [
+    "P-02 entry points and P-07 board/attachment capability matrix",
+    "P-09 two accounts and two same-context tabs with logout, session changes, queued/late draft writes and uploads",
+    "P-10 revoked/expired session and re-login preservation with fresh permissions",
+    "P-11 duplicate and unknown-result recovery",
+    "P-12 physical phone keyboard, input method and long text/image ordering",
+    "DYV2-010 remains IN_PROGRESS and G0–G5 remain NOT_ACCEPTED"
+  ],
+  "logs_manifest": "artifacts/ui-v2/sixth-increment-2026-10-01/logs-manifest.json"
+}

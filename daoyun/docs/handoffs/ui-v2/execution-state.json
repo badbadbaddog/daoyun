@@ -1,8 +1,8 @@
 {
   "project": "DaoYun",
-  "date": "2026-10-01",
+  "date": "2026-10-02",
   "plan_status": "IN_PROGRESS",
-  "scope": "Fourth publishing increment and third authorized-media candidate; overall acceptance remains incomplete",
+  "scope": "DYV2-010 ninth increment: P-10 expired/revoked session recovery with real publisher/draft/account regressions",
   "plan_snapshot": "daoyun-ui-v2-plan/06-task-registry.json",
   "acceptance_snapshot": "daoyun-ui-v2-plan/07-acceptance-registry.json",
   "executor": "Codex_local_tools",
@@ -13,9 +13,9 @@
     "date": "2026-09-30"
   },
   "code_commit": "3f81a93513bb69662c91d50a08854b66c18dbd63",
-  "tested_source_manifest_sha256": "e4635b93b6435166e1fb97e08a3b06ca4d6ed87188e5f2fe0008e9b8e8d0a126",
-  "verification": "docs/handoffs/ui-v2/fourth-increment-verification.json",
-  "handoff": "docs/handoffs/ui-v2/fourth-increment-2026-10-01.md",
+  "tested_source_manifest_sha256": "17eb197d9c930cdfa48037dcf63d5f9e140f82b584cf5325360f4aace4c856a2",
+  "verification": "docs/handoffs/ui-v2/ninth-increment-verification.json",
+  "handoff": "docs/handoffs/ui-v2/ninth-increment-2026-10-01.md",
   "gates": {
     "G0": "NOT_ACCEPTED",
     "G1": "NOT_ACCEPTED",
@@ -127,9 +127,21 @@
       "status": "IN_PROGRESS",
       "evidence": [
         "docs/handoffs/ui-v2/fourth-increment-2026-10-01.md",
-        "docs/handoffs/ui-v2/fourth-increment-verification.json"
+        "docs/handoffs/ui-v2/fourth-increment-verification.json",
+        "docs/handoffs/ui-v2/fifth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/fifth-increment-verification.json",
+        "docs/handoffs/ui-v2/sixth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/sixth-increment-verification.json",
+        "docs/handoffs/ui-v2/seventh-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/seventh-increment-verification.json",
+        "docs/handoffs/ui-v2/eighth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/eighth-increment-verification.json",
+        "docs/handoffs/ui-v2/publisher-permissions-contract-2026-10-01.md",
+        "docs/handoffs/ui-v2/ninth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/ninth-increment-verification.json"
       ],
-      "code_commit": "3f81a93513bb69662c91d50a08854b66c18dbd63"
+      "code_commit": "3f81a93513bb69662c91d50a08854b66c18dbd63",
+      "tested_source_manifest_sha256": "17eb197d9c930cdfa48037dcf63d5f9e140f82b584cf5325360f4aace4c856a2"
     },
     {
       "id": "DYV2-011",
@@ -732,19 +744,32 @@
     {
       "id": "P-01",
       "title": "标题可空",
-      "result": "NOT_RUN",
-      "evidence": [],
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/fifth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/fifth-increment-verification.json",
+        "docs/handoffs/ui-v2/seventh-increment-verification.json",
+        "docs/handoffs/ui-v2/eighth-increment-verification.json",
+        "docs/handoffs/ui-v2/ninth-increment-verification.json"
+      ],
       "partial_evidence": [
         "docs/handoffs/ui-v2/fourth-increment-2026-10-01.md",
         "docs/handoffs/ui-v2/fourth-increment-verification.json"
       ],
-      "note": "Component/mock browser and isolated API coverage is partial; complete real browser scenario remains unaccepted."
+      "note": "Two real Chromium viewports published valid text without title; API returned 201 with empty response title."
     },
     {
       "id": "P-02",
       "title": "单一发布流程",
-      "result": "NOT_RUN",
-      "evidence": []
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/eighth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/eighth-increment-verification.json",
+        "artifacts/ui-v2/eighth-increment-2026-10-01/publisher-entries.json",
+        "artifacts/ui-v2/eighth-increment-2026-10-01/network-evidence-manifest.json",
+        "docs/handoffs/ui-v2/ninth-increment-verification.json"
+      ],
+      "note": "Two real Chromium projects published from home, board and an independently restored cloud draft through the same editor and API model, preserving default/restored board and direct optional-title publishing."
     },
     {
       "id": "P-03",
@@ -758,13 +783,19 @@
     {
       "id": "P-04",
       "title": "顺序持久",
-      "result": "NOT_RUN",
-      "evidence": [],
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/fifth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/fifth-increment-verification.json",
+        "docs/handoffs/ui-v2/seventh-increment-verification.json",
+        "docs/handoffs/ui-v2/eighth-increment-verification.json",
+        "docs/handoffs/ui-v2/ninth-increment-verification.json"
+      ],
       "partial_evidence": [
         "docs/handoffs/ui-v2/fourth-increment-2026-10-01.md",
         "docs/handoffs/ui-v2/fourth-increment-verification.json"
       ],
-      "note": "Component/mock browser and isolated API coverage is partial; complete real browser scenario remains unaccepted."
+      "note": "Two real Chromium projects completed all nine actual uploads, server draft GET, reload, independent-context cloud restore, publishing, public detail and ordered nine-image viewer."
     },
     {
       "id": "P-05",
@@ -787,36 +818,66 @@
     {
       "id": "P-07",
       "title": "附件权限",
-      "result": "NOT_RUN",
-      "evidence": []
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/eighth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/eighth-increment-verification.json",
+        "artifacts/ui-v2/eighth-increment-2026-10-01/publisher-permissions.json",
+        "artifacts/ui-v2/eighth-increment-2026-10-01/network-evidence-manifest.json",
+        "docs/handoffs/ui-v2/ninth-increment-verification.json"
+      ],
+      "note": "Two real Chromium projects preserved text/images while switching attachment/read-only permissions; direct bypass returned422/403. SQLx tests rejected foreign, pending, infected, error, expired, deleted or elsewhere-bound images and verified topic/post/draft/reference/quota rollback. Existing same-topic images remained editable after upload permission revocation."
     },
     {
       "id": "P-08",
       "title": "双草稿恢复",
-      "result": "NOT_RUN",
-      "evidence": [],
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/sixth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/sixth-increment-verification.json",
+        "docs/handoffs/ui-v2/seventh-increment-verification.json",
+        "docs/handoffs/ui-v2/eighth-increment-verification.json",
+        "docs/handoffs/ui-v2/ninth-increment-verification.json"
+      ],
       "partial_evidence": [
         "docs/handoffs/ui-v2/fourth-increment-2026-10-01.md",
-        "docs/handoffs/ui-v2/fourth-increment-verification.json"
+        "docs/handoffs/ui-v2/fourth-increment-verification.json",
+        "docs/handoffs/ui-v2/fifth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/fifth-increment-verification.json"
       ],
-      "note": "Component/mock browser and isolated API coverage is partial; complete real browser scenario remains unaccepted."
+      "note": "Two authenticated independent contexts verified real stale-revision 409, explicit copy/read-server choices, recovery across reload, unchanged server body and shared owned attachment reference. Four Chromium project cases passed."
     },
     {
       "id": "P-09",
       "title": "跨账号/标签页",
-      "result": "NOT_RUN",
-      "evidence": [],
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/seventh-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/seventh-increment-verification.json",
+        "artifacts/ui-v2/seventh-increment-2026-10-01/draft-session-final.json",
+        "artifacts/ui-v2/seventh-increment-2026-10-01/network-evidence-manifest.json",
+        "docs/handoffs/ui-v2/eighth-increment-verification.json",
+        "docs/handoffs/ui-v2/ninth-increment-verification.json"
+      ],
       "partial_evidence": [
         "docs/handoffs/ui-v2/fourth-increment-2026-10-01.md",
-        "docs/handoffs/ui-v2/fourth-increment-verification.json"
+        "docs/handoffs/ui-v2/fourth-increment-verification.json",
+        "docs/handoffs/ui-v2/sixth-increment-2026-10-01.md",
+        "artifacts/ui-v2/sixth-increment-2026-10-01/session-isolation-inspection.json"
       ],
-      "note": "Component/mock browser and isolated API coverage is partial; complete real browser scenario remains unaccepted."
+      "note": "Accepted on two real Chromium projects with two tabs in one context: alternating logout/login/account edits, isolated bodies and attachments, three ownership 404s per project and final anonymous 401. Retired queued writes and late publish/close results covered by unit regressions."
     },
     {
       "id": "P-10",
       "title": "会话过期",
-      "result": "NOT_RUN",
-      "evidence": []
+      "result": "PASS",
+      "evidence": [
+        "docs/handoffs/ui-v2/ninth-increment-2026-10-01.md",
+        "docs/handoffs/ui-v2/ninth-increment-verification.json",
+        "artifacts/ui-v2/ninth-increment-2026-10-01/session-browser-final-accepted.json",
+        "artifacts/ui-v2/ninth-increment-2026-10-01/network-evidence-manifest.json"
+      ],
+      "note": "Six real Chromium cases verified server revocation/idle expiry, retained owner body/title/images/board, cancel and same-owner reauthentication, fresh permission/quota checks, different-account isolation and manual201 only. Old CSRF401 cannot clear a newly verified session;403 remains a regular error."
     },
     {
       "id": "P-11",
@@ -1583,11 +1644,11 @@
     "tasks_done": 0,
     "tasks_in_progress": 11,
     "cases": 201,
-    "case_pass": 27,
-    "case_not_run": 174
+    "case_pass": 34,
+    "case_not_run": 167
   },
   "remaining": [
-    "DYV2-010 real browser auth/write chain, board capabilities, dual-draft conflicts, cross-tab isolation, expired sessions, unknown-result recovery and physical phone keyboard",
+    "DYV2-010 P-11 unknown-result/duplicate submission recovery and P-12 physical phone keyboard",
     "G0 complete role browser, six-plugin business invocation and disabled-history checks; current DB has five installed plugins",
     "Real API writes/auth and dedicated feed paging/race/failure E2E",
     "DYV2-008/009 restricted-tree, untitled-text browser and publish/pin combinations",
@@ -1598,5 +1659,81 @@
     "fe55887af0c7f2e8edb46c5111edeecdb8746f95",
     "2e6bc3031231df680413c1b0789c7609ca2df4b0",
     "3f81a93513bb69662c91d50a08854b66c18dbd63"
-  ]
+  ],
+  "head_commit": "40bcff25ec920912bff7f4472bc6174e63b8e2d9",
+  "working_tree_source": {
+    "uncommitted": true,
+    "files": [
+      {
+        "path": "apps/api/tests/attachments.rs",
+        "sha256": "ac990ca2fab1582adac7c15520d03a1290850c41e1ada6fcc1212b4c0740978f"
+      },
+      {
+        "path": "src/components/TopicComposer.test.tsx",
+        "sha256": "40d1313f9e9956f2d0ee492004563d35bfdd75ff6dbeee02ed6e0c22d65f4f2d"
+      },
+      {
+        "path": "src/components/TopicComposer.tsx",
+        "sha256": "4bc827f8b4e837952191a53d882c2be5285563e9d6e127a0587903084df6e915"
+      },
+      {
+        "path": "e2e/ui-v2-live-publisher.spec.ts",
+        "sha256": "84dcc4c17ee0bc86baed31347ef68a99f860c676685e1aa14fe25f60b11c501b"
+      },
+      {
+        "path": "e2e/ui-v2-live-draft-conflicts.spec.ts",
+        "sha256": "ee26fd6cb42a5d4d37d2ad0fc165aa77647f04989b427682ffb18f07c48b625d"
+      },
+      {
+        "path": "src/components/DraftShelf.tsx",
+        "sha256": "429d77a2a23e8c82d89c6495bc54b1863875c37fd105ed1687d2be68b95f6979"
+      },
+      {
+        "path": "src/components/DraftShelf.test.tsx",
+        "sha256": "bdb8fb9208de275ce4eeee7849c53b20637b4c1811cc8cb70246e120ae30d40b"
+      },
+      {
+        "path": "src/api/drafts.ts",
+        "sha256": "f781d5022edec521db91200cc0fa7885f94a39cafbe4b8ef50a68db692b07778"
+      },
+      {
+        "path": "src/app/CommunityApp.tsx",
+        "sha256": "e30f4c8f28a2b7445f3f2c92cae7a201e82f97692000fb7479a55dec99655997"
+      },
+      {
+        "path": "src/api/auth.ts",
+        "sha256": "2e245ff1b436e837b8d54ae8bcf87d3c9aaa2fc57f837746ac7283e4f069d2ff"
+      },
+      {
+        "path": "src/App.test.tsx",
+        "sha256": "f34c5bbb2703371889a79e1a29dd6682fd20a688669596b39f7a3471bec82cb8"
+      },
+      {
+        "path": "src/api/auth.test.ts",
+        "sha256": "0ed611391d87e190bc48c7cf4dda8be47ac5ab1e21c7a9aba65a759d8fb738af"
+      },
+      {
+        "path": "e2e/ui-v2-live-account-tabs.spec.ts",
+        "sha256": "eefd193aa073ab7d187301982c47180bcaca0bbf2caed2a4879b3757f1466a5d"
+      },
+      {
+        "path": "crates/infrastructure/src/topics.rs",
+        "sha256": "cc43ec4f536681acf878be82cb3206a54895a9868fef3bf29b36761fbafdb4cf"
+      },
+      {
+        "path": "e2e/ui-v2-live-publisher-capabilities.spec.ts",
+        "sha256": "3ed8b7030c6a02ac88e6eb8bba56a020f49c4ede40a12f97794504c733bbdb62"
+      },
+      {
+        "path": "docs/handoffs/ui-v2/publisher-permissions-contract-2026-10-01.md",
+        "sha256": "801b0c9470a338f79e9a0cad306115cec4a2b2bad011a2255e3767d65f56bbbb"
+      },
+      {
+        "path": "e2e/ui-v2-live-publisher-session.spec.ts",
+        "sha256": "b7e0c1b43ad8fc887b7e3f40d5d170ef89b959bea25e8f8922083f109a1ae8bc"
+      }
+    ],
+    "product_implementation_unchanged": false,
+    "tested_source_manifest": "artifacts/ui-v2/ninth-increment-2026-10-01/source-manifest.json"
+  }
 }

@@ -1,0 +1,608 @@
+{
+  "project": "DaoYun",
+  "date": "2026-10-01",
+  "scope": "DYV2-010 P-09 same-context cross-tab account isolation, retired requests and publishing callbacks",
+  "head_commit": "40bcff25ec920912bff7f4472bc6174e63b8e2d9",
+  "product_code_commit": "3f81a93513bb69662c91d50a08854b66c18dbd63",
+  "source_status": "Product changes, three real E2E files and fifth/sixth/seventh handoff updates are uncommitted; tested source is identified by the manifest",
+  "tested_source_manifest_sha256": "47e3773ddf1960303973a67dec66e837251acef8175d698495d5d542e98d4bae",
+  "tested_source_manifest": "artifacts/ui-v2/seventh-increment-2026-10-01/source-manifest.json",
+  "manifest_algorithm": "SHA256 of JSON.stringify(files.map(({path,sha256})=>({path,sha256}))) in recorded order",
+  "environment": {
+    "executor": "Codex_local_tools",
+    "fast_spider_used": false,
+    "cwd": "C:/Users/111/Documents/Playground/daoyun",
+    "git_root": "C:/Users/111/Documents/Playground",
+    "branch": "codex/daoyun-home-foundation",
+    "api_origin": "http://127.0.0.1:3001",
+    "web_origin": "http://127.0.0.1:4174",
+    "postgres_port": 55434,
+    "database": "daoyun_ui_v2_accounts",
+    "database_scope": "New isolated database; earlier isolated databases and original development database retained",
+    "cluster": "artifacts/ui-v2/fifth-increment-2026-10-01/isolated-postgres",
+    "attachment_root": "artifacts/ui-v2/seventh-increment-2026-10-01/attachments",
+    "fixture": "Existing local demo_member and demo_admin seeded in the new database. Established-member group granted only to this isolated member fixture for the nine-image regression; member quota usage reset before each final batch.",
+    "api_binary": "target/debug/daoyun-api.exe",
+    "api_binary_sha256": "95e33b9b2eea8c169ee4309af536cfaa9772967502e4acd186fd9f46bee3da80",
+    "api_binary_rebuilt": false,
+    "created_services_stopped": true,
+    "original_services_before": [
+      {
+        "port": 3000,
+        "status": 404
+      },
+      {
+        "port": 5173,
+        "status": 200
+      },
+      {
+        "port": 3001,
+        "status": "not-listening"
+      },
+      {
+        "port": 4174,
+        "status": "not-listening"
+      }
+    ],
+    "original_services_after": [
+      {
+        "port": 3000,
+        "status": 404
+      },
+      {
+        "port": 5173,
+        "status": 200
+      },
+      {
+        "port": 3001,
+        "status": "not-listening"
+      },
+      {
+        "port": 4174,
+        "status": "not-listening"
+      }
+    ],
+    "original_services_managed": false,
+    "isolated_database_summary": {
+      "database": "daoyun_ui_v2_accounts",
+      "users": 3,
+      "drafts": 17,
+      "attachments": 31,
+      "topics": 27
+    }
+  },
+  "checks": [
+    {
+      "name": "Retired draft write behavior red",
+      "label": "draft-retirement-red",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "src/components/DraftShelf.test.tsx"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 27872,
+      "status": "exited",
+      "startedAt": "2026-10-01T06:31:19.522Z",
+      "code": 1,
+      "signal": null,
+      "completedAt": "2026-10-01T06:31:24.510Z",
+      "result": "EXPECTED_FAIL",
+      "log": "artifacts/ui-v2/seventh-increment-2026-10-01/logs/draft-retirement-red.log"
+    },
+    {
+      "name": "Retired draft write green",
+      "label": "draft-retirement-green",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "src/components/DraftShelf.test.tsx"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 36128,
+      "status": "exited",
+      "startedAt": "2026-10-01T06:33:30.796Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T06:33:34.810Z",
+      "result": "PASS",
+      "log": "artifacts/ui-v2/seventh-increment-2026-10-01/logs/draft-retirement-green.log"
+    },
+    {
+      "name": "Auth/publish/close behavior red",
+      "label": "session-scope-red",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "src/api/auth.test.ts",
+        "src/components/TopicComposer.test.tsx",
+        "src/App.test.tsx",
+        "--maxWorkers=2"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 34324,
+      "status": "exited",
+      "startedAt": "2026-10-01T06:40:23.886Z",
+      "code": 1,
+      "signal": null,
+      "completedAt": "2026-10-01T06:40:38.277Z",
+      "result": "EXPECTED_FAIL_WITH_TEST_LOCATOR_ERROR",
+      "note": "Five added behavior cases failed; the App fixture additionally used an invalid publisher trigger. Invalid locator was corrected before the final full run.",
+      "log": "artifacts/ui-v2/seventh-increment-2026-10-01/logs/session-scope-red.log"
+    },
+    {
+      "name": "Old production same-browser logout baseline",
+      "label": "account-tabs-baseline-red-2",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "node_modules/@playwright/test/cli.js",
+        "test",
+        "e2e/ui-v2-live-account-tabs.spec.ts",
+        "--project=chromium-desktop",
+        "--workers=1",
+        "--reporter=line,json",
+        "--output=C:/Users/111/Documents/Playground/daoyun/artifacts/ui-v2/seventh-increment-2026-10-01/account-tabs-baseline-red-2"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 36288,
+      "status": "exited",
+      "startedAt": "2026-10-01T06:45:59.115Z",
+      "code": 1,
+      "signal": null,
+      "completedAt": "2026-10-01T06:46:09.449Z",
+      "result": "EXPECTED_FAIL",
+      "note": "Second-tab logout left first-tab member text visible",
+      "log": "artifacts/ui-v2/seventh-increment-2026-10-01/logs/account-tabs-baseline-red-2.log"
+    },
+    {
+      "name": "Full frontend suite",
+      "label": "vitest-full",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--maxWorkers=2"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 9580,
+      "status": "exited",
+      "startedAt": "2026-10-01T06:45:24.635Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T06:47:48.433Z",
+      "result": "PASS",
+      "test_files": 103,
+      "tests": 832,
+      "log": "artifacts/ui-v2/seventh-increment-2026-10-01/logs/vitest-full.log"
+    },
+    {
+      "name": "Application types",
+      "label": "typecheck",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "node_modules/typescript/bin/tsc",
+        "-b"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 31824,
+      "status": "exited",
+      "startedAt": "2026-10-01T06:45:24.678Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T06:45:35.877Z",
+      "result": "PASS",
+      "log": "artifacts/ui-v2/seventh-increment-2026-10-01/logs/typecheck.log"
+    },
+    {
+      "name": "Production build after application types",
+      "label": "build",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "node_modules/vite/bin/vite.js",
+        "build"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 38352,
+      "status": "exited",
+      "startedAt": "2026-10-01T06:49:13.538Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T06:49:18.934Z",
+      "result": "PASS",
+      "log": "artifacts/ui-v2/seventh-increment-2026-10-01/logs/build.log"
+    },
+    {
+      "name": "Final E2E types",
+      "label": "e2e-typecheck-final",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "node_modules/typescript/bin/tsc",
+        "-p",
+        "tsconfig.playwright.json",
+        "--noEmit"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 31932,
+      "status": "exited",
+      "startedAt": "2026-10-01T06:53:06.430Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T06:53:08.303Z",
+      "result": "PASS",
+      "log": "artifacts/ui-v2/seventh-increment-2026-10-01/logs/e2e-typecheck-final.log"
+    },
+    {
+      "name": "Real nine-image publisher regression",
+      "label": "publisher-regression",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "node_modules/@playwright/test/cli.js",
+        "test",
+        "e2e/ui-v2-live-publisher.spec.ts",
+        "--workers=1",
+        "--max-failures=1",
+        "--reporter=line,json",
+        "--output=C:/Users/111/Documents/Playground/daoyun/artifacts/ui-v2/seventh-increment-2026-10-01/publisher-regression"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 2692,
+      "status": "exited",
+      "startedAt": "2026-10-01T06:51:01.959Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T06:51:21.805Z",
+      "result": "PASS",
+      "cases": 2,
+      "log": "artifacts/ui-v2/seventh-increment-2026-10-01/logs/publisher-regression.log",
+      "json": "artifacts/ui-v2/seventh-increment-2026-10-01/publisher-regression.json"
+    },
+    {
+      "name": "Final real cross-tab and conflict matrix",
+      "label": "draft-session-final",
+      "file": "C:/nvm4w/nodejs/node.exe",
+      "args": [
+        "node_modules/@playwright/test/cli.js",
+        "test",
+        "e2e/ui-v2-live-account-tabs.spec.ts",
+        "e2e/ui-v2-live-draft-conflicts.spec.ts",
+        "--workers=1",
+        "--max-failures=1",
+        "--reporter=line,json",
+        "--output=C:/Users/111/Documents/Playground/daoyun/artifacts/ui-v2/seventh-increment-2026-10-01/draft-session-final"
+      ],
+      "cwd": "C:/Users/111/Documents/Playground/daoyun",
+      "pid": 38712,
+      "status": "exited",
+      "startedAt": "2026-10-01T06:53:06.393Z",
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-01T06:54:25.929Z",
+      "result": "PASS",
+      "cases": 6,
+      "log": "artifacts/ui-v2/seventh-increment-2026-10-01/logs/draft-session-final.log",
+      "json": "artifacts/ui-v2/seventh-increment-2026-10-01/draft-session-final.json"
+    },
+    {
+      "name": "Whitespace diff check",
+      "result": "PASS",
+      "code": 0
+    }
+  ],
+  "browser": {
+    "publisher_regression_cases": 2,
+    "final_cases": 6,
+    "final_p09_cases": 2,
+    "final_p08_cases": 4,
+    "widths": [
+      320,
+      390,
+      768,
+      1024,
+      1440
+    ],
+    "same_browser_context": true,
+    "route_mocks": false,
+    "late_result_unit_cases": 4,
+    "retired_queue_unit_cases": 1,
+    "session_probe_unit_cases": 1,
+    "network_evidence": "artifacts/ui-v2/seventh-increment-2026-10-01/network-evidence-manifest.json",
+    "network_files": 6,
+    "screenshots_manifest": "artifacts/ui-v2/seventh-increment-2026-10-01/screenshots-manifest.json",
+    "screenshots": 67,
+    "final_matrix_screenshots": 38,
+    "visually_reviewed": [
+      "artifacts/ui-v2/seventh-increment-2026-10-01/account-tabs/ui-v2-live-account-tabs-is-1f3c7-sharing-one-browser-session-chromium-mobile/restored-admin-320.png",
+      "artifacts/ui-v2/seventh-increment-2026-10-01/account-tabs/ui-v2-live-account-tabs-is-1f3c7-sharing-one-browser-session-chromium-desktop/logout-clears-member.png"
+    ],
+    "unexpected_errors": [],
+    "physical_phone": false
+  },
+  "api": {
+    "request_id_envelope_header_checked": true,
+    "ownership_rejections": 6,
+    "ownership_status": 404,
+    "ownership_code": "draft.not_found",
+    "signed_out_draft_list_status": 401,
+    "rust_sources_changed": false,
+    "rust_workspace_gates_rerun": false,
+    "note": "The existing binary was used; this is not G5 clean-checkout build acceptance"
+  },
+  "source_integrity": {
+    "prior_source_entries": [
+      {
+        "path": "apps/api/src/drafts.rs",
+        "sha256": "6ee73155e17e97e3863512412d50c826014608c3027fe7f0de31ff5dfea41ad6",
+        "previous_sha256": "6ee73155e17e97e3863512412d50c826014608c3027fe7f0de31ff5dfea41ad6",
+        "unchanged": true
+      },
+      {
+        "path": "apps/api/src/rich_content.rs",
+        "sha256": "e9343539487bf90518026929cbbeb6a53d1d2deced59cf87b9c195223b921dce",
+        "previous_sha256": "e9343539487bf90518026929cbbeb6a53d1d2deced59cf87b9c195223b921dce",
+        "unchanged": true
+      },
+      {
+        "path": "apps/api/tests/attachments.rs",
+        "sha256": "b2996c8e2c8d40596a64cee7bd150d4c53d4ead0c07528fbb39ace897a733b8d",
+        "previous_sha256": "b2996c8e2c8d40596a64cee7bd150d4c53d4ead0c07528fbb39ace897a733b8d",
+        "unchanged": true
+      },
+      {
+        "path": "apps/api/tests/drafts.rs",
+        "sha256": "498d6b3f94dacf6475172c22d32e70c084218406769f4e1739e988cce6d5b5a2",
+        "previous_sha256": "498d6b3f94dacf6475172c22d32e70c084218406769f4e1739e988cce6d5b5a2",
+        "unchanged": true
+      },
+      {
+        "path": "crates/api-contract/src/drafts.rs",
+        "sha256": "1ab104a916ef2ac44727441880799e14fb354ea908615fa86d2e9cfd7dea4c21",
+        "previous_sha256": "1ab104a916ef2ac44727441880799e14fb354ea908615fa86d2e9cfd7dea4c21",
+        "unchanged": true
+      },
+      {
+        "path": "e2e/ui-v2-publisher.spec.ts",
+        "sha256": "ab1596afd056ee87fd494c609b1e9e97a2a308d81c5458e7b2d6477e1e083a6c",
+        "previous_sha256": "ab1596afd056ee87fd494c609b1e9e97a2a308d81c5458e7b2d6477e1e083a6c",
+        "unchanged": true
+      },
+      {
+        "path": "src/api/generated.d.ts",
+        "sha256": "b63cfdd8fc6d699f5e8130fbc2880073e9109fec49d74434ab7932c1ce3c68a2",
+        "previous_sha256": "b63cfdd8fc6d699f5e8130fbc2880073e9109fec49d74434ab7932c1ce3c68a2",
+        "unchanged": true
+      },
+      {
+        "path": "src/components/RichTextEditor.test.tsx",
+        "sha256": "6577a469cee77c4abc32d0ffc8cb6909fa829977e9c93a09facc048cd16682c3",
+        "previous_sha256": "6577a469cee77c4abc32d0ffc8cb6909fa829977e9c93a09facc048cd16682c3",
+        "unchanged": true
+      },
+      {
+        "path": "src/components/RichTextEditor.tsx",
+        "sha256": "338a48d4f1e4ddd61596d1195ec2a63efd9b03492d4d2d8403dedca5dc23dc0e",
+        "previous_sha256": "338a48d4f1e4ddd61596d1195ec2a63efd9b03492d4d2d8403dedca5dc23dc0e",
+        "unchanged": true
+      },
+      {
+        "path": "src/components/TopicComposer.test.tsx",
+        "sha256": "cd7b3b0011ce30977d1a4a3e95478e937c60b08bd84579ea5dc7c3fd54c9939c",
+        "previous_sha256": "6042c1313991ef9147a2dee4f846d73c2f866d9ec8dba9a3d49004315a635c70",
+        "unchanged": false
+      },
+      {
+        "path": "src/components/TopicComposer.tsx",
+        "sha256": "cb0d3eb9f292798e6d2214f54918598cca0dfd845661d26ed08b2e24ff016242",
+        "previous_sha256": "ed5233578f8df68b838c41f09f60031e4f365504a5d97aa67e9c19a4426ece59",
+        "unchanged": false
+      },
+      {
+        "path": "src/styles.css",
+        "sha256": "0ca936116006fd3fdab9e60e3750f5243f1a8858292d8ac095f8be49494baeb7",
+        "previous_sha256": "0ca936116006fd3fdab9e60e3750f5243f1a8858292d8ac095f8be49494baeb7",
+        "unchanged": true
+      },
+      {
+        "path": "docs/handoffs/ui-v2/publisher-contract-change-2026-10-01.md",
+        "sha256": "d1e763187888d93d9bf8f9852f34f380c4508c70777ed2203adc7fd05fd83301",
+        "previous_sha256": "d1e763187888d93d9bf8f9852f34f380c4508c70777ed2203adc7fd05fd83301",
+        "unchanged": true
+      },
+      {
+        "path": "e2e/ui-v2-home.spec.ts",
+        "sha256": "a0b4d59e53331c57cc6c2a281c76acfb17b9c504862125716924db4502c4bade",
+        "previous_sha256": "a0b4d59e53331c57cc6c2a281c76acfb17b9c504862125716924db4502c4bade",
+        "unchanged": true
+      },
+      {
+        "path": "src/styles.home.css",
+        "sha256": "92f98291700d5834bf0307f8c977d9f48bce395b735659ebd5040c8b7d4319ac",
+        "previous_sha256": "92f98291700d5834bf0307f8c977d9f48bce395b735659ebd5040c8b7d4319ac",
+        "unchanged": true
+      },
+      {
+        "path": "e2e/ui-v2-live-publisher.spec.ts",
+        "sha256": "84dcc4c17ee0bc86baed31347ef68a99f860c676685e1aa14fe25f60b11c501b",
+        "previous_sha256": "84dcc4c17ee0bc86baed31347ef68a99f860c676685e1aa14fe25f60b11c501b",
+        "unchanged": true
+      },
+      {
+        "path": "e2e/ui-v2-live-draft-conflicts.spec.ts",
+        "sha256": "ee26fd6cb42a5d4d37d2ad0fc165aa77647f04989b427682ffb18f07c48b625d",
+        "previous_sha256": "ee26fd6cb42a5d4d37d2ad0fc165aa77647f04989b427682ffb18f07c48b625d",
+        "unchanged": true
+      },
+      {
+        "path": "src/components/DraftShelf.tsx",
+        "sha256": "7a613c9a48540cef65e0a119838fa03b0d74f49faa5eb3980b83819622629cb6",
+        "previous_sha256": "2960b0aee4fb37cce66024907370e29f90acd6f949a51a5cf859e1ca5190ffb2",
+        "unchanged": false
+      },
+      {
+        "path": "src/components/DraftShelf.test.tsx",
+        "sha256": "cc5b787f80a92d55dc4cf1e799830ffcfebe081fea229914ef19fb724ae8bfce",
+        "previous_sha256": "2f6486d84b160402958c17d77a884557f18760a8529aedd35a12d599a0b07092",
+        "unchanged": false
+      },
+      {
+        "path": "src/api/drafts.ts",
+        "sha256": "f781d5022edec521db91200cc0fa7885f94a39cafbe4b8ef50a68db692b07778",
+        "previous_sha256": "d3777d9be099e7ed579fc446b55f6780a7d0dcb76fafbb2ffb061e6125bea755",
+        "unchanged": false
+      },
+      {
+        "path": "src/app/CommunityApp.tsx",
+        "sha256": "358acc90a8aa615c583019c057e86bd5608494c7da4d75ee9d2098bba243f7bf",
+        "previous_sha256": "9aeb6919276597b2ded98bff09b7e3db213cc7f9414e23cec96b6a58b2ec3287",
+        "unchanged": false
+      },
+      {
+        "path": "src/api/auth.ts",
+        "sha256": "36be8ece42bde1640154881e4adb616b21299f65ac546e59ce241311d0ceeadd",
+        "previous_sha256": "643cd9945703842739e78eaf54e533f7e5e4312f5cb1e269ac6cadbc171a13a9",
+        "unchanged": false
+      }
+    ],
+    "plan_checksums": [
+      {
+        "path": "01-product-and-ui-spec.md",
+        "sha256": "e853929a919dbc2765a3f2dfe68d6db9ac0dd85e3611dbc701d8e122b311783a",
+        "unchanged": true
+      },
+      {
+        "path": "02-execution-plan.md",
+        "sha256": "1891fbb40a0d75222f37b2dbaf950bd94694cc218316d6caf752ef938b54a356",
+        "unchanged": true
+      },
+      {
+        "path": "03-acceptance-matrix.md",
+        "sha256": "9e4823b85fb852590145b932876a36b5ee8f18039b0fb70e43d8a80642d71647",
+        "unchanged": true
+      },
+      {
+        "path": "04-fastspider-brief.md",
+        "sha256": "ecb80588f2a4150acf8bd4b2290d9eac63344d6db0d4580701ecb10a27245bb2",
+        "unchanged": true
+      },
+      {
+        "path": "05-handoff-template.md",
+        "sha256": "f8d23264739f70f7761450c8adb3c767a07a57bfe8f08ab1060803622a0bac1e",
+        "unchanged": true
+      },
+      {
+        "path": "06-task-registry.json",
+        "sha256": "da6fc77c1520096451ec3e5ebf54904305e5041b0663310f3b2cc086476f612d",
+        "unchanged": true
+      },
+      {
+        "path": "07-acceptance-registry.json",
+        "sha256": "47804b502d46deb3c9c26cc5ef9e92b02f5947e92c30d5b28459337b14a1fd5d",
+        "unchanged": true
+      },
+      {
+        "path": "08-plan-validation.md",
+        "sha256": "3862176d73d075a673db94f3af0d39166ef85ba9d2ba74b29597bb7a521ff712",
+        "unchanged": true
+      },
+      {
+        "path": "README.md",
+        "sha256": "47cda67c8ea4f6b3fb693d57712712ce9950ced42a5b0bc028199a57c2338e0c",
+        "unchanged": true
+      }
+    ],
+    "utf8": true,
+    "production_assets_match_browser_tested_assets": true,
+    "production_assets_manifest": "artifacts/ui-v2/seventh-increment-2026-10-01/production-assets.json",
+    "production_assets": 86,
+    "old_production_baseline_assets": "artifacts/ui-v2/seventh-increment-2026-10-01/baseline-assets.json"
+  },
+  "review": {
+    "status": "COMPLETE",
+    "mode": "Two one-shot read-only scouts plus main-agent exact diff and test review",
+    "findings": [],
+    "scopes": [
+      {
+        "agent": "/root/publisher_scope_review_seven",
+        "files": [
+          "src/components/DraftShelf.tsx",
+          "src/components/TopicComposer.tsx"
+        ],
+        "verified": [
+          "Abort on unmount/CSRF changes",
+          "Queued saves reject before dispatch after cancellation",
+          "Guard publish and close-save results by operation scope"
+        ],
+        "references": [
+          "src/components/DraftShelf.tsx:31",
+          "src/components/TopicComposer.tsx:105",
+          "src/components/TopicComposer.tsx:402",
+          "src/components/TopicComposer.tsx:673"
+        ]
+      },
+      {
+        "agent": "/root/session_hint_review_seven",
+        "files": [
+          "src/api/auth.ts",
+          "src/app/CommunityApp.tsx"
+        ],
+        "verified": [
+          "Only random change hint is stored",
+          "Ordinary session GET does not broadcast",
+          "Storage receiver clears old identity and aborts obsolete probes"
+        ],
+        "references": [
+          "src/api/auth.ts:3",
+          "src/app/CommunityApp.tsx:409",
+          "src/app/CommunityApp.tsx:422"
+        ]
+      }
+    ],
+    "limitations": [
+      "Cross-tab notification requires functioning localStorage",
+      "Server work already authenticated and committed is not rolled back by client cancellation",
+      "Concurrent login/logout in the same tab and server-revoked session recovery remain outside this increment"
+    ],
+    "fast_spider_used": false
+  },
+  "failures_preserved": [
+    {
+      "log": "artifacts/ui-v2/seventh-increment-2026-10-01/logs/account-tabs-baseline-red.log",
+      "kind": "TEST_SYNTAX_ERROR",
+      "note": "New evidence-file newline escaping was corrected before valid baseline run"
+    },
+    {
+      "log": "artifacts/ui-v2/seventh-increment-2026-10-01/logs/cross-tab-red.log",
+      "kind": "TEST_LOCATOR_ERROR",
+      "note": "Invalid publisher trigger; not counted as behavioral red evidence"
+    },
+    {
+      "log": "artifacts/ui-v2/seventh-increment-2026-10-01/logs/session-scope-green.log",
+      "kind": "TEST_LOCATOR_ERROR",
+      "note": "Incorrect trigger and accidental existing-dialog label replacement were corrected; cross-tab-green and the full suite then passed"
+    },
+    {
+      "log": "artifacts/ui-v2/seventh-increment-2026-10-01/logs/account-tabs-baseline-red-2.log",
+      "kind": "EXPECTED_PRODUCT_BASELINE_FAILURE",
+      "note": "Member body remains after logout in other tab"
+    }
+  ],
+  "accepted_cases": [
+    "P-09"
+  ],
+  "revalidated_cases": [
+    "P-01",
+    "P-04",
+    "P-08"
+  ],
+  "remaining": [
+    "P-02 publisher entry points",
+    "P-07 board and attachment capabilities",
+    "P-10 server-revoked sessions and reauthentication context",
+    "P-11 duplicate submit and unknown-result recovery",
+    "P-12 physical-phone soft keyboard",
+    "DYV2-010 remains IN_PROGRESS; all G0-G5 NOT_ACCEPTED"
+  ],
+  "logs_manifest": "artifacts/ui-v2/seventh-increment-2026-10-01/logs-manifest.json"
+}
