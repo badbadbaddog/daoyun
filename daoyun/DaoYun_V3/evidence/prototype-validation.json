@@ -1,0 +1,1217 @@
+{
+  "scope": "LOCAL HTML PROTOTYPE ONLY",
+  "application_tests": "NOT_RUN",
+  "route_checks": [
+    {
+      "page": "dashboard",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "users",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "user-detail",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "groups",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "group-edit",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "group-compare",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "boards-admin",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "board-settings",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "permissions",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "team",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "role-edit",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "inspect",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "growth",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "points",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "medals",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "entitlements",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "moderation",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "comments",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "reports",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "reviews",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "risk",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "audit",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "extensions",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "analytics",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "settings",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "ops",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "home",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "boards",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "board",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "topic",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "composer",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "profile",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "member",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "notifications",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "search",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "messages",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "bookmarks",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "account",
+      "width": 1440,
+      "scroll_width": 1440,
+      "status": "PASS"
+    },
+    {
+      "page": "dashboard",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "users",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "user-detail",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "groups",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "group-edit",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "group-compare",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "boards-admin",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "board-settings",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "permissions",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "team",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "role-edit",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "inspect",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "growth",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "points",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "medals",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "entitlements",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "moderation",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "comments",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "reports",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "reviews",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "risk",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "audit",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "extensions",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "analytics",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "settings",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "ops",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "home",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "boards",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "board",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "topic",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "composer",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "profile",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "member",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "notifications",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "search",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "messages",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "bookmarks",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "account",
+      "width": 1024,
+      "scroll_width": 1024,
+      "status": "PASS"
+    },
+    {
+      "page": "dashboard",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "users",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "user-detail",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "groups",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "group-edit",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "group-compare",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "boards-admin",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "board-settings",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "permissions",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "team",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "role-edit",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "inspect",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "growth",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "points",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "medals",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "entitlements",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "moderation",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "comments",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "reports",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "reviews",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "risk",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "audit",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "extensions",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "analytics",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "settings",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "ops",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "home",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "boards",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "board",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "topic",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "composer",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "profile",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "member",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "notifications",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "search",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "messages",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "bookmarks",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "account",
+      "width": 768,
+      "scroll_width": 768,
+      "status": "PASS"
+    },
+    {
+      "page": "dashboard",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "users",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "user-detail",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "groups",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "group-edit",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "group-compare",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "boards-admin",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "board-settings",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "permissions",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "team",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "role-edit",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "inspect",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "growth",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "points",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "medals",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "entitlements",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "moderation",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "comments",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "reports",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "reviews",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "risk",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "audit",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "extensions",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "analytics",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "settings",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "ops",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "home",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "boards",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "board",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "topic",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "composer",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "profile",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "member",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "notifications",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "search",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "messages",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "bookmarks",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "account",
+      "width": 390,
+      "scroll_width": 390,
+      "status": "PASS"
+    },
+    {
+      "page": "dashboard",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "users",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "user-detail",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "groups",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "group-edit",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "group-compare",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "boards-admin",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "board-settings",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "permissions",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "team",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "role-edit",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "inspect",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "growth",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "points",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "medals",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "entitlements",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "moderation",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "comments",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "reports",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "reviews",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "risk",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "audit",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "extensions",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "analytics",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "settings",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "ops",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "home",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "boards",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "board",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "topic",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "composer",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "profile",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "member",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "notifications",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "search",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "messages",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "bookmarks",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    },
+    {
+      "page": "account",
+      "width": 320,
+      "scroll_width": 320,
+      "status": "PASS"
+    }
+  ],
+  "interaction_checks": [
+    {
+      "name": "名称搜索过滤",
+      "status": "PASS"
+    },
+    {
+      "name": "开关状态",
+      "status": "PASS"
+    },
+    {
+      "name": "变更确认",
+      "status": "PASS"
+    },
+    {
+      "name": "Escape关闭弹窗（焦点返回另需完整验收）",
+      "status": "PASS"
+    },
+    {
+      "name": "拒绝场景",
+      "status": "PASS"
+    },
+    {
+      "name": "保存失败状态",
+      "status": "PASS"
+    },
+    {
+      "name": "未保存关闭确认",
+      "status": "PASS"
+    },
+    {
+      "name": "图片排序",
+      "status": "PASS"
+    },
+    {
+      "name": "全局未读55到54",
+      "status": "PASS"
+    },
+    {
+      "name": "不重复标记",
+      "status": "PASS"
+    },
+    {
+      "name": "全部已读",
+      "status": "PASS"
+    },
+    {
+      "name": "会员积分留在前台",
+      "status": "PASS"
+    },
+    {
+      "name": "邮件页签",
+      "status": "PASS"
+    },
+    {
+      "name": "积分调整拒绝负数",
+      "status": "PASS"
+    },
+    {
+      "name": "手机单场景矩阵",
+      "status": "PASS"
+    },
+    {
+      "name": "手机导航",
+      "status": "PASS"
+    }
+  ],
+  "errors": [],
+  "network_requests": [],
+  "page_count": 38,
+  "overflow_failures": [],
+  "prototype_status": "PASS"
+}

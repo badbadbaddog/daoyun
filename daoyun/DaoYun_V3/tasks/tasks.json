@@ -1,0 +1,1428 @@
+{
+  "version": "3.0",
+  "baseline_sha": "40bcff25ec920912bff7f4472bc6174e63b8e2d9",
+  "implementation_started": true,
+  "tasks": [
+    {
+      "id": "DYR-001",
+      "gate": "G0",
+      "priority": "P0",
+      "title": "基线复验与历史任务映射",
+      "status": "DONE",
+      "depends_on": [],
+      "goal": "确认当前工作区、锁文件、测试门禁与历史完成项；形成可比较的改造前基线。",
+      "path_hints": "package.json；Cargo.toml；docs/handoffs/current.md（实际路径先确认）",
+      "steps": [
+        "只读记录仓库根、HEAD、分支、dirty diff及历史交接",
+        "逐项跑现有脚本，失败按环境/既存/新引入分类",
+        "捕获六条核心旅程的请求和截图，建立旧任务映射"
+      ],
+      "rollback": "不修改业务代码；删除本轮独立证据目录即可回退，不触碰原仓库",
+      "acceptance_cases": [
+        "AC-001-01",
+        "AC-001-02",
+        "AC-001-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/baseline-2026-10-02.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-02T14:20:00Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-02T14:51:17.010Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-02T14:51:17.010Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/baseline-2026-10-02/baseline-summary.json"
+      ]
+    },
+    {
+      "id": "DYR-002",
+      "gate": "G0",
+      "priority": "P0",
+      "title": "授权、额度与契约冻结",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-001"
+      ],
+      "goal": "记录现有实际授权语义及各入口调用链，给界面改造建立行为不变的对照。",
+      "path_hints": "crates/infrastructure/src/community_permissions.rs；content_access_policies.rs；authorization.rs；api-contract",
+      "steps": [
+        "追踪组、权益、账号限制、版块限制、内容访问和动作检查",
+        "固定时间和fixture，生成当前行为特征用例",
+        "记录0/缺省额度、到期、同名规则来源、事务与接口错误契约"
+      ],
+      "rollback": "仅追加特征测试和文档；发现现有不安全行为另开修复，不默默固化",
+      "acceptance_cases": [
+        "AC-002-01",
+        "AC-002-02",
+        "AC-002-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/authorization-freeze-2026-10-02.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-02T14:51:17.010Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-02T14:55:59.946Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-02T14:55:59.946Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/baseline-2026-10-02/logs/dyr002-characterization-fixed.log",
+        "artifacts/v3/baseline-2026-10-02/logs/dyr002-permissions-regression.log",
+        "artifacts/v3/baseline-2026-10-02/logs/dyr002-clippy.log",
+        "artifacts/v3/baseline-2026-10-02/authorization-contract-observations.json"
+      ]
+    },
+    {
+      "id": "DYR-003",
+      "gate": "G1",
+      "priority": "P0",
+      "title": "草稿真实保存状态",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-002"
+      ],
+      "goal": "本地写入失败不会再显示已保存；本地、云端、图片三种状态独立可见。",
+      "path_hints": "src/components/TopicComposer.tsx；DraftShelf.tsx；草稿API与对应测试",
+      "steps": [
+        "存储函数返回结构化结果并保留最后成功时间",
+        "增加本机/云端/图片状态与离开确认、复制正文兜底",
+        "保留登录恢复、revision冲突和提交幂等链路"
+      ],
+      "rollback": "回退UI与状态适配，保留已保存草稿；不得清空localStorage或服务端草稿",
+      "acceptance_cases": [
+        "AC-003-01",
+        "AC-003-02",
+        "AC-003-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/draft-state-2026-10-02.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-02T14:55:59.946Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-02T15:29:56.651Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-02T15:29:56.651Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr003-2026-10-02/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-004",
+      "gate": "G1",
+      "priority": "P0",
+      "title": "通知未读与分页正确性",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-002"
+      ],
+      "goal": "未读筛选和全局计数由服务端范围定义，分页、并发和全部已读保持一致。",
+      "path_hints": "src/components/NotificationsView.tsx；src/api/notifications.ts；API/数据库通知模块",
+      "steps": [
+        "新增或复用服务端unread筛选与稳定游标",
+        "单条更新后返回或重取权威计数；请求版本避免旧响应覆盖",
+        "全部已读采用已定义水位语义，晚到通知保留未读"
+      ],
+      "rollback": "保留既有接口兼容；前端回退不回滚真实已读事实",
+      "acceptance_cases": [
+        "AC-004-01",
+        "AC-004-02",
+        "AC-004-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/notification-state-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-02T15:29:56.651Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-02T16:06:09.392Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-02T16:06:09.392Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr004-2026-10-02/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-005",
+      "gate": "G1",
+      "priority": "P0",
+      "title": "摘要口径与待办精确定位",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-002"
+      ],
+      "goal": "去掉局部数据冒充全局统计；具体待办直达对象，返回保留筛选与位置。",
+      "path_hints": "RightSidebar.tsx；AdminDashboard.tsx；hashRouter.ts；各管理列表",
+      "steps": [
+        "移除无权威来源的个人总数，必要摘要后端定义口径",
+        "待办链接带用户/版块/举报ID及返回上下文",
+        "未知显示不可用；近似摘要明确显示5+和统计范围"
+      ],
+      "rollback": "回退链接适配但保留旧链接解析；不回退已修正的统计口径",
+      "acceptance_cases": [
+        "AC-005-01",
+        "AC-005-02",
+        "AC-005-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/summary-state-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-02T16:06:09.392Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-02T16:32:56.969Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-02T16:32:56.969Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr005-2026-10-03/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-006",
+      "gate": "G1",
+      "priority": "P1",
+      "title": "页面数据与错误隔离",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-002"
+      ],
+      "goal": "会员、后台、搜索按区域加载；无关接口故障不阻断核心页面。",
+      "path_hints": "CommunityApp.tsx；AdminView.tsx；src/api/membership.ts；useTopicFeed.ts；SearchPage.tsx",
+      "steps": [
+        "会员详情数据下放页签，summary只含必要字段",
+        "邮件/品牌等配置下放对应页面；后台面板lazy",
+        "明确侧栏feed需求并取消无用请求；独立abort/状态/重试"
+      ],
+      "rollback": "按路由逐项回退；不让新旧请求同时运行；保留必要缓存失效",
+      "acceptance_cases": [
+        "AC-006-01",
+        "AC-006-02",
+        "AC-006-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/loading-isolation-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-02T16:32:56.969Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-02T17:01:19.790Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-02T17:01:19.790Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr006-2026-10-03/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-007",
+      "gate": "G2",
+      "priority": "P1",
+      "title": "公共设计系统与导航映射",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-001",
+        "DYR-002"
+      ],
+      "goal": "统一浅色后台、表格、表单、抽屉和状态语言；15个原模块全部可追踪。",
+      "path_hints": "packages/design-tokens（先核对）; src/components/ui；AdminView.tsx；路由定义",
+      "steps": [
+        "复用现有令牌，不全量替换CSS",
+        "建立本方案七组后台导航和旧路由映射",
+        "统一键盘焦点、危险确认、表单错误、窄屏布局"
+      ],
+      "rollback": "公共组件渐进替换；旧class保留过渡，不一次性删除全站样式",
+      "acceptance_cases": [
+        "AC-007-01",
+        "AC-007-02",
+        "AC-007-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/common-ui-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-02T17:01:19.790Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-02T17:25:13.566Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-02T17:25:13.566Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr007-2026-10-03/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-008",
+      "gate": "G2",
+      "priority": "P1",
+      "title": "用户组列表与成员授予",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-002",
+        "DYR-007"
+      ],
+      "goal": "按基础组与附加组组织普通会员身份；管理角色不混入组列表。",
+      "path_hints": "CommunityGroupAdminPanel.tsx；用户组/成员API；用户详情",
+      "steps": [
+        "改为可搜索列表，显示加入方式、状态、成员与授权摘要",
+        "内部键自动生成且保留高级查看，名称选择代替手输ID",
+        "用户详情授予/撤销组支持期限、原因、revision与审计"
+      ],
+      "rollback": "回退UI不撤销已生效授予；组授予撤销使用补偿操作并留审计",
+      "acceptance_cases": [
+        "AC-008-01",
+        "AC-008-02",
+        "AC-008-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/groups-and-grants-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-02T17:25:13.566Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-02T18:01:43.879Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-02T18:01:43.879Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr008-2026-10-03/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-009",
+      "gate": "G2",
+      "priority": "P1",
+      "title": "用户组编辑、复制与对比",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-002",
+        "DYR-007",
+        "DYR-008"
+      ],
+      "goal": "允许的动作、审核要求和额度分区编辑；变更影响清楚且不更改判权语义。",
+      "path_hints": "CommunityGroupQuotaDialog.tsx；CommunityGroupAdminPanel.tsx；组编辑API",
+      "steps": [
+        "能力用本组提供/不提供，审核要求单独字段映射既存规则",
+        "上传单位MiB可输入；0明确为无额度，不提供未实现的无限",
+        "复制草稿与2至4组差异比较；保存前呈现变化并做版本检查"
+      ],
+      "rollback": "配置回退用新revision补偿，不覆盖他人随后变更；保留旧记录",
+      "acceptance_cases": [
+        "AC-009-01",
+        "AC-009-02",
+        "AC-009-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/group-rules-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-02T18:01:43.881Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-02T18:26:18.137Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-02T18:26:18.137Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr009-2026-10-03/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-010",
+      "gate": "G2",
+      "priority": "P1",
+      "title": "版块设置与管理人员就地配置",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-002",
+        "DYR-007"
+      ],
+      "goal": "名称、层级、外观和访问规则易设置，管理员不再手输组ID/权益Key。",
+      "path_hints": "BoardAdminPanel.tsx；BoardTree；版块/访问策略API",
+      "steps": [
+        "用名称搜索器和图标选择器替代技术输入",
+        "隐藏与访问语义以实测为准并在UI同时说明",
+        "本版块任命管理人员带入scope；保留合并影响、回滚与删除校验"
+      ],
+      "rollback": "保留树与旧路由；结构变更只能走既有恢复接口及条件，禁止直接改数据库",
+      "acceptance_cases": [
+        "AC-010-01",
+        "AC-010-02",
+        "AC-010-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/boards-and-appointments-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-02T18:26:18.140Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-02T19:20:42.616Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-02T19:20:42.616Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr010-2026-10-03/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-011",
+      "gate": "G2",
+      "priority": "P1",
+      "title": "版块有效权限矩阵与预设",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-002",
+        "DYR-009",
+        "DYR-010"
+      ],
+      "goal": "第一版显示既有规则的有效结果与来源；不新增一套覆盖/deny引擎。",
+      "path_hints": "版块权限页面；社区动作/内容访问策略评估接口（候选契约见文档）",
+      "steps": [
+        "按浏览/发帖/回复/上传/下载显示多组场景结果",
+        "预设只展开成已有可表达规则，保存前展示差异",
+        "区分可计算、不适用、缺上下文与被限制；矩阵结果可查来源"
+      ],
+      "rollback": "只读矩阵可直接移除；预设写入通过原契约版本补偿",
+      "acceptance_cases": [
+        "AC-011-01",
+        "AC-011-02",
+        "AC-011-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/permission-matrix-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-02T19:20:42.616Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-02T20:09:23.430Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-02T20:19:25.005Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr011-2026-10-03/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-012",
+      "gate": "G2",
+      "priority": "P1",
+      "title": "管理团队与角色模板",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-002",
+        "DYR-007",
+        "DYR-010"
+      ],
+      "goal": "按人员和工作范围任命版主/审核员；保留细粒度角色能力但降低日常配置负担。",
+      "path_hints": "AuthorizationAdminPanel.tsx；authorization模块；管理用户选择器",
+      "steps": [
+        "角色预设仅组合现有权限键，保留自定义角色",
+        "任命显示人员、职务、版块/全站、子版与有效期",
+        "高危能力单独确认，防自提权与最后管理员失权"
+      ],
+      "rollback": "模板只是UI；已分配权限不自动删除，撤销需版本核对和补偿",
+      "acceptance_cases": [
+        "AC-012-01",
+        "AC-012-02",
+        "AC-012-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/roles-task-plan-2026-10-03.md",
+        "docs/handoffs/v3/team-roles-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-02T20:09:23.430Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-02T20:46:10.613Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-02T20:46:10.613Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr012-2026-10-03/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-013",
+      "gate": "G2",
+      "priority": "P1",
+      "title": "权限检查与拒绝原因解释",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-002",
+        "DYR-011",
+        "DYR-012"
+      ],
+      "goal": "给管理员一个只读检查工具，与实际请求路径共享判断，不扣额度、不泄露私有数据。",
+      "path_hints": "community_permissions.rs；content_access_policies.rs；authorization.rs；新增诊断契约候选",
+      "steps": [
+        "区分纯判断和实际消费；不能复用会消耗daily_quota的方法做检查",
+        "输入主体/资源/动作/时间，返回有效结果、来源、已用/上限",
+        "诊断服务鉴权；限定范围与脱敏；UI显示计算时刻且不作未来保证"
+      ],
+      "rollback": "关闭诊断入口不影响授权；授权实现变更须用特征回归验证",
+      "acceptance_cases": [
+        "AC-013-01",
+        "AC-013-02",
+        "AC-013-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/permission-check-task-plan-2026-10-03.md",
+        "docs/handoffs/v3/permission-check-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-02T20:46:10.613Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-02T21:58:59.153Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-02T21:58:59.153Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr013-2026-10-03/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-014",
+      "gate": "G3",
+      "priority": "P1",
+      "title": "成长规则与奖励执行边界",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-002",
+        "DYR-007",
+        "DYR-008"
+      ],
+      "goal": "成长配置易理解，等级不与可消费积分或管理角色混用；新旧奖励不双发。",
+      "path_hints": "MembershipAdminPage；experience模块；official-growth-rewards；事件执行器",
+      "steps": [
+        "等级表显示经验门槛和展示名，预览不改真实账户",
+        "奖励规则明确业务日/上限/幂等，不顺带更换UTC口径",
+        "内置化只在执行器互斥和历史事件水位确定后切换"
+      ],
+      "rollback": "回到旧执行器前核对水位和幂等键；不删除已发流水",
+      "acceptance_cases": [
+        "AC-014-01",
+        "AC-014-02",
+        "AC-014-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/growth-rules-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-03T06:41:48.155Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-03T07:22:31.557Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-03T07:22:31.557Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr014-2026-10-03/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-015",
+      "gate": "G3",
+      "priority": "P1",
+      "title": "积分账本与兑换体验",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-002",
+        "DYR-007"
+      ],
+      "goal": "余额、流水、调整与兑换清楚可追溯；不引入真实支付体系。",
+      "path_hints": "membership/redemptions Rust模块；积分页；管理员调整表单",
+      "steps": [
+        "余额与流水明确单位、来源、时间、操作者和请求号",
+        "调整显示变更前后、原因、幂等；敏感操作权限独立",
+        "兑换按模块状态显示，关闭后保留历史与已获得有效权益"
+      ],
+      "rollback": "账本只追加，错误用授权补偿分录；不UPDATE旧流水",
+      "acceptance_cases": [
+        "AC-015-01",
+        "AC-015-02",
+        "AC-015-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/points-ledger-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-03T07:23:26.810Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-03T08:24:48.682Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-03T08:24:48.682Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr015-2026-10-03/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-016",
+      "gate": "G3",
+      "priority": "P1",
+      "title": "勋章与标准权益管理",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-002",
+        "DYR-007",
+        "DYR-008"
+      ],
+      "goal": "勋章展示、授予撤销与权益版本明确，隐藏复杂入口不移除实际判权。",
+      "path_hints": "medal_assets/membership/standard_entitlements模块；对应前后台页面",
+      "steps": [
+        "勋章素材预览、公共可见与授予历史分开",
+        "权益类型/版本/授予有效期分开，按名称选择",
+        "用户详情展示最终来源；积分流水和私有权益不出现在公开主页"
+      ],
+      "rollback": "撤销/再授予走审计业务操作；保留旧素材和权益快照引用",
+      "acceptance_cases": [
+        "AC-016-01",
+        "AC-016-02",
+        "AC-016-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/medals-entitlements-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-03T08:24:48.682Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-03T08:56:11.118Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-03T08:56:11.118Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr016-2026-10-03/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-017",
+      "gate": "G3",
+      "priority": "P1",
+      "title": "内容治理闭环",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-002",
+        "DYR-007",
+        "DYR-012"
+      ],
+      "goal": "主题、评论、举报、编辑审核、风控和审计围绕具体对象联动，不再重复寻找。",
+      "path_hints": "ModerationAdminPanel；CommentAdminPanel；ReportAdminPanel；ContentReviewAdminPanel；风控与审计",
+      "steps": [
+        "列表统一筛选、详情、上下文和返回状态",
+        "批处理显示对象数、动作范围、原因与逐项结果",
+        "并发审核revision冲突提示；用户限制不与删除内容混为一谈"
+      ],
+      "rollback": "治理回退使用既有恢复/补偿操作；审计记录不可删除",
+      "acceptance_cases": [
+        "AC-017-01",
+        "AC-017-02",
+        "AC-017-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/governance-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-03T08:56:11.118Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-03T10:10:22.911Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-03T10:10:22.911Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr017-2026-10-03/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-018",
+      "gate": "G4",
+      "priority": "P1",
+      "title": "首页、版块与公开主页",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-005",
+        "DYR-006",
+        "DYR-007"
+      ],
+      "goal": "保留内容密度和版块层级，统一单列非瀑布流与作者公开身份。",
+      "path_hints": "TopicFeed；BoardDirectoryPage；BoardPage；UserProfileView；共享帖子卡",
+      "steps": [
+        "首页推荐/关注/最新仅一个状态来源，前3张方图预览",
+        "目录与子版块清晰，无版块成员数或加入圈子",
+        "公开主页与本人控制面板分开；无图帖不塞装饰图片"
+      ],
+      "rollback": "按组件切换；不迁移内容模型或重命名Topic/Post数据库对象",
+      "acceptance_cases": [
+        "AC-018-01",
+        "AC-018-02",
+        "AC-018-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/public-pages-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-03T10:10:22.911Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-03T10:39:08.029Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-03T10:39:08.029Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr018-2026-10-03/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-019",
+      "gate": "G4",
+      "priority": "P1",
+      "title": "帖子讨论与统一发布器",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-003",
+        "DYR-007",
+        "DYR-018"
+      ],
+      "goal": "详情以阅读和讨论为主；单一编辑器、标题可空、9图排序、无交易字段和强制预览。",
+      "path_hints": "TopicDetailView；Reply/Comment组件；TopicComposer；RichTextEditor",
+      "steps": [
+        "楼层、回复对象、引用定位和返回阅读位置",
+        "固定移动回复入口，禁止键盘遮住发布按钮",
+        "可选投票/补充/审核在能力启用时接入，不新建帖子类型"
+      ],
+      "rollback": "保留旧楼层链接和草稿格式；迁移格式提供读取兼容",
+      "acceptance_cases": [
+        "AC-019-01",
+        "AC-019-02",
+        "AC-019-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/discussion-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-03T10:39:08.029Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-03T11:45:13.461Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-03T11:45:13.461Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr019-2026-10-03/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-020",
+      "gate": "G4",
+      "priority": "P1",
+      "title": "会员中心与账号安全收敛",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-006",
+        "DYR-007",
+        "DYR-014",
+        "DYR-015",
+        "DYR-016"
+      ],
+      "goal": "前台概览轻量，详细积分权益按需加载；已有安全能力不被简洁模式切断。",
+      "path_hints": "MemberCenterPage；账号与个人设置；AuthPanel/OIDC/MFA/Passkey组件",
+      "steps": [
+        "概览显示成长/可见勋章，积分权益页延迟加载",
+        "安全设置独立于会员运营，保留登录恢复和设备会话",
+        "区分未启用、无权限、无数据、失败；隐私字段不前端隐藏了事"
+      ],
+      "rollback": "不删除凭据和已绑定身份；UI回退与认证配置独立",
+      "acceptance_cases": [
+        "AC-020-01",
+        "AC-020-02",
+        "AC-020-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/member-security-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-03T11:45:13.461Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-03T12:42:36.422Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-03T12:42:36.422Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr020-2026-10-03/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-021",
+      "gate": "G4",
+      "priority": "P1",
+      "title": "搜索、收藏和私信",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-004",
+        "DYR-006",
+        "DYR-007"
+      ],
+      "goal": "各类型结果独立加载；私信可达，收藏与搜索遵守最新访问策略。",
+      "path_hints": "SearchPage；BookmarksView；MessagesView；相关API",
+      "steps": [
+        "综合搜索各区独立状态和重试，筛选留在网址",
+        "私信会话入口与通知区分，发送失败保留输入",
+        "收藏取消、屏蔽后状态、不可访问目标作一致处理"
+      ],
+      "rollback": "维持旧筛选和会话深链，不自动删除用户收藏或消息",
+      "acceptance_cases": [
+        "AC-021-01",
+        "AC-021-02",
+        "AC-021-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/search-messages-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-03T12:42:36.422Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-03T13:33:41.745Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-03T13:33:41.745Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr021-2026-10-03/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-022",
+      "gate": "G4",
+      "priority": "P1",
+      "title": "移动后台与可访问性集成",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-007",
+        "DYR-009",
+        "DYR-011",
+        "DYR-012",
+        "DYR-017",
+        "DYR-019"
+      ],
+      "goal": "窄屏按任务操作，不把大权限表直接缩小；桌面键盘同样能完成。",
+      "path_hints": "公共壳；权限矩阵；治理详情；所有新增表单",
+      "steps": [
+        "矩阵在手机变成版块/用户组选择+分区结果",
+        "抽屉变全屏编辑并处理键盘/安全区/焦点恢复",
+        "对比度、错误关联、触控和减弱动画逐页检验"
+      ],
+      "rollback": "响应式按组件回退，不引入手机端独立授权逻辑",
+      "acceptance_cases": [
+        "AC-022-01",
+        "AC-022-02",
+        "AC-022-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/mobile-accessibility-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-03T13:33:41.745Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-03T14:21:46.231Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-03T14:21:46.231Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr022-2026-10-03/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-023",
+      "gate": "G5",
+      "priority": "P1",
+      "title": "扩展能力状态统一",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-002",
+        "DYR-007"
+      ],
+      "goal": "区分编译可用、环境启用、业务启用和用户授权；关闭扩展不伪装成暂无数据。",
+      "path_hints": "plugins.rs；plugin_business；polls/redemptions等；前端能力展示",
+      "steps": [
+        "建立轻量静态能力描述+运行时快照，不建设市场平台",
+        "操作前服务端读取有效业务状态，前端只负责显示",
+        "定义关闭后的历史读取/在途动作/排队任务/恢复规则"
+      ],
+      "rollback": "版本化状态转换；回退时确认旧版本能理解状态，不把off解释为open",
+      "acceptance_cases": [
+        "AC-023-01",
+        "AC-023-02",
+        "AC-023-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/extension-capabilities-2026-10-04.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-03T14:21:46.231Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-03T19:33:02.114Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-03T19:33:02.114Z"
+        }
+      ],
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr023-2026-10-03/verification.json"
+      ]
+    },
+    {
+      "id": "DYR-024",
+      "gate": "G5",
+      "priority": "P2",
+      "title": "官方内置扩展解耦",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-014",
+        "DYR-015",
+        "DYR-023"
+      ],
+      "goal": "静态面板型官方插件改为内置模块，Wasm只承担真实第三方执行需求。",
+      "path_hints": "plugins/official-*；apps/api/src扩展路由；infrastructure扩展领域",
+      "steps": [
+        "先试点投票：业务与provider标识迁移适配、历史外键保留",
+        "按试点结果迁移兑换/统计/补充/审核，不扩大宿主权限",
+        "保留受控记账和审计；去掉被替代的静态插件胶水，记录兼容期限"
+      ],
+      "rollback": "expand/contract分离；保留适配和旧标识，写入不兼容后不得只换旧镜像",
+      "acceptance_cases": [
+        "AC-024-01",
+        "AC-024-02",
+        "AC-024-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/builtin-extensions-2026-10-04.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "completed_at": "2026-10-03T20:33:31.184Z",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr024-2026-10-04/verification.json",
+        "artifacts/v3/dyr024-2026-10-04/source-manifest.json"
+      ]
+    },
+    {
+      "id": "DYR-025",
+      "gate": "G5",
+      "priority": "P2",
+      "title": "Wasm编译期可选化",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-023",
+        "DYR-024"
+      ],
+      "goal": "基础API构建不被迫编译plugin-host/Wasmtime；保留扩展版构建与沙箱。",
+      "path_hints": "apps/api/Cargo.toml；lib.rs/main.rs；crates/plugin-host；CI/build脚本",
+      "steps": [
+        "引入少量候选feature wasm-plugins并隔离pub use/路由/装配",
+        "按包构建基础API而不是误用workspace全成员",
+        "核对resolved feature图、OpenAPI导出和每种产物的测试选择"
+      ],
+      "rollback": "恢复兼容构建配置；已启用外部插件站点不得部署无Wasm支持产物",
+      "acceptance_cases": [
+        "AC-025-01",
+        "AC-025-02",
+        "AC-025-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/wasm-optional-2026-10-04.md",
+        "artifacts/v3/dyr025-2026-10-04/verification.json",
+        "artifacts/v3/dyr025-2026-10-04/source-manifest.json"
+      ],
+      "started_at": "2026-10-03T20:47:29.224Z",
+      "completed_at": "2026-10-03T21:44:00.909Z",
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-03T20:47:29.224Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-03T21:44:00.909Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-03T21:44:00.909Z"
+        }
+      ]
+    },
+    {
+      "id": "DYR-026",
+      "gate": "G5",
+      "priority": "P2",
+      "title": "站点设置与运维按需",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-002",
+        "DYR-006",
+        "DYR-007",
+        "DYR-023"
+      ],
+      "goal": "品牌邮件存储运维分区；高级告警可选，底线任务和数据恢复保留。",
+      "path_hints": "AdminView；operations_worker.rs；main.rs；storage/cache/email；备份脚本候选",
+      "steps": [
+        "告警worker受独立配置控制并准确报告未启用",
+        "确认Redis职责再考虑移除，保留S3既有optional feature",
+        "备份列出数据库/附件/密钥/配置与恢复步骤，脱敏错误信息"
+      ],
+      "rollback": "启动旧worker前核对任务水位；存储切换不移动/删除旧附件",
+      "acceptance_cases": [
+        "AC-026-01",
+        "AC-026-02",
+        "AC-026-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/operations-storage-2026-10-04.md",
+        "artifacts/v3/dyr026-2026-10-04/verification.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-04T08:27:36.493Z"
+        },
+        {
+          "status": "REVIEW",
+          "at": "2026-10-04T09:32:16.906Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-04T09:32:16.906Z"
+        }
+      ]
+    },
+    {
+      "id": "DYR-027",
+      "gate": "G6",
+      "priority": "P2",
+      "title": "公开网址与搜索引擎准备",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-018",
+        "DYR-019",
+        "DYR-021",
+        "DYR-028"
+      ],
+      "goal": "公开内容采用可直接访问的路径；保留hash旧链，受限内容不输出公开摘要。",
+      "path_hints": "hashRouter/communityRoute；部署反向代理；公开页render与站点地图候选",
+      "steps": [
+        "仅在公开传播目标确认后启用，主体验发布不被它阻塞",
+        "规划/t /b /u和hash客户端兼容；服务器正确404/403及重写",
+        "必要公开页SSR或预渲染，canonical、摘要、sitemap只含公开内容"
+      ],
+      "rollback": "双路由过渡；保留旧hash兼容；路由回退不清缓存私有数据到公开路径",
+      "acceptance_cases": [
+        "AC-027-01",
+        "AC-027-02",
+        "AC-027-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/verification.json"
+      ],
+      "condition": "本轮纳入公开传播准备并通过当前本地环境验收；未部署。",
+      "previous_status": "PLANNED",
+      "blockers": [],
+      "original_condition": "公开传播目标尚未启用；按计划条件执行，不阻塞核心交付。",
+      "completed_at": "2026-10-05T02:44:12.504Z",
+      "transitions": [
+        {
+          "status": "DONE",
+          "at": "2026-10-05T02:44:12.504Z",
+          "scope": "CURRENT_V3_LOCAL_STAGE"
+        }
+      ]
+    },
+    {
+      "id": "DYR-028",
+      "gate": "G6",
+      "priority": "P0",
+      "title": "全链路授权与契约回归",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-013",
+        "DYR-017",
+        "DYR-018",
+        "DYR-019",
+        "DYR-020",
+        "DYR-021",
+        "DYR-023"
+      ],
+      "goal": "对实际操作和所有读入口执行权限回归，确保UI收敛没有改变访问边界。",
+      "path_hints": "前后端测试；api-contract；migrations；缓存/搜索/附件入口",
+      "steps": [
+        "按角色/组/权益/限制/到期/资源组合矩阵执行",
+        "验证CSRF/幂等/revision/请求错误/隐藏内容及会话失效",
+        "OpenAPI重生成零意外差异，旧客户端兼容测试"
+      ],
+      "rollback": "任何授权不一致阻断发布；修复不能靠删除失败用例或降低权限检查",
+      "acceptance_cases": [
+        "AC-028-01",
+        "AC-028-02",
+        "AC-028-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/full-regression-release-2026-10-04.md",
+        "docs/handoffs/v3/full-regression-acceptance-2026-10-04.json",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/verification.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-04T10:24:37Z"
+        },
+        {
+          "status": "BLOCKED",
+          "at": "2026-10-04T14:46:22.591Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-05T02:44:12.504Z",
+          "scope": "CURRENT_V3_LOCAL_STAGE"
+        }
+      ],
+      "blockers": [],
+      "previous_status": "BLOCKED",
+      "resolved_blockers": [
+        "软键盘展开的实际移动环境与CDN边缘验证范围尚未执行；当前功能、权限、契约与草稿格式测试已通过"
+      ],
+      "completed_at": "2026-10-05T02:44:12.504Z"
+    },
+    {
+      "id": "DYR-029",
+      "gate": "G6",
+      "priority": "P1",
+      "title": "性能、构建与产物矩阵",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-003",
+        "DYR-004",
+        "DYR-005",
+        "DYR-006",
+        "DYR-022",
+        "DYR-025",
+        "DYR-026",
+        "DYR-028"
+      ],
+      "goal": "按相同机器/数据/负载记录改善，不承诺未经测量的降幅。",
+      "path_hints": "测试和构建脚本；CI配置；指标证据目录",
+      "steps": [
+        "同机器执行当前V3强制重编译/增量构建各五轮，记录中位数、p95和缓存边界",
+        "基础/Wasm/S3/组合最终release产物构建与实际启动、能力、历史S3附件回归",
+        "首页HAR、懒加载和现有SQL证据核对；旧V2历史性能/源码恢复不再作为前置"
+      ],
+      "rollback": "不通过则不提升发布候选；保留基线数据和可复现脚本",
+      "acceptance_cases": [
+        "AC-029-01",
+        "AC-029-02",
+        "AC-029-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/full-regression-release-2026-10-04.md",
+        "docs/handoffs/v3/full-regression-acceptance-2026-10-04.json",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/verification.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-04T10:24:37Z"
+        },
+        {
+          "status": "BLOCKED",
+          "at": "2026-10-04T14:46:22.591Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-05T02:44:12.504Z",
+          "scope": "CURRENT_V3_LOCAL_STAGE"
+        }
+      ],
+      "blockers": [],
+      "previous_status": "BLOCKED",
+      "resolved_blockers": [
+        "历史版本前后性能对比与冷OS采样未执行；当前候选测量和四配置产物已通过，不阻挡当前功能审计"
+      ],
+      "original_steps": [
+        "固定基线和候选分别测冷/热构建、体积、启动、RSS、DB请求与核心延迟",
+        "基础/Wasm/S3/组合配置执行约定构建与回归",
+        "记录浏览器HAR、JS chunk、SQL调用和隐藏页面请求量"
+      ],
+      "scope": "CURRENT_V3_ONLY",
+      "completed_at": "2026-10-05T02:44:12.504Z"
+    },
+    {
+      "id": "DYR-030",
+      "gate": "G6",
+      "priority": "P0",
+      "title": "迁移恢复演练与最终交接",
+      "status": "DONE",
+      "depends_on": [
+        "DYR-024",
+        "DYR-026",
+        "DYR-028",
+        "DYR-029"
+      ],
+      "goal": "干净检出独立复验、升级恢复可执行、剩余项明确；不自动生产部署。",
+      "path_hints": "docs/handoffs；迁移/备份恢复；release manifest；完整性校验",
+      "steps": [
+        "在隔离环境备份→升级→抽样/计数/不变量→恢复演练",
+        "记录每项任务真实状态、commit、日志、截图与未完成",
+        "生成候选产物摘要、SHA256和部署/回退边界，生产变更另获授权"
+      ],
+      "rollback": "保留旧产物和升级前备份；恢复依赖明确RPO且任何丢数需单独确认",
+      "acceptance_cases": [
+        "AC-030-01",
+        "AC-030-02",
+        "AC-030-03"
+      ],
+      "evidence": [
+        "docs/handoffs/v3/full-regression-release-2026-10-04.md",
+        "docs/handoffs/v3/full-regression-acceptance-2026-10-04.json",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/verification.json"
+      ],
+      "transitions": [
+        {
+          "status": "IN_PROGRESS",
+          "at": "2026-10-04T10:24:37Z"
+        },
+        {
+          "status": "BLOCKED",
+          "at": "2026-10-04T14:46:22.591Z"
+        },
+        {
+          "status": "DONE",
+          "at": "2026-10-05T02:44:12.504Z",
+          "scope": "CURRENT_V3_LOCAL_STAGE"
+        }
+      ],
+      "blockers": [],
+      "previous_status": "BLOCKED",
+      "resolved_blockers": [
+        "DYR-028/029最终发布环境与历史性能结论尚未闭合；本项当前恢复、RPO和非空旧结构迁移行为已通过"
+      ],
+      "completed_at": "2026-10-05T02:44:12.504Z"
+    }
+  ],
+  "status": "COMPLETED",
+  "updated_at": "2026-10-05T02:44:12.504Z",
+  "current_scope": {
+    "current": "当前V3本地实现、自动验收、产物和交接",
+    "user_instruction": "旧V2不用管；完成当前阶段就停止",
+    "old_v2": "OUT_OF_SCOPE",
+    "physical_keyboard": "NOT_RUN; BROWSER_VIEWPORT_MODEL_VERIFIED",
+    "external_cdn": "NOT_CONFIGURED; ACTUAL_LOCAL_PROXY_AND_BROWSER_CACHE_VERIFIED",
+    "production_deployment": "NOT_REQUESTED"
+  },
+  "latest_handoff": "docs/handoffs/v3/final-current-v3-2026-10-05.md"
+}

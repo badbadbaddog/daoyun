@@ -1,0 +1,2160 @@
+{
+  "status": "PASS",
+  "cases": [
+    {
+      "id": "AC-001-01",
+      "task": "DYR-001",
+      "precondition": "工作树有用户改动",
+      "steps": "执行基线检查",
+      "expected": "改动完整保留且记录为DIRTY，不做清理",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/baseline-2026-10-02.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/baseline-2026-10-02/baseline-summary.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-001-02",
+      "task": "DYR-001",
+      "precondition": "数据库不可用",
+      "steps": "运行数据库用例",
+      "expected": "标为BLOCKED而不是PASS",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/baseline-2026-10-02.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/baseline-2026-10-02/baseline-summary.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-001-03",
+      "task": "DYR-001",
+      "precondition": "旧任务标记完成",
+      "steps": "对比证据",
+      "expected": "只补缺口，不重复改造或复用旧PASS",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/baseline-2026-10-02.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/baseline-2026-10-02/baseline-summary.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-002-01",
+      "task": "DYR-002",
+      "precondition": "两组限额10与20",
+      "steps": "计算同一额度",
+      "expected": "结果20而不是30",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/authorization-freeze-2026-10-02.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/baseline-2026-10-02/logs/dyr002-characterization-fixed.log",
+        "artifacts/v3/baseline-2026-10-02/logs/dyr002-permissions-regression.log",
+        "artifacts/v3/baseline-2026-10-02/logs/dyr002-clippy.log",
+        "artifacts/v3/baseline-2026-10-02/authorization-contract-observations.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-002-02",
+      "task": "DYR-002",
+      "precondition": "基础组未授权且附加权益授权",
+      "steps": "请求动作",
+      "expected": "不因基础组未勾选误判全局禁止",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/authorization-freeze-2026-10-02.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/baseline-2026-10-02/logs/dyr002-characterization-fixed.log",
+        "artifacts/v3/baseline-2026-10-02/logs/dyr002-permissions-regression.log",
+        "artifacts/v3/baseline-2026-10-02/logs/dyr002-clippy.log",
+        "artifacts/v3/baseline-2026-10-02/authorization-contract-observations.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-002-03",
+      "task": "DYR-002",
+      "precondition": "到期时间恰好相等",
+      "steps": "调用实际授权路径",
+      "expected": "过期来源不再贡献权限且解释一致",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/authorization-freeze-2026-10-02.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/baseline-2026-10-02/logs/dyr002-characterization-fixed.log",
+        "artifacts/v3/baseline-2026-10-02/logs/dyr002-permissions-regression.log",
+        "artifacts/v3/baseline-2026-10-02/logs/dyr002-clippy.log",
+        "artifacts/v3/baseline-2026-10-02/authorization-contract-observations.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-003-01",
+      "task": "DYR-003",
+      "precondition": "localStorage抛配额错误且云端失败",
+      "steps": "关闭编辑器",
+      "expected": "提示未保存并默认保留内容",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/draft-state-2026-10-02.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr003-2026-10-02/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-003-02",
+      "task": "DYR-003",
+      "precondition": "图片上传失败",
+      "steps": "重试并调整排序",
+      "expected": "成功图片不重传且原有次序保留",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/draft-state-2026-10-02.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr003-2026-10-02/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-003-03",
+      "task": "DYR-003",
+      "precondition": "服务端已接受但响应超时",
+      "steps": "用原幂等键重试",
+      "expected": "不重复发帖并恢复成功状态",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/draft-state-2026-10-02.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr003-2026-10-02/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-004-01",
+      "task": "DYR-004",
+      "precondition": "55条未读且只加载20条",
+      "steps": "标一条已读",
+      "expected": "全局54而不是19",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/notification-state-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr004-2026-10-02/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-004-02",
+      "task": "DYR-004",
+      "precondition": "首页20条已读且后页有未读",
+      "steps": "切未读",
+      "expected": "仍返回后页未读而非空状态",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/notification-state-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr004-2026-10-02/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-004-03",
+      "task": "DYR-004",
+      "precondition": "全部已读期间新通知到达",
+      "steps": "按确认水位执行",
+      "expected": "新通知保留并正确计数",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/notification-state-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr004-2026-10-02/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-005-01",
+      "task": "DYR-005",
+      "precondition": "本人有50帖但feed含2帖",
+      "steps": "打开首页",
+      "expected": "不展示我的发布=2",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/summary-state-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr005-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-005-02",
+      "task": "DYR-005",
+      "precondition": "工作台点击受限用户A",
+      "steps": "返回",
+      "expected": "详情定位A并恢复原列表筛选",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/summary-state-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr005-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-005-03",
+      "task": "DYR-005",
+      "precondition": "摘要接口失败",
+      "steps": "页面渲染",
+      "expected": "显示暂不可用而不是0",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/summary-state-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr005-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-006-01",
+      "task": "DYR-006",
+      "precondition": "SMTP配置返回500",
+      "steps": "进入举报页",
+      "expected": "举报可处理且不依赖SMTP",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/loading-isolation-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr006-2026-10-03/browser-reviewed-results.json",
+        "artifacts/v3/dyr006-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-006-02",
+      "task": "DYR-006",
+      "precondition": "只打开成长页",
+      "steps": "检查请求",
+      "expected": "不预取积分流水和全部权益",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/loading-isolation-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr006-2026-10-03/browser-reviewed-results.json",
+        "artifacts/v3/dyr006-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-006-03",
+      "task": "DYR-006",
+      "precondition": "直接打开版块详情",
+      "steps": "检查网络",
+      "expected": "无未使用的全站feed请求",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/loading-isolation-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr006-2026-10-03/browser-reviewed-results.json",
+        "artifacts/v3/dyr006-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-007-01",
+      "task": "DYR-007",
+      "precondition": "访问旧后台深链",
+      "steps": "导航",
+      "expected": "定位同一功能不变404",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/common-ui-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr007-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-007-02",
+      "task": "DYR-007",
+      "precondition": "键盘打开抽屉再关闭",
+      "steps": "观察焦点",
+      "expected": "返回触发按钮且不越过弹层",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/common-ui-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr007-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-007-03",
+      "task": "DYR-007",
+      "precondition": "320px宽",
+      "steps": "使用公共壳",
+      "expected": "无整页横向溢出且主要操作可达",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/common-ui-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr007-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-008-01",
+      "task": "DYR-008",
+      "precondition": "组有同名展示名",
+      "steps": "搜索选择",
+      "expected": "以稳定ID区分且显示辅助信息",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/groups-and-grants-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr008-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-008-02",
+      "task": "DYR-008",
+      "precondition": "给用户授予限时附加组",
+      "steps": "到期",
+      "expected": "权限来源按服务端时间失效",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/groups-and-grants-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr008-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-008-03",
+      "task": "DYR-008",
+      "precondition": "普通运营账号试图授予管理角色",
+      "steps": "从本入口操作",
+      "expected": "无此选项且服务端拒绝越权",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/groups-and-grants-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr008-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-009-01",
+      "task": "DYR-009",
+      "precondition": "0 MiB",
+      "steps": "保存并验证",
+      "expected": "表示无此额度，不解释为无限",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/group-rules-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr009-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-009-02",
+      "task": "DYR-009",
+      "precondition": "两管理员同时编辑",
+      "steps": "后者旧revision保存",
+      "expected": "提示冲突且保留输入",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/group-rules-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr009-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-009-03",
+      "task": "DYR-009",
+      "precondition": "复制一个组",
+      "steps": "尚未确认保存",
+      "expected": "只形成新草稿不覆盖来源组",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/group-rules-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr009-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-010-01",
+      "task": "DYR-010",
+      "precondition": "选内测成员访问",
+      "steps": "保存",
+      "expected": "写入原组ID而不是展示名",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/boards-and-appointments-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr010-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-010-02",
+      "task": "DYR-010",
+      "precondition": "版块有子版与内容",
+      "steps": "点击删除",
+      "expected": "先展示影响并按规则阻止非法删除",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/boards-and-appointments-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr010-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-010-03",
+      "task": "DYR-010",
+      "precondition": "在技术交流添加版主",
+      "steps": "进入任命",
+      "expected": "自动带入当前范围并可确认",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/boards-and-appointments-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr010-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-011-01",
+      "task": "DYR-011",
+      "precondition": "组无上传但权益有上传",
+      "steps": "在指定用户场景检查",
+      "expected": "体现实际权益来源",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/permission-matrix-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr011-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-011-02",
+      "task": "DYR-011",
+      "precondition": "配置当前引擎无法表达的条件",
+      "steps": "尝试预设",
+      "expected": "不默默丢弃条件或放宽权限",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/permission-matrix-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr011-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-011-03",
+      "task": "DYR-011",
+      "precondition": "受限父版块下子版块",
+      "steps": "比较改造前后",
+      "expected": "可见性不被UI改造放宽",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/permission-matrix-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr011-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-012-01",
+      "task": "DYR-012",
+      "precondition": "版主只管理A版",
+      "steps": "操作B版内容",
+      "expected": "服务端拒绝",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/team-roles-2026-10-03.md",
+        "docs/handoffs/v3/roles-task-plan-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "executed_at": "2026-10-02T20:46:10.613Z",
+      "actual": "A exact succeeds, B and child forbidden; subtree permits child while B stays forbidden",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr012-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-012-02",
+      "task": "DYR-012",
+      "precondition": "任命页选择包含子版",
+      "steps": "实际模型不支持该选项",
+      "expected": "禁用并解释而非假装生效",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/team-roles-2026-10-03.md",
+        "docs/handoffs/v3/roles-task-plan-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "executed_at": "2026-10-02T20:46:10.613Z",
+      "actual": "Server exact/subtree support preserved; unsupported expiry/reason disabled and explained; stored scope mode shown",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr012-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-012-03",
+      "task": "DYR-012",
+      "precondition": "撤销最后可管理站点的管理员",
+      "steps": "提交",
+      "expected": "按冻结的保护规则拒绝并审计",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/team-roles-2026-10-03.md",
+        "docs/handoffs/v3/roles-task-plan-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "executed_at": "2026-10-02T20:46:10.613Z",
+      "actual": "Protected administrator deletion 409 with correlated request_id, assignment retained and refusal audit; self-elevation 422 without assignment change",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr012-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-013-01",
+      "task": "DYR-013",
+      "precondition": "检查上传权限连续10次",
+      "steps": "查询用量",
+      "expected": "不增加任何额度消费或账本",
+      "status": "PASS",
+      "evidence": [
+        "apps/api/tests/admin.rs:permission_check_is_read_only_and_never_authorizes_a_later_upload",
+        "e2e/v3-live-permission-check.spec.ts:58",
+        "docs/handoffs/v3/permission-check-task-plan-2026-10-03.md",
+        "docs/handoffs/v3/permission-check-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "accepted_at": "2026-10-02T21:58:59.153Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr013-2026-10-03/browser-cumulative-results.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-013-02",
+      "task": "DYR-013",
+      "precondition": "诊断结果允许后管理员撤销组",
+      "steps": "用户提交",
+      "expected": "实际动作重新校验并拒绝",
+      "status": "PASS",
+      "evidence": [
+        "apps/api/tests/admin.rs:permission_check_is_read_only_and_never_authorizes_a_later_upload",
+        "e2e/v3-live-permission-check.spec.ts:70",
+        "docs/handoffs/v3/permission-check-task-plan-2026-10-03.md",
+        "docs/handoffs/v3/permission-check-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "accepted_at": "2026-10-02T21:58:59.153Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr013-2026-10-03/browser-cumulative-results.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-013-03",
+      "task": "DYR-013",
+      "precondition": "普通用户请求他人诊断",
+      "steps": "服务端处理",
+      "expected": "不泄露内部授权与治理原因",
+      "status": "PASS",
+      "evidence": [
+        "apps/api/tests/admin.rs:permission_check_is_read_only_and_never_authorizes_a_later_upload",
+        "e2e/v3-live-permission-check.spec.ts:88",
+        "docs/handoffs/v3/permission-check-task-plan-2026-10-03.md",
+        "docs/handoffs/v3/permission-check-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "accepted_at": "2026-10-02T21:58:59.153Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr013-2026-10-03/browser-cumulative-results.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-014-01",
+      "task": "DYR-014",
+      "precondition": "扣减可消费积分",
+      "steps": "读取成长等级",
+      "expected": "经验和等级不下降",
+      "status": "PASS",
+      "evidence": [
+        "crates/infrastructure/tests/experience.rs:spending_points_preserves_experience_level_and_revision",
+        "docs/handoffs/v3/growth-rules-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T07:22:31.557Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr014-2026-10-03/logs/growth-ledger-invariants.log"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-014-02",
+      "task": "DYR-014",
+      "precondition": "同一奖励事件重放",
+      "steps": "执行",
+      "expected": "只记一次经验",
+      "status": "PASS",
+      "evidence": [
+        "apps/api/tests/plugin_business_component.rs:official_growth_component_runs_from_outbox_through_worker_to_ledger",
+        "docs/handoffs/v3/growth-rules-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T07:22:31.557Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr014-2026-10-03/logs/growth-real-component-verified.log"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-014-03",
+      "task": "DYR-014",
+      "precondition": "新旧执行器误同时配置",
+      "steps": "启动或切换",
+      "expected": "拒绝或明确唯一执行者不双发",
+      "status": "PASS",
+      "evidence": [
+        "apps/api/tests/growth_executor.rs",
+        "docs/handoffs/v3/growth-rules-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T07:22:31.557Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr014-2026-10-03/logs/green-growth-executor.log",
+        "artifacts/v3/dyr014-2026-10-03/default-executor-check.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-015-01",
+      "task": "DYR-015",
+      "precondition": "同一积分调整请求重试",
+      "steps": "提交两次",
+      "expected": "只入账一次",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/points-ledger-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T08:24:48.682Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr015-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-015-02",
+      "task": "DYR-015",
+      "precondition": "余额不足",
+      "steps": "兑换",
+      "expected": "积分/商品/权益均无半成功状态",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/points-ledger-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T08:24:48.682Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr015-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-015-03",
+      "task": "DYR-015",
+      "precondition": "关闭兑换",
+      "steps": "查看旧订单与有效权益",
+      "expected": "历史可查且不被撤销",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/points-ledger-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T08:24:48.682Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr015-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-016-01",
+      "task": "DYR-016",
+      "precondition": "私有权益存在",
+      "steps": "访问公开主页API",
+      "expected": "不返回私有字段",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/medals-entitlements-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T08:56:11.118Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr016-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-016-02",
+      "task": "DYR-016",
+      "precondition": "改权益类型新版本",
+      "steps": "读取已有授予",
+      "expected": "按既有快照规则不静默篡改",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/medals-entitlements-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T08:56:11.118Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr016-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-016-03",
+      "task": "DYR-016",
+      "precondition": "撤销勋章",
+      "steps": "重试同操作",
+      "expected": "保留准确追加记录不制造重复事实",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/medals-entitlements-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T08:56:11.118Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr016-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-017-01",
+      "task": "DYR-017",
+      "precondition": "两个版主审核同一编辑版本",
+      "steps": "先后确认",
+      "expected": "后者不覆盖已处理结果",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/governance-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T10:10:22.911Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr017-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-017-02",
+      "task": "DYR-017",
+      "precondition": "批处理10项中2项无权限",
+      "steps": "执行",
+      "expected": "明确8成功2失败且可单独重试",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/governance-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T10:10:22.911Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr017-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-017-03",
+      "task": "DYR-017",
+      "precondition": "举报目标不可见",
+      "steps": "有范围权限的审核员查看",
+      "expected": "只展示授权范围证据",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/governance-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T10:10:22.911Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr017-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-018-01",
+      "task": "DYR-018",
+      "precondition": "九图帖且有受限媒体",
+      "steps": "看feed",
+      "expected": "只预览当前可访问前3张",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/public-pages-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T10:39:08.029Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr018-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-018-02",
+      "task": "DYR-018",
+      "precondition": "320/768/1024/1440px",
+      "steps": "看1/2/3图卡",
+      "expected": "指标顺序一致不瀑布流",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/public-pages-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T10:39:08.029Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr018-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-018-03",
+      "task": "DYR-018",
+      "precondition": "公开访问他人主页",
+      "steps": "检查响应",
+      "expected": "无草稿、积分流水、私信和设备信息",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/public-pages-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T10:39:08.029Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr018-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-019-01",
+      "task": "DYR-019",
+      "precondition": "从通知点某楼",
+      "steps": "帖子分页",
+      "expected": "定位对应楼层并保留上下文",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/discussion-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T11:45:13.461Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr019-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-019-02",
+      "task": "DYR-019",
+      "precondition": "标题空且正文有效",
+      "steps": "发布",
+      "expected": "按既有模型成功",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/discussion-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T11:45:13.461Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr019-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-019-03",
+      "task": "DYR-019",
+      "precondition": "键盘打开/网络失败",
+      "steps": "回复",
+      "expected": "文本保留且可重试不重复提交",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/discussion-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T11:45:13.461Z",
+      "scope": "Headless Chromium network-loss retry and emulated visual viewport only; physical soft keyboard NOT_RUN, tracked in DYR-022",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr019-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-020-01",
+      "task": "DYR-020",
+      "precondition": "已绑定TOTP用户",
+      "steps": "简洁界面登录",
+      "expected": "保持验证与恢复路径",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/member-security-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T12:42:36.422Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr020-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-020-02",
+      "task": "DYR-020",
+      "precondition": "权益接口失败",
+      "steps": "看成长",
+      "expected": "成长页正常且权益独立重试",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/member-security-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T12:42:36.422Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr020-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-020-03",
+      "task": "DYR-020",
+      "precondition": "登录失效",
+      "steps": "正在编辑资料或草稿",
+      "expected": "不清空未提交输入且可安全恢复",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/member-security-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T12:42:36.422Z",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr020-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-021-01",
+      "task": "DYR-021",
+      "precondition": "用户搜索500且帖子成功",
+      "steps": "综合搜索",
+      "expected": "显示帖子并局部重试用户",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/search-messages-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr021-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-021-02",
+      "task": "DYR-021",
+      "precondition": "网络超时发送私信",
+      "steps": "重试",
+      "expected": "按现有防重契约不重复",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/search-messages-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr021-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-021-03",
+      "task": "DYR-021",
+      "precondition": "原公开帖子变受限",
+      "steps": "搜索收藏旧链接",
+      "expected": "不泄露正文与受限摘要",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/search-messages-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr021-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-022-01",
+      "task": "DYR-022",
+      "precondition": "390px手机",
+      "steps": "比较权限",
+      "expected": "可选组查看，不需整页横滑",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/mobile-accessibility-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T14:21:46.231Z",
+      "scope": "Headless Chromium keyboard, scoped Axe, five viewport widths and 200% equivalent layout. Actual browser Chrome zoom/physical keyboard/soft keyboard/screen reader NOT_RUN.",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr022-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-022-02",
+      "task": "DYR-022",
+      "precondition": "纯键盘",
+      "steps": "完成任命再取消",
+      "expected": "顺序合理并回到触发按钮",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/mobile-accessibility-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T14:21:46.231Z",
+      "scope": "Headless Chromium keyboard, scoped Axe, five viewport widths and 200% equivalent layout. Actual browser Chrome zoom/physical keyboard/soft keyboard/screen reader NOT_RUN.",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr022-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-022-03",
+      "task": "DYR-022",
+      "precondition": "200%缩放/错误提交",
+      "steps": "读取表单",
+      "expected": "标签错误关联且可定位",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/mobile-accessibility-2026-10-03.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T14:21:46.231Z",
+      "scope": "Headless Chromium keyboard, scoped Axe, five viewport widths and 200% equivalent layout. Actual browser Chrome zoom/physical keyboard/soft keyboard/screen reader NOT_RUN.",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr022-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-023-01",
+      "task": "DYR-023",
+      "precondition": "数据库投票provider启用但Wasm关闭",
+      "steps": "重启检查",
+      "expected": "按明确分离后的规则一致显示和执行",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/extension-capabilities-2026-10-04.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T19:33:02.114Z",
+      "scope": "Same isolated database restart with Wasm off; native snapshot + real poll vote/replay. Fresh polls seeded with SQL; no claim of API poll creation/quota validation.",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr023-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-023-02",
+      "task": "DYR-023",
+      "precondition": "运行中关闭扩展",
+      "steps": "旧页面继续提交",
+      "expected": "服务端拒绝新的扩展动作",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/extension-capabilities-2026-10-04.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T19:33:02.114Z",
+      "scope": "Desktop/mobile stale-page vote rejected after audited native provider disable; historical read retains original hidden-count policy.",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr023-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-023-03",
+      "task": "DYR-023",
+      "precondition": "关闭后重新打开",
+      "steps": "历史任务",
+      "expected": "不会重复发奖励或重做已完成操作",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/extension-capabilities-2026-10-04.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T19:33:02.114Z",
+      "scope": "SQLx lifecycle-lock/disable/resume test skips completed deliveries/tasks; complete existing stable-key growth replay asserts one ledger entry. No second writer.",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr023-2026-10-03/verification.json"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-024-01",
+      "task": "DYR-024",
+      "precondition": "旧投票provider_key有历史记录",
+      "steps": "迁移",
+      "expected": "仍能读取且所有权不丢失",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/builtin-extensions-2026-10-04.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T20:33:31.184Z",
+      "scope": "isolated historical clone and fresh fixtures; retained provider identity/status; real old/native API read/write/replay, blocked incompatible rollback and independent backup restore",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr024-2026-10-04/final-legacy-upgrade-evidence.json",
+        "artifacts/v3/dyr024-2026-10-04/logs/migration-final.log"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-024-02",
+      "task": "DYR-024",
+      "precondition": "旧插件disabled",
+      "steps": "升级",
+      "expected": "对应内置模块不能自动变enabled",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/builtin-extensions-2026-10-04.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T20:33:31.184Z",
+      "scope": "isolated historical clone and fresh fixtures; retained provider identity/status; real old/native API read/write/replay, blocked incompatible rollback and independent backup restore",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr024-2026-10-04/final-legacy-upgrade-evidence.json",
+        "artifacts/v3/dyr024-2026-10-04/browser-verified/",
+        "artifacts/v3/dyr024-2026-10-04/logs/api-final.log"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-024-03",
+      "task": "DYR-024",
+      "precondition": "回退旧二进制",
+      "steps": "读写兼容演练",
+      "expected": "不能理解新结构则阻断回退并使用恢复方案",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/builtin-extensions-2026-10-04.md",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/test-summary.json"
+      ],
+      "verified_at": "2026-10-03T20:33:31.184Z",
+      "scope": "isolated historical clone and fresh fixtures; retained provider identity/status; real old/native API read/write/replay, blocked incompatible rollback and independent backup restore",
+      "area": "",
+      "historical_evidence_unavailable": [
+        "artifacts/v3/dyr024-2026-10-04/legacy-compatible-read-write.json",
+        "artifacts/v3/dyr024-2026-10-04/native-rollback-guard-final.json",
+        "artifacts/v3/dyr024-2026-10-04/restored-backup-evidence.json",
+        "artifacts/v3/dyr024-2026-10-04/logs/old-binary-final-guard.log"
+      ],
+      "evidence_note": "保留既有历史验收结论与交接记录；原始日志引用单独标为不可用。当前源码通过本轮完整门禁，不声称重新执行每个历史人工用例。"
+    },
+    {
+      "id": "AC-025-01",
+      "task": "DYR-025",
+      "precondition": "基础包无默认features",
+      "steps": "cargo tree",
+      "expected": "依赖闭包无plugin-host/wasmtime",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/wasm-optional-2026-10-04.md",
+        "artifacts/v3/dyr025-2026-10-04/verification.json"
+      ],
+      "area": ""
+    },
+    {
+      "id": "AC-025-02",
+      "task": "DYR-025",
+      "precondition": "Wasm版开启feature",
+      "steps": "运行宿主安全测试",
+      "expected": "沙箱/配额/权限边界不退化",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/wasm-optional-2026-10-04.md",
+        "artifacts/v3/dyr025-2026-10-04/verification.json"
+      ],
+      "area": ""
+    },
+    {
+      "id": "AC-025-03",
+      "task": "DYR-025",
+      "precondition": "运行全workspace开发测试",
+      "steps": "核对报告",
+      "expected": "不把此构建耗时冒充基础发布版",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/wasm-optional-2026-10-04.md",
+        "artifacts/v3/dyr025-2026-10-04/verification.json"
+      ],
+      "area": ""
+    },
+    {
+      "id": "AC-026-01",
+      "task": "DYR-026",
+      "precondition": "关闭高级告警",
+      "steps": "启动",
+      "expected": "不启动评估worker但健康检查和业务任务正常",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/operations-storage-2026-10-04.md",
+        "artifacts/v3/dyr026-2026-10-04/verification.json"
+      ],
+      "verified_at": "2026-10-04T09:32:16.906Z",
+      "scope": "Isolated PostgreSQL full restore, actual local and loopback S3 adapter objects, MFA/SMTP/registration decryption, permissions and workers; production S3/Linux/physical devices NOT_RUN",
+      "area": ""
+    },
+    {
+      "id": "AC-026-02",
+      "task": "DYR-026",
+      "precondition": "已有S3附件",
+      "steps": "改本地新写入配置",
+      "expected": "旧附件仍按历史位置访问",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/operations-storage-2026-10-04.md",
+        "artifacts/v3/dyr026-2026-10-04/verification.json"
+      ],
+      "verified_at": "2026-10-04T09:32:16.906Z",
+      "scope": "Isolated PostgreSQL full restore, actual local and loopback S3 adapter objects, MFA/SMTP/registration decryption, permissions and workers; production S3/Linux/physical devices NOT_RUN",
+      "area": ""
+    },
+    {
+      "id": "AC-026-03",
+      "task": "DYR-026",
+      "precondition": "在隔离库恢复备份",
+      "steps": "核对账号/附件/草稿/权限",
+      "expected": "关键数据与解密材料齐备",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/operations-storage-2026-10-04.md",
+        "artifacts/v3/dyr026-2026-10-04/verification.json"
+      ],
+      "verified_at": "2026-10-04T09:32:16.906Z",
+      "scope": "Isolated PostgreSQL full restore, actual local and loopback S3 adapter objects, MFA/SMTP/registration decryption, permissions and workers; production S3/Linux/physical devices NOT_RUN",
+      "area": ""
+    },
+    {
+      "id": "AC-027-01",
+      "task": "DYR-027",
+      "precondition": "从旧#topic链接打开",
+      "steps": "转换",
+      "expected": "定位原帖和楼层",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/browser-current-source-final-results.json"
+      ],
+      "previous_status": "NOT_RUN",
+      "original_scope": null,
+      "scope": "公开 /t /b /u 路由；旧 hash 楼层转换、刷新、浏览器前进后退真实验证。",
+      "verified_at": "2026-10-05T02:44:12.504Z",
+      "area": ""
+    },
+    {
+      "id": "AC-027-02",
+      "task": "DYR-027",
+      "precondition": "直接GET新帖子路径并刷新",
+      "steps": "响应",
+      "expected": "正确页面/状态码而不是所有请求200",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/browser-current-source-final-results.json"
+      ],
+      "previous_status": "NOT_RUN",
+      "original_scope": null,
+      "scope": "构建后的真实 Node 网关提供公开摘要、canonical 与正确 HTTP 状态；未知路径和非法标识符返回404。",
+      "verified_at": "2026-10-05T02:44:12.504Z",
+      "area": ""
+    },
+    {
+      "id": "AC-027-03",
+      "task": "DYR-027",
+      "precondition": "受限帖子与私人页",
+      "steps": "爬虫读取",
+      "expected": "不返回私有正文、标题或公开地图记录",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/browser-current-source-final-results.json"
+      ],
+      "previous_status": "NOT_RUN",
+      "original_scope": null,
+      "scope": "摘要与 sitemap 只使用匿名 API；登录Cookie不会流入爬虫摘要；受限资源无私有标题/正文/canonical。",
+      "verified_at": "2026-10-05T02:44:12.504Z",
+      "area": ""
+    },
+    {
+      "id": "AC-028-01",
+      "task": "DYR-028",
+      "precondition": "版块从公开改受限",
+      "steps": "访问feed/search/附件/通知/缓存",
+      "expected": "未授权无泄漏",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr028-2026-10-04/green-api-policy-media-status.json",
+        "artifacts/v3/dyr028-2026-10-04/green-notification-static-sql-status.json",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json"
+      ],
+      "scope": "真实 API 覆盖公开转受限后的 feed/search/bookmark/topic/post/original/thumbnail/notification/count/read/read-all；封套/header 一致，业务响应 private,no-store。外部 CDN 不在本地范围。",
+      "verified_at": "2026-10-04T14:46:22.591Z",
+      "area": ""
+    },
+    {
+      "id": "AC-028-02",
+      "task": "DYR-028",
+      "precondition": "两个用户各自剩一份额度，同时执行每用户八个不同幂等键请求",
+      "steps": "执行",
+      "expected": "每用户最多一个成功，额度不负数，两个用户互不占用",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-quota-two-users-status.json",
+        "artifacts/v3/dyr030-2026-10-04/quota-per-user-window-verification.json",
+        "crates/infrastructure/tests/topics.rs"
+      ],
+      "scope": "用户确认沿用每用户、每窗口累计额度。两个活跃用户各剩一次额度，同步发起共16个不同幂等键请求；每用户恰好一成功七拒绝，usage/topic/idempotency 各一，互不占用。",
+      "verified_at": "2026-10-04T15:43:19.772Z",
+      "original_precondition": "两个用户并发消耗最后一份额度",
+      "original_expected": "最多一个成功不负数",
+      "clarification": {
+        "source": "user_reply",
+        "answer": "沿用每用户、每窗口额度（推荐）",
+        "resolved_at": "2026-10-04T15:43:19.772Z"
+      },
+      "area": ""
+    },
+    {
+      "id": "AC-028-03",
+      "task": "DYR-028",
+      "precondition": "诊断允许但条件随后改变",
+      "steps": "真实请求",
+      "expected": "以事务中重新检查为准",
+      "status": "PASS",
+      "evidence": [
+        "apps/api/tests/admin.rs",
+        "apps/api/tests/topics.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json"
+      ],
+      "scope": "诊断允许后撤销唯一授权来源，实际上传拒绝且无副作用；新增组/权益到期在事务写入中拒绝。",
+      "verified_at": "2026-10-04T14:46:22.591Z",
+      "area": ""
+    },
+    {
+      "id": "AC-029-01",
+      "task": "DYR-029",
+      "precondition": "同机器同数据",
+      "steps": "各测5轮",
+      "expected": "记录中位数与分位数并区分冷暖缓存",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr029-2026-10-04/candidate-release-summary.json",
+        "artifacts/v3/dyr029-2026-10-04/candidate-forced-build-summary.json",
+        "artifacts/v3/dyr029-2026-10-04/candidate-browser-home.json",
+        "artifacts/v3/dyr029-2026-10-04/candidate-sql-calls.json",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/performance-comparison.json",
+        "artifacts/v3/final-v3-2026-10-05/release-api-matrix.json",
+        "artifacts/v3/final-v3-2026-10-05/performance-builds.json"
+      ],
+      "scope": "当前V3同机器五轮强制重编译与五轮增量构建；四种最终release产物各五次启动、各30次feed/search；OS/依赖/数据库缓存暖，浏览器新context冷。旧V2比较不在范围内，未清空OS缓存。",
+      "verified_at": "2026-10-05T02:44:12.504Z",
+      "previous_status": "PARTIAL",
+      "original_scope": "当前候选五轮暖/强制全编译构建、四种release产物五轮启动与各三十次feed/search、五轮浏览器HAR及SQL计数完成，冷/暖范围明确。旧版本前后对比和冷OS采样未执行；不承诺改善比例，也不将原始基线作为当前功能审计前置。",
+      "area": ""
+    },
+    {
+      "id": "AC-029-02",
+      "task": "DYR-029",
+      "precondition": "基础和扩展版",
+      "steps": "检验",
+      "expected": "每个产物功能声明与实际一致",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr029-2026-10-04/release-build-matrix.json",
+        "artifacts/v3/dyr029-2026-10-04/candidate-api-release-matrix.json"
+      ],
+      "scope": "base/Wasm/S3/combined 四种 --release --locked 构建成功；各五轮核对实际能力、native 模块和历史 S3 对象哈希。",
+      "verified_at": "2026-10-04T14:46:22.591Z",
+      "area": ""
+    },
+    {
+      "id": "AC-029-03",
+      "task": "DYR-029",
+      "precondition": "某关键路径显著退化",
+      "steps": "验收",
+      "expected": "必须解释或修复，不用其他指标掩盖",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr029-2026-10-04/candidate-release-summary.json",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/performance-comparison.json",
+        "artifacts/v3/final-v3-2026-10-05/release-api-matrix.json",
+        "artifacts/v3/final-v3-2026-10-05/performance-builds.json"
+      ],
+      "scope": "与本轮前的当前V3候选比较构建、体积和四配置读取指标；首页请求16→24由新增8名公开作者测试数据解释，不能当作同数据改善/退化比例。 Wasm首次启动中位数242.86ms，补测159.50ms；首批慢样本及合并p95保留，具体系统原因未归因，不承诺改善。",
+      "verified_at": "2026-10-05T02:44:12.504Z",
+      "previous_status": "NOT_RUN",
+      "original_scope": "当前回归和候选测量已执行。未进行历史版本性能前后对比，无法判断是否发生显著退化；本项历史退化结论单列，不阻挡当前版本功能、安全与契约审计。",
+      "area": ""
+    },
+    {
+      "id": "AC-030-01",
+      "task": "DYR-030",
+      "precondition": "干净检出且锁文件固定",
+      "steps": "完整门禁",
+      "expected": "和当前工作区结果一致",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/verification.json"
+      ],
+      "scope": "私有独立 Git 副本和固定锁文件复验：前端1093、Rust503（2 ignored），两个官方组件 ignored 单独通过；类型/生产构建/clippy/格式/OpenAPI通过。使用暖 Cargo target；安装钩子显式运行。",
+      "verified_at": "2026-10-04T14:46:22.591Z",
+      "area": ""
+    },
+    {
+      "id": "AC-030-02",
+      "task": "DYR-030",
+      "precondition": "升级后有新写入",
+      "steps": "请求回退",
+      "expected": "明确兼容/恢复/RPO而非盲换镜像",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/pre-start-restore-verification.json",
+        "artifacts/v3/dyr030-2026-10-04/post-backup-delta.json",
+        "artifacts/v3/direct-audit-2026-10-05/migration-invariants-complete-fixture-status.json"
+      ],
+      "scope": "按本项期望验收明确恢复/RPO而非盲换镜像：停止写入后完整93表、6对象恢复一致；备份后新增7积分及其他恢复点后状态不在恢复内，不声称RPO=0。另非空旧结构夹具验证迁移、结构回退后业务事实不变。实际旧V2二进制上线回退未执行，保留为单独历史产物验证边界，不阻挡本项恢复与RPO行为验收。",
+      "verified_at": "2026-10-04T19:05:04.394Z",
+      "area": ""
+    },
+    {
+      "id": "AC-030-03",
+      "task": "DYR-030",
+      "precondition": "一个必需用例BLOCKED",
+      "steps": "最终交接",
+      "expected": "不得标整体DONE或声称已上线",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/full-regression-release-2026-10-04.md"
+      ],
+      "scope": "必需用例仍 BLOCKED/NOT_RUN/PARTIAL，整体维持 IN_PROGRESS，G3–G6不接受；原仓库未提交，未部署。",
+      "verified_at": "2026-10-04T14:46:22.591Z",
+      "area": ""
+    },
+    {
+      "id": "AC-X-01",
+      "task": "DYR-028/DYR-030",
+      "precondition": "启用OIDC/TOTP/通行密钥的不同账号",
+      "steps": "分别走登录、恢复与撤销会话",
+      "expected": "已有安全路径不被简洁配置关闭",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-oidc-csrf-current-status.json",
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-added-current-results.json",
+        "artifacts/v3/dyr030-2026-10-04/restore-api-verification.json"
+      ],
+      "area": "账号恢复",
+      "scope": "真实签名 OIDC 回调/撤销/重登录、本地 IdP 绑定与替换CSRF；真实Chromium CDP通行密钥注册/断言/删除/撤销后拒绝；恢复库TOTP/MFA解密登录。实体认证器未执行。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-02",
+      "task": "DYR-028/DYR-030",
+      "precondition": "用户组允许回复但账号受限",
+      "steps": "直接调用回复API",
+      "expected": "按现有规则拒绝并说明可公开原因",
+      "status": "PASS",
+      "evidence": [
+        "apps/api/tests/topics.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json"
+      ],
+      "area": "禁言优先级",
+      "scope": "账号 restricted 且组允许回复，实际 HTTP403 user.action_restricted，不泄露私有限制原因，无帖子/额度副作用。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-03",
+      "task": "DYR-028/DYR-030",
+      "precondition": "版主只授权当前版块",
+      "steps": "访问父版/兄弟版/子版治理API",
+      "expected": "结果与冻结范围矩阵一致",
+      "status": "PASS",
+      "evidence": [
+        "apps/api/tests/topics.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json"
+      ],
+      "area": "版块范围",
+      "scope": "exact 当前版块版主只当前治理200；父/兄弟/子均403且无治理与审计副作用。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-04",
+      "task": "DYR-028/DYR-030",
+      "precondition": "用户A有私有权益/流水/草稿",
+      "steps": "用户B与游客访问A公开资料",
+      "expected": "响应不含私有字段，不只是CSS隐藏",
+      "status": "PASS",
+      "evidence": [
+        "apps/api/tests/membership.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json",
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-added-current-results.json"
+      ],
+      "area": "隐私隔离",
+      "scope": "成员私有权益/账本数据不出现在游客和其他成员公开资料响应；草稿API所属检查另行复验。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-05",
+      "task": "DYR-028/DYR-030",
+      "precondition": "组额度10与权益额度20",
+      "steps": "读取额度并消耗至界限",
+      "expected": "上限20，按既有窗口累计，不相加",
+      "status": "PASS",
+      "evidence": [
+        "apps/api/tests/topics.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json"
+      ],
+      "area": "多来源额度",
+      "scope": "真实组额度10加标准权益额度20：读取上限20；20个创建成功，第21个429，数据库usage/topic/board计数20。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-06",
+      "task": "DYR-028/DYR-030",
+      "precondition": "ends_at等于当前数据库时间",
+      "steps": "读取和写入各入口",
+      "expected": "一致失效，不依赖浏览器时钟",
+      "status": "PASS",
+      "evidence": [
+        "apps/api/tests/topics.rs",
+        "crates/infrastructure/src/community_permissions_characterization_tests.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json"
+      ],
+      "area": "到期边界",
+      "scope": "组及标准权益分别 ends_at=CURRENT_TIMESTAMP 后，读快照失效，实际写403，无额外额度/主题。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-07",
+      "task": "DYR-028/DYR-030",
+      "precondition": "某现有预审规则启用",
+      "steps": "编辑UI并提交原值",
+      "expected": "视觉分区不改变原规则组合语义",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-added-current-results.json"
+      ],
+      "area": "审核分区",
+      "scope": "两种既有预审组合由真实管理界面原值保存，permission keys/完整quotas不变，revision仅+1。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-08",
+      "task": "DYR-028/DYR-030",
+      "precondition": "已用15，管理员将上限改10",
+      "steps": "提交新上传与检查历史附件",
+      "expected": "新动作拒绝；历史对象不被删除",
+      "status": "PASS",
+      "evidence": [
+        "apps/api/tests/admin.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json"
+      ],
+      "area": "缩减额度",
+      "scope": "原用量15下调上限10：新上传429，旧对象可读且不删除。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-09",
+      "task": "DYR-028/DYR-030",
+      "precondition": "旧前后台链接包含查询和楼层",
+      "steps": "刷新前进后退并分享",
+      "expected": "定位不丢失，未知链接有清晰状态",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-added-current-results.json"
+      ],
+      "area": "旧链接",
+      "scope": "旧搜索查询、主题楼层、管理用户筛选刷新/前进后退/共享新标签不丢；缺失主题及回复显示清晰状态。未承诺任意 malformed hash 新语义。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-10",
+      "task": "DYR-028/DYR-030",
+      "precondition": "附加组是唯一授权来源",
+      "steps": "撤销后使用旧缓存页面提交",
+      "expected": "服务端不使用旧UI权限放行",
+      "status": "PASS",
+      "evidence": [
+        "apps/api/tests/admin.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json"
+      ],
+      "area": "来源撤销",
+      "scope": "附加组唯一授权被撤销后实际写403，不受旧诊断/UI缓存影响，无上传与额度副作用。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-11",
+      "task": "DYR-028/DYR-030",
+      "precondition": "有效Cookie但无/错CSRF令牌",
+      "steps": "执行所有新增写操作",
+      "expected": "拒绝并保持数据不变",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr028-2026-10-04/csrf-matrix-complete.json",
+        "artifacts/v3/dyr030-2026-10-04/frozen-oidc-csrf-current-status.json"
+      ],
+      "area": "CSRF",
+      "scope": "107个普通Cookie会话写操作：105个通过210次真实缺失/错误CSRF，91业务表哈希不变；另2个OIDC绑定/替换操作由已配置真实本地IdP的8次请求覆盖。9个公开/挑战令牌流程按独立认证协议测试，不冒充普通会话CSRF。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-12",
+      "task": "DYR-028/DYR-030",
+      "precondition": "低权限运营员创建角色模板",
+      "steps": "添加自己不允许授予的能力",
+      "expected": "后端拒绝且不泄漏高权私有配置",
+      "status": "PASS",
+      "evidence": [
+        "apps/api/tests/admin.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json"
+      ],
+      "area": "模板越权",
+      "scope": "受委派运营员不能授予自身无权授予的角色能力，API拒绝。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-13",
+      "task": "DYR-028/DYR-030",
+      "precondition": "只剩一个可恢复站点管理账号",
+      "steps": "删除/降权/暂停该账号",
+      "expected": "按确认过的应急保护策略处理",
+      "status": "PASS",
+      "evidence": [
+        "apps/api/tests/admin.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json"
+      ],
+      "area": "最后管理员",
+      "scope": "最后可恢复站点管理账号撤销保护409并保留审计/可恢复通道。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-14",
+      "task": "DYR-028/DYR-030",
+      "precondition": "对象含不同版块和权限状态",
+      "steps": "执行批量处置",
+      "expected": "逐项结果、事务边界和重试语义明确",
+      "status": "PASS",
+      "evidence": [
+        "apps/api/tests/governance.rs",
+        "artifacts/v3/dyr030-2026-10-04/frozen-governance-mixed-current-status.json"
+      ],
+      "area": "批量混合",
+      "scope": "混合版块报告批次仅全局授权者可用；scoped reviewer混合请求403且状态/审计不变。任一对象缺失整个事务回滚；成功返回全部report_ids。重复请求非幂等，两个对象revision和审计再次推进，未知结果先读状态，不自动重试。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-15",
+      "task": "DYR-028/DYR-030",
+      "precondition": "用户A编辑后退出并切B",
+      "steps": "打开相同版块发布器",
+      "expected": "B看不到A草稿和本机敏感内容",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-added-current-results.json"
+      ],
+      "area": "草稿串号",
+      "scope": "实际A退出切B、同一版块发布器：正文/图片/本机和云端草稿隔离；恢复A后原草稿保留。两种视窗、全新fixture账号。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-16",
+      "task": "DYR-028/DYR-030",
+      "precondition": "旧格式草稿与新格式并存",
+      "steps": "升级后恢复和发布",
+      "expected": "保留旧内容，不静默截断",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/direct-audit-2026-10-05/draft-long-recovery-status.json",
+        "artifacts/v3/direct-audit-2026-10-05/frontend-current-final-status.json",
+        "src/components/TopicComposer.test.tsx"
+      ],
+      "area": "草稿格式",
+      "scope": "按已核对旧V2本地格式（无publication）与当前格式（可选publication）构造夹具。51条发布器测试通过；三个新增场景覆盖长正文/图片恢复编辑发布、原待确认请求完整重试并保留新编辑、本机/云端草稿并存后完整恢复与发布，旧长正文恢复副本仍完整。此为当前行为兼容测试，不宣称真实历史部署数据升级。",
+      "verified_at": "2026-10-04T19:05:04.394Z"
+    },
+    {
+      "id": "AC-X-17",
+      "task": "DYR-028/DYR-030",
+      "precondition": "多标签页/设备先后读同通知",
+      "steps": "刷新角标和全部已读",
+      "expected": "不会因过期响应覆盖新全局计数",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-added-current-results.json"
+      ],
+      "area": "未读并发",
+      "scope": "两个实际标签共享会话；A计数1响应延迟，B全读0，A重新读取0后释放旧响应仍0。headless环境显式触发window focus，真实HTTP响应未伪造。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-18",
+      "task": "DYR-028/DYR-030",
+      "precondition": "收件人屏蔽发送人",
+      "steps": "从旧会话尝试发送",
+      "expected": "按既有屏蔽规则拒绝并保留可重试输入",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-added-current-results.json",
+        "apps/api/tests/messages.rs"
+      ],
+      "area": "屏蔽私信",
+      "scope": "旧会话被屏蔽后发送404保留输入；解除后提交一次且消息只一次。API同时覆盖双方方向。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-19",
+      "task": "DYR-028/DYR-030",
+      "precondition": "站点已有自定义品牌与深色偏好",
+      "steps": "新后台和前台切换",
+      "expected": "浅色主稿不删除既有配置与用户偏好",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-added-current-results.json"
+      ],
+      "area": "样式隔离",
+      "scope": "自定义品牌和手动深色偏好在前台/后台切换与重载保留，测试finally恢复品牌配置。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-20",
+      "task": "DYR-028/DYR-030",
+      "precondition": "390px视窗，键盘引起的visualViewport缩小模型高度360",
+      "steps": "回复/任命/保存表单",
+      "expected": "主要按钮不被永久遮挡，能滚至错误",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/browser-current-source-final-results.json"
+      ],
+      "area": "移动键盘",
+      "scope": "浏览器390×900视窗、visualViewport高度360模型，真实回复/任命/角色保存及revision冲突重试；实体手机键盘未执行。",
+      "verified_at": "2026-10-05T02:44:12.504Z",
+      "previous_status": "NOT_RUN",
+      "original_scope": "没有可操作实体手机软键盘渠道；390px/320px视窗与CDP检查不能替代实体键盘。",
+      "original_precondition": "390px视窗且输入键盘展开",
+      "environment": {
+        "browser_model": "PASS",
+        "physical_keyboard": "NOT_RUN"
+      }
+    },
+    {
+      "id": "AC-X-21",
+      "task": "DYR-028/DYR-030",
+      "precondition": "提交缺字段的用户组表单",
+      "steps": "用键盘和标签读取",
+      "expected": "错误有文字、不只颜色，焦点合理",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-added-current-results.json",
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-account-and-errors-results.json"
+      ],
+      "area": "无障碍错误",
+      "scope": "缺用户组名称：键盘Enter有文字错误、aria-invalid和关联描述，焦点合理；Escape返回触发按钮，无写请求；Axe0。另有缩放等效布局和隐藏quota错误。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-22",
+      "task": "DYR-028/DYR-030",
+      "precondition": "加载表单后他人修改同对象",
+      "steps": "保存旧版本",
+      "expected": "不覆盖，保留用户输入并可比较",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-real-conflicts-results.json"
+      ],
+      "area": "编辑冲突",
+      "scope": "两个独立浏览器上下文编辑同一草稿，旧revision409保留两份正文/图片，可读取新版本或复制恢复；四场景通过。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-23",
+      "task": "DYR-028/DYR-030",
+      "precondition": "Wasm不可用而内置投票可用",
+      "steps": "打开扩展页和旧内容",
+      "expected": "两种状态独立且不声称全部插件停用",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-browser-native-base-results.json",
+        "artifacts/v3/dyr029-2026-10-04/candidate-api-release-matrix.json"
+      ],
+      "area": "扩展降级",
+      "scope": "基础构建 wasm_supported=false，管理页明确当前构建不支持Wasm；native单选投票available，旧投票内容可提交/重复回放，DB投票1。桌面及窄屏、Axe和五宽度截图通过。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-24",
+      "task": "DYR-028/DYR-030",
+      "precondition": "外部插件试图超出授予能力",
+      "steps": "执行受控宿主命令",
+      "expected": "继续拒绝，不能以轻量改造开放任意SQL",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json",
+        "artifacts/v3/dyr030-2026-10-04/frozen-official-component-contract-status.json",
+        "artifacts/v3/dyr028-2026-10-04/official-component-replay-status.json"
+      ],
+      "area": "插件沙箱",
+      "scope": "宿主sandbox/fuel/memory/UTF8/import边界及实际官方组件编译、执行回放通过；无任意SQL能力。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-25",
+      "task": "DYR-028/DYR-030",
+      "precondition": "执行器切换前后重放同事件",
+      "steps": "核对experience与幂等记录",
+      "expected": "不双发，保留业务日与来源标识",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/direct-audit-2026-10-05/official-worker-current-status.json",
+        "artifacts/v3/dyr030-2026-10-04/supported-worker-cache-verification.json",
+        "artifacts/v3/dyr030-2026-10-04/restored-growth-replay.json"
+      ],
+      "area": "奖励重放",
+      "scope": "验收当前支持的Wasm执行器交接：停用并停止旧worker，revision3重新启用，创建新runtime/worker重放6个同事件，经验账户、完整流水、命令回执与事件时间/来源保持不变；完整恢复后的过期租约重放也已通过。产品未实现的内置奖励引擎不作为当前行为的必需前置。",
+      "verified_at": "2026-10-04T19:05:04.394Z"
+    },
+    {
+      "id": "AC-X-26",
+      "task": "DYR-028/DYR-030",
+      "precondition": "历史本地和S3附件混存",
+      "steps": "切换新附件配置后读取",
+      "expected": "按历史定位读取，不依赖当前默认写位置",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/provider-switch-verification.json"
+      ],
+      "area": "存储兼容",
+      "scope": "新写入切local后，旧S3 original/thumbnail/brand/medal按历史定位哈希读取；历史provider=NULL使用明确legacy S3定位，新local与旧S3并存。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-27",
+      "task": "DYR-028/DYR-030",
+      "precondition": "受限内容刚从公开变更",
+      "steps": "游客读取当前Node代理、默认浏览器HTTP缓存、原图与缩略图",
+      "expected": "按策略失效，无旧公开正文泄漏",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr028-2026-10-04/green-api-policy-media-status.json",
+        "artifacts/v3/dyr030-2026-10-04/frozen-rust-combined-current-status.json",
+        "artifacts/v3/dyr030-2026-10-04/supported-worker-cache-verification.json",
+        "artifacts/v3/dyr030-2026-10-04/frozen-cache-success-policy-status.json",
+        "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+        "artifacts/v3/final-v3-2026-10-05/browser-current-source-final-results.json"
+      ],
+      "area": "公开缓存",
+      "scope": "真实Node代理与默认Chromium HTTP缓存；公开→受限→恢复、身份变更、topic/HTML/original/thumbnail/sitemap无旧私有内容泄漏。当前没有外部CDN组件。",
+      "verified_at": "2026-10-05T02:44:12.504Z",
+      "previous_status": "PARTIAL",
+      "original_scope": "源站公开→受限→授权恢复的topic/list/original/thumbnail均验证private,no-store；成功公开响应禁止缓存，拒绝响应无旧正文，原静态资产缓存头保留。仓库部署只有PG/API，没有边缘组件；真实CDN缓存命中/清除尚未执行。",
+      "original_steps": "游客读取CDN/缓存/缩略图",
+      "environment": {
+        "actual_local_proxy": "PASS",
+        "browser_http_cache": "PASS",
+        "external_cdn": "NOT_CONFIGURED"
+      }
+    },
+    {
+      "id": "AC-X-28",
+      "task": "DYR-028/DYR-030",
+      "precondition": "升级前账户/组/授予/积分数据",
+      "steps": "升级后对账",
+      "expected": "余额流水一致，引用完整，旧授权不放宽",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/direct-audit-2026-10-05/migration-invariants-complete-fixture-status.json",
+        "crates/infrastructure/tests/v3_upgrade_invariants.rs"
+      ],
+      "area": "迁移不变量",
+      "scope": "在独立SQLx测试库应用至旧结构202609160004，插入2账户、3组成员、1精确范围角色授予、2标准权益及4条正负积分流水，再执行当前迁移。16张相关表的完整行内容、主键、revision和时间戳保持一致；余额等于流水合计，逐条balance_after一致，引用无孤儿，两个账号全能力/三个作用域与社区权限/配额均未扩大；重复迁移、结构回退和再次升级仍保持事实。明确为非空合成旧结构夹具。",
+      "verified_at": "2026-10-04T19:05:04.394Z"
+    },
+    {
+      "id": "AC-X-29",
+      "task": "DYR-028/DYR-030",
+      "precondition": "备份含库附件配置及加密依赖",
+      "steps": "在新隔离实例恢复",
+      "expected": "附件可读，认证/邮件加密字段可正常处理",
+      "status": "PASS",
+      "evidence": [
+        "artifacts/v3/dyr030-2026-10-04/pre-start-restore-verification.json",
+        "artifacts/v3/dyr030-2026-10-04/registration-code-restored-verification.json",
+        "artifacts/v3/dyr030-2026-10-04/restore-api-verification.json",
+        "artifacts/v3/dyr030-2026-10-04/finance-restored-verification.json"
+      ],
+      "area": "恢复材料",
+      "scope": "93张表全部哈希一致，54张非空；6对象SHA相同，配置哈希保留，MFA/SMTP/未投递注册验证码密文真实解密与投递/注册成功；过期租约恢复重试不双发。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    },
+    {
+      "id": "AC-X-30",
+      "task": "DYR-028/DYR-030",
+      "precondition": "未跑某一环境测试",
+      "steps": "填写交接和发布记录",
+      "expected": "明确NOT_RUN/BLOCKED，不冒写PASS",
+      "status": "PASS",
+      "evidence": [
+        "docs/handoffs/v3/full-regression-release-2026-10-04.md"
+      ],
+      "area": "发布真实性",
+      "scope": "完整记录范围、失败修正与未执行项；不把局部PASS改成整体DONE，不声称已提交或上线。",
+      "verified_at": "2026-10-04T14:46:22.591Z"
+    }
+  ],
+  "updated_at": "2026-10-05T02:44:12.504Z",
+  "current_scope": {
+    "current": "当前V3本地实现、自动验收、产物和交接",
+    "user_instruction": "旧V2不用管；完成当前阶段就停止",
+    "old_v2": "OUT_OF_SCOPE",
+    "physical_keyboard": "NOT_RUN; BROWSER_VIEWPORT_MODEL_VERIFIED",
+    "external_cdn": "NOT_CONFIGURED; ACTUAL_LOCAL_PROXY_AND_BROWSER_CACHE_VERIFIED",
+    "production_deployment": "NOT_REQUESTED"
+  },
+  "latest_handoff": "docs/handoffs/v3/final-current-v3-2026-10-05.md",
+  "historical_evidence_availability": {
+    "status": "PARTIAL_RAW_LOG_AVAILABILITY; HISTORICAL_HANDOFFS_AND_CURRENT_GATES_AVAILABLE",
+    "evidence": "artifacts/v3/final-v3-2026-10-05/evidence-availability.json",
+    "raw_logs_recovered": false
+  }
+}
