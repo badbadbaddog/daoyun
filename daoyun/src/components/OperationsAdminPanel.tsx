@@ -166,6 +166,7 @@ export function OperationsAdminPanel({ csrfToken, canWrite = true }: OperationsA
         <button className="secondary-button" type="button" onClick={() => setReload((value) => value + 1)}><RefreshCw size={15} aria-hidden="true" />刷新状态</button>
       </div>
 
+      <p className="operations-empty" role="status">{summary.alertEvaluationEnabled ? "高级告警已启用" : "高级告警未启用"} · 基础任务与历史记录保留</p>
       <nav className="admin-workspace-tabs" aria-label="运维分类">
         <button type="button" aria-pressed={view === "overview"} onClick={() => setView("overview")}>运行状态</button>
         <button type="button" aria-pressed={view === "alerts"} onClick={() => setView("alerts")}>待确认告警</button>
@@ -183,7 +184,7 @@ export function OperationsAdminPanel({ csrfToken, canWrite = true }: OperationsA
       {!editingRuleId && (message || error) && <p className={error ? "form-alert" : "form-success"} role={error ? "alert" : "status"}>{error || message}</p>}
 
       {view === "alerts" && <section className="operations-section" aria-labelledby="operations-alerts-heading">
-        <div className="operations-section__heading"><div><h2 id="operations-alerts-heading">待确认告警</h2><p>恢复由后台评估器自动处理。</p></div><span className="operations-count">{alerts.length}</span></div>
+        <div className="operations-section__heading"><div><h2 id="operations-alerts-heading">待确认告警</h2><p>{summary.alertEvaluationEnabled ? "恢复由后台评估器自动处理。" : "自动评估已关闭，历史告警仍可查看和确认。"}</p></div><span className="operations-count">{alerts.length}</span></div>
         {alerts.length === 0 ? <p className="operations-empty">当前没有待确认的运营告警</p> : (
           <div className="operations-alert-list">
             {alerts.map((alert) => <article className="operations-alert" key={alert.id}>

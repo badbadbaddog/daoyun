@@ -61,6 +61,7 @@ pub struct AttachmentRecord {
     pub scan_status: String,
     pub created_at: OffsetDateTime,
     pub storage_key: String,
+    pub storage_provider: Option<String>,
     pub thumbnail_key: Option<String>,
 }
 
@@ -155,23 +156,24 @@ impl Database {
         }
         authorize_attachment_upload(&mut transaction, input.uploader_id, input.bytes.len()).await?;
         self.attachment_store
+            .writer()
             .put(&storage_key, &input.bytes)
             .await
             .map_err(AttachmentError::Storage)?;
         if let (Some(key), Some(bytes)) = (&thumbnail_key, thumbnail_bytes.as_ref())
-            && let Err(error) = self.attachment_store.put(key, bytes).await
+            && let Err(error) = self.attachment_store.writer().put(key, bytes).await
         {
-            remove_object(&self.attachment_store, &storage_key).await;
+            remove_object(self.attachment_store.writer(), &storage_key).await;
             return Err(AttachmentError::Storage(error));
         }
         let mut record = match sqlx::query_as::<_, AttachmentRecord>(
             "INSERT INTO topic_attachments
                 (id, topic_id, uploader_id, storage_key, original_name, mime_type,
-                 size_bytes, sha256, status, scan_status, scanned_at, expires_at)
+                 size_bytes, sha256, status, scan_status, scanned_at, expires_at, storage_provider)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'ready', 'clean', CURRENT_TIMESTAMP,
-                     CURRENT_TIMESTAMP + ($9::int * INTERVAL '1 day'))
+                     CURRENT_TIMESTAMP + ($9::int * INTERVAL '1 day'), $10)
              RETURNING id, topic_id, original_name, mime_type, size_bytes, sha256,
-                       status, scan_status, created_at, storage_key, NULL::varchar AS thumbnail_key",
+                       status, scan_status, created_at, storage_key, storage_provider, NULL::varchar AS thumbnail_key",
         )
         .bind(input.id)
         .bind(input.topic_id)
@@ -182,14 +184,15 @@ impl Database {
         .bind(i64::try_from(input.bytes.len()).expect("validated size fits i64"))
         .bind(&hash)
         .bind(retention_days())
+        .bind(self.attachment_store.writer_name())
         .fetch_one(&mut *transaction)
         .await
         {
             Ok(record) => record,
             Err(error) => {
-                remove_object(&self.attachment_store, &storage_key).await;
+                remove_object(self.attachment_store.writer(), &storage_key).await;
                 if let Some(key) = &thumbnail_key {
-                    remove_object(&self.attachment_store, key).await;
+                    remove_object(self.attachment_store.writer(), key).await;
                 }
                 return Err(AttachmentError::from(error));
             }
@@ -205,16 +208,16 @@ impl Database {
         )
         .await
         {
-            remove_object(&self.attachment_store, &storage_key).await;
+            remove_object(self.attachment_store.writer(), &storage_key).await;
             if let Some(key) = &record.thumbnail_key {
-                remove_object(&self.attachment_store, key).await;
+                remove_object(self.attachment_store.writer(), key).await;
             }
             return Err(AttachmentError::from(error));
         }
         if let Err(error) = transaction.commit().await {
-            remove_object(&self.attachment_store, &storage_key).await;
+            remove_object(self.attachment_store.writer(), &storage_key).await;
             if let Some(key) = &record.thumbnail_key {
-                remove_object(&self.attachment_store, key).await;
+                remove_object(self.attachment_store.writer(), key).await;
             }
             return Err(AttachmentError::from(error));
         }
@@ -250,24 +253,26 @@ impl Database {
         authorize_attachment_upload(&mut transaction, input.uploader_id, input.bytes.len()).await?;
 
         self.attachment_store
+            .writer()
             .put(&storage_key, &input.bytes)
             .await
             .map_err(AttachmentError::Storage)?;
         if let Err(error) = self
             .attachment_store
+            .writer()
             .put(&thumbnail_key, &thumbnail_bytes)
             .await
         {
-            remove_object(&self.attachment_store, &storage_key).await;
+            remove_object(self.attachment_store.writer(), &storage_key).await;
             return Err(AttachmentError::Storage(error));
         }
 
         let record = match sqlx::query_as::<_, DraftImageAttachmentRecord>(
             "INSERT INTO topic_attachments
                 (id, topic_id, uploader_id, storage_key, original_name, mime_type,
-                 size_bytes, sha256, status, scan_status, scanned_at, expires_at)
+                 size_bytes, sha256, status, scan_status, scanned_at, expires_at, storage_provider)
              VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, 'ready', 'clean', CURRENT_TIMESTAMP,
-                     CURRENT_TIMESTAMP + ($8::bigint * INTERVAL '1 hour'))
+                     CURRENT_TIMESTAMP + ($8::bigint * INTERVAL '1 hour'), $9)
              RETURNING id, original_name, mime_type, size_bytes, expires_at",
         )
         .bind(input.id)
@@ -278,13 +283,14 @@ impl Database {
         .bind(i64::try_from(input.bytes.len()).expect("validated size fits i64"))
         .bind(&hash)
         .bind(DRAFT_RETENTION_HOURS)
+        .bind(self.attachment_store.writer_name())
         .fetch_one(&mut *transaction)
         .await
         {
             Ok(record) => record,
             Err(error) => {
-                remove_object(&self.attachment_store, &storage_key).await;
-                remove_object(&self.attachment_store, &thumbnail_key).await;
+                remove_object(self.attachment_store.writer(), &storage_key).await;
+                remove_object(self.attachment_store.writer(), &thumbnail_key).await;
                 return Err(AttachmentError::from(error));
             }
         };
@@ -299,13 +305,13 @@ impl Database {
         )
         .await
         {
-            remove_object(&self.attachment_store, &storage_key).await;
-            remove_object(&self.attachment_store, &thumbnail_key).await;
+            remove_object(self.attachment_store.writer(), &storage_key).await;
+            remove_object(self.attachment_store.writer(), &thumbnail_key).await;
             return Err(AttachmentError::from(error));
         }
         if let Err(error) = transaction.commit().await {
-            remove_object(&self.attachment_store, &storage_key).await;
-            remove_object(&self.attachment_store, &thumbnail_key).await;
+            remove_object(self.attachment_store.writer(), &storage_key).await;
+            remove_object(self.attachment_store.writer(), &thumbnail_key).await;
             return Err(AttachmentError::from(error));
         }
 
@@ -319,7 +325,7 @@ impl Database {
     ) -> Result<Vec<AttachmentRecord>, ListAttachmentsError> {
         let records = sqlx::query_as::<_, AttachmentRecord>(
             "SELECT a.id, a.topic_id, a.original_name, a.mime_type, a.size_bytes,
-                    a.sha256, a.status, a.scan_status, a.created_at, a.storage_key,
+                    a.sha256, a.status, a.scan_status, a.created_at, a.storage_key, a.storage_provider,
                     CASE WHEN a.mime_type LIKE 'image/%'
                          THEN regexp_replace(a.storage_key, '\\.[^.]+$', '-thumb.webp')
                          ELSE NULL END AS thumbnail_key
@@ -327,6 +333,7 @@ impl Database {
              INNER JOIN topics AS t ON t.id = a.topic_id
              WHERE a.topic_id = $1 AND t.status = 'published'
                AND t.deleted_at IS NULL AND a.status = 'ready'
+                AND a.scan_status = 'clean' AND a.deleted_at IS NULL
                AND daoyun_can_access_content('topic', t.id, $2, CURRENT_TIMESTAMP)
                AND daoyun_can_access_content('attachment', a.id, $2, CURRENT_TIMESTAMP)
              ORDER BY a.created_at, a.id",
@@ -398,13 +405,13 @@ impl Database {
         }
         let record = sqlx::query_as::<_, AttachmentRecord>(
             "SELECT a.id, a.topic_id, a.original_name, a.mime_type, a.size_bytes,
-                    a.sha256, a.status, a.scan_status, a.created_at, a.storage_key,
+                    a.sha256, a.status, a.scan_status, a.created_at, a.storage_key, a.storage_provider,
                     CASE WHEN a.mime_type LIKE 'image/%'
                          THEN regexp_replace(a.storage_key, '\\.[^.]+$', '-thumb.webp')
                          ELSE NULL END AS thumbnail_key
              FROM topic_attachments AS a
              LEFT JOIN topics AS t ON t.id = a.topic_id
-             WHERE a.id = $1 AND a.status = 'ready'
+             WHERE a.id = $1 AND a.status = 'ready' AND a.scan_status = 'clean' AND a.deleted_at IS NULL
                AND (
                     (
                         t.status = 'published' AND t.deleted_at IS NULL
@@ -489,6 +496,8 @@ impl Database {
         };
         let bytes = self
             .attachment_store
+            .for_record(record.storage_provider.as_deref())
+            .map_err(ListAttachmentsError::Storage)?
             .get(key)
             .await
             .map_err(ListAttachmentsError::Storage)?;
@@ -521,8 +530,8 @@ impl Database {
     ) -> Result<AttachmentCleanupResultRecord, AttachmentCleanupError> {
         let batch_size = batch_size.clamp(1, 500);
         let mut transaction = self.pool.begin().await?;
-        let stale = sqlx::query_as::<_, (Uuid, String, Option<String>)>(
-            "SELECT id, storage_key,
+        let stale = sqlx::query_as::<_, (Uuid, String, Option<String>, Option<String>)>(
+            "SELECT id, storage_key, storage_provider,
                     CASE WHEN mime_type LIKE 'image/%'
                          THEN regexp_replace(storage_key, '\\.[^.]+$', '-thumb.webp')
                          ELSE NULL END AS thumbnail_key
@@ -538,7 +547,10 @@ impl Database {
         .bind(batch_size)
         .fetch_all(&mut *transaction)
         .await?;
-        for (id, _, _) in &stale {
+        for (id, _, provider, _) in &stale {
+            self.attachment_store
+                .for_record(provider.as_deref())
+                .map_err(AttachmentCleanupError::Storage)?;
             sqlx::query("DELETE FROM topic_attachments WHERE id = $1")
                 .bind(id)
                 .execute(&mut *transaction)
@@ -548,23 +560,29 @@ impl Database {
 
         let mut deleted_objects = 0_u64;
         let mut failed_objects = 0_u64;
-        for (_, storage_key, thumbnail_key) in &stale {
+        for (_, storage_key, provider, thumbnail_key) in &stale {
             for key in [Some(storage_key), thumbnail_key.as_ref()]
                 .into_iter()
                 .flatten()
             {
-                match self.attachment_store.delete(key).await {
+                match self
+                    .attachment_store
+                    .for_record(provider.as_deref())
+                    .map_err(AttachmentCleanupError::Storage)?
+                    .delete(key)
+                    .await
+                {
                     Ok(()) => deleted_objects += 1,
                     Err(_) => failed_objects += 1,
                 }
             }
         }
-        let orphan_keys = match self.attachment_store.local_root() {
+        let orphan_keys = match self.attachment_store.local.local_root() {
             Some(root) => self.find_orphan_objects(root).await?,
             None => Vec::new(),
         };
         for key in orphan_keys {
-            match self.attachment_store.delete(&key).await {
+            match self.attachment_store.local.delete(&key).await {
                 Ok(()) => deleted_objects += 1,
                 Err(_) => failed_objects += 1,
             }
@@ -580,15 +598,18 @@ impl Database {
         &self,
         root: &Path,
     ) -> Result<Vec<String>, AttachmentCleanupError> {
-        let expected = sqlx::query_as::<_, (String, String)>(
-            "SELECT storage_key, mime_type FROM topic_attachments",
+        let expected = sqlx::query_as::<_, (String, bool)>(
+            "SELECT storage_key, mime_type LIKE 'image/%' AS has_thumbnail FROM topic_attachments WHERE COALESCE(storage_provider, $1) = 'local'
+             UNION ALL SELECT storage_key, FALSE FROM site_branding_assets WHERE COALESCE(storage_provider, $1) = 'local'
+             UNION ALL SELECT storage_key, FALSE FROM membership_medal_assets WHERE COALESCE(storage_provider, $1) = 'local'",
         )
+        .bind(self.attachment_store.legacy_name())
         .fetch_all(&self.pool)
         .await?;
         let mut keys = std::collections::HashSet::new();
-        for (storage_key, mime_type) in expected {
+        for (storage_key, has_thumbnail) in expected {
             keys.insert(storage_key.clone());
-            if mime_type.starts_with("image/") {
+            if has_thumbnail {
                 keys.insert(regexless_thumbnail_key(&storage_key));
             }
         }
@@ -679,8 +700,8 @@ async fn authorize_attachment_upload(
     Ok(())
 }
 
-async fn has_instance_super_admin_role(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+pub(crate) async fn has_instance_super_admin_role(
+    connection: &mut sqlx::PgConnection,
     user_id: Uuid,
 ) -> Result<bool, sqlx::Error> {
     sqlx::query_scalar(
@@ -694,7 +715,7 @@ async fn has_instance_super_admin_role(
          )",
     )
     .bind(user_id)
-    .fetch_one(&mut **transaction)
+    .fetch_one(&mut *connection)
     .await
 }
 
@@ -983,7 +1004,41 @@ mod transaction_tests {
     use tokio::sync::Notify;
 
     use super::{Database, image_dimensions_allowed};
-    use crate::storage::AttachmentStore;
+    use crate::storage::{AttachmentStore, AttachmentStores, StorageProvider};
+
+    #[sqlx::test(migrator = "crate::MIGRATOR")]
+    async fn orphan_cleanup_preserves_local_branding_and_medal_objects(pool: PgPool) {
+        let root = std::env::temp_dir().join(format!("daoyun-orphans-{}", Uuid::now_v7()));
+        tokio::fs::create_dir_all(&root).await.unwrap();
+        let user = Uuid::now_v7();
+        sqlx::query("INSERT INTO users(id,username,email,display_name,status) VALUES($1,'asset_owner','asset_owner@example.com','Asset owner','active')").bind(user).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO site_branding_assets(kind,storage_key,storage_provider,mime_type,sha256,size_bytes,updated_by) VALUES('logo','branding/retained.png','local','image/png',$1,4,$2)").bind(vec![0u8;32]).bind(user).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO membership_medal_assets(asset_key,storage_key,storage_provider,mime_type,size_bytes,created_by) VALUES($1,'membership/retained.png','local','image/png',4,$2)").bind(format!("upload_{}", "a".repeat(64))).bind(user).execute(&pool).await.unwrap();
+        let local = AttachmentStore::Local { root: root.clone() };
+        for key in ["branding/retained.png", "membership/retained.png"] {
+            local.put(key, b"kept").await.unwrap();
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(root.join(key))
+                .unwrap()
+                .set_times(std::fs::FileTimes::new().set_modified(std::time::UNIX_EPOCH))
+                .unwrap();
+        }
+        let db = Database {
+            pool,
+            attachment_store: AttachmentStores {
+                writer_provider: StorageProvider::Local,
+                legacy_provider: StorageProvider::Local,
+                local: local.clone(),
+                s3: AttachmentStore::Unavailable("test".into()),
+            },
+        };
+        let result = db.cleanup_attachments(10).await.unwrap();
+        assert_eq!(result.deleted_objects, 0);
+        assert_eq!(local.get("branding/retained.png").await.unwrap(), b"kept");
+        assert_eq!(local.get("membership/retained.png").await.unwrap(), b"kept");
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
 
     #[test]
     fn image_dimensions_reject_decompression_bombs() {
@@ -1051,10 +1106,15 @@ mod transaction_tests {
         let release = Arc::new(Notify::new());
         let database = Database {
             pool: pool.clone(),
-            attachment_store: AttachmentStore::DelayedRead {
-                bytes: Arc::new(b"data".to_vec()),
-                started: started.clone(),
-                release: release.clone(),
+            attachment_store: AttachmentStores {
+                writer_provider: StorageProvider::Local,
+                legacy_provider: StorageProvider::Local,
+                s3: AttachmentStore::Unavailable("test S3 disabled".into()),
+                local: AttachmentStore::DelayedRead {
+                    bytes: Arc::new(b"data".to_vec()),
+                    started: started.clone(),
+                    release: release.clone(),
+                },
             },
         };
         let mut held_connections = Vec::new();

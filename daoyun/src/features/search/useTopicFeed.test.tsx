@@ -118,3 +118,33 @@ it("changes dates during pagination without accepting the stale page or locking 
  expect(result.current.nextCursor).toBe("new-cursor")
  expect(listTopics).toHaveBeenLastCalledWith(expect.objectContaining({from:"2026-09-01"}))
 })
+
+it("aborts a pending page when its route source is disabled", async () => {
+  let finish!: (value: { topics: Topic[]; nextCursor: string | null }) => void
+  vi.mocked(listTopics).mockResolvedValueOnce({ topics: [topic("a", "A")], nextCursor: "next" }).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  const { result, rerender } = renderHook(({ enabled }) => useTopicFeed({ enabled }), { initialProps: { enabled: true } })
+  await waitFor(() => expect(result.current.loadingInitial).toBe(false))
+  act(() => { void result.current.loadMore() })
+  const signal = vi.mocked(listTopics).mock.calls.at(-1)?.[0]?.signal
+  expect(signal).toBeInstanceOf(AbortSignal)
+  rerender({ enabled: false })
+  expect(signal?.aborted).toBe(true)
+  await act(async () => finish({ topics: [topic("old", "Old")], nextCursor: null }))
+  expect(result.current.topics).toEqual([])
+})
+
+it("drops both retained and late topics when the viewer changes", async () => {
+  let finish!: (value: { topics: Topic[]; nextCursor: string | null }) => void
+  vi.mocked(listTopics).mockResolvedValueOnce({ topics: [topic("private", "Old viewer")], nextCursor: "old" })
+    .mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    .mockResolvedValueOnce({ topics: [], nextCursor: null })
+  const { result, rerender } = renderHook(({ viewerKey }) => useTopicFeed({ query: "Rust", viewerKey }), { initialProps: { viewerKey: "account-a" } })
+  await waitFor(() => expect(result.current.loadingInitial).toBe(false))
+  act(() => { void result.current.loadMore() })
+  const signal = vi.mocked(listTopics).mock.calls.at(-1)?.[0]?.signal
+  rerender({ viewerKey: "account-b" })
+  await waitFor(() => expect(result.current.topics).toEqual([]))
+  expect(signal?.aborted).toBe(true)
+  await act(async () => finish({ topics: [topic("late", "Late private")], nextCursor: null }))
+  expect(result.current.topics).toEqual([])
+})

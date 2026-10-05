@@ -22,7 +22,8 @@ if ! pg_dump \
   --format=custom \
   --no-owner \
   --no-acl \
-  --file="$backup_path"; then
+  --file="$backup_path" >/dev/null 2>&1; then
+  echo "pg_dump failed." >&2
   rm -f -- "$backup_path"
   exit 1
 fi

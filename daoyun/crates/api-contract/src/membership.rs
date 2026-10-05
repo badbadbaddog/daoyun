@@ -261,10 +261,17 @@ pub struct MembershipPointsGrant {
     pub account: MembershipAccount,
     pub created: bool,
     pub audit_id: Option<uuid::Uuid>,
+    pub ledger_entry_id: Option<uuid::Uuid>,
+    pub balance_before: Option<i64>,
+    pub balance_after: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct PointsLedgerEntry {
+    pub actor_id: Option<uuid::Uuid>,
+    pub actor_username: Option<String>,
+    pub actor_display_name: Option<String>,
+    pub operation_request_id: Option<uuid::Uuid>,
     pub id: uuid::Uuid,
     pub amount: i64,
     pub reason: String,

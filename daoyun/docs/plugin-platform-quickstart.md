@@ -2,6 +2,20 @@
 
 本页面向 DaoYun 社区系统的插件开发与安装。
 
+## API 构建选择
+
+默认 API 为基础版，五项内置模块的配置、启停和历史读取继续可用，基础依赖闭包不包含 plugin-host/Wasmtime。需要第三方 Wasm 或现有成长奖励执行器时，明确构建扩展版：
+
+```sh
+cargo build -p daoyun-api --release --locked --no-default-features
+cargo build -p daoyun-api --release --locked --no-default-features --features wasm-plugins
+pnpm verify:wasm-builds
+```
+
+基础版拒绝 DAOYUN_PLUGINS_ENABLED=true/1 或显式 DAOYUN_GROWTH_REWARDS_EXECUTOR=wasm，并在数据库迁移前退出。未配置或插件运行时关闭时可正常启动；Wasm 相关路由和 OpenAPI 保留，受授权保护的执行请求返回稳定不可用响应。能力快照 wasm_supported=false，成长执行能力为 unsupported；Native 模块保持自身业务状态。历史 Wasm 安装记录不会被删除或自动启停。已启用外部插件的站点应继续部署扩展版。
+
+本地 api:local/local 命令显式选择 wasm-plugins，以保持开发默认启用 Wasm 的既有行为。全工作区开发验证使用 `cargo test --workspace --locked --features daoyun-api/wasm-plugins`；它包含独立 plugin-host 成员，不能作为基础发布产物的依赖或耗时证据。
+
 ## 1) 设计原理（核心）
 
 DaoYun 的插件是“受控的 WebAssembly 组件”模式：

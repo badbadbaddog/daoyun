@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { ArrowLeft, Bookmark, FileSearch, LoaderCircle, RefreshCw } from "lucide-react"
 
 import type { AuthSession } from "../api/auth"
@@ -31,7 +31,22 @@ export function BookmarksView({
   const [loadingMore, setLoadingMore] = useState(false)
   const [interactionError, setInteractionError] = useState("")
 
+  const lifetimeRef = useRef<AbortController | null>(null)
+  const sessionRef = useRef(session); sessionRef.current = session
+  const pendingRef = useRef(new Set<string>())
+  const loadingMoreRef = useRef(false)
+
+  function active(controller: AbortController, owner: AuthSession) {
+    return !controller.signal.aborted && lifetimeRef.current === controller && sessionRef.current === owner
+  }
+
   useEffect(() => {
+    pendingRef.current = new Set()
+    loadingMoreRef.current = false
+    setBookmarkPendingIds(new Set())
+    setLoadingMore(false)
+    setTopics([])
+    setNextCursor(null)
     if (!session) {
       setTopics([])
       setNextCursor(null)
@@ -40,6 +55,7 @@ export function BookmarksView({
     }
 
     const controller = new AbortController()
+    lifetimeRef.current = controller
     setStatus("loading")
     setInteractionError("")
     listBookmarks({ signal: controller.signal }).then((page) => {
@@ -59,18 +75,23 @@ export function BookmarksView({
       onLogin()
       return
     }
-    if (bookmarkPendingIds.has(topicId)) return
+    const controller = lifetimeRef.current
+    if (!controller || !active(controller, session) || pendingRef.current.has(topicId)) return
+    pendingRef.current.add(topicId)
     setBookmarkPendingIds((current) => new Set(current).add(topicId))
     setInteractionError("")
     try {
-      const state = await setTopicBookmark(topicId, false, session.csrfToken)
+      const state = await setTopicBookmark(topicId, false, session.csrfToken, controller.signal)
+      if (!active(controller, session)) return
       if (!state.bookmarked) {
         setTopics((current) => current.filter((topic) => topic.id !== topicId))
         onBookmarkChanged?.(topicId, false)
       }
     } catch {
-      setInteractionError("收藏状态暂时无法更新。")
+      if (active(controller, session)) setInteractionError("收藏状态暂时无法更新。")
     } finally {
+      if (!active(controller, session)) return
+      pendingRef.current.delete(topicId)
       setBookmarkPendingIds((current) => {
         const next = new Set(current)
         next.delete(topicId)
@@ -80,20 +101,23 @@ export function BookmarksView({
   }
 
   async function handleLoadMore() {
-    if (!nextCursor || loadingMore) return
+    const controller = lifetimeRef.current
+    if (!session || !controller || !active(controller, session) || !nextCursor || loadingMoreRef.current) return
+    loadingMoreRef.current = true
     setLoadingMore(true)
     setInteractionError("")
     try {
-      const page = await listBookmarks({ cursor: nextCursor })
+      const page = await listBookmarks({ cursor: nextCursor, signal: controller.signal })
+      if (!active(controller, session)) return
       setTopics((current) => [
         ...current,
         ...page.topics.filter((topic) => !current.some((item) => item.id === topic.id)),
       ])
       setNextCursor(page.nextCursor)
     } catch {
-      setInteractionError("更多收藏暂时无法加载。")
+      if (active(controller, session)) setInteractionError("更多收藏暂时无法加载。")
     } finally {
-      setLoadingMore(false)
+      if (active(controller, session)) { loadingMoreRef.current = false; setLoadingMore(false) }
     }
   }
 

@@ -132,7 +132,14 @@ async fn admin_grant_uses_configured_level_rules_and_records_audit(pool: PgPool)
     assert_eq!(l2.level_display_name, "入门会员");
 
     let granted = database
-        .grant_membership_points(actor_id, user_id, 25, "admin.grant", None, Some("grant-1"))
+        .grant_membership_points(
+            actor_id,
+            user_id,
+            25,
+            "admin.grant",
+            infrastructure::PointsGrantContext::default(),
+            Some("grant-1"),
+        )
         .await
         .expect("point grant must succeed");
     assert!(granted.created);
@@ -141,7 +148,14 @@ async fn admin_grant_uses_configured_level_rules_and_records_audit(pool: PgPool)
     assert_eq!(granted.account.lifetime_points, 25);
 
     let replay = database
-        .grant_membership_points(actor_id, user_id, 25, "admin.grant", None, Some("grant-1"))
+        .grant_membership_points(
+            actor_id,
+            user_id,
+            25,
+            "admin.grant",
+            infrastructure::PointsGrantContext::default(),
+            Some("grant-1"),
+        )
         .await
         .expect("point grant replay must succeed");
     assert!(!replay.created);

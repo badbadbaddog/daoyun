@@ -9,7 +9,7 @@ vi.mock("../api/admin", async () => ({ ...await vi.importActual("../api/admin"),
 const actor = { id: "u1", username: "member", displayName: "成员", avatarUrl: null }
 const role: AuthorizationRole = { id: "r1", key: "helper", name: "协管员", scope: "site", isSystem: false, permissionKeys: [], assignmentCount: 0, revision: 1, createdAt: "2026-09-01T00:00:00Z", updatedAt: "2026-09-01T00:00:00Z" }
 const otherRole = { ...role, id: "r2", name: "编辑" }
-const assignment = (r = role, scopeId: string | null = null): AuthorizationRoleAssignment => ({ id: r.id + (scopeId ?? ""), user: actor, role: r, scopeId, assignedBy: actor, createdAt: role.createdAt })
+const assignment = (r = role, scopeId: string | null = null): AuthorizationRoleAssignment => ({ id: r.id + (scopeId ?? ""), user: actor, role: r, scopeId, scopeMode: "exact", assignedBy: actor, createdAt: role.createdAt })
 const detail: AdminUserDetail = { ...actor, status: "active", primaryRole: null, topicCount: 0, postCount: 0, reportCount: 0, createdAt: role.createdAt, lastSeenAt: null, bio: "", location: null, websiteUrl: null, followerCount: 0, followingCount: 0, roles: [], restrictionReason: null, restrictionExpiresAt: null, revision: 1 }
 const updated = vi.fn()
 function renderEditor(extra: Partial<Parameters<typeof UserRoleAction>[0]> = {}) {

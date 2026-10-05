@@ -4,10 +4,11 @@ import { ArrowLeft, ArrowRight, ImagePlus, LoaderCircle, Send, Trash2, X } from 
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { uploadDraftImage } from "../api/attachments"
-import type { AuthSession } from "../api/auth"
-import { createPost } from "../api/posts"
+import { getBoard, type BoardViewerCapabilities } from "../api/boards"
+import { isSessionExpiredError, type AuthSession } from "../api/auth"
+import { createPost, type CreatePostInput } from "../api/posts"
 import { TopicApiError } from "../api/topics"
-import { attachmentThumbnailUrl, plainTextDocument, sanitizeRichContent, toPlainText, type RichTextDocument, type RichTextNode } from "../editor/richContent"
+import { attachmentThumbnailUrl, isRichTextDocument, plainTextDocument, sanitizeRichContent, toPlainText, type RichTextDocument, type RichTextNode } from "../editor/richContent"
 import type { Board, Topic, TopicTag } from "../types/community"
 import { extractTopicTags } from "../utils/tags"
 import { RichTextEditor } from "./RichTextEditor"
@@ -18,6 +19,9 @@ interface TopicComposerProps {
   open: boolean
   boards: Board[]
   session: AuthSession | null
+  suspended?: boolean
+  onSessionExpired?: () => void
+  onLogin?: () => void
   availableTags?: TopicTag[]
   defaultBoardId?: string | null
   onClose: () => void
@@ -35,7 +39,10 @@ interface ComposerImage {
   percent?: number
 }
 
+interface PendingPublication { idempotencyKey: string; input: CreatePostInput; draftSnapshot: string }
+
 interface ComposerDraft {
+  publication?: PendingPublication | null
   poll?: PollInput | null
   version: 2
   title: string
@@ -52,22 +59,31 @@ interface UploadStatus {
 }
 
 type FieldErrors = Record<string, string[]>
+type LocalSaveResult = { ok: true; savedAt: string } | { ok: false }
 
 const MAX_TOPIC_IMAGES = 9
 const DRAFT_SAVE_DELAY_MS = 150
 const DRAFT_IMAGE_FALLBACK_RETENTION_MS = 24 * 60 * 60 * 1_000
 
-export function TopicComposer({ open, boards, session, availableTags = [], defaultBoardId = null, onClose, onPublished }: TopicComposerProps) {
+export function TopicComposer({ open, boards, session, suspended = false, onSessionExpired, onLogin, availableTags = [], defaultBoardId = null, onClose, onPublished }: TopicComposerProps) {
   const serverDraftRef = useRef<DraftHandle>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const replacementInputRef = useRef<HTMLInputElement>(null)
   const replacementImageRef = useRef<string | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
+  const recoveryButtonRef = useRef<HTMLButtonElement>(null)
   const submittingRef = useRef(false)
   const uploadingRef = useRef(false)
   const closeConfirmationOpenRef = useRef(false)
   const idempotencyKeyRef = useRef<string | null>(null)
+  const publicationRef = useRef<PendingPublication | null>(null)
+  const copyRef = useRef<HTMLTextAreaElement>(null)
+  const [publicationPending, setPublicationPending] = useState(false)
+  const [copyFallback, setCopyFallback] = useState(false)
+  const [copyMessage, setCopyMessage] = useState("")
   const uploadControllerRef = useRef<AbortController | null>(null)
+  const operationControllerRef = useRef<AbortController | null>(null)
+  const operationScopeRef = useRef("")
   const requestCloseRef = useRef<() => void>(() => undefined)
   const [poll, setPoll] = useState<PollInput | null>(null)
   const [canCreatePoll, setCanCreatePoll] = useState(false)
@@ -79,11 +95,15 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
   const [uploadStatus, setUploadStatus] = useState<UploadStatus | null>(null)
   const [imageError, setImageError] = useState("")
   const [boardId, setBoardId] = useState("")
+  const [boardPermission, setBoardPermission] = useState<{ scope: string; viewer: BoardViewerCapabilities | null; failed: boolean } | null>(null)
+  const [permissionRetry, setPermissionRetry] = useState(0)
   const [restoredDraftKey, setRestoredDraftKey] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [formError, setFormError] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [closing, setClosing] = useState(false)
+  const [localSave, setLocalSave] = useState<{ key: string; snapshot: string; savedAt: string | null; ok: boolean }>({ key: "", snapshot: "", savedAt: null, ok: false })
+  const [closeError, setCloseError] = useState("")
   const [closeConfirmation, setCloseConfirmation] = useState<{ returnFocus: HTMLElement | null } | null>(null)
   const uploading = uploadStatus !== null
   const embeddedImageCount = countImages(richContent)
@@ -91,13 +111,21 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
   const uploadedImageCount = embeddedImageCount + images.filter(image => image.attachmentId).length
   const unresolvedImages = images.some(image => !image.attachmentId)
   const busy = submitting || uploading || closing
+  const editingLocked = busy
   submittingRef.current = submitting || closing
   uploadingRef.current = uploading
   closeConfirmationOpenRef.current = closeConfirmation !== null
   requestCloseRef.current = requestClose
+  const currentDraftRef = useRef({ title, richContent, images, boardId, poll })
+  currentDraftRef.current = { title, richContent, images, boardId, poll }
+  const draftSnapshot = composerDraftSnapshot(currentDraftRef.current)
+  const expiredTokenRef = useRef<string | null>(null)
+  const [expiredSession, setExpiredSession] = useState<{ ownerId: string; csrfToken: string } | null>(null)
+  const sessionExpired = Boolean(expiredSession && (!session || (session.user.id === expiredSession.ownerId && session.csrfToken === expiredSession.csrfToken)))
+  const draftOwnerId = session?.user.id ?? expiredSession?.ownerId
   const draftKey = useMemo(
-    () => `daoyun:composer-draft:v2:${session?.user.id ?? "guest"}:${defaultBoardId ?? "global"}`,
-    [defaultBoardId, session?.user.id],
+    () => `daoyun:composer-draft:v2:${draftOwnerId ?? "guest"}:${defaultBoardId ?? "global"}`,
+    [defaultBoardId, draftOwnerId],
   )
 
   const selectedBoard = useMemo(
@@ -105,33 +133,69 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
     [boardId, boards],
   )
 
+  const permissionScope = JSON.stringify([open, session?.user.id, session?.csrfToken, selectedBoard?.id, selectedBoard?.slug, sessionExpired])
+  const currentPermission = boardPermission?.scope === permissionScope ? boardPermission : null
+  const boardCapabilities = currentPermission?.viewer
+  const canUploadImages = Boolean(!publicationPending && !sessionExpired && session && boardCapabilities?.canCreateTopic && boardCapabilities.canUploadAttachment)
+  const publicationBlocked = sessionExpired || Boolean(session && (!boardCapabilities?.canCreateTopic || (imageCount > 0 && !boardCapabilities.canUploadAttachment)))
+  const permissionMessage = !session || sessionExpired ? "" : currentPermission?.failed
+    ? "版块权限暂时不可用，请重试；草稿内容已保留。"
+    : !boardCapabilities ? "正在检查版块权限…"
+    : !boardCapabilities.canCreateTopic ? "当前版块不可发布；草稿内容已保留。"
+    : !boardCapabilities.canUploadAttachment ? "当前版块不允许上传图片；已选图片仍保留，可移除图片或切换版块。" : ""
+
   useEffect(() => {
-    if (!open) return
+    if (uploadControllerRef.current) cancelUpload()
+    if (!open || !session || sessionExpired || !selectedBoard) return
+    const controller = new AbortController()
+    setBoardPermission({ scope: permissionScope, viewer: null, failed: false })
+    getBoard(selectedBoard.slug, controller.signal).then(board => {
+      if (!controller.signal.aborted) setBoardPermission({ scope: permissionScope, viewer: board.viewer, failed: false })
+    }).catch(error => {
+      if (controller.signal.aborted) return
+      if (isSessionExpiredError(error)) { expireSession(); return }
+      if (!controller.signal.aborted) setBoardPermission({ scope: permissionScope, viewer: null, failed: true })
+    })
+    return () => controller.abort()
+  }, [permissionScope, permissionRetry])
+
+  const operationScope = JSON.stringify([open, draftKey, session?.csrfToken, selectedBoard?.id, sessionExpired])
+  operationScopeRef.current = operationScope
+  useEffect(() => {
+    setSubmitting(false)
+    setClosing(false)
+    setCloseConfirmation(null)
+    return () => operationControllerRef.current?.abort()
+  }, [operationScope])
+
+
+  useEffect(() => {
+    if (!open || sessionExpired || boards.length === 0) return
     setBoardId((current) => {
       const preferred = defaultBoardId && boards.some((board) => board.id === defaultBoardId)
         ? defaultBoardId
         : null
-      const next = preferred ?? (boards.some((board) => board.id === current) ? current : boards[0]?.id || "")
+      const next = boards.some((board) => board.id === current) ? current : preferred ?? boards[0]?.id ?? ""
       if (next !== current) idempotencyKeyRef.current = null
       return next
     })
     setFieldErrors({})
     setFormError("")
-  }, [boards, defaultBoardId, open])
+  }, [boards, defaultBoardId, open, sessionExpired])
 
   useEffect(() => () => uploadControllerRef.current?.abort(), [])
   useEffect(() => {
     setCanCreatePoll(false)
-    if(!open || !session) return
+    if(!open || !session || sessionExpired) return
     const controller=new AbortController()
     getPollPolicy(controller.signal).then(policy=>{if(!controller.signal.aborted)setCanCreatePoll(policy.can_create)}).catch(()=>undefined)
     return()=>controller.abort()
-  },[open,session?.user.id])
+  },[open,session?.user.id,session?.csrfToken,sessionExpired])
 
   useEffect(() => {
     if (!open || restoredDraftKey === draftKey) return
     if (restoredDraftKey) {
-      writeComposerDraft(restoredDraftKey, { title, richContent, images, boardId, poll })
+      writeComposerDraft(restoredDraftKey, { ...currentDraftRef.current, publication: publicationRef.current })
     }
     uploadControllerRef.current?.abort()
     uploadControllerRef.current = null
@@ -139,7 +203,11 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
     replacementImageRef.current = null
     setUploadStatus(null)
     setImageError("")
-    const draft = readComposerDraft(draftKey, session?.user.id)
+    const draft = readComposerDraft(draftKey, draftOwnerId)
+    publicationRef.current = draft?.publication ?? null
+    setPublicationPending(Boolean(publicationRef.current))
+    setCopyFallback(false)
+    setCopyMessage("")
     const nextRichContent = draft?.richContent ?? plainTextDocument("")
     setPoll(draft?.poll ?? null)
     setTitle(draft?.title ?? "")
@@ -155,12 +223,12 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
     setFormError("")
     idempotencyKeyRef.current = null
     setRestoredDraftKey(draftKey)
-  }, [boardId, boards, defaultBoardId, draftKey, images, open, restoredDraftKey, richContent, title, poll, session?.user.id])
+  }, [boardId, boards, defaultBoardId, draftKey, images, open, restoredDraftKey, richContent, title, poll, draftOwnerId])
 
   useEffect(() => {
     if (!open || restoredDraftKey !== draftKey) return
     const timer = window.setTimeout(() => {
-      writeComposerDraft(draftKey, { title, richContent, images, boardId, poll })
+      saveLocalDraft({ title, richContent, images, boardId, poll })
     }, DRAFT_SAVE_DELAY_MS)
     return () => window.clearTimeout(timer)
   }, [boardId, draftKey, images, open, restoredDraftKey, richContent, title, poll])
@@ -183,10 +251,12 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
     setFieldErrors({})
     setFormError("")
     idempotencyKeyRef.current = null
+    setExpiredSession(null)
+    expiredTokenRef.current = null
   }, [open])
 
   useEffect(() => {
-    if (!open) return
+    if (!open || suspended) return
 
     const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const previousOverflow = document.body.style.overflow
@@ -222,10 +292,63 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
       document.body.style.overflow = previousOverflow
       if (returnFocus?.isConnected) returnFocus.focus()
     }
-  }, [open])
+  }, [open, suspended])
+
+  useEffect(() => {
+    if (session && expiredSession && (session.user.id !== expiredSession.ownerId || session.csrfToken !== expiredSession.csrfToken)) {
+      setExpiredSession(null)
+      expiredTokenRef.current = null
+      setFormError("")
+    }
+  }, [session, expiredSession])
+
+  useEffect(() => {
+    if (sessionExpired && !suspended) queueMicrotask(() => recoveryButtonRef.current?.focus())
+  }, [sessionExpired, suspended])
+
+  function expireSession() {
+    if (!session || sessionExpired || expiredTokenRef.current === session.csrfToken) return
+    expiredTokenRef.current = session.csrfToken
+    saveLocalDraft()
+    cancelUpload()
+    setExpiredSession({ ownerId: session.user.id, csrfToken: session.csrfToken })
+    setFormError("")
+    setFieldErrors({})
+    onSessionExpired?.()
+  }
+
+  function saveLocalDraft(value = currentDraftRef.current): LocalSaveResult {
+    const result = writeComposerDraft(draftKey, { ...value, publication: publicationRef.current })
+    const hasDraftContent = Boolean(value.title.trim() || toPlainText(value.richContent).trim() || value.images.length || value.poll || publicationRef.current)
+    setLocalSave(previous => ({ key: draftKey, snapshot: composerDraftSnapshot(value),
+      savedAt: result.ok ? hasDraftContent ? result.savedAt : null : previous.key === draftKey ? previous.savedAt : null, ok: result.ok }))
+    return result
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      const hasContent = Boolean(title.trim() || content.trim() || images.length || poll || publicationRef.current)
+      if (hasContent && (publicationRef.current || unresolvedImages || !(localSave.key === draftKey && localSave.snapshot === draftSnapshot && localSave.ok) && !serverDraftRef.current?.isSaved())) {
+        event.preventDefault()
+        event.returnValue = ""
+      }
+    }
+    window.addEventListener("beforeunload", beforeUnload)
+    return () => window.removeEventListener("beforeunload", beforeUnload)
+  }, [open, title, content, images, poll, unresolvedImages, localSave, draftKey, draftSnapshot])
+
+  useEffect(() => { if (copyFallback) { copyRef.current?.focus(); copyRef.current?.select() } }, [copyFallback])
+
+  async function copyBody() {
+    try { await navigator.clipboard.writeText(content); setCopyMessage("正文已复制") }
+    catch { setCopyFallback(true); setCopyMessage("请选择并手动复制下方正文") }
+  }
 
   function requestClose() {
-    const hasUnsavedChanges = Boolean(title.trim() || content.trim() || images.length || poll)
+    saveLocalDraft()
+    setCloseError("")
+    const hasUnsavedChanges = Boolean(title.trim() || content.trim() || images.length || poll || publicationRef.current)
     if (hasUnsavedChanges) {
       setCloseConfirmation({
         returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null,
@@ -237,7 +360,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
 
   function performClose(clearDraft = false) {
     if (clearDraft) { serverDraftRef.current?.complete(); removeComposerDraft(draftKey) }
-    else writeComposerDraft(draftKey, { title, richContent, images, boardId, poll })
+    else saveLocalDraft()
     uploadControllerRef.current?.abort()
     uploadControllerRef.current = null
     uploadingRef.current = false
@@ -254,6 +377,8 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
     setFieldErrors({})
     setFormError("")
     idempotencyKeyRef.current = null
+    publicationRef.current = null
+    setPublicationPending(false)
     onClose()
   }
 
@@ -272,6 +397,10 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
     if (uploadingRef.current || files.length === 0) return
     if (!session) {
       setImageError("请先登录后上传图片")
+      return
+    }
+    if (!canUploadImages) {
+      setImageError(permissionMessage)
       return
     }
     const remaining = MAX_TOPIC_IMAGES - imageCount
@@ -293,7 +422,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
   }
 
   async function uploadImages(selected: ComposerImage[]) {
-    if (uploadingRef.current || !session) return
+    if (uploadingRef.current || !session || !canUploadImages) return
     const controller = new AbortController()
     uploadControllerRef.current?.abort()
     uploadControllerRef.current = controller
@@ -327,6 +456,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
         } catch (error) {
           if (!controller.signal.aborted && uploadControllerRef.current === controller) {
             updateImage(image, {status: "failed", error: error instanceof Error ? error.message : "图片上传失败，请重试"})
+            if (isSessionExpiredError(error)) { expireSession(); break }
           }
         }
       }
@@ -350,7 +480,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
   }
 
   function retryImage(image: ComposerImage) {
-    if (busy) return
+    if (busy || !canUploadImages) return
     setImageError("")
     if (image.file) {
       void uploadImages([image])
@@ -378,8 +508,8 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
   }
 
   async function submit() {
-    if (busy) return
-    const errors = validate()
+    if (submittingRef.current || busy || publicationBlocked) return
+    const errors = publicationRef.current ? {} : validate()
     setFieldErrors(errors)
     setFormError("")
     if (Object.keys(errors).length > 0) return
@@ -388,41 +518,60 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
       return
     }
 
+    const controller = new AbortController()
+    operationControllerRef.current = controller
+    const active = () => !controller.signal.aborted && operationScopeRef.current === operationScope
+    submittingRef.current = true
     setSubmitting(true)
     try {
-      const draft = await serverDraftRef.current?.flush()
-      const idempotencyKey = idempotencyKeyRef.current ?? createIdempotencyKey()
-      idempotencyKeyRef.current = idempotencyKey
-      const tags = extractTopicTags(content, availableTags)
-      const topic = await createPost(
-        {
-          ...(title.trim() ? { title: title.trim() } : {}),
-          content: content.trim(),
-          ...(draft ? { draft } : {}),
-          ...(poll ? { poll } : {}),
-          richContent: withComposerImages(richContent, images),
-          boardId: selectedBoard?.id,
+      let publication = publicationRef.current
+      if (!publication) {
+        const draft = await serverDraftRef.current?.flush()
+        if (!active()) return
+        const idempotencyKey = idempotencyKeyRef.current ?? createIdempotencyKey()
+        idempotencyKeyRef.current = idempotencyKey
+        const tags = extractTopicTags(content, availableTags)
+        publication = { idempotencyKey, draftSnapshot: composerDraftSnapshot(currentDraftRef.current), input: {
+          ...(title.trim() ? { title: title.trim() } : {}), content: content.trim(),
+          ...(draft ? { draft } : {}), ...(poll ? { poll } : {}),
+          richContent: withComposerImages(richContent, images), boardId: selectedBoard?.id,
           ...(tags.length > 0 ? { tags } : {}),
-        },
-        { csrfToken: session.csrfToken, idempotencyKey },
-      )
-      performClose(true)
+        } }
+        publicationRef.current = publication
+        setPublicationPending(true)
+        saveLocalDraft()
+      }
+      const topic = await createPost(publication.input,
+        { csrfToken: session.csrfToken, idempotencyKey: publication.idempotencyKey, signal: controller.signal })
+      if (!active()) return
+      const newerEdits = composerDraftSnapshot(currentDraftRef.current) !== publication.draftSnapshot
+      if (newerEdits) {
+        publicationRef.current = null
+        setPublicationPending(false)
+        serverDraftRef.current?.complete()
+      }
+      performClose(!newerEdits)
       onPublished(topic)
     } catch (error) {
-      if (error instanceof TopicApiError) {
+      if (!active()) return
+      if (isSessionExpiredError(error)) { expireSession(); return }
+      if (error instanceof TopicApiError && error.status < 500) {
+        publicationRef.current = null
+        setPublicationPending(false)
+        saveLocalDraft()
         setFieldErrors(error.fields)
         setFormError(error.fields.body?.[0] ?? error.message)
       } else {
         setFormError("主题服务暂时不可用，请稍后重试；未发布的正文仍保留")
       }
     } finally {
-      setSubmitting(false)
+      if (active()) { submittingRef.current = false; setSubmitting(false) }
     }
   }
 
   const inputError = (field: string) => fieldErrors[field]?.[0]
 
-  if (!open) return null
+  if (!open || suspended || restoredDraftKey !== draftKey) return null
 
   return (
     <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => {
@@ -439,13 +588,19 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
           </button>
         </div>
         <form className="dialog-body" aria-busy={busy} onSubmit={(event) => { event.preventDefault(); void submit() }}>
-          {session && <DraftShelf key={draftKey} ref={serverDraftRef} ownerId={session.user.id} csrfToken={session.csrfToken} storageKey={draftKey} ready={restoredDraftKey === draftKey} busy={busy || unresolvedImages}
+          <p role="status" aria-label="本机保存状态">{localSave.key !== draftKey || localSave.snapshot !== draftSnapshot ? "本机：等待保存" : localSave.ok ? `本机：已保存 ${localSave.savedAt ? new Date(localSave.savedAt).toLocaleTimeString() : ""}` : "本机保存失败，正文仍在当前窗口"}</p>
+          {localSave.key === draftKey && !localSave.ok && localSave.savedAt && <small>上次本机成功保存：{new Date(localSave.savedAt).toLocaleTimeString()}；当前修改尚未保存到本机。</small>}
+          {session && !sessionExpired && <DraftShelf key={draftKey} ref={serverDraftRef} ownerId={session.user.id} csrfToken={session.csrfToken} storageKey={draftKey} onSessionExpired={expireSession} recoveringPublication={publicationPending} ready={restoredDraftKey === draftKey} busy={editingLocked || publicationPending || unresolvedImages}
             content={{title,board_id:boardId || null,rich_content:richContent,images:images.filter(image=>image.attachmentId).map(({attachmentId,fileName})=>({attachmentId,fileName})),poll}}
-            onRestore={draft=>{setPoll(isPollInput(draft.poll)?draft.poll:null);setTitle(draft.title);setRichContent(draft.rich_content);setContent(toPlainText(draft.rich_content));setImages(draft.images);setBoardId(draft.board_id??"");setFieldErrors({});setFormError("");idempotencyKeyRef.current=null;writeComposerDraft(draftKey,{title:draft.title,richContent:draft.rich_content,images:draft.images,boardId:draft.board_id??"",poll:draft.poll})}} />}
+            onRestore={draft=>{setPoll(isPollInput(draft.poll)?draft.poll:null);setTitle(draft.title);setRichContent(draft.rich_content);setContent(toPlainText(draft.rich_content));setImages(draft.images);setBoardId(draft.board_id??"");setFieldErrors({});setFormError("");idempotencyKeyRef.current=null;saveLocalDraft({title:draft.title,richContent:draft.rich_content,images:draft.images,boardId:draft.board_id??"",poll:isPollInput(draft.poll)?draft.poll:null})}} />}
+          {sessionExpired && <div className="composer-form-error" role="alert">
+            <p>登录已失效，正文和图片已保留。请使用原账号重新登录，再继续发布。</p>
+            <button ref={recoveryButtonRef} className="secondary-button" type="button" onClick={onLogin}>重新登录</button>
+          </div>}
           {boards.length > 1 && (
             <label>
               <span>板块</span>
-              <select value={boardId} disabled={busy} onChange={(event) => {
+              <select value={boardId} disabled={editingLocked} onChange={(event) => {
                 setBoardId(event.target.value)
                 idempotencyKeyRef.current = null
               }}>
@@ -453,13 +608,17 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
               </select>
             </label>
           )}
+          {permissionMessage && <p className="composer-field-error" role={currentPermission?.failed ? "alert" : "status"}>
+            {permissionMessage}
+            {currentPermission?.failed && <button className="secondary-button" type="button" disabled={busy} onClick={() => setPermissionRetry(value => value + 1)}>重试版块权限</button>}
+          </p>}
           <label>
             <span>标题（可选）</span>
             <input
               type="text"
               value={title}
               maxLength={160}
-              disabled={busy}
+              disabled={editingLocked}
               placeholder="一句话说明你想分享的内容"
               aria-invalid={inputError("title") ? "true" : undefined}
               aria-describedby={inputError("title") ? "composer-title-error" : undefined}
@@ -473,7 +632,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
 
           {(canCreatePoll || poll) && <div className="composer-poll">
             {!poll ? <button className="secondary-button" type="button" disabled={busy} onClick={()=>{setPoll(newPoll());idempotencyKeyRef.current=null}}>添加单选投票</button> : <>
-              <PollEditor value={poll} disabled={busy || !canCreatePoll} onChange={value=>{setPoll(value);idempotencyKeyRef.current=null}} />
+              <PollEditor value={poll} disabled={editingLocked || !canCreatePoll} onChange={value=>{setPoll(value);idempotencyKeyRef.current=null}} />
               {!canCreatePoll && <p role="alert">投票插件未启用或创建权限不可用。草稿配置已保留；可移除投票后发布。</p>}
               <button className="secondary-button" type="button" disabled={busy} onClick={()=>{setPoll(null);idempotencyKeyRef.current=null}}>移除投票</button>
             </>}
@@ -538,7 +697,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
                             ? image.percent === 99 ? "图片已上传，正在处理" : `上传中 ${image.percent ?? 0}%`
                             : "上传成功"}
                         </span>}
-                        {image.status === "failed" && <button type="button" disabled={busy}
+                        {image.status === "failed" && <button type="button" disabled={busy || !canUploadImages}
                           aria-label={`${image.file ? "重试" : "重新选择"}图片 ${index + 1}`}
                           onClick={() => retryImage(image)}>{image.file ? "重试" : "重新选择"}</button>}
                       </div>
@@ -576,7 +735,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
                 <button
                   className="composer-image-upload"
                   type="button"
-                  disabled={busy || !session}
+                  disabled={busy || !canUploadImages}
                   aria-label="上传图片"
                   onClick={() => imageInputRef.current?.click()}
                 >
@@ -592,7 +751,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
                 accept="image/png,image/jpeg,image/gif,image/webp"
                 multiple
                 aria-label="选择帖子图片"
-                disabled={busy || !session}
+                disabled={busy || !canUploadImages}
                 onChange={(event) => {
                   void addImages(Array.from(event.target.files ?? []))
                   event.target.value = ""
@@ -601,7 +760,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
             </div>
 
               <input ref={replacementInputRef} className="visually-hidden" type="file"
-                accept="image/png,image/jpeg,image/gif,image/webp" aria-label="重新选择失败图片" disabled={busy || !session}
+                accept="image/png,image/jpeg,image/gif,image/webp" aria-label="重新选择失败图片" disabled={busy || !canUploadImages}
                 onChange={event => {
                   const file = event.target.files?.[0]
                   const image = images.find(item => imageKey(item) === replacementImageRef.current)
@@ -618,7 +777,7 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
               <span>支持 JPG、PNG、GIF、WebP；拖动或用前移/后移按钮排序</span>
               <span>第一张为详情页主图，首页展示前 3 张</span>
             </div>
-            {unresolvedImages && <p className="composer-field-error" role="status">未完成图片仅保存在本机；请重试或移除后发布并同步草稿。</p>}
+            {unresolvedImages && <p className="composer-field-error" role="status">未完成图片只保存在当前窗口，关闭后需重新选择；请重试或移除后发布并同步草稿。</p>}
             {imageError && <p className="composer-field-error" role="alert">{imageError}</p>}
           </div>
 
@@ -629,9 +788,9 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
               ariaLabel="正文"
               placeholder="补充背景和想法；输入 #标签 可自动归类"
               maxCharacters={1_000_000}
-              autoFocus
+              autoFocus={!sessionExpired}
               showImageUpload={false}
-              disabled={busy}
+              disabled={editingLocked}
               invalid={Boolean(inputError("content") || inputError("rich_content"))}
               errorMessageId={(inputError("content") || inputError("rich_content")) ? "composer-content-error" : undefined}
               onChange={(document, plainText) => {
@@ -643,10 +802,14 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
             {(inputError("content") || inputError("rich_content")) && <p id="composer-content-error" className="composer-field-error">{inputError("content") ?? inputError("rich_content")}</p>}
           </div>
           {inputError("tags") && <p id="composer-tags-error" className="composer-field-error">{inputError("tags")}</p>}
+          {publicationPending && <p role="status">发布结果尚未确认，点击发布将重试原请求；期间的新修改会另行保留为草稿。</p>}
+          <button className="secondary-button" type="button" onClick={() => void copyBody()}>复制正文</button>
+          {copyMessage && <p role="status">{copyMessage}</p>}
+          {copyFallback && <label><span>手动复制正文</span><textarea ref={copyRef} readOnly value={content} /></label>}
           {formError && <p className="composer-form-error" role="alert">{formError}</p>}
           <div className="dialog-toolbar">
-            <span className="dialog-toolbar__hint">本地草稿自动保存 · 正文输入 #标签 · 最多 9 张图片</span>
-            <button className="primary-button" type="submit" disabled={busy || unresolvedImages}>
+            <span className="dialog-toolbar__hint">正文输入 #标签 · 最多 9 张图片</span>
+            <button className="primary-button" type="submit" disabled={busy || unresolvedImages || publicationBlocked}>
               {submitting ? <LoaderCircle className="topic-loading__spinner" size={16} aria-hidden="true" /> : <Send size={16} aria-hidden="true" />}
               {closing ? "正在保存" : submitting ? "正在发布" : uploading ? "正在上传" : "发布"}
             </button>
@@ -660,15 +823,31 @@ export function TopicComposer({ open, boards, session, availableTags = [], defau
         returnFocus={closeConfirmation.returnFocus}
         onCancel={() => setCloseConfirmation(null)}
         onConfirm={() => {
-          setCloseConfirmation(null)
+          const controller = new AbortController()
+          operationControllerRef.current = controller
           setClosing(true)
-          void (unresolvedImages ? Promise.resolve() : serverDraftRef.current?.flush() ?? Promise.resolve()).catch(() => undefined).finally(() => {
+          void (unresolvedImages || publicationRef.current ? Promise.resolve() : serverDraftRef.current?.flush() ?? Promise.resolve()).catch(() => undefined).finally(() => {
+            if (controller.signal.aborted || operationScopeRef.current !== operationScope) return
+            const local = saveLocalDraft()
+            if (!local.ok && (publicationRef.current || !serverDraftRef.current?.isSaved())) {
+              setCloseError(publicationRef.current ? "发布结果尚未确认，恢复请求未能保存到本机，请先重试确认结果或复制正文。" : "本机和云端均未保存，请继续编辑、重试或复制正文。")
+              setClosing(false)
+              return
+            }
+            setCloseConfirmation(null)
             performClose()
             setClosing(false)
           })
         }}
       >
-        <p>当前内容已保存为本地草稿，下次打开时可继续编辑。</p>
+        <p>{localSave.key === draftKey && localSave.snapshot === draftSnapshot && localSave.ok
+          ? "当前内容已保存为本地草稿，下次打开时可继续编辑。"
+          : serverDraftRef.current?.isSaved() ? "本机保存失败，云端已保存；重新打开后可从草稿箱继续编辑。" : "本机保存失败；关闭前将尝试同步云端，未保存内容仍保留在窗口中。"}</p>
+        {publicationPending && <p>发布结果尚未确认；重新打开后必须先重试原请求。</p>}
+        {unresolvedImages && <p>未上传图片尚未持久保存，关闭后需要重新选择文件。</p>}
+        {closeError && <><p role="alert">{closeError}</p>
+          <button className="danger-button" type="button" disabled={busy} onClick={() => { setCloseConfirmation(null); performClose() }}>放弃未保存内容并关闭</button>
+          {publicationPending && <p>原发布可能已经成功，放弃恢复后请先检查帖子，避免再次发布相同内容。</p>}</>}
         <p>确认关闭编辑窗口吗？</p>
       </ConfirmDialog>}
     </div>
@@ -738,6 +917,7 @@ function readComposerDraft(key: string, ownerId?: string): ComposerDraft | null 
       : []
     return {
       version: 2,
+      publication: readPendingPublication(record.publication),
       title: typeof record.title === "string" ? record.title.slice(0, 160) : "",
       richContent,
       poll: isPollInput(record.poll) ? record.poll : null,
@@ -750,23 +930,48 @@ function readComposerDraft(key: string, ownerId?: string): ComposerDraft | null 
   }
 }
 
+function readPendingPublication(value: unknown): PendingPublication | null {
+  if (!value || typeof value !== "object") return null
+  const { idempotencyKey, input, draftSnapshot } = value as Record<string, unknown>
+  if (typeof idempotencyKey !== "string" || !/^[!-~]{1,128}$/.test(idempotencyKey) || !input || typeof input !== "object") return null
+  const payload = input as Record<string, unknown>
+  if (typeof draftSnapshot !== "string" || typeof payload.content !== "string" || !payload.content.trim() || payload.content.length > 1_000_000) return null
+  if (payload.title !== undefined && (typeof payload.title !== "string" || payload.title.length > 160)) return null
+  if (payload.boardId !== undefined && (typeof payload.boardId !== "string" || !attachmentThumbnailUrl(payload.boardId))) return null
+  if (payload.richContent !== undefined && !isRichTextDocument(payload.richContent)) return null
+  if (payload.poll !== undefined && !isPollInput(payload.poll)) return null
+  if (payload.tags !== undefined && (!Array.isArray(payload.tags) || !payload.tags.every(tag => tag && typeof tag === "object" && typeof tag.slug === "string" && typeof tag.name === "string"))) return null
+  if (payload.draft !== undefined) {
+    if (!payload.draft || typeof payload.draft !== "object") return null
+    const draft = payload.draft as Record<string, unknown>
+    if (typeof draft.id !== "string" || !attachmentThumbnailUrl(draft.id) || !Number.isSafeInteger(draft.revision) || Number(draft.revision) < 0) return null
+  }
+  return { idempotencyKey, input: input as CreatePostInput, draftSnapshot }
+}
+
+function composerDraftSnapshot(value: Pick<ComposerDraft, "title" | "richContent" | "images" | "boardId" | "poll" | "publication">): string {
+  return JSON.stringify({ ...value, images: value.images.map(({attachmentId, fileName, expiresAt, uploadId, status}) => ({attachmentId, fileName, expiresAt, uploadId, status})) })
+}
+
 function writeComposerDraft(
   key: string,
-  value: Pick<ComposerDraft, "title" | "richContent" | "images" | "boardId" | "poll">,
-) {
+  value: Pick<ComposerDraft, "title" | "richContent" | "images" | "boardId" | "poll" | "publication">,
+): LocalSaveResult {
   try {
-    if (!value.title.trim() && !toPlainText(value.richContent).trim() && value.images.length === 0 && !value.poll) {
+    const savedAt = new Date().toISOString()
+    if (!value.title.trim() && !toPlainText(value.richContent).trim() && value.images.length === 0 && !value.poll && !value.publication) {
       window.localStorage.removeItem(key)
-      return
+      return { ok: true, savedAt }
     }
     window.localStorage.setItem(key, JSON.stringify({
       version: 2,
       ...value,
       images: value.images.map(({attachmentId, fileName, expiresAt, uploadId, status}) => ({attachmentId, fileName, expiresAt, uploadId, status})),
-      savedAt: new Date().toISOString(),
+      savedAt,
     } satisfies ComposerDraft))
+    return { ok: true, savedAt }
   } catch {
-    // localStorage may be unavailable or full; publishing remains usable.
+    return { ok: false }
   }
 }
 

@@ -3847,3 +3847,7 @@ mod tests {
         assert!(!origin_matches_rp_id("localhost", "127.0.0.1"));
     }
 }
+
+#[cfg(test)]
+#[path = "oidc_callback_tests.rs"]
+mod oidc_callback_tests;

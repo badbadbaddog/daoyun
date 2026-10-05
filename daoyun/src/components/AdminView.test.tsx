@@ -5,6 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { AuthSession } from "../api/auth"
 import {
   AdminApiError,
+  getGovernancePolicy,
+  listRiskAlerts,
+  listAdminAudit,
   createAdminGrowthLevel,
   deleteAdminGrowthLevel,
   getAdminAccess,
@@ -39,6 +42,9 @@ vi.mock("../api/admin", async () => {
   return {
     ...actual,
     getAdminAccess: vi.fn(),
+    getGovernancePolicy: vi.fn(),
+    listRiskAlerts: vi.fn(),
+    listAdminAudit: vi.fn(),
     getAdminSiteBranding: vi.fn(),
     getSmtpSettings: vi.fn(),
     listAdminBoards: vi.fn(),
@@ -88,7 +94,7 @@ vi.mock("./UserAdminPanel", () => ({
 }))
 
 vi.mock("./ReportAdminPanel", () => ({
-  ReportAdminPanel: ({ requestedStatus, canResolve, onStatusChange }: { requestedStatus: string; canResolve: boolean; onStatusChange: (value: string) => void }) => <section><h2>举报处理工作台</h2><p>{`${requestedStatus}/${canResolve}`}</p><button type="button" onClick={() => onStatusChange("in_review")}>切换处理中</button></section>,
+  ReportAdminPanel: ({ requestedStatus, canResolve, canTriage, onStatusChange }: { requestedStatus: string; canResolve: boolean; canTriage?: boolean; onStatusChange: (value: string) => void }) => <section><h2>举报处理工作台</h2><span>{"triage:" + String(canTriage)}</span><p>{`${requestedStatus}/${canResolve}`}</p><button type="button" onClick={() => onStatusChange("in_review")}>切换处理中</button></section>,
 }))
 
 vi.mock("./ModerationAdminPanel", () => ({
@@ -205,6 +211,7 @@ beforeEach(() => {
   })
   vi.mocked(grantMembershipPoints).mockResolvedValue({
     created: true,
+    ledgerEntryId: null, balanceBefore: null, balanceAfter: null,
     auditId: "019fc900-0000-7000-8000-000000000999",
     account: { userId: memberId, pointsBalance: 30, lifetimePoints: 30, levelKey: "lv_2", levelNumber: 2, levelDisplayName: "Lv2", revision: 2, updatedAt: "2026-08-07T01:00:00Z" },
   })
@@ -221,9 +228,9 @@ describe("AdminView", () => {
     const user = userEvent.setup()
     render(<AdminView session={session} requestedTab="branding" onBack={vi.fn()} />)
     await screen.findByLabelText("站点名称")
-    expect(screen.getByText("内容管理")).toBeInTheDocument()
-    expect(screen.getByText("社区运营")).toBeInTheDocument()
-    expect(screen.getByText("系统设置")).toBeInTheDocument()
+    expect(screen.getByText("内容治理")).toBeInTheDocument()
+    expect(screen.getByText("用户与会员")).toBeInTheDocument()
+    expect(screen.getByText("站点设置")).toBeInTheDocument()
     expect(screen.queryByLabelText("主色")).not.toBeInTheDocument()
     await user.type(screen.getByLabelText("站点名称"), "新名称")
     await user.click(screen.getByRole("button", { name: "主题外观" }))
@@ -311,7 +318,7 @@ describe("AdminView", () => {
   })
 
   it("shows a clear forbidden state", async () => {
-    vi.mocked(getAdminSiteBranding).mockRejectedValueOnce(new AdminApiError(403, "admin.forbidden", "需要超级管理员权限"))
+    vi.mocked(getAdminAccess).mockRejectedValueOnce(new AdminApiError(403, "admin.forbidden", "需要超级管理员权限"))
     render(<AdminView session={session} onBack={vi.fn()} />)
     expect(await screen.findByText("当前账号没有站点管理权限")).toBeInTheDocument()
   })
@@ -329,7 +336,7 @@ describe("AdminView", () => {
     render(<AdminView session={session} onBack={vi.fn()} />)
 
     await user.click(await screen.findByRole("button", { name: "运维监控" }))
-    expect(screen.getByRole("heading", { name: "运营概览" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "运营概览" })).toBeInTheDocument()
   })
 
   it("opens directly into operations for an operations-only role", async () => {
@@ -422,10 +429,10 @@ describe("AdminView", () => {
 
     await user.click(await screen.findByRole("button", { name: "会员经济" }))
     expect(await screen.findByRole("heading", { name: "会员经济", level: 1 })).toBeInTheDocument()
-    expect(screen.getByRole("heading", { name: "成长等级（EXP）" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "成长等级（EXP）" })).toBeInTheDocument()
     expect(screen.queryByText("已发布")).not.toBeInTheDocument()
     expect(screen.queryByLabelText("traveler 状态")).not.toBeInTheDocument()
-    const editTrigger = screen.getByRole("button", { name: "编辑 traveler" })
+    const editTrigger = await screen.findByRole("button", { name: "编辑 traveler" })
     await user.click(editTrigger)
     const dialog = screen.getByRole("dialog", { name: "编辑成长等级" })
     const name = within(dialog).getByLabelText("展示名称")
@@ -819,8 +826,8 @@ describe("AdminView", () => {
     await user.click(screen.getByRole("button", { name: "确认删除" }))
 
     const background = document.querySelector(".membership-admin-panel") as HTMLElement
-    expect(within(background).getByText("删除 traveler").closest("button")).toBeDisabled()
-    expect(within(background).getByText("删除 explorer").closest("button")).toBeDisabled()
+    expect(within(background).getByLabelText("删除 traveler").closest("button")).toBeDisabled()
+    expect(within(background).getByLabelText("删除 explorer").closest("button")).toBeDisabled()
     expect(screen.getByRole("dialog", { name: "删除成长等级" })).toHaveTextContent("traveler")
 
     finishDelete()
@@ -873,9 +880,11 @@ describe("AdminView", () => {
 
     await user.click(await screen.findByRole("button", { name: "角色与权限" }))
     expect(await screen.findByRole("heading", { name: "角色与权限", level: 1 })).toBeInTheDocument()
-    expect(listAuthorizationPermissions).toHaveBeenCalled()
-    expect(listAuthorizationRoles).toHaveBeenCalled()
-    expect(listAuthorizationAssignments).toHaveBeenCalledWith(expect.objectContaining({ limit: 50 }))
+    await waitFor(() => {
+      expect(listAuthorizationPermissions).toHaveBeenCalled()
+      expect(listAuthorizationRoles).toHaveBeenCalled()
+      expect(listAuthorizationAssignments).toHaveBeenCalledWith(expect.objectContaining({ limit: 50 }))
+    })
   })
 
   it("shows system and governance tasks in one capability-filtered navigation", async () => {
@@ -1003,11 +1012,12 @@ it("organizes available tasks into the same groups on desktop and mobile", async
   render(<AdminView session={session} onBack={vi.fn()} />)
   const navigation = await screen.findByRole("navigation", { name: "站点管理导航" })
   const expected = [
-    ["工作台入口", ["工作台"]],
-    ["内容管理", ["主题管理", "评论管理", "举报处理", "内容审核"]],
-    ["社区运营", ["版块管理", "用户管理"]],
-    ["数据分析", ["数据总览"]],
-    ["系统设置", ["品牌配置", "插件管理", "邮件服务", "运维监控"]],
+    ["工作台", ["工作台"]],
+    ["内容治理", ["主题管理", "评论管理", "举报处理", "内容审核"]],
+    ["版块管理", ["版块管理"]],
+    ["用户与会员", ["用户管理"]],
+    ["扩展与数据", ["插件管理", "数据总览"]],
+    ["站点设置", ["品牌配置", "邮件服务", "附件存储", "运维监控"]],
   ] as const
   for (const [name, labels] of expected) {
     const group = within(navigation).getByRole("group", { name })
@@ -1015,14 +1025,14 @@ it("organizes available tasks into the same groups on desktop and mobile", async
   }
   const mobile = screen.getByRole("combobox", { name: "管理模块" })
   expect(within(mobile).getAllByRole("option").map((option) => option.textContent)).toEqual(expected.flatMap(([, labels]) => [...labels]))
-  expect(within(mobile).getAllByRole("group").map((group) => group.getAttribute("label"))).toEqual(["内容管理", "社区运营", "数据分析", "系统设置"])
+  expect(within(mobile).getAllByRole("group").map((group) => group.getAttribute("label"))).toEqual(["工作台", "内容治理", "版块管理", "用户与会员", "扩展与数据", "站点设置"])
 })
 
 it("omits empty navigation groups for a restricted operator", async () => {
   vi.mocked(getAdminAccess).mockResolvedValue({ capabilityKeys: ["operations.read"] })
   render(<AdminView session={session} onBack={vi.fn()} />)
   const navigation = await screen.findByRole("navigation", { name: "站点管理导航" })
-  expect(within(navigation).getAllByRole("group").map((group) => group.getAttribute("aria-label"))).toEqual(["工作台入口", "系统设置"])
+  expect(within(navigation).getAllByRole("group").map((group) => group.getAttribute("aria-label"))).toEqual(["工作台", "站点设置"])
   expect(within(navigation).getAllByRole("button")).toHaveLength(2)
 })
 
@@ -1033,4 +1043,95 @@ it.each([["comments", "评论管理"], ["reviews", "内容审核"]])("opens %s f
   expect(await screen.findByRole("heading", { name: label, level: 1 })).toBeInTheDocument()
   expect(screen.getByRole("button", { name: label })).toHaveAttribute("aria-current", "page")
   expect(getAdminSiteBranding).not.toHaveBeenCalled()
+})
+
+it("offers a return to the exact dashboard position for a task deep link", async () => {
+  vi.mocked(getAdminAccess).mockResolvedValueOnce({ capabilityKeys: ["admin.users.read"] })
+  render(<AdminView session={session} onBack={vi.fn()} requestedTab="users" requestedQuery="status=restricted&user_id=019fc800-0000-7000-8000-000000000002&return_to=dashboard&return_scroll=420" />)
+  expect(await screen.findByRole("link", { name: "返回工作台" })).toHaveAttribute("href", "#admin/dashboard?scroll=420")
+})
+
+it("loads the report workspace without SMTP, branding or board configuration", async () => {
+  vi.mocked(getSmtpSettings).mockRejectedValue(new Error("SMTP offline"))
+  render(<AdminView session={session} onBack={vi.fn()} requestedTab="reports" />)
+  expect(await screen.findByRole("heading", { name: "举报处理工作台" })).toBeInTheDocument()
+  expect(getSmtpSettings).not.toHaveBeenCalled()
+  expect(getAdminSiteBranding).not.toHaveBeenCalled()
+  expect(listAdminBoards).not.toHaveBeenCalled()
+})
+
+it("shows an email failure locally and keeps other admin modules usable", async () => {
+  vi.mocked(getSmtpSettings).mockRejectedValueOnce(new Error("SMTP offline"))
+  render(<AdminView session={session} onBack={vi.fn()} requestedTab="email" />)
+  expect(await screen.findByText("邮件配置暂时无法加载。")).toBeInTheDocument()
+  await userEvent.setup().click(screen.getByRole("button", { name: "举报处理" }))
+  expect(await screen.findByRole("heading", { name: "举报处理工作台" })).toBeInTheDocument()
+})
+
+it("maps all sixteen modules into the seven V3 navigation groups", async () => {
+  vi.mocked(getAdminAccess).mockResolvedValue({ capabilityKeys: ["admin.users.read", "admin.configuration.read", "governance.reports.read", "governance.policy.read", "governance.alerts.read", "membership.rules.read", "authorization.roles.read", "authorization.assignments.read", "community.analytics.read", "operations.read", "plugins.read"] })
+  vi.mocked(listModerationBoards).mockResolvedValue([{ id: board.id, slug: board.slug, name: board.name, tone: board.tone, capabilityKeys: ["moderation.topic"] }])
+  render(<AdminView session={session} onBack={vi.fn()} />)
+  const navigation = await screen.findByRole("navigation", { name: "站点管理导航" })
+  expect(within(navigation).getAllByRole("group").map(group => group.getAttribute("aria-label"))).toEqual(["工作台", "内容治理", "版块管理", "用户与会员", "管理团队", "扩展与数据", "站点设置"])
+  expect(within(navigation).getAllByRole("button")).toHaveLength(16)
+  expect(within(screen.getByLabelText("管理模块")).getAllByRole("option")).toHaveLength(16)
+})
+
+it.each(["getItem", "setItem"] as const)("keeps the common admin shell usable when browser storage %s is unavailable", async method => {
+  document.documentElement.dataset.theme = "light"
+  localStorage.removeItem("daoyun-theme")
+  const storage = vi.spyOn(Storage.prototype, method).mockImplementation(() => { throw new DOMException("Storage disabled", "SecurityError") })
+  try {
+    render(<AdminView session={session} onBack={vi.fn()} />)
+    expect(await screen.findByRole("navigation", { name: "站点管理导航" })).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole("button", { name: "切换为深色主题" }))
+    expect(screen.getByRole("button", { name: "切换为浅色主题" })).toBeInTheDocument()
+  } finally { storage.mockRestore(); document.documentElement.dataset.theme = "light" }
+})
+
+it("offers a standalone permission check only with every sensitive read capability", async () => {
+  vi.mocked(getAdminAccess).mockResolvedValue({ capabilityKeys: ["content.access_policies.read", "community.groups.read", "admin.users.read", "community.memberships.read", "entitlements.grants.read", "entitlements.types.read", "authorization.assignments.read"] })
+  render(<AdminView session={session} requestedTab="inspect" onBack={vi.fn()} />)
+  expect(await screen.findByRole("button", { name: "权限检查" })).toHaveAttribute("aria-current", "page")
+  expect(await screen.findByLabelText("选择操作用户")).toBeInTheDocument()
+})
+
+it("opens scoped report triage without global account moderation or topic tabs", async () => {
+  vi.mocked(getAdminAccess).mockResolvedValueOnce({ capabilityKeys: [] })
+  vi.mocked(listModerationBoards).mockResolvedValueOnce([{ id: board.id, slug: board.slug, name: board.name, tone: board.tone, capabilityKeys: ["governance.reports.read", "governance.reports.resolve"] }])
+  render(<AdminView session={session} onBack={vi.fn()} requestedTab="reports" />)
+  expect(await screen.findByRole("heading", { name: "举报处理工作台" })).toBeInTheDocument()
+  expect(screen.getByText("all/false")).toBeInTheDocument()
+  expect(screen.getByText("triage:true")).toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "主题管理" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "评论管理" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "内容审核" })).not.toBeInTheDocument()
+})
+
+it("links a risk alert to its report and loads object audit only when opened", async () => {
+  vi.mocked(getAdminAccess).mockResolvedValueOnce({ capabilityKeys: ["governance.policy.read", "governance.alerts.read", "governance.reports.read", "audit.read"] })
+  vi.mocked(getGovernancePolicy).mockResolvedValue({ enabled: true, alertScoreThreshold: 60, reporterWindowMinutes: 60, reporterAlertLimit: 3 })
+  vi.mocked(listRiskAlerts).mockResolvedValue({ alerts: [{ id: board.id, kind: "high_risk_report", severity: "high", score: 80, targetType: "topic", targetId: board.id, reporterId: session.user.id, reportId: board.id, status: "acknowledged", details: {}, acknowledgedBy: null, createdAt: "2026-10-03T10:00:00Z", acknowledgedAt: null }], nextCursor: null })
+  vi.mocked(listAdminAudit).mockResolvedValue({ entries: [], nextCursor: null })
+  const user = userEvent.setup()
+  render(<AdminView session={session} onBack={vi.fn()} requestedTab="risk" />)
+  const link = await screen.findByRole("link", { name: "查看关联举报" })
+  expect(link).toHaveAttribute("href", "#admin/reports?report_id=" + board.id)
+  expect(listAdminAudit).not.toHaveBeenCalled()
+  await user.click(screen.getByRole("button", { name: "查看告警审计" }))
+  expect(screen.getByRole("dialog", { name: "告警操作记录" })).toBeInTheDocument()
+  await waitFor(() => expect(listAdminAudit).toHaveBeenCalledWith(expect.objectContaining({ resourceId: board.id, limit: 10 })))
+  await user.click(screen.getByRole("button", { name: "关闭抽屉" }))
+  expect(screen.getByRole("heading", { name: "风控告警", level: 2 })).toBeInTheDocument()
+})
+it("keeps unavailable report and audit controls out of read-only risk navigation", async () => {
+  vi.mocked(getAdminAccess).mockResolvedValueOnce({ capabilityKeys: ["governance.policy.read", "governance.alerts.read"] })
+  vi.mocked(getGovernancePolicy).mockResolvedValue({ enabled: true, alertScoreThreshold: 60, reporterWindowMinutes: 60, reporterAlertLimit: 3 })
+  vi.mocked(listRiskAlerts).mockResolvedValue({ alerts: [{ id: board.id, kind: "high_risk_report", severity: "high", score: 80, targetType: "topic", targetId: board.id, reporterId: session.user.id, reportId: board.id, status: "acknowledged", details: {}, acknowledgedBy: null, createdAt: "2026-10-03T10:00:00Z", acknowledgedAt: null }], nextCursor: null })
+  render(<AdminView session={session} onBack={vi.fn()} requestedTab="risk" />)
+  await screen.findByRole("heading", { name: "风控告警", level: 2 })
+  expect(screen.queryByRole("link", { name: "查看关联举报" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "查看告警审计" })).not.toBeInTheDocument()
+  expect(listAdminAudit).not.toHaveBeenCalled()
 })

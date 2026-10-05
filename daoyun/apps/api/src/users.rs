@@ -1105,6 +1105,13 @@ fn points_ledger_entry(record: PointsLedgerEntryRecord) -> Result<PointsLedgerEn
         amount: record.amount,
         reason: record.reason,
         balance_after: record.balance_after,
+        actor_id: record.actor_id,
+        actor_username: record.actor_username,
+        actor_display_name: record.actor_display_name,
+        operation_request_id: record
+            .operation_request_id
+            .as_deref()
+            .and_then(|value| Uuid::parse_str(value).ok()),
         created_at: format_timestamp(record.created_at)?,
     })
 }

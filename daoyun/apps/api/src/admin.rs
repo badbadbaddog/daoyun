@@ -2181,7 +2181,10 @@ pub(crate) async fn grant_membership_points(
             request.user_id,
             request.amount,
             &request.reason,
-            request.details.as_deref(),
+            infrastructure::PointsGrantContext {
+                details: request.details.as_deref(),
+                request_id: Some(request_id.into()),
+            },
             request.idempotency_key.as_deref(),
         )
         .await
@@ -2193,6 +2196,9 @@ pub(crate) async fn grant_membership_points(
             account,
             created: result.created,
             audit_id: result.audit_id,
+            ledger_entry_id: Some(result.entry_id),
+            balance_before: Some(result.balance_before),
+            balance_after: Some(result.balance_after),
         },
         request_id,
     )))

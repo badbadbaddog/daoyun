@@ -2,16 +2,21 @@ use axum::{
     body::{Body, to_bytes},
     http::{Method, Request, StatusCode},
 };
+#[cfg(feature = "wasm-plugins")]
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use daoyun_api::{AuthConfig, PluginHostConfig, PluginRuntime, app_with_plugin_runtime};
+#[cfg(feature = "wasm-plugins")]
+use daoyun_api::PluginHostConfig;
+use daoyun_api::{AuthConfig, PluginRuntime, app_with_plugin_runtime};
 use infrastructure::Database;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tower::ServiceExt;
 
+#[cfg(feature = "wasm-plugins")]
 const IDENTITY_COMPONENT: &str =
     include_str!("../../../crates/plugin-host/tests/fixtures/identity-component.wat");
 
+#[cfg(feature = "wasm-plugins")]
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
 async fn plugin_api_runs_the_validated_lifecycle_and_preserves_privacy(pool: PgPool) {
     let app = app_with_plugin_runtime(
@@ -275,6 +280,7 @@ async fn plugin_api_runs_the_validated_lifecycle_and_preserves_privacy(pool: PgP
     );
 }
 
+#[cfg(feature = "wasm-plugins")]
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
 async fn plugin_api_rejects_unauthenticated_and_invalid_components_with_stable_errors(
     pool: PgPool,
@@ -572,6 +578,7 @@ async fn plugin_api_rejects_unauthenticated_and_invalid_components_with_stable_e
     assert!(invalid.to_string().find("Wasmtime").is_none());
 }
 
+#[cfg(feature = "wasm-plugins")]
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
 async fn plugin_api_separates_read_install_lifecycle_and_invoke_capabilities(pool: PgPool) {
     let app = app_with_plugin_runtime(
@@ -803,6 +810,7 @@ fn json_request(
         .expect("JSON request must be valid")
 }
 
+#[cfg(feature = "wasm-plugins")]
 fn raw_json_request(
     method: Method,
     uri: &str,
@@ -830,4 +838,480 @@ async fn response_json(response: axum::response::Response) -> Value {
         .await
         .expect("response body must be readable");
     serde_json::from_slice(&body).expect("response must be JSON")
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn capability_snapshot_separates_native_provider_from_wasm_and_rebuilds_from_database(
+    pool: PgPool,
+) {
+    let database = Database::from_pool(pool.clone());
+    let app = app_with_plugin_runtime(
+        database.clone(),
+        AuthConfig::default().with_secure_cookies(false),
+        PluginRuntime::disabled(),
+    );
+    initialize(&app).await;
+    let (cookies, _) = login(&app).await;
+    let provider_id = uuid::Uuid::now_v7();
+    sqlx::query("INSERT INTO plugins (id, key, name, version, business_api_version, capabilities, data_scopes, component_bytes, component_sha256, status, installed_by) SELECT $1, 'snapshot_provider', 'Snapshot provider', '1.0.0', '0.1.0', '[\"topic.polls\",\"experience.write\"]'::jsonb, '[\"users.targeted\"]'::jsonb, $2, $3, 'enabled', id FROM users WHERE username = 'owner'")
+        .bind(provider_id).bind(vec![0_u8]).bind("0".repeat(64)).execute(&pool).await.expect("provider fixture");
+    let path = "/api/v1/admin/plugins/capabilities";
+    let denied = app
+        .clone()
+        .oneshot(get_request(path, ""))
+        .await
+        .expect("anonymous response");
+    assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+    for current in [
+        app.clone(),
+        app_with_plugin_runtime(
+            database.clone(),
+            AuthConfig::default().with_secure_cookies(false),
+            PluginRuntime::disabled(),
+        ),
+    ] {
+        let response = current
+            .oneshot(get_request(path, &cookies))
+            .await
+            .expect("capability response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let request_id = response.headers()["x-request-id"]
+            .to_str()
+            .expect("header")
+            .to_owned();
+        let body = response_json(response).await;
+        assert_eq!(body["meta"]["request_id"], request_id);
+        assert_eq!(body["data"]["wasm_runtime_enabled"], false);
+        assert_eq!(
+            body["data"]["wasm_supported"],
+            cfg!(feature = "wasm-plugins")
+        );
+        assert_eq!(body["data"]["can_manage_lifecycle"], true);
+        let modules = body["data"]["modules"].as_array().expect("modules");
+        let polls = modules
+            .iter()
+            .find(|m| m["capability"] == "topic.polls")
+            .expect("poll descriptor");
+        assert_eq!(polls["status"], "available");
+        assert_eq!(polls["execution"], "native");
+        assert_eq!(polls["runtime_ready"], true);
+        assert_eq!(polls["business_enabled"], true);
+        assert_eq!(polls["target_authorization_required"], true);
+        assert_eq!(
+            modules
+                .iter()
+                .find(|m| m["capability"] == "experience.write")
+                .expect("growth descriptor")["status"],
+            if cfg!(feature = "wasm-plugins") {
+                "runtime_disabled"
+            } else {
+                "unsupported"
+            }
+        );
+        assert_eq!(
+            modules
+                .iter()
+                .find(|m| m["capability"] == "membership.redemption")
+                .expect("redemption descriptor")["status"],
+            "not_configured"
+        );
+        assert!(body.to_string().find("component_bytes").is_none());
+    }
+    sqlx::query("UPDATE plugins SET status = 'disabled', revision = revision + 1 WHERE id = $1")
+        .bind(provider_id)
+        .execute(&pool)
+        .await
+        .expect("disable fixture");
+    let body = response_json(
+        app.clone()
+            .oneshot(get_request(path, &cookies))
+            .await
+            .expect("disabled snapshot"),
+    )
+    .await;
+    assert_eq!(
+        body["data"]["modules"]
+            .as_array()
+            .expect("modules")
+            .iter()
+            .find(|m| m["capability"] == "topic.polls")
+            .expect("poll descriptor")["status"],
+        "disabled"
+    );
+    let document = response_json(
+        app.oneshot(get_request("/api/v1/openapi.json", ""))
+            .await
+            .expect("OpenAPI"),
+    )
+    .await;
+    assert!(document["paths"][path]["get"].is_object());
+    assert!(document["components"]["schemas"]["PluginCapabilitiesSnapshot"].is_object());
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn builtin_modules_configure_disabled_and_use_native_lifecycle_without_wasm(pool: PgPool) {
+    let app = app_with_plugin_runtime(
+        Database::from_pool(pool.clone()),
+        AuthConfig::default().with_secure_cookies(false),
+        PluginRuntime::disabled(),
+    );
+    initialize(&app).await;
+    let (cookies, csrf) = login(&app).await;
+    for key in [
+        "official_polls",
+        "official_points_redemption",
+        "official_community_analytics",
+        "official_topic_supplements",
+        "official_topic_edit_review",
+    ] {
+        let path = format!("/api/v1/admin/plugins/builtins/{key}");
+        for (cookie, token, expected) in [
+            ("", None, StatusCode::UNAUTHORIZED),
+            (cookies.as_str(), None, StatusCode::FORBIDDEN),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(json_request(
+                    Method::POST,
+                    &path,
+                    json!(null),
+                    cookie,
+                    token,
+                ))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected);
+        }
+        let response = app
+            .clone()
+            .oneshot(json_request(
+                Method::POST,
+                &path,
+                json!(null),
+                &cookies,
+                Some(&csrf),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let request_id = response.headers()["x-request-id"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let body = response_json(response).await;
+        assert_eq!(body["meta"]["request_id"], request_id);
+        assert_eq!(body["data"]["execution"], "native");
+        assert_eq!(body["data"]["status"], "disabled");
+        assert_eq!(body["data"]["component_size"], 0);
+        let id = body["data"]["id"].as_str().unwrap();
+        let again = response_json(
+            app.clone()
+                .oneshot(json_request(
+                    Method::POST,
+                    &path,
+                    json!(null),
+                    &cookies,
+                    Some(&csrf),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(again["data"], body["data"]);
+        let enabled = app
+            .clone()
+            .oneshot(json_request(
+                Method::PATCH,
+                &format!("/api/v1/admin/plugins/{id}"),
+                json!({"status":"enabled","expected_revision":1}),
+                &cookies,
+                Some(&csrf),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(enabled.status(), StatusCode::OK);
+        assert_eq!(response_json(enabled).await["data"]["revision"], 2);
+        let stale = app
+            .clone()
+            .oneshot(json_request(
+                Method::PATCH,
+                &format!("/api/v1/admin/plugins/{id}"),
+                json!({"status":"disabled","expected_revision":1}),
+                &cookies,
+                Some(&csrf),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(stale.status(), StatusCode::CONFLICT);
+        assert!(
+            Database::from_pool(pool.clone())
+                .load_plugin_for_business_runtime(uuid::Uuid::parse_str(id).unwrap())
+                .await
+                .is_err()
+        );
+        let disabled = app
+            .clone()
+            .oneshot(json_request(
+                Method::PATCH,
+                &format!("/api/v1/admin/plugins/{id}"),
+                json!({"status":"disabled","expected_revision":2}),
+                &cookies,
+                Some(&csrf),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(disabled.status(), StatusCode::OK);
+        let preserved = response_json(
+            app.clone()
+                .oneshot(json_request(
+                    Method::POST,
+                    &path,
+                    json!(null),
+                    &cookies,
+                    Some(&csrf),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(preserved["data"]["status"], "disabled");
+        assert_eq!(preserved["data"]["revision"], 3);
+        let removal = app
+            .clone()
+            .oneshot(json_request(
+                Method::DELETE,
+                &format!("/api/v1/admin/plugins/{id}"),
+                json!(null),
+                &cookies,
+                Some(&csrf),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(removal.status(), StatusCode::CONFLICT);
+    }
+    let (left, right) = tokio::join!(
+        app.clone().oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/plugins/builtins/official_polls",
+            json!(null),
+            &cookies,
+            Some(&csrf)
+        )),
+        app.clone().oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/plugins/builtins/official_polls",
+            json!(null),
+            &cookies,
+            Some(&csrf)
+        ))
+    );
+    assert_eq!(
+        response_json(left.unwrap()).await["data"],
+        response_json(right.unwrap()).await["data"]
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM admin_audit_log WHERE action='plugin.builtin.configure'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        5
+    );
+    assert!(
+        Database::from_pool(pool.clone())
+            .list_enabled_business_ui_plugins()
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    for (caps, version) in [
+        (json!(["topic.polls", "experience.write"]), Some("0.1.0")),
+        (json!(["topic.polls"]), None),
+    ] {
+        let mut tx = pool.begin().await.unwrap();
+        let denied = sqlx::query(
+            "UPDATE plugins SET capabilities=$1,business_api_version=$2 WHERE key='official_polls'",
+        )
+        .bind(caps)
+        .bind(version)
+        .execute(&mut *tx)
+        .await;
+        assert!(
+            denied.is_err(),
+            "native contract cannot accept additional writes or a missing business contract"
+        );
+        tx.rollback().await.unwrap();
+    }
+    let unsupported = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/plugins/builtins/official_growth_rewards",
+            json!(null),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(unsupported.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let document = response_json(
+        app.oneshot(get_request("/api/v1/openapi.json", ""))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(document["paths"]["/api/v1/admin/plugins/builtins/{key}"]["post"].is_object());
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn builtin_configuration_preserves_a_conflicting_wasm_provider(pool: PgPool) {
+    let app = app_with_plugin_runtime(
+        Database::from_pool(pool.clone()),
+        AuthConfig::default().with_secure_cookies(false),
+        PluginRuntime::disabled(),
+    );
+    initialize(&app).await;
+    let (cookies, csrf) = login(&app).await;
+    sqlx::query("INSERT INTO plugins(id,key,name,version,business_api_version,capabilities,component_bytes,component_sha256,status,installed_by) SELECT $1,'official_polls','Existing provider','0.1.0','0.1.0','[\"topic.polls\"]',$2,$3,'disabled',id FROM users WHERE username='owner'").bind(uuid::Uuid::now_v7()).bind(vec![0_u8]).bind("a".repeat(64)).execute(&pool).await.unwrap();
+    let before: Value =
+        sqlx::query_scalar("SELECT to_jsonb(p) FROM plugins p WHERE key='official_polls'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let response = app
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/plugins/builtins/official_polls",
+            json!(null),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let after: Value =
+        sqlx::query_scalar("SELECT to_jsonb(p) FROM plugins p WHERE key='official_polls'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        after, before,
+        "configuration must not silently replace an existing Wasm provider"
+    );
+}
+
+#[cfg(not(feature = "wasm-plugins"))]
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn base_build_preserves_wasm_history_and_rejects_execution_after_authorization(pool: PgPool) {
+    let app = app_with_plugin_runtime(
+        Database::from_pool(pool.clone()),
+        AuthConfig::default().with_secure_cookies(false),
+        PluginRuntime::disabled(),
+    );
+    initialize(&app).await;
+    let (cookies, csrf) = login(&app).await;
+    let id = uuid::Uuid::now_v7();
+    sqlx::query("INSERT INTO plugins (id, key, name, version, capabilities, component_bytes, component_sha256, status, installed_by) SELECT $1, 'external_history', 'External history', '1.0.0', '[\"content.transform\"]'::jsonb, $2, '6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d', 'enabled', id FROM users WHERE username = 'owner'")
+        .bind(id).bind(vec![0_u8]).execute(&pool).await.expect("historical Wasm fixture");
+    let before: Value = sqlx::query_scalar("SELECT to_jsonb(p) FROM plugins p WHERE id = $1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let install = json!({"manifest":{"schema_version":1,"key":"new_external","name":"External","version":"1.0.0","description":"","capabilities":["content.transform"]},"component_base64":"AA=="});
+    let invoke = format!("/api/v1/admin/plugins/{id}/invoke");
+    for (path, body) in [
+        ("/api/v1/admin/plugins", install.clone()),
+        (
+            invoke.as_str(),
+            json!({"operation":"content_transform","payload":"input"}),
+        ),
+    ] {
+        for (cookie, token, status) in [
+            ("", None, StatusCode::UNAUTHORIZED),
+            (cookies.as_str(), None, StatusCode::FORBIDDEN),
+            (
+                cookies.as_str(),
+                Some(csrf.as_str()),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(json_request(
+                    Method::POST,
+                    path,
+                    body.clone(),
+                    cookie,
+                    token,
+                ))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), status);
+            let request_id = response.headers()["x-request-id"]
+                .to_str()
+                .unwrap()
+                .to_owned();
+            let result = response_json(response).await;
+            assert_eq!(result["meta"]["request_id"], request_id);
+            if status == StatusCode::SERVICE_UNAVAILABLE {
+                assert_eq!(result["error"]["code"], "plugin.execution_failed");
+            }
+        }
+    }
+    let mut invalid = install;
+    invalid["manifest"]["capabilities"] = json!(["content.transform", "content.transform"]);
+    let response = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/plugins",
+            invalid,
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        response_json(response).await["error"]["code"],
+        "plugin.invalid_manifest"
+    );
+    let response = app
+        .clone()
+        .oneshot(json_request(
+            Method::PATCH,
+            &format!("/api/v1/admin/plugins/{id}"),
+            json!({"status":"enabled","expected_revision":1}),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let response = app
+        .clone()
+        .oneshot(get_request(
+            &format!("/api/v1/admin/plugins/{id}/ui-contributions"),
+            &cookies,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let listing = response_json(
+        app.oneshot(get_request("/api/v1/admin/plugins", &cookies))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(listing["data"].as_array().unwrap().len(), 1);
+    assert_eq!(listing["data"][0]["execution"], "wasm");
+    assert_eq!(listing["data"][0]["status"], "enabled");
+    let after: Value = sqlx::query_scalar("SELECT to_jsonb(p) FROM plugins p WHERE id = $1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(before, after);
 }

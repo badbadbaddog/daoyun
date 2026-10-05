@@ -13,6 +13,7 @@ pub const MAX_MEDAL_ASSET_BYTES: usize = 2 * 1024 * 1024;
 pub struct MedalAssetRecord {
     pub asset_key: String,
     pub storage_key: String,
+    pub storage_provider: Option<String>,
     pub mime_type: String,
     pub size_bytes: i64,
 }
@@ -27,7 +28,7 @@ pub enum MedalAssetError {
 }
 impl fmt::Display for MedalAssetError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "medal asset operation failed: {self:?}")
+        f.write_str("medal asset operation failed")
     }
 }
 impl std::error::Error for MedalAssetError {}
@@ -103,15 +104,16 @@ impl Database {
         let storage_key = format!("membership/medals/{hash}-{}", Uuid::now_v7());
         // Write a fresh object so repeated uploads cannot truncate an image that is already public.
         self.attachment_store
+            .writer()
             .put(&storage_key, &bytes)
             .await
             .map_err(MedalAssetError::Storage)?;
         let result: Result<MedalAssetRecord, MedalAssetError> = async {
         let record = sqlx::query_as::<_, MedalAssetRecord>(
-            "INSERT INTO membership_medal_assets (asset_key, storage_key, mime_type, size_bytes, created_by)
-             VALUES ($1, $2, $3, $4, $5) ON CONFLICT (asset_key) DO UPDATE SET asset_key = EXCLUDED.asset_key
-             RETURNING asset_key, storage_key, mime_type, size_bytes"
-        ).bind(&key).bind(&storage_key).bind(mime).bind(bytes.len() as i64).bind(actor_id).fetch_one(&mut *transaction).await?;
+            "INSERT INTO membership_medal_assets (asset_key, storage_key, mime_type, size_bytes, created_by, storage_provider)
+             VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (asset_key) DO UPDATE SET asset_key = EXCLUDED.asset_key
+             RETURNING asset_key, storage_key, storage_provider, mime_type, size_bytes"
+        ).bind(&key).bind(&storage_key).bind(mime).bind(bytes.len() as i64).bind(actor_id).bind(self.attachment_store.writer_name()).fetch_one(&mut *transaction).await?;
         insert_audit(
             &mut transaction,
             actor_id,
@@ -128,7 +130,7 @@ impl Database {
             .as_ref()
             .is_ok_and(|record| record.storage_key == storage_key)
         {
-            let _ = self.attachment_store.delete(&storage_key).await;
+            let _ = self.attachment_store.writer().delete(&storage_key).await;
         }
         result
     }
@@ -140,10 +142,12 @@ impl Database {
         if uploaded_medal_sha256(key).is_none() {
             return Err(MedalAssetError::NotFound);
         }
-        let record = sqlx::query_as::<_, MedalAssetRecord>("SELECT asset_key, storage_key, mime_type, size_bytes FROM membership_medal_assets WHERE asset_key = $1")
+        let record = sqlx::query_as::<_, MedalAssetRecord>("SELECT asset_key, storage_key, storage_provider, mime_type, size_bytes FROM membership_medal_assets WHERE asset_key = $1")
             .bind(key).fetch_optional(&self.pool).await?.ok_or(MedalAssetError::NotFound)?;
         let bytes = self
             .attachment_store
+            .for_record(record.storage_provider.as_deref())
+            .map_err(MedalAssetError::Storage)?
             .get(&record.storage_key)
             .await
             .map_err(MedalAssetError::Storage)?;
@@ -154,6 +158,13 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn storage_error_display_does_not_expose_credentials() {
+        let error =
+            MedalAssetError::Storage("https://user:private-secret@storage.invalid/bucket".into());
+        assert!(!error.to_string().contains("private-secret"));
+    }
 
     #[test]
     fn detects_gif_bytes_when_the_filename_is_jpeg() {

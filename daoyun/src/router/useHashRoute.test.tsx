@@ -15,7 +15,7 @@ function RouteProbe() {
 
 afterEach(() => {
   cleanup()
-  window.location.hash = ""
+  window.history.replaceState(null, "", "/")
 })
 
 describe("useHashRoute", () => {
@@ -33,24 +33,24 @@ describe("useHashRoute", () => {
     expect(screen.getByTestId("route")).toHaveTextContent('"kind":"bookmarks"')
   })
 
-  it("navigates with a formatted hash", () => {
+  it("navigates with a public URL", () => {
     window.location.hash = "#feed"
     render(<RouteProbe />)
 
     screen.getByRole("button", { name: "用户" }).click()
 
-    expect(window.location.hash).toBe("#user/member")
+    expect(window.location.pathname).toBe("/u/member")
   })
 
   it.each([
-    ["", "#hot"],
-    ["#top", "#hot"],
-    ["#discover", "#search"],
-    ["#board-engineering", "#board/engineering"],
+    ["", "/#hot"],
+    ["#top", "/#hot"],
+    ["#discover", "/#search"],
+    ["#board-engineering", "/b/engineering"],
   ])("normalizes the legacy route %s without a second page-state model", (legacy, canonical) => {
     window.location.hash = legacy
     render(<RouteProbe />)
 
-    expect(window.location.hash).toBe(canonical)
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe(canonical)
   })
 })

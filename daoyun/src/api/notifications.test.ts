@@ -41,3 +41,25 @@ describe("notification API", () => {
 })
 
 function jsonResponse(body: unknown, status = 200): Response { return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }) }
+
+it("passes unread filtering and its cursor to the server", async () => {
+ const cursor="unread:"+notificationId
+ const fetchMock=vi.spyOn(globalThis,"fetch").mockResolvedValue(jsonResponse({data:[],meta:{request_id:requestId,next_cursor:cursor}}))
+ await expect(listNotifications({unread:true,cursor})).resolves.toEqual({notifications:[],nextCursor:cursor})
+ expect(fetchMock).toHaveBeenCalledWith("/api/v1/notifications?cursor="+encodeURIComponent(cursor)+"&limit=20&unread=true",expect.anything())
+})
+
+it("rejects malformed server pagination cursors", async () => {
+ vi.spyOn(globalThis,"fetch").mockResolvedValue(jsonResponse({data:[],meta:{request_id:requestId,next_cursor:"unread:invalid"}}))
+ await expect(listNotifications({unread:true})).rejects.toThrow("通知列表响应格式无效")
+})
+
+it("maps a post target with its parent topic", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ data: [{ id: notificationId, kind: "reply", actor: null, target: "post", target_id: notificationId, topic_id: topicId, read_at: null, created_at: "2026-10-03T10:00:00Z" }], meta: { request_id: requestId, next_cursor: null } }))
+  await expect(listNotifications()).resolves.toMatchObject({ notifications: [{ target: "post", targetId: notificationId, topicId }] })
+})
+
+it("accepts existing topic governance events", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ data: [{ id: notificationId, kind: "topic_governance", actor: null, target: "topic", target_id: topicId, topic_id: null, read_at: null, created_at: "2026-10-03T10:00:00Z" }], meta: { request_id: requestId, next_cursor: null } }))
+  await expect(listNotifications()).resolves.toMatchObject({ notifications: [{ kind: "topic_governance", targetId: topicId }] })
+})

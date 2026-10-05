@@ -790,6 +790,281 @@ async fn super_admin_uploads_keep_system_validation_but_bypass_attachment_busine
     assert_eq!(invalid.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
 
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn draft_image_binding_rechecks_board_and_group_upload_permissions(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    let (cookies, csrf) = register_member(&app).await;
+    let uploaded = app
+        .clone()
+        .oneshot(draft_upload_request(
+            ONE_BY_ONE_PNG,
+            "image/png",
+            "permission.png",
+            &cookies,
+            &csrf,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(uploaded.status(), StatusCode::CREATED);
+    let attachment_id = response_json(uploaded).await["data"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let uploader_id =
+        sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM users WHERE username = 'uploader'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let board_id =
+        sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM boards WHERE slug = 'general'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let body = json!({"board_id":board_id,"content":"保留附件正文","rich_content":{"type":"doc","content":[
+        {"type":"paragraph","content":[{"type":"text","text":"保留附件正文"}]},
+        {"type":"image","attrs":{"attachmentId":attachment_id,"alt":"附件"}}
+    ]}});
+    sqlx::query("INSERT INTO board_user_restrictions (id,board_id,user_id,actions,starts_at,ends_at,reason,created_by,updated_by)
+        VALUES (daoyun_uuid_v7(),$1,$2,ARRAY['attachment.upload']::varchar[],CURRENT_TIMESTAMP-INTERVAL '1 hour',CURRENT_TIMESTAMP+INTERVAL '1 hour','test',$2,$2)")
+        .bind(board_id).bind(uploader_id).execute(&pool).await.unwrap();
+    let before = sqlx::query_as::<_, (i64, i64, i64)>("SELECT (SELECT COUNT(*) FROM topics),(SELECT COUNT(*) FROM posts),(SELECT COALESCE(SUM(used),0)::bigint FROM community_quota_usage)").fetch_one(&pool).await.unwrap();
+    for group_restricted in [false, true] {
+        if group_restricted {
+            sqlx::query("UPDATE board_user_restrictions SET ends_at=CURRENT_TIMESTAMP-INTERVAL '1 second' WHERE user_id=$1").bind(uploader_id).execute(&pool).await.unwrap();
+            sqlx::query("DELETE FROM community_group_permissions WHERE group_id=(SELECT id FROM community_groups WHERE internal_key='registered_member') AND permission_key='attachment.upload'").execute(&pool).await.unwrap();
+        }
+        let rejected = app
+            .clone()
+            .oneshot(json_request(
+                Method::POST,
+                "/api/v1/topics",
+                body.clone(),
+                &cookies,
+                &csrf,
+            ))
+            .await
+            .unwrap();
+        let status = rejected.status();
+        let request_id = rejected.headers()["x-request-id"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let payload = response_json(rejected).await;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "group_restricted={group_restricted}: {payload}"
+        );
+        assert_eq!(payload["error"]["code"], "request.validation_failed");
+        assert_eq!(payload["meta"]["request_id"], request_id);
+        let after = sqlx::query_as::<_, (i64, i64, i64)>("SELECT (SELECT COUNT(*) FROM topics),(SELECT COUNT(*) FROM posts),(SELECT COALESCE(SUM(used),0)::bigint FROM community_quota_usage)").fetch_one(&pool).await.unwrap();
+        assert_eq!(
+            after, before,
+            "failed publish must roll back content and quota"
+        );
+        let bound = sqlx::query_scalar::<_, Option<uuid::Uuid>>(
+            "SELECT topic_id FROM topic_attachments WHERE id=$1",
+        )
+        .bind(uuid::Uuid::parse_str(&attachment_id).unwrap())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(bound, None);
+    }
+    sqlx::query("INSERT INTO community_group_permissions(group_id,permission_key) SELECT id,'attachment.upload' FROM community_groups WHERE internal_key='registered_member'").execute(&pool).await.unwrap();
+    let published = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/topics",
+            body,
+            &cookies,
+            &csrf,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(published.status(), StatusCode::CREATED);
+    let published = response_json(published).await;
+    let topic_id = published["data"]["id"].as_str().unwrap();
+    sqlx::query("UPDATE board_user_restrictions SET ends_at=CURRENT_TIMESTAMP+INTERVAL '1 hour' WHERE user_id=$1").bind(uploader_id).execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM community_group_permissions WHERE group_id=(SELECT id FROM community_groups WHERE internal_key='registered_member') AND permission_key='attachment.upload'").execute(&pool).await.unwrap();
+    let edited = app.clone().oneshot(json_request(Method::PATCH,&format!("/api/v1/topics/{topic_id}"),
+        json!({"base_revision":1,"content":"已有图片仍可编辑","rich_content":published["data"]["rich_content"]}),&cookies,&csrf)).await.unwrap();
+    assert_eq!(edited.status(), StatusCode::OK);
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn draft_and_topic_reject_unavailable_images_without_content_or_quota_side_effects(
+    pool: PgPool,
+) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    let (cookies, csrf) = register_member(&app).await;
+    let mut infected_png = ONE_BY_ONE_PNG.to_vec();
+    infected_png.extend_from_slice(
+        b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*",
+    );
+    for (bytes, mime) in [
+        (b"not a png".as_slice(), "image/png"),
+        (ONE_BY_ONE_PNG, "text/plain"),
+        (infected_png.as_slice(), "image/png"),
+    ] {
+        let rejected = app
+            .clone()
+            .oneshot(draft_upload_request(
+                bytes,
+                mime,
+                "invalid.png",
+                &cookies,
+                &csrf,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM topic_attachments")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    let uploaded = app
+        .clone()
+        .oneshot(draft_upload_request(
+            ONE_BY_ONE_PNG,
+            "image/png",
+            "negative.png",
+            &cookies,
+            &csrf,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(uploaded.status(), StatusCode::CREATED);
+    let attachment_id = uuid::Uuid::parse_str(
+        response_json(uploaded).await["data"]["id"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    let other_topic = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/topics",
+            json!({"content":"已绑定附件所在主题"}),
+            &cookies,
+            &csrf,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(other_topic.status(), StatusCode::CREATED);
+    let other_topic_id = uuid::Uuid::parse_str(
+        response_json(other_topic).await["data"]["id"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    let before = sqlx::query_as::<_, (i64,i64,i64,i64,i64)>("SELECT (SELECT COUNT(*) FROM topics),(SELECT COUNT(*) FROM posts),(SELECT COUNT(*) FROM member_drafts),(SELECT COUNT(*) FROM member_draft_attachments),(SELECT COALESCE(SUM(used),0)::bigint FROM community_quota_usage)").fetch_one(&pool).await.unwrap();
+    for condition in [
+        "foreign",
+        "upload_pending",
+        "scan_pending",
+        "infected",
+        "scan_error",
+        "expired",
+        "deleted",
+        "bound",
+    ] {
+        sqlx::query("UPDATE topic_attachments SET uploader_id=(SELECT id FROM users WHERE username='uploader'),topic_id=NULL,status='ready',scan_status='clean',deleted_at=NULL,expires_at=CURRENT_TIMESTAMP+INTERVAL '1 day' WHERE id=$1").bind(attachment_id).execute(&pool).await.unwrap();
+        match condition {
+            "foreign" => {
+                sqlx::query("UPDATE topic_attachments SET uploader_id=(SELECT id FROM users WHERE username='owner') WHERE id=$1").bind(attachment_id).execute(&pool).await.unwrap();
+            }
+            "upload_pending" => {
+                sqlx::query("UPDATE topic_attachments SET status='pending' WHERE id=$1")
+                    .bind(attachment_id)
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+            }
+            "scan_pending" | "infected" | "scan_error" => {
+                sqlx::query("UPDATE topic_attachments SET scan_status=$2 WHERE id=$1")
+                    .bind(attachment_id)
+                    .bind(match condition {
+                        "scan_pending" => "pending",
+                        "infected" => "infected",
+                        _ => "error",
+                    })
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+            }
+            "expired" => {
+                sqlx::query("UPDATE topic_attachments SET expires_at=CURRENT_TIMESTAMP-INTERVAL '1 hour' WHERE id=$1").bind(attachment_id).execute(&pool).await.unwrap();
+            }
+            "deleted" => {
+                sqlx::query(
+                    "UPDATE topic_attachments SET deleted_at=CURRENT_TIMESTAMP WHERE id=$1",
+                )
+                .bind(attachment_id)
+                .execute(&pool)
+                .await
+                .unwrap();
+            }
+            "bound" => {
+                sqlx::query("UPDATE topic_attachments SET topic_id=$2 WHERE id=$1")
+                    .bind(attachment_id)
+                    .bind(other_topic_id)
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let rich_content = json!({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"拒绝后正文保留"}]},{"type":"image","attrs":{"attachmentId":attachment_id,"alt":"附件"}}]});
+        let rejected = app
+            .clone()
+            .oneshot(json_request(
+                Method::POST,
+                "/api/v1/topics",
+                json!({"content":"拒绝后正文保留","rich_content":rich_content}),
+                &cookies,
+                &csrf,
+            ))
+            .await
+            .unwrap();
+        let status = rejected.status();
+        let request_id = rejected.headers()["x-request-id"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let payload = response_json(rejected).await;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{condition}: {payload}"
+        );
+        assert_eq!(payload["meta"]["request_id"], request_id);
+        let draft_path = format!("/api/v1/users/me/drafts/{}", uuid::Uuid::now_v7());
+        let rejected_draft=app.clone().oneshot(json_request(Method::PUT,&draft_path,json!({"expected_revision":0,"content":{"title":"","board_id":null,"rich_content":rich_content,"images":[],"poll":null}}),&cookies,&csrf)).await.unwrap();
+        let status = rejected_draft.status();
+        let payload = response_json(rejected_draft).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{condition}: {payload}");
+        assert_eq!(payload["error"]["code"], "draft.attachment_unavailable");
+        let after=sqlx::query_as::<_, (i64,i64,i64,i64,i64)>("SELECT (SELECT COUNT(*) FROM topics),(SELECT COUNT(*) FROM posts),(SELECT COUNT(*) FROM member_drafts),(SELECT COUNT(*) FROM member_draft_attachments),(SELECT COALESCE(SUM(used),0)::bigint FROM community_quota_usage)").fetch_one(&pool).await.unwrap();
+        assert_eq!(
+            after, before,
+            "{condition} must not commit content, references or quota"
+        );
+    }
+}
+
 async fn register_member(app: &axum::Router) -> (String, String) {
     let installation = app
         .clone()
@@ -951,4 +1226,166 @@ async fn response_json(response: axum::response::Response) -> Value {
         .await
         .expect("response body must be readable");
     serde_json::from_slice(&body).expect("response must be JSON")
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn changed_board_policy_rechecks_feed_search_original_and_thumbnail(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    let (cookies, csrf) = register_member(&app).await;
+    let created = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/topics",
+            json!({"title":"policysecret","content":"policysecret restricted body"}),
+            &cookies,
+            &csrf,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let topic_id = response_json(created).await["data"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let uploaded = app
+        .clone()
+        .oneshot(upload_request(
+            &topic_id,
+            ONE_BY_ONE_PNG,
+            "image/png",
+            "secret.png",
+            &cookies,
+            &csrf,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(uploaded.status(), StatusCode::CREATED);
+    let attachment_id = response_json(uploaded).await["data"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let topic = uuid::Uuid::parse_str(&topic_id).unwrap();
+    let (board, author): (uuid::Uuid, uuid::Uuid) =
+        sqlx::query_as("SELECT board_id,author_id FROM topics WHERE id=$1")
+            .bind(topic)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO topic_bookmarks(user_id,topic_id) VALUES($1,$2)")
+        .bind(author)
+        .bind(topic)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let lists = [
+        "/api/v1/feed?mode=latest".to_owned(),
+        "/api/v1/topics?query=policysecret".to_owned(),
+        "/api/v1/users/me/bookmarks".to_owned(),
+    ];
+    for uri in &lists {
+        let response = app
+            .clone()
+            .oneshot(get_request_with_cookies(uri, &cookies))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{uri}");
+        assert_eq!(
+            response.headers()["cache-control"],
+            "private, no-store",
+            "{uri}"
+        );
+        let payload = response_json(response).await;
+        assert!(
+            payload["data"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row["id"] == topic_id),
+            "{uri}"
+        );
+    }
+    let resources = [
+        format!("/api/v1/topics/{topic_id}"),
+        format!("/api/v1/topics/{topic_id}/attachments"),
+        format!("/api/v1/attachments/{attachment_id}"),
+        format!("/api/v1/attachments/{attachment_id}/thumbnail"),
+    ];
+    for uri in &resources {
+        let response = app
+            .clone()
+            .oneshot(get_request_with_cookies(uri, &cookies))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{uri}");
+        assert_eq!(
+            response.headers()["cache-control"],
+            "private, no-store",
+            "{uri}"
+        );
+    }
+    let policy = uuid::Uuid::now_v7();
+    sqlx::query("INSERT INTO content_access_policies(id,target_type,target_id,operator) VALUES($1,'board',$2,'any_of')").bind(policy).bind(board).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO content_access_policy_subjects(policy_id,subject_type,community_group_id) SELECT $1,'community_group',id FROM community_groups WHERE internal_key='established_member'").bind(policy).execute(&pool).await.unwrap();
+    for session in ["", cookies.as_str()] {
+        for uri in lists.iter().take(if session.is_empty() { 2 } else { 3 }) {
+            let response = app
+                .clone()
+                .oneshot(get_request_with_cookies(uri, session))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let request_id = response.headers()["x-request-id"]
+                .to_str()
+                .unwrap()
+                .to_owned();
+            assert_eq!(response.headers()["cache-control"], "private, no-store");
+            let payload = response_json(response).await;
+            assert_eq!(payload["meta"]["request_id"], request_id);
+            assert!(
+                payload["data"].as_array().unwrap().is_empty(),
+                "{uri}: {payload}"
+            );
+        }
+        for uri in &resources {
+            let response = app
+                .clone()
+                .oneshot(get_request_with_cookies(uri, session))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
+            assert_eq!(
+                response.headers()["cache-control"],
+                "private, no-store",
+                "{uri}"
+            );
+            let payload = response_json(response).await;
+            assert!(!payload.to_string().contains("policysecret"));
+        }
+    }
+    sqlx::query("INSERT INTO community_group_memberships(id,user_id,group_id,membership_kind,source,reason,idempotency_key) SELECT $1,$2,id,'additional','admin','策略恢复回归','policy-media-membership' FROM community_groups WHERE internal_key='established_member'").bind(uuid::Uuid::now_v7()).bind(author).execute(&pool).await.unwrap();
+    for uri in &resources {
+        let response = app
+            .clone()
+            .oneshot(get_request_with_cookies(uri, &cookies))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{uri}");
+        assert_eq!(
+            response.headers()["cache-control"],
+            "private, no-store",
+            "{uri}"
+        );
+    }
+    let edges: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM topic_bookmarks WHERE user_id=$1 AND topic_id=$2")
+            .bind(author)
+            .bind(topic)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(edges, 1);
 }

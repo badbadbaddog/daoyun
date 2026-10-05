@@ -264,3 +264,125 @@ async fn insert_event(pool: &PgPool, dedupe_key: &str, created_at: OffsetDateTim
     .expect("outbox event fixture must insert");
     id
 }
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn lifecycle_lock_pauses_claims_without_consuming_attempts_and_resume_skips_completed(
+    pool: PgPool,
+) {
+    let database = Database::from_pool(pool.clone());
+    let plugin_id = insert_plugin(
+        &pool,
+        "lifecycle_queue",
+        &["events.subscribe", "tasks.schedule"],
+        &["topic.published"],
+    )
+    .await;
+    let event_id = insert_event(&pool, "lifecycle-event", OffsetDateTime::now_utc()).await;
+    let task = database
+        .schedule_plugin_task(SchedulePluginTaskRecord {
+            plugin_id,
+            task_key: "lifecycle.run".to_owned(),
+            idempotency_key: "lifecycle:1".to_owned(),
+            payload: json!({}),
+            run_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .expect("task must schedule");
+    let mut lifecycle = pool.begin().await.expect("lifecycle must begin");
+    sqlx::query("SELECT id FROM plugins WHERE id = $1 FOR UPDATE")
+        .bind(plugin_id)
+        .execute(&mut *lifecycle)
+        .await
+        .expect("plugin state must lock");
+    let (events, tasks) = tokio::join!(
+        database.claim_plugin_event_deliveries(1, Duration::from_secs(30)),
+        database.claim_plugin_tasks(1, Duration::from_secs(30))
+    );
+    assert!(events.expect("locked event claim must return").is_empty());
+    assert!(tasks.expect("locked task claim must return").is_empty());
+    sqlx::query("UPDATE plugins SET status = 'disabled' WHERE id = $1")
+        .bind(plugin_id)
+        .execute(&mut *lifecycle)
+        .await
+        .expect("plugin must disable");
+    lifecycle.commit().await.expect("disable must commit");
+    assert!(
+        database
+            .claim_plugin_event_deliveries(1, Duration::from_secs(30))
+            .await
+            .expect("disabled event claim")
+            .is_empty()
+    );
+    assert!(
+        database
+            .claim_plugin_tasks(1, Duration::from_secs(30))
+            .await
+            .expect("disabled task claim")
+            .is_empty()
+    );
+    let attempts = sqlx::query_scalar::<_, i16>("SELECT attempts FROM plugin_tasks WHERE id = $1")
+        .bind(task.id)
+        .fetch_one(&pool)
+        .await
+        .expect("attempt count");
+    assert_eq!(attempts, 0);
+    sqlx::query("UPDATE plugins SET status = 'enabled' WHERE id = $1")
+        .bind(plugin_id)
+        .execute(&pool)
+        .await
+        .expect("plugin must resume");
+    let events = database
+        .claim_plugin_event_deliveries(1, Duration::from_secs(30))
+        .await
+        .expect("resumed events");
+    let tasks = database
+        .claim_plugin_tasks(1, Duration::from_secs(30))
+        .await
+        .expect("resumed tasks");
+    assert_eq!(events.len(), 1);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(events[0].outbox_event_id, event_id);
+    assert_eq!(events[0].attempts, 1);
+    assert!(
+        database
+            .complete_plugin_event_delivery(plugin_id, event_id, events[0].lock_token)
+            .await
+            .expect("event completion")
+    );
+    assert!(
+        database
+            .complete_plugin_task(task.id, tasks[0].lock_token)
+            .await
+            .expect("task completion")
+    );
+    for status in ["disabled", "enabled"] {
+        sqlx::query("UPDATE plugins SET status = $2 WHERE id = $1")
+            .bind(plugin_id)
+            .bind(status)
+            .execute(&pool)
+            .await
+            .expect("second lifecycle");
+    }
+    assert!(
+        database
+            .claim_plugin_event_deliveries(10, Duration::from_secs(30))
+            .await
+            .expect("completed event claim")
+            .is_empty()
+    );
+    assert!(
+        database
+            .claim_plugin_tasks(10, Duration::from_secs(30))
+            .await
+            .expect("completed task claim")
+            .is_empty()
+    );
+    let attempts = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM plugin_task_attempts WHERE task_id = $1",
+    )
+    .bind(task.id)
+    .fetch_one(&pool)
+    .await
+    .expect("retained attempt history");
+    assert_eq!(attempts, 1);
+}

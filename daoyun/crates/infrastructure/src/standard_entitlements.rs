@@ -539,30 +539,9 @@ impl Database {
         user_id: Uuid,
         effective_at: OffsetDateTime,
     ) -> Result<Vec<StandardEntitlementRecord>, DatabaseError> {
-        let rows = sqlx::query_as::<_, EntitlementRow>(
-            "SELECT id, user_id, entitlement_type_id, entitlement_key, type_version,
-                    permission_snapshot, quota_snapshot, source, source_reference_id,
-                    reason, starts_at, ends_at, revoked_at, revoked_by,
-                    revocation_reason, revoke_idempotency_key, revision, granted_by,
-                    created_at, updated_at
-             FROM user_standard_entitlements
-             WHERE user_id = $1 AND revoked_at IS NULL
-               AND starts_at <= $2 AND (ends_at IS NULL OR ends_at > $2)
-             ORDER BY entitlement_key, starts_at, id",
-        )
-        .bind(user_id)
-        .bind(effective_at)
-        .fetch_all(&self.pool)
-        .await?;
-        rows.into_iter()
-            .map(map_entitlement_row)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| match error {
-                StandardEntitlementMutationError::Database(error) => error,
-                _ => DatabaseError::from(sqlx::Error::Protocol(
-                    "invalid standard entitlement projection".to_owned(),
-                )),
-            })
+        let mut connection = self.pool.acquire().await?;
+        list_active_standard_entitlements_with_executor(&mut connection, user_id, effective_at)
+            .await
     }
 
     pub async fn revoke_standard_entitlement(
@@ -998,4 +977,35 @@ impl Error for StandardEntitlementMutationError {
             | Self::IdempotencyConflict => None,
         }
     }
+}
+
+pub(crate) async fn list_active_standard_entitlements_with_executor(
+    connection: &mut sqlx::PgConnection,
+    user_id: Uuid,
+    effective_at: OffsetDateTime,
+) -> Result<Vec<StandardEntitlementRecord>, DatabaseError> {
+    let rows = sqlx::query_as::<_, EntitlementRow>(
+        "SELECT id, user_id, entitlement_type_id, entitlement_key, type_version,
+                    permission_snapshot, quota_snapshot, source, source_reference_id,
+                    reason, starts_at, ends_at, revoked_at, revoked_by,
+                    revocation_reason, revoke_idempotency_key, revision, granted_by,
+                    created_at, updated_at
+             FROM user_standard_entitlements
+             WHERE user_id = $1 AND revoked_at IS NULL
+               AND starts_at <= $2 AND (ends_at IS NULL OR ends_at > $2)
+             ORDER BY entitlement_key, starts_at, id",
+    )
+    .bind(user_id)
+    .bind(effective_at)
+    .fetch_all(&mut *connection)
+    .await?;
+    rows.into_iter()
+        .map(map_entitlement_row)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| match error {
+            StandardEntitlementMutationError::Database(error) => error,
+            _ => DatabaseError::from(sqlx::Error::Protocol(
+                "invalid standard entitlement projection".to_owned(),
+            )),
+        })
 }

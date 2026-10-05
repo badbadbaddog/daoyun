@@ -4,10 +4,12 @@ import { fileURLToPath } from "node:url"
 
 import { proxyBufferedRequest } from "./local-api-proxy.mjs"
 import { serveStaticWeb } from "./local-static.mjs"
+import { servePublicPage } from "./public-pages.mjs"
 
-const GATEWAY_HOST = "127.0.0.1"
-const GATEWAY_PORT = 5173
-const API_TARGET = "http://127.0.0.1:3000"
+const GATEWAY_HOST = process.env.DAOYUN_WEB_HOST ?? "127.0.0.1"
+const GATEWAY_PORT = Number(process.env.DAOYUN_WEB_PORT ?? 5173)
+const API_TARGET = new URL(process.env.DAOYUN_API_ORIGIN ?? "http://127.0.0.1:3000").origin
+const siteOrigin = new URL(process.env.DAOYUN_PUBLIC_SITE_URL ?? `http://${GATEWAY_HOST}:${GATEWAY_PORT}`).origin
 const distributionDirectory = join(dirname(fileURLToPath(import.meta.url)), "..", "dist")
 
 const server = createServer((request, response) => {
@@ -15,7 +17,12 @@ const server = createServer((request, response) => {
     proxyBufferedRequest(request, response, API_TARGET)
     return
   }
-  void serveStaticWeb(request, response, distributionDirectory)
+  const pathname = new URL(request.url ?? "/", siteOrigin).pathname
+  if (pathname === "/" || pathname === "/index.html" || pathname.startsWith("/assets/") || /\.[a-z0-9]+$/i.test(pathname) && !["/sitemap.xml", "/robots.txt"].includes(pathname)) {
+    void serveStaticWeb(request, response, distributionDirectory)
+    return
+  }
+  void servePublicPage(request, response, { dist: distributionDirectory, apiOrigin: API_TARGET, siteOrigin })
 })
 
 server.on("upgrade", (_request, socket) => socket.destroy())

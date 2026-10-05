@@ -2343,3 +2343,391 @@ async fn insert_topic(
     .await
     .expect("topic revision fixture must insert");
 }
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn v3_restricted_account_cannot_reply_despite_group_allow(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    let (cookies, csrf) = register_member(&app).await;
+    let member_id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username='member'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let access = v3_response_json(
+        app.clone()
+            .oneshot(get_request_with_headers(
+                "/api/v1/users/me/groups",
+                &cookies,
+            ))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        access["data"]["access"]["permission_keys"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("reply.create"))
+    );
+    let board_id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM boards WHERE slug='general'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let topic_id = fixture_id(901);
+    insert_topic(
+        &pool,
+        topic_id,
+        board_id,
+        member_id,
+        "restricted reply boundary",
+        "2026-08-21T10:00:00Z",
+        false,
+        false,
+    )
+    .await;
+    sqlx::query("UPDATE users SET status='restricted', restriction_reason='private moderator detail' WHERE id=$1").bind(member_id).execute(&pool).await.unwrap();
+    let denied = app
+        .oneshot(json_request_with_headers_and_idempotency(
+            &format!("/api/v1/topics/{topic_id}/replies"),
+            serde_json::json!({"content":"denied reply"}),
+            &cookies,
+            &csrf,
+            "v3-restricted-reply",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    let denied = v3_response_json(denied).await;
+    assert_eq!(denied["error"]["code"], "user.action_restricted");
+    assert_eq!(
+        denied["error"]["message"],
+        "当前账号处于限制状态，不能发布内容"
+    );
+    assert!(!denied.to_string().contains("private moderator detail"));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM posts WHERE topic_id=$1 AND kind='reply'"
+        )
+        .bind(topic_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        0
+    );
+    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM community_quota_usage WHERE user_id=$1 AND quota_key='reply.create.daily'").bind(member_id).fetch_one(&pool).await.unwrap(), 0);
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn v3_exact_moderator_governance_rejects_parent_sibling_and_child(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    let (cookies, csrf) = register_member(&app).await;
+    let member_id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username='member'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let owner_id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username='owner'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let parent = fixture_id(910);
+    let current = fixture_id(911);
+    let sibling = fixture_id(912);
+    let child = fixture_id(913);
+    for (id, slug) in [
+        (parent, "v3-parent"),
+        (current, "v3-current"),
+        (sibling, "v3-sibling"),
+        (child, "v3-child"),
+    ] {
+        insert_board(&pool, id, slug, "public").await;
+    }
+    for (id, parent_id) in [(current, parent), (sibling, parent), (child, current)] {
+        sqlx::query("UPDATE boards SET parent_id=$2 WHERE id=$1")
+            .bind(id)
+            .bind(parent_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    sqlx::query("INSERT INTO role_assignments(id,user_id,role_id,assigned_by,scope_id,scope_mode) SELECT gen_random_uuid(),$1,id,$2,$3,'exact' FROM roles WHERE key='board_moderator'").bind(member_id).bind(owner_id).bind(current).execute(&pool).await.unwrap();
+    for (index, board_id) in [parent, current, sibling, child].into_iter().enumerate() {
+        let topic_id = fixture_id(920 + index as u128);
+        insert_topic(
+            &pool,
+            topic_id,
+            board_id,
+            owner_id,
+            "scope boundary",
+            "2026-08-21T10:00:00Z",
+            false,
+            false,
+        )
+        .await;
+        let result = app
+            .clone()
+            .oneshot(json_request_with_headers(
+                Method::PATCH,
+                &format!("/api/v1/topics/{topic_id}/governance"),
+                serde_json::json!({"action":"pin","expected_revision":1}),
+                &cookies,
+                Some(&csrf),
+            ))
+            .await
+            .unwrap();
+        let allowed = board_id == current;
+        assert_eq!(
+            result.status(),
+            if allowed {
+                StatusCode::OK
+            } else {
+                StatusCode::FORBIDDEN
+            }
+        );
+        let result = v3_response_json(result).await;
+        if allowed {
+            assert_eq!(result["data"]["is_pinned"], true);
+        } else {
+            assert_eq!(result["error"]["code"], "topic.governance_forbidden");
+        }
+        let (pinned, revision) = sqlx::query_as::<_, (bool, i64)>(
+            "SELECT pinned_at IS NOT NULL,governance_revision FROM topics WHERE id=$1",
+        )
+        .bind(topic_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(pinned, allowed);
+        assert_eq!(revision, if allowed { 2 } else { 1 });
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM admin_audit_log WHERE actor_id=$1 AND action='topic.governance'"
+        )
+        .bind(member_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        1
+    );
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn v3_group_ten_and_entitlement_twenty_allow_twenty_actual_topic_requests(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    let (cookies, csrf) = register_member(&app).await;
+    let member_id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username='member'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE community_group_quota_rules SET quota_value=10 WHERE quota_key='topic.create.daily'").execute(&pool).await.unwrap();
+    v3_insert_topic_entitlement(&pool, member_id).await;
+    let access = v3_response_json(
+        app.clone()
+            .oneshot(get_request_with_headers(
+                "/api/v1/users/me/groups",
+                &cookies,
+            ))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(access["data"]["access"]["quotas"]["topic.create.daily"], 20);
+    for index in 0..21 {
+        let result = app.clone().oneshot(json_request_with_headers_and_idempotency("/api/v1/topics",serde_json::json!({"title":format!("quota {index}"),"content":"actual HTTP consumption"}),&cookies,&csrf,&format!("v3-max-quota-{index}"))).await.unwrap();
+        assert_eq!(
+            result.status(),
+            if index < 20 {
+                StatusCode::CREATED
+            } else {
+                StatusCode::TOO_MANY_REQUESTS
+            }
+        );
+        let result = v3_response_json(result).await;
+        if index == 20 {
+            assert_eq!(result["error"]["code"], "community.quota_exceeded");
+        }
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM topics WHERE author_id=$1")
+            .bind(member_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        20
+    );
+    assert_eq!(sqlx::query_scalar::<_,i64>("SELECT used FROM community_quota_usage WHERE user_id=$1 AND quota_key='topic.create.daily'").bind(member_id).fetch_one(&pool).await.unwrap(),20);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT topic_count FROM boards WHERE slug='general'")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        20
+    );
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn v3_database_expiry_removes_group_and_entitlement_allow_from_reads_and_writes(
+    pool: PgPool,
+) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    let (cookies, csrf) = register_member(&app).await;
+    let member_id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username='member'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM community_group_permissions WHERE permission_key='topic.create'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let group_id = fixture_id(940);
+    sqlx::query("INSERT INTO community_groups(id,internal_key,display_name,display_order) VALUES ($1,'v3_http_expiry','V3 expiry',100)").bind(group_id).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO community_group_permissions(group_id,permission_key) VALUES ($1,'topic.create')").bind(group_id).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO community_group_quota_rules(group_id,quota_key,quota_value) VALUES ($1,'topic.create.daily',20)").bind(group_id).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO community_group_memberships(id,user_id,group_id,membership_kind,source,reason,starts_at,ends_at,idempotency_key) VALUES(gen_random_uuid(),$1,$2,'additional','test.fixture','expiry boundary',CURRENT_TIMESTAMP-INTERVAL '1 day',CURRENT_TIMESTAMP+INTERVAL '1 day','v3-http-expiry')").bind(member_id).bind(group_id).execute(&pool).await.unwrap();
+    for source in ["group", "entitlement"] {
+        let entitlement_id = if source == "entitlement" {
+            Some(v3_insert_topic_entitlement(&pool, member_id).await)
+        } else {
+            None
+        };
+        let before = v3_response_json(
+            app.clone()
+                .oneshot(get_request_with_headers(
+                    "/api/v1/users/me/groups",
+                    &cookies,
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert!(
+            before["data"]["access"]["permission_keys"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("topic.create"))
+        );
+        let allowed = app
+            .clone()
+            .oneshot(json_request_with_headers_and_idempotency(
+                "/api/v1/topics",
+                serde_json::json!({"title":source,"content":"before expiry"}),
+                &cookies,
+                &csrf,
+                &format!("v3-before-{source}"),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(allowed.status(), StatusCode::CREATED);
+        v3_response_json(allowed).await;
+        if let Some(id) = entitlement_id {
+            sqlx::query(
+                "UPDATE user_standard_entitlements SET ends_at=CURRENT_TIMESTAMP WHERE id=$1",
+            )
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        } else {
+            sqlx::query("UPDATE community_group_memberships SET ends_at=CURRENT_TIMESTAMP WHERE user_id=$1 AND group_id=$2").bind(member_id).bind(group_id).execute(&pool).await.unwrap();
+        }
+        let after = v3_response_json(
+            app.clone()
+                .oneshot(get_request_with_headers(
+                    "/api/v1/users/me/groups",
+                    &cookies,
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert!(
+            !after["data"]["access"]["permission_keys"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("topic.create"))
+        );
+        let used_before=sqlx::query_scalar::<_,i64>("SELECT used FROM community_quota_usage WHERE user_id=$1 AND quota_key='topic.create.daily'").bind(member_id).fetch_one(&pool).await.unwrap();
+        let denied = app
+            .clone()
+            .oneshot(json_request_with_headers_and_idempotency(
+                "/api/v1/topics",
+                serde_json::json!({"title":source,"content":"expired write"}),
+                &cookies,
+                &csrf,
+                &format!("v3-expired-{source}"),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            v3_response_json(denied).await["error"]["code"],
+            "community.permission_denied"
+        );
+        assert_eq!(sqlx::query_scalar::<_,i64>("SELECT used FROM community_quota_usage WHERE user_id=$1 AND quota_key='topic.create.daily'").bind(member_id).fetch_one(&pool).await.unwrap(),used_before);
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM topics WHERE author_id=$1")
+            .bind(member_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        2
+    );
+}
+
+async fn v3_response_json(response: axum::response::Response) -> Value {
+    let request_id = response.headers()["x-request-id"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let value = response_json(response).await;
+    assert_eq!(value["meta"]["request_id"], request_id);
+    value
+}
+
+async fn v3_insert_topic_entitlement(pool: &PgPool, user_id: Uuid) -> Uuid {
+    let type_id = Uuid::now_v7();
+    let id = Uuid::now_v7();
+    sqlx::query("INSERT INTO standard_entitlement_types(id,internal_key,display_name) VALUES ($1,'v3_http_topic','V3 HTTP topic')").bind(type_id).execute(pool).await.unwrap();
+    sqlx::query("INSERT INTO user_standard_entitlements(id,user_id,entitlement_type_id,entitlement_key,type_version,permission_snapshot,quota_snapshot,source,reason,starts_at,ends_at,idempotency_key,granted_by) VALUES ($1,$2,$3,'v3_http_topic',1,ARRAY['topic.create']::varchar[],jsonb_build_object('topic.create.daily',20),'test_fixture','HTTP quota and expiry',CURRENT_TIMESTAMP-INTERVAL '1 day',CURRENT_TIMESTAMP+INTERVAL '1 day','v3-http-topic',$2)").bind(id).bind(user_id).bind(type_id).execute(pool).await.unwrap();
+    id
+}
+
+#[tokio::test]
+async fn v3_creation_contract_declares_quota_rejection_for_topics_posts_and_replies() {
+    let response = daoyun_api::app(unavailable_database())
+        .oneshot(get_request("/api/v1/openapi.json"))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(response.headers().contains_key("x-request-id"));
+    let schema = response_json(response).await;
+    for path in [
+        "/api/v1/topics",
+        "/api/v1/posts",
+        "/api/v1/topics/{topic_id}/replies",
+        "/api/v1/posts/{post_id}/comments",
+    ] {
+        let response = &schema["paths"][path]["post"]["responses"]["429"];
+        assert!(
+            response["headers"]["x-request-id"].is_object(),
+            "quota response header: {path}"
+        );
+        assert_eq!(
+            response["content"]["application/json"]["schema"]["$ref"],
+            "#/components/schemas/ErrorResponse",
+            "quota response envelope: {path}"
+        );
+    }
+}

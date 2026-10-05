@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   ArrowLeft,
   CalendarDays,
@@ -15,6 +15,7 @@ import {
   UserPlus,
 } from "lucide-react"
 
+import { isSessionExpiredError } from "../api/auth"
 import type { AuthSession } from "../api/auth"
 import { createConversation } from "../api/messages"
 import type { ConversationSummary } from "../api/messages"
@@ -23,6 +24,7 @@ import { listTopics } from "../api/topics"
 import type { TopicPage } from "../api/topics"
 import {
   getUserProfile,
+  UserApiError,
   listUserRelations,
   setUserFollowing,
   updateUserProfile,
@@ -53,6 +55,7 @@ interface UserProfileViewProps {
   onOpenConversation?: (conversation: ConversationSummary) => void
   onBookmarkChanged?: (topicId: string, bookmarked: boolean) => void
   onSessionChange?: (session: AuthSession) => void
+  onSessionExpired?: () => void
   openExternalIdentities?: boolean
 }
 
@@ -65,10 +68,11 @@ export function UserProfileView({
   onOpenConversation,
   onBookmarkChanged,
   onSessionChange,
+  onSessionExpired,
   openExternalIdentities = false,
 }: UserProfileViewProps) {
   const [profile, setProfile] = useState<UserProfile | null>(null)
-  const membershipSummary = usePublicMembershipSummary(username)
+  const { summary: membershipSummary, status: identityStatus, retry: retryIdentity } = usePublicMembershipSummary(username)
   const [topics, setTopics] = useState<TopicPage>({ topics: [], nextCursor: null })
   const [status, setStatus] = useState<LoadStatus>("loading")
   const [requestVersion, setRequestVersion] = useState(0)
@@ -76,7 +80,21 @@ export function UserProfileView({
   const [relations, setRelations] = useState<UserRelationPage>({ users: [], nextCursor: null })
   const [relationStatus, setRelationStatus] = useState<LoadStatus>("ready")
   const [relationRequestVersion, setRelationRequestVersion] = useState(0)
-  const [editing, setEditing] = useState(false)
+  const [editProfile, setEditProfile] = useState<UserProfile | null>(null)
+  const [profileSessionExpired, setProfileSessionExpired] = useState(false)
+  const saveControllerRef = useRef<AbortController | null>(null)
+  const saveScope = `${username}:${session?.user.id ?? "guest"}:${session?.csrfToken ?? ""}`
+  const saveScopeRef = useRef(saveScope); saveScopeRef.current = saveScope
+  const editing = editProfile?.username === username && (!session || session.user.id === editProfile.id)
+
+  useEffect(() => {
+    setEditProfile(current => current?.username === username && (!session || session.user.id === current.id) ? current : null)
+  }, [username, session?.user.id])
+
+  useEffect(() => {
+    if (session) setProfileSessionExpired(false)
+    return () => saveControllerRef.current?.abort()
+  }, [username, session?.user.id, session?.csrfToken])
   const [ownerSecurityPanel, setOwnerSecurityPanel] = useState<OwnerSecurityPanel>(openExternalIdentities ? "identities" : null)
   const [followPending, setFollowPending] = useState(false)
   const [followError, setFollowError] = useState("")
@@ -87,8 +105,7 @@ export function UserProfileView({
 
   useEffect(() => {
     const controller = new AbortController()
-    setStatus("loading")
-    setEditing(false)
+    if (!editing) setStatus("loading")
     setOwnerSecurityPanel(openExternalIdentities ? "identities" : null)
     setActiveTab("topics")
     Promise.all([
@@ -171,10 +188,24 @@ export function UserProfileView({
   }
 
   async function handleSave(input: Parameters<typeof updateUserProfile>[0]) {
-    if (!session) return
-    const updated = await updateUserProfile(input, session.csrfToken)
-    setProfile(updated)
-    setEditing(false)
+    if (!session || session.user.id !== editProfile?.id) throw new UserApiError(401, "auth.unauthenticated", "请使用原账号重新登录")
+    const controller = new AbortController()
+    saveControllerRef.current = controller
+    const active = () => !controller.signal.aborted && saveScopeRef.current === saveScope
+    try {
+      const updated = await updateUserProfile(input, session.csrfToken, controller.signal)
+      if (!active()) return
+      setProfile(updated)
+      setEditProfile(null)
+    } catch (error) {
+      if (active() && isSessionExpiredError(error)) {
+        setProfileSessionExpired(true)
+        onSessionExpired?.()
+      }
+      throw error
+    } finally {
+      if (saveControllerRef.current === controller) saveControllerRef.current = null
+    }
   }
 
   async function handleMessage() {
@@ -242,8 +273,8 @@ export function UserProfileView({
           <MemberIdentityBadges summary={membershipSummary} variant="profile" maxMedals={0} />
         </div>
         <div className="profile-header__actions">
-          {profile.viewer?.isSelf ? (
-            <button className="secondary-button" type="button" onClick={() => setEditing((value) => !value)}>
+          {profile.viewer?.isSelf && session?.user.id === profile.id ? (
+            <button className="secondary-button" type="button" onClick={() => setEditProfile(current => current ? null : profile)}>
               <Pencil size={15} aria-hidden="true" />
               编辑资料
             </button>
@@ -279,6 +310,11 @@ export function UserProfileView({
         {messageError && <p className="form-alert" role="alert">{messageError}</p>}
       </header>
 
+      {identityStatus === "error" && <section className="empty-state" role="alert" aria-label="公开身份加载失败">
+        <p>公开身份暂时无法加载，公开资料和帖子仍可浏览。</p>
+        <button className="secondary-button" type="button" onClick={retryIdentity}><RefreshCw size={15} aria-hidden="true" />重试加载公开身份</button>
+      </section>}
+      {identityStatus === "loading" && <p role="status">正在加载公开身份</p>}
       {membershipSummary && (
         <section className="profile-identity-showcase" aria-label="社区身份">
           <div className="profile-identity-showcase__level">
@@ -329,13 +365,13 @@ export function UserProfileView({
         subjectId={profile.id}
         csrfToken={session?.csrfToken}
       />
-      {profile.viewer?.isSelf && session ? <PluginUiSurface
+      {profile.viewer?.isSelf && session?.user.id === profile.id ? <PluginUiSurface
         slot="membership_panel"
         subjectId={profile.id}
         csrfToken={session.csrfToken}
       /> : null}
 
-      {profile.viewer?.isSelf && session && (
+      {profile.viewer?.isSelf && session?.user.id === profile.id && (
         <section className="profile-owner-tools" aria-label="仅自己可见的账号管理">
           <div className="profile-owner-tools__heading">
             <div>
@@ -367,30 +403,30 @@ export function UserProfileView({
         </section>
       )}
 
-      {editing && <ProfileEditForm profile={profile} onSave={handleSave} onCancel={() => setEditing(false)} />}
-      {ownerSecurityPanel === "devices" && session && <div id="profile-device-sessions-panel"><DeviceSessionsPanel session={session} onClose={() => setOwnerSecurityPanel(null)} /></div>}
-      {ownerSecurityPanel === "password" && session && (
+      {editing && editProfile && <ProfileEditForm profile={editProfile} sessionExpired={profileSessionExpired || !session} onLogin={onLogin} onSave={handleSave} onCancel={() => setEditProfile(null)} />}
+      {ownerSecurityPanel === "devices" && session?.user.id === profile.id && <div id="profile-device-sessions-panel"><DeviceSessionsPanel session={session} onClose={() => setOwnerSecurityPanel(null)} /></div>}
+      {ownerSecurityPanel === "password" && session?.user.id === profile.id && (
         <div id="profile-password-panel"><PasswordChangePanel
           session={session}
           onClose={() => setOwnerSecurityPanel(null)}
           onSessionChange={onSessionChange ?? (() => undefined)}
         /></div>
       )}
-      {ownerSecurityPanel === "identities" && session && (
+      {ownerSecurityPanel === "identities" && session?.user.id === profile.id && (
         <div id="profile-identities-panel"><ExternalIdentitiesPanel
           session={session}
           onClose={() => setOwnerSecurityPanel(null)}
           onSessionChange={onSessionChange ?? (() => undefined)}
         /></div>
       )}
-      {ownerSecurityPanel === "passkeys" && session && (
+      {ownerSecurityPanel === "passkeys" && session?.user.id === profile.id && (
         <div id="profile-passkeys-panel"><PasskeysPanel
           session={session}
           onClose={() => setOwnerSecurityPanel(null)}
           onSessionChange={onSessionChange ?? (() => undefined)}
         /></div>
       )}
-      {ownerSecurityPanel === "mfa" && session && (
+      {ownerSecurityPanel === "mfa" && session?.user.id === profile.id && (
         <div id="profile-mfa-panel"><MfaPanel
           session={session}
           onClose={() => setOwnerSecurityPanel(null)}

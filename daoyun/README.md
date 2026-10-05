@@ -293,6 +293,8 @@ pnpm exec playwright install chromium
 
 ## 备份与恢复
 
+完整集合、存储切换与隔离恢复验收见 [完整备份与隔离恢复](docs/operations/backup-and-restore.md)。
+
 ```powershell
 $env:Path = "C:\Program Files\PostgreSQL\16\bin;$env:Path"
 $env:DATABASE_URL = "postgresql://<user>:<password>@127.0.0.1:5432/<database>"
@@ -308,6 +310,10 @@ ALLOW_DATA_LOSS=1 DATABASE_URL="postgresql://<user>:<password>@127.0.0.1:5432/<d
 - 备份使用 PostgreSQL custom format，并生成同名 `.sha256` 校验文件；恢复会先校验校验文件（存在时）。
 - 恢复使用 `--clean --if-exists --single-transaction`，必须显式确认允许数据覆盖；生产凭据应通过秘密管理系统或 `.pgpass` 注入。
 - 执行脚本前确保 `pg_dump`、`pg_restore` 和目标 PostgreSQL 客户端版本兼容；Windows 若客户端目录未在 `PATH`，先设置上面的路径。
+
+高级运营告警由 `DAOYUN_OPERATIONS_ALERTS_ENABLED` 独立控制，默认保持启用；设为 `false` 时不启动评估 worker，健康检查、Outbox、邮件和限制到期任务继续运行。管理端显示实际启用配置并保留历史记录。
+
+站点设置分别提供品牌、邮件、附件存储和运维分区；存储配置页只显示类型与配置状态，不公开目录或凭据。S3 切换为本地新写入时保留 S3 配置，并以 `DAOYUN_ATTACHMENT_LEGACY_PROVIDER=s3` 指定未标记历史对象。
 
 ## 工程结构
 

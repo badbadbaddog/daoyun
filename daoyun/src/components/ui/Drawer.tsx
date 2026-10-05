@@ -28,13 +28,15 @@ export function Drawer({ title, description, onClose, children, busy = false }: 
   })
 
   function onKeyDown(event: KeyboardEvent<HTMLElement>) {
-    if (event.key === "Escape" && !busy) {
+    if (event.key === "Escape") {
       event.preventDefault()
       event.stopPropagation()
-      onClose()
+      if (!busy) onClose()
       return
     }
     if (event.key !== "Tab") return
+    event.stopPropagation()
+    const activeInside = ref.current?.contains(document.activeElement) ?? false
     const controls = [...(ref.current?.querySelectorAll<HTMLElement>(focusableSelector) ?? [])]
     const first = controls[0]
     const last = controls.at(-1)
@@ -43,10 +45,10 @@ export function Drawer({ title, description, onClose, children, busy = false }: 
       ref.current?.focus()
       return
     }
-    if (event.shiftKey && (document.activeElement === first || document.activeElement === ref.current)) {
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === ref.current || !activeInside)) {
       event.preventDefault()
       last.focus()
-    } else if (!event.shiftKey && document.activeElement === last) {
+    } else if (!event.shiftKey && (document.activeElement === last || !activeInside)) {
       event.preventDefault()
       first.focus()
     }
@@ -59,7 +61,7 @@ export function Drawer({ title, description, onClose, children, busy = false }: 
         if (event.target === event.currentTarget && !busy) onClose()
       }}
     >
-      <section ref={ref} tabIndex={-1} className="drawer-panel" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={description ? descriptionId : undefined} onKeyDown={onKeyDown}>
+      <section ref={ref} tabIndex={-1} className="drawer-panel" role="dialog" aria-modal="true" aria-busy={busy} aria-labelledby={titleId} aria-describedby={description ? descriptionId : undefined} onKeyDown={onKeyDown}>
         <header className="drawer-header">
           <div>
             <h3 id={titleId}>{title}</h3>

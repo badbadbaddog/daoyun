@@ -191,6 +191,7 @@ impl Database {
         product_id: Uuid,
         expected_revision: i64,
         key: &str,
+        request_id: Option<Uuid>,
     ) -> Result<(RedemptionRecord, bool), RedemptionError> {
         if expected_revision < 1
             || !(1..=128).contains(&key.len())
@@ -279,7 +280,7 @@ impl Database {
             .bind(&item.permission_keys).bind(&item.quotas).bind(id.to_string()).bind(now).bind(end).bind(&domain_key).execute(&mut *tx).await?;
         sqlx::query("INSERT INTO point_redemptions(id,user_id,product_id,product_revision,product_name,price,balance_after,entitlement_id,ledger_entry_id,idempotency_key,created_at,ends_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)")
             .bind(id).bind(user).bind(item.id).bind(item.revision).bind(&item.name).bind(item.price).bind(after).bind(entitlement).bind(ledger).bind(key).bind(now).bind(end).execute(&mut *tx).await?;
-        insert_audit(&mut tx,user,"membership.redemption.create","point_redemption",Some(id),json!({"product_id":item.id,"entitlement_id":entitlement,"amount":-item.price,"balance_after":after})).await?;
+        insert_audit(&mut tx,user,"membership.redemption.create","point_redemption",Some(id),json!({"product_id":item.id,"entitlement_id":entitlement,"ledger_entry_id":ledger,"request_id":request_id,"amount":-item.price,"balance_before":balance,"balance_after":after})).await?;
         let account: (i64, String, i64) = sqlx::query_as(
             "SELECT lifetime_points,level_key,revision FROM membership_accounts WHERE user_id=$1",
         )

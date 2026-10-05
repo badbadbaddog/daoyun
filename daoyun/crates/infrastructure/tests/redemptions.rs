@@ -69,8 +69,8 @@ async fn redemption_is_atomic_and_concurrent_retries_return_one_receipt(pool: Pg
         .await
         .unwrap();
     let (a, b) = tokio::join!(
-        db.redeem_points(user, item.id, item.revision, "same"),
-        db.redeem_points(user, item.id, item.revision, "same"),
+        db.redeem_points(user, item.id, item.revision, "same", None),
+        db.redeem_points(user, item.id, item.revision, "same", None),
     );
     let (a, ac) = a.unwrap();
     let (b, bc) = b.unwrap();
@@ -93,7 +93,7 @@ async fn redemption_is_atomic_and_concurrent_retries_return_one_receipt(pool: Pg
             .unwrap();
     assert_eq!(count, 1);
     assert!(matches!(
-        db.redeem_points(user, item.id, item.revision, "other")
+        db.redeem_points(user, item.id, item.revision, "other", None)
             .await,
         Err(RedemptionError::AlreadyEntitled)
     ));
@@ -103,7 +103,7 @@ async fn redemption_is_atomic_and_concurrent_retries_return_one_receipt(pool: Pg
         .unwrap();
     assert_eq!(db.list_redemptions(user, None, 20).await.unwrap().len(), 1);
     assert_eq!(
-        db.redeem_points(user, item.id, item.revision, "same")
+        db.redeem_points(user, item.id, item.revision, "same", None)
             .await
             .unwrap()
             .0
@@ -111,7 +111,8 @@ async fn redemption_is_atomic_and_concurrent_retries_return_one_receipt(pool: Pg
         a.id
     );
     assert!(matches!(
-        db.redeem_points(actor, item.id, item.revision, "new").await,
+        db.redeem_points(actor, item.id, item.revision, "new", None)
+            .await,
         Err(RedemptionError::Disabled)
     ));
 }
@@ -129,13 +130,15 @@ async fn redemption_rejects_price_changes_and_rolls_back_on_audit_failure(pool: 
     update.price = 70;
     let updated = db.put_redemption_product(actor, update).await.unwrap();
     assert!(matches!(
-        db.redeem_points(user, id, original.revision, "old").await,
+        db.redeem_points(user, id, original.revision, "old", None)
+            .await,
         Err(RedemptionError::Conflict)
     ));
     sqlx::query("ALTER TABLE admin_audit_log ADD CONSTRAINT fail_redemption_audit CHECK (action <> 'membership.redemption.create')")
         .execute(&pool).await.unwrap();
     assert!(matches!(
-        db.redeem_points(user, id, updated.revision, "fail").await,
+        db.redeem_points(user, id, updated.revision, "fail", None)
+            .await,
         Err(RedemptionError::Database(_))
     ));
     assert_eq!(
@@ -156,7 +159,7 @@ async fn redemption_rejects_price_changes_and_rolls_back_on_audit_failure(pool: 
         .await
         .unwrap();
     assert_eq!(
-        db.redeem_points(user, id, updated.revision, "fail")
+        db.redeem_points(user, id, updated.revision, "fail", None)
             .await
             .unwrap()
             .0
@@ -177,7 +180,8 @@ async fn redemption_enforces_balance_account_status_and_management_permission(po
     input.price = 101;
     let item = db.put_redemption_product(actor, input).await.unwrap();
     assert!(matches!(
-        db.redeem_points(user, item.id, item.revision, "poor").await,
+        db.redeem_points(user, item.id, item.revision, "poor", None)
+            .await,
         Err(RedemptionError::InsufficientBalance)
     ));
     sqlx::query("UPDATE users SET status='restricted' WHERE id=$1")
@@ -186,7 +190,7 @@ async fn redemption_enforces_balance_account_status_and_management_permission(po
         .await
         .unwrap();
     assert!(matches!(
-        db.redeem_points(user, item.id, item.revision, "restricted")
+        db.redeem_points(user, item.id, item.revision, "restricted", None)
             .await,
         Err(RedemptionError::Forbidden)
     ));
@@ -208,7 +212,7 @@ async fn outbox_failure_rolls_back_redemption_and_expiry_does_not_reset_lifetime
         .unwrap();
     sqlx::query("ALTER TABLE outbox_events ADD CONSTRAINT fail_redemption_event CHECK(event_type<>'entitlement.changed')").execute(&pool).await.unwrap();
     assert!(
-        db.redeem_points(user, item.id, item.revision, "outbox-failure")
+        db.redeem_points(user, item.id, item.revision, "outbox-failure", None)
             .await
             .is_err()
     );
@@ -237,12 +241,12 @@ async fn outbox_failure_rolls_back_redemption_and_expiry_does_not_reset_lifetime
         .execute(&pool)
         .await
         .unwrap();
-    db.redeem_points(user, item.id, item.revision, "outbox-failure")
+    db.redeem_points(user, item.id, item.revision, "outbox-failure", None)
         .await
         .unwrap();
     sqlx::query("UPDATE user_standard_entitlements SET starts_at=CURRENT_TIMESTAMP-INTERVAL '10 days',ends_at=CURRENT_TIMESTAMP-INTERVAL '1 day' WHERE user_id=$1").bind(user).execute(&pool).await.unwrap();
     assert!(matches!(
-        db.redeem_points(user, item.id, item.revision, "over-limit")
+        db.redeem_points(user, item.id, item.revision, "over-limit", None)
             .await,
         Err(RedemptionError::LimitReached)
     ));

@@ -2,18 +2,23 @@ import { Check, CheckCircle2, Clock3, Download, ExternalLink, FileText, Flag, Lo
 import { useEffect, useRef, useState } from "react"
 import { getAdminReport, listAdminReports, moderateAdminReport, ReportApiError, updateAdminReport, type ContentReport, type ReportDetail, type ReportDisposition, type ReportModerationInput, type ReportStatus, type ReportUserActionKind } from "../api/reports"
 import { encodeCsv } from "../lib/csv"
+import { ReportBatchDialog } from "./ReportBatchDialog"
 import { RelatedAuditLog } from "./RelatedAuditLog"
 import { RevisionConflictNotice } from "./admin/RevisionConflictNotice"
 import { ConfirmDialog } from "./ui/ConfirmDialog"
 import { Drawer } from "./ui/Drawer"
+import { adminObjectQuery, restoreAdminScroll } from "./admin/adminQuery"
 
 export type ReportStatusFilter = ReportStatus | "all"
 interface ReportAdminPanelProps {
+  requestedQuery?: string
+  onQueryChange?: (query: string) => void
   requestedStatus: ReportStatusFilter
   requestedReportId?: string | null
   onStatusChange: (status: ReportStatusFilter) => void
   csrfToken: string
   canResolve: boolean
+  canTriage?: boolean
   canReadAudit?: boolean
 }
 const filters: Array<{ value: ReportStatusFilter; label: string }> = [
@@ -22,7 +27,7 @@ const filters: Array<{ value: ReportStatusFilter; label: string }> = [
 const reportReasons = ["spam", "harassment", "illegal", "copyright", "other"] as const
 const targetLink = (report: ContentReport) => report.targetTopicId ? "#topic/" + report.targetTopicId + (report.targetType === "post" ? "?reply=" + report.targetId : "") : null
 
-export function ReportAdminPanel({ requestedStatus, requestedReportId = null, onStatusChange, csrfToken, canResolve, canReadAudit = false }: ReportAdminPanelProps) {
+export function ReportAdminPanel({ requestedQuery = "", onQueryChange, requestedStatus, requestedReportId = null, onStatusChange, csrfToken, canResolve, canTriage = canResolve, canReadAudit = false }: ReportAdminPanelProps) {
   const [reports, setReports] = useState<ContentReport[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -42,6 +47,7 @@ export function ReportAdminPanel({ requestedStatus, requestedReportId = null, on
   const [through, setThrough] = useState("")
   const [limit, setLimit] = useState(20)
   const [reload, setReload] = useState(0)
+  const [batchReports, setBatchReports] = useState<ContentReport[] | null>(null)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
   const detailRequestVersion = useRef(0)
   const listRequestVersion = useRef(0)
@@ -68,12 +74,18 @@ export function ReportAdminPanel({ requestedStatus, requestedReportId = null, on
       .then((page) => {
         if (controller.signal.aborted || version !== listRequestVersion.current) return
         setReports(page.reports); setNextCursor(page.nextCursor)
-        if (requestedReportId) void openReport(requestedReportId)
       })
       .catch((caught) => { if (!controller.signal.aborted && version === listRequestVersion.current) setError(messageFor(caught, "举报列表暂时无法加载，请稍后重试。")) })
       .finally(() => { if (!controller.signal.aborted && version === listRequestVersion.current) setLoading(false) })
     return () => { controller.abort(); if (version === listRequestVersion.current) listRequestVersion.current += 1 }
-  }, [requestedReportId, requestedStatus, limit, reload])
+  }, [requestedStatus, limit, reload])
+  useEffect(() => {
+    if (requestedReportId) {
+      if (requestedReportId !== selectedId) void openReport(requestedReportId, false)
+    }
+    else { detailRequestVersion.current += 1; setSelectedId(null); setDetail(null); setDetailLoading(false) }
+    // The URL object ID is independent of the paged list.
+  }, [requestedReportId, requestedStatus])
   useEffect(() => () => { detailRequestVersion.current += 1 }, [])
 
   async function loadMore() {
@@ -87,7 +99,8 @@ export function ReportAdminPanel({ requestedStatus, requestedReportId = null, on
     } catch (caught) { if (version === listRequestVersion.current) setError(messageFor(caught, "更多举报暂时无法加载，请稍后重试。")) }
     finally { if (version === listRequestVersion.current) { morePending.current = false; setLoadingMore(false) } }
   }
-  async function openReport(reportId: string) {
+  async function openReport(reportId: string, publish = true) {
+    if (publish) onQueryChange?.(adminObjectQuery(requestedQuery, "report_id", reportId))
     if (!selectedId) detailReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const version = ++detailRequestVersion.current
     setSelectedId(reportId); setDetail(null); setDetailLoading(true); setDetailError("")
@@ -97,6 +110,8 @@ export function ReportAdminPanel({ requestedStatus, requestedReportId = null, on
   }
   function closeDetail() {
     if (detailBusy) return
+    onQueryChange?.(adminObjectQuery(requestedQuery, "report_id", null))
+    restoreAdminScroll(requestedQuery)
     detailRequestVersion.current += 1; setSelectedId(null); setDetail(null); setDetailLoading(false)
     queueMicrotask(() => { (detailReturnFocus.current?.isConnected ? detailReturnFocus.current : searchInput.current)?.focus() })
   }
@@ -128,7 +143,7 @@ export function ReportAdminPanel({ requestedStatus, requestedReportId = null, on
         <p className="report-catalog-scope">统计、关键词、类型、日期筛选及导出基于已加载结果；可继续加载更多举报。</p>
         {invalidDates && <p className="form-alert" role="alert">结束日期不能早于开始日期。</p>}
         <div className="report-catalog-tabs" role="group" aria-label="举报状态筛选">{filters.map((filter) => <button type="button" key={filter.value} aria-pressed={requestedStatus === filter.value} onClick={() => onStatusChange(filter.value)}>{filter.label}</button>)}<button className="report-catalog-export" type="button" disabled={loading || !visible.length} onClick={exportReports}><Download size={14} aria-hidden="true" />{checked.length ? "导出选中 " + checked.length + " 条" : "导出当前结果"}</button></div>
-        {checked.length > 0 && <div className="report-catalog-selection"><span>已选择 {checked.length} 条举报</span><button type="button" onClick={() => setCheckedIds(new Set())}>取消选择</button></div>}
+        {checked.length > 0 && <div className="report-catalog-selection"><span>已选择 {checked.length} 条举报</span>{canTriage && <button className="secondary-button" type="button" disabled={loading || detailBusy} onClick={() => setBatchReports([...checked])}>批量标为处理中</button>}<button type="button" onClick={() => setCheckedIds(new Set())}>取消选择</button></div>}
         {notice && <p className="admin-inline-feedback" role="status">{notice}</p>}
         {error && <div className="form-alert" role="alert">{error}<button className="secondary-button" type="button" onClick={() => reports.length && nextCursor ? void loadMore() : setReload((value) => value + 1)}>重试举报列表</button></div>}
         {loading ? <Loading label="正在读取举报队列" /> : visible.length === 0 && !error ? <div className="admin-empty" role="status"><Flag size={22} aria-hidden="true" /><span>{nextCursor && reports.length ? "已加载结果中暂无匹配举报，可继续加载更多。" : "当前筛选下暂无举报"}</span></div> : null}
@@ -136,7 +151,8 @@ export function ReportAdminPanel({ requestedStatus, requestedReportId = null, on
         <footer className="admin-catalog-footer"><span>当前显示 {visible.length} 条 · 已加载 {reports.length} 条举报</span><div className="report-catalog-pagination"><label><span className="sr-only">每次加载举报条数</span><select aria-label="每次加载举报条数" value={limit} onChange={(event) => setLimit(Number(event.target.value))}><option value={20}>每次 20 条</option><option value={50}>每次 50 条</option></select></label>{nextCursor ? <button className="secondary-button" type="button" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? "正在加载" : "加载更多"}</button> : <span>{loading ? "正在加载…" : error ? "加载失败" : "已加载全部结果"}</span>}</div></footer>
       </section>
     </div>
-    {selectedId && <Drawer title="举报详情" busy={detailBusy} onClose={closeDetail}><section className="report-catalog-detail" aria-label="举报详情">{detailLoading ? <Loading label="正在读取举报详情" /> : detailError ? <div className="form-alert" role="alert">{detailError}<button className="secondary-button" type="button" onClick={() => void openReport(selectedId)}>重试举报详情</button></div> : detail ? <ReportDetailWorkspace key={detail.report.id} detail={detail} csrfToken={csrfToken} canResolve={canResolve} canReadAudit={canReadAudit} onUpdated={acceptUpdatedReport} onDetailChange={setDetail} onBusyChange={setDetailBusy} /> : null}<button className="secondary-button report-catalog-back" type="button" disabled={detailBusy} onClick={closeDetail}>返回举报队列</button></section></Drawer>}
+    {batchReports && <ReportBatchDialog reports={batchReports} csrfToken={csrfToken} canResolve={canTriage} onUpdated={acceptUpdatedReport} onClose={() => { setBatchReports(null); setCheckedIds(new Set()) }} />}
+    {selectedId && <Drawer title="举报详情" busy={detailBusy} onClose={closeDetail}><section className="report-catalog-detail" aria-label="举报详情">{detailLoading ? <Loading label="正在读取举报详情" /> : detailError ? <div className="form-alert" role="alert">{detailError}<button className="secondary-button" type="button" onClick={() => void openReport(selectedId)}>重试举报详情</button></div> : detail ? <ReportDetailWorkspace key={detail.report.id} detail={detail} csrfToken={csrfToken} canResolve={canResolve} canTriage={canTriage} canReadAudit={canReadAudit} onUpdated={acceptUpdatedReport} onDetailChange={setDetail} onBusyChange={setDetailBusy} /> : null}<button className="secondary-button report-catalog-back" type="button" disabled={detailBusy} onClick={closeDetail}>返回举报队列</button></section></Drawer>}
   </section>
 }
 
@@ -153,7 +169,7 @@ function ReportQueueItem({ report, selected, checked, onCheck, onOpen }: { repor
   </div>
 }
 
-function ReportDetailWorkspace({ detail, csrfToken, canResolve, canReadAudit, onUpdated, onDetailChange, onBusyChange }: { detail: ReportDetail; csrfToken: string; canResolve: boolean; canReadAudit: boolean; onUpdated: (report: ContentReport) => void; onDetailChange: (detail: ReportDetail) => void; onBusyChange: (busy: boolean) => void }) {
+function ReportDetailWorkspace({ detail, csrfToken, canResolve, canTriage, canReadAudit, onUpdated, onDetailChange, onBusyChange }: { detail: ReportDetail; csrfToken: string; canResolve: boolean; canTriage: boolean; canReadAudit: boolean; onUpdated: (report: ContentReport) => void; onDetailChange: (detail: ReportDetail) => void; onBusyChange: (busy: boolean) => void }) {
   const [actionOpen, setActionOpen] = useState(false)
   const [disposition, setDisposition] = useState<ReportDisposition>("resolved")
   const [hideContent, setHideContent] = useState(false)
@@ -176,7 +192,7 @@ function ReportDetailWorkspace({ detail, csrfToken, canResolve, canReadAudit, on
   const actionable = report.status === "open" || report.status === "in_review"
 
   async function markInReview() {
-    if (mutationPending.current) return
+    if (mutationPending.current || !canTriage) return
     mutationPending.current = true
     setMarking(true); setError(""); setMessage(""); setConflict(false)
     try {
@@ -249,15 +265,15 @@ function ReportDetailWorkspace({ detail, csrfToken, canResolve, canReadAudit, on
     <dl className="report-facts"><div><dt>举报 ID</dt><dd>{report.id}</dd></div><div><dt>举报原因</dt><dd>{reasonLabel(report.reason)}</dd></div><div><dt>举报人</dt><dd>{report.reporter.displayName} <span>@{report.reporter.username}</span></dd></div><div><dt>目标作者</dt><dd>{report.targetAuthor?.displayName ?? "未知"}</dd></div><div><dt>提交时间</dt><dd>{formatDate(report.createdAt)}</dd></div></dl>
     {report.details && <section className="report-detail__section"><h4>举报说明</h4><p>{report.details}</p></section>}
     <section className="report-detail__section"><h4>内容上下文</h4><strong>{detail.context.title}</strong><div className="report-context-list">{detail.context.items.map((item) => <article key={item.id} className={item.isTarget ? "report-context-item report-context-item--target" : "report-context-item"}><header><span>{item.author?.displayName ?? "已注销用户"}</span>{item.isTarget && <em>被举报内容</em>}<time dateTime={item.createdAt}>{formatDate(item.createdAt)}</time></header><p>{item.content}</p></article>)}</div></section>
-    {detail.author && <section className="report-detail__section"><h4>作者风险</h4><p>{detail.author.user.displayName} · 账号状态：{accountStatusLabel(detail.author.status)}</p><p>该作者共有 {detail.author.reportCount} 条举报记录</p></section>}
+    {detail.author && <section className="report-detail__section"><h4>作者风险</h4><p>{detail.author.user.displayName} · 账号状态：{accountStatusLabel(detail.author.status)}</p><p>当前权限范围内共有 {detail.author.reportCount} 条举报记录</p></section>}
     {detail.relatedReports.some((item) => item.id !== report.id) && <section className="report-detail__section"><h4>相关举报</h4><ul className="report-related-list">{detail.relatedReports.filter((item) => item.id !== report.id).map((item) => <li key={item.id}><span>{reasonLabel(item.reason)}</span><span className={"report-status report-status--" + item.status}>{statusLabel(item.status)}</span><time dateTime={item.createdAt}>{formatDate(item.createdAt)}</time></li>)}</ul></section>}
     <section className="report-detail__section"><h4>处理记录</h4>{detail.handlingHistory.length === 0 ? <p>尚无管理员处理记录。</p> : <ul className="report-history">{detail.handlingHistory.map((item) => <li key={item.id}><span>{item.actor.displayName} · {actionLabel(item.action)}</span><time>{formatDate(item.createdAt)}</time></li>)}</ul>}</section>
     {canReadAudit ? <RelatedAuditLog filter={{ reportId: report.id }} /> : null}
     {!actionOpen && (error || message) && <p className={error ? "form-alert" : "admin-success"} role={error ? "alert" : "status"}>{error || message}</p>}
     {!actionOpen && conflict && <RevisionConflictNotice onRefresh={() => void refreshConflictBaseline()} />}
-    {!canResolve ? <p className="report-readonly-note">当前权限仅允许查看举报详情。</p> : actionable && !actionOpen ? <div className="admin-workspace-actions">
-      {report.status === "open" && <button className="secondary-button" type="button" disabled={marking} onClick={() => void markInReview()}><Check size={14} aria-hidden="true" />标记处理中</button>}
-      <button ref={actionTrigger} className="primary-button" type="button" disabled={marking} onClick={() => setActionOpen(true)}>处理举报</button>
+    {!canTriage && !canResolve ? <p className="report-readonly-note">当前权限仅允许查看举报详情。</p> : actionable && !actionOpen ? <div className="admin-workspace-actions">
+      {canTriage && report.status === "open" && <button className="secondary-button" type="button" disabled={marking} onClick={() => void markInReview()}><Check size={14} aria-hidden="true" />标记处理中</button>}
+      {canResolve && <button ref={actionTrigger} className="primary-button" type="button" disabled={marking} onClick={() => setActionOpen(true)}>处理举报</button>}
     </div> : !actionable ? <p className="report-readonly-note">该举报已完成处理，仅保留查看权限。</p> : null}
     {canResolve && actionable && actionOpen ? <section className="report-inline-action" aria-label="处理举报">
     {(error || message) && <p className={error ? "form-alert" : "admin-success"} role={error ? "alert" : "status"}>{error || message}</p>}

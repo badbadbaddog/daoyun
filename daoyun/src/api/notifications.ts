@@ -13,6 +13,7 @@ export interface Notification {
   actor: UserSummary | null
   target: NotificationTarget
   targetId: string
+  topicId?: string | null
   readAt: string | null
   createdAt: string
 }
@@ -36,10 +37,11 @@ export class NotificationApiError extends Error {
   }
 }
 
-export async function listNotifications(options: { cursor?: string; limit?: number; signal?: AbortSignal } = {}): Promise<NotificationPage> {
+export async function listNotifications(options: { cursor?: string; limit?: number; unread?: boolean; signal?: AbortSignal } = {}): Promise<NotificationPage> {
   const params = new URLSearchParams()
   if (options.cursor) params.set("cursor", options.cursor)
   params.set("limit", String(options.limit ?? 20))
+  if (options.unread) params.set("unread", "true")
   const response = await fetch(`${ENDPOINT}?${params.toString()}`, { headers: { Accept: "application/json" }, credentials: "include", signal: options.signal })
   const payload = await readJson(response)
   if (!response.ok) throw toApiError(response.status, payload)
@@ -82,16 +84,16 @@ type NotificationCountEnvelopeDto = components["schemas"]["ApiResponse_Notificat
 type ErrorResponseDto = components["schemas"]["ErrorResponse"]
 
 function mapNotification(value: NotificationDto): Notification {
-  return { id: value.id, kind: value.kind, actor: value.actor && { id: value.actor.id, username: value.actor.username, displayName: value.actor.display_name, avatarUrl: value.actor.avatar_url }, target: value.target, targetId: value.target_id, readAt: value.read_at, createdAt: value.created_at }
+  return { id: value.id, kind: value.kind, actor: value.actor && { id: value.actor.id, username: value.actor.username, displayName: value.actor.display_name, avatarUrl: value.actor.avatar_url }, target: value.target, targetId: value.target_id, topicId: value.topic_id ?? null, readAt: value.read_at, createdAt: value.created_at }
 }
 
 function isPage(value: unknown): value is NotificationPageDto {
-  return isRecord(value) && Array.isArray(value.data) && isRecord(value.meta) && isUuid(value.meta.request_id) && (value.meta.next_cursor === null || isUuid(value.meta.next_cursor)) && value.data.every(isNotification)
+  return isRecord(value) && Array.isArray(value.data) && isRecord(value.meta) && isUuid(value.meta.request_id) && (value.meta.next_cursor === null || isNotificationCursor(value.meta.next_cursor)) && value.data.every(isNotification)
 }
 function isNotificationEnvelope(value: unknown): value is NotificationEnvelopeDto { return isRecord(value) && isRecord(value.data) && isUuid(value.meta?.request_id) && isNotification(value.data) }
 function isCountEnvelope(value: unknown): value is NotificationCountEnvelopeDto { return isRecord(value) && isRecord(value.data) && isSafeInteger(value.data.unread_count) && isUuid(value.meta?.request_id) }
 function isNotification(value: unknown): value is NotificationDto {
-  return isRecord(value) && isUuid(value.id) && ["follow", "reply", "like", "message", "report"].includes(value.kind as string) && (value.actor === null || isUser(value.actor)) && ["user", "topic", "post", "conversation"].includes(value.target as string) && isUuid(value.target_id) && (value.read_at === null || typeof value.read_at === "string") && typeof value.created_at === "string"
+  return isRecord(value) && isUuid(value.id) && ["follow", "reply", "like", "message", "report", "topic_governance"].includes(value.kind as string) && (value.actor === null || isUser(value.actor)) && ["user", "topic", "post", "conversation"].includes(value.target as string) && isUuid(value.target_id) && (value.topic_id == null || isUuid(value.topic_id)) && (value.read_at === null || typeof value.read_at === "string") && typeof value.created_at === "string"
 }
 function isUser(value: unknown): value is UserSummaryDto { return isRecord(value) && isUuid(value.id) && typeof value.username === "string" && typeof value.display_name === "string" && (value.avatar_url === null || typeof value.avatar_url === "string") }
 function toApiError(status: number, payload: unknown): NotificationApiError { return isError(payload) ? new NotificationApiError(status, payload.error.code, payload.error.message, payload.error.fields) : new NotificationApiError(status, "response.invalid", "通知服务响应格式无效") }
@@ -100,3 +102,5 @@ function isError(value: unknown): value is ErrorResponseDto { return isRecord(va
 function isRecord(value: unknown): value is Record<string, any> { return typeof value === "object" && value !== null && !Array.isArray(value) }
 function isUuid(value: unknown): value is string { return typeof value === "string" && uuidPattern.test(value) }
 function isSafeInteger(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 }
+
+function isNotificationCursor(value: unknown): value is string { return isUuid(value) || (typeof value === "string" && value.startsWith("unread:") && isUuid(value.slice(7))) }

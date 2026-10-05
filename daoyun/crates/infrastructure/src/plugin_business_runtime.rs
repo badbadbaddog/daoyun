@@ -579,7 +579,7 @@ impl Database {
         let rows = sqlx::query_as::<_, (Uuid, String)>(
             "SELECT id, key
              FROM plugins
-             WHERE status = 'enabled' AND business_api_version = '0.1.0'
+             WHERE status = 'enabled' AND execution = 'wasm' AND business_api_version = '0.1.0'
                AND capabilities ? 'ui.panel'
              ORDER BY key, id
              LIMIT 8",
@@ -599,7 +599,7 @@ impl Database {
                     capabilities, data_scopes, event_subscriptions,
                     component_bytes, component_sha256, revision, installed_by
              FROM plugins
-             WHERE id = $1",
+             WHERE id = $1 AND execution = 'wasm'",
         )
         .bind(plugin_id)
         .fetch_optional(&self.pool)
@@ -1034,7 +1034,7 @@ impl Database {
         let executable = sqlx::query_scalar::<_, bool>(
             "SELECT TRUE
              FROM plugins
-             WHERE id = $1 AND status = 'enabled' AND business_api_version = '0.1.0'
+             WHERE id = $1 AND status = 'enabled' AND execution = 'wasm' AND business_api_version = '0.1.0'
              FOR KEY SHARE",
         )
         .bind(plugin_id)
@@ -1165,6 +1165,7 @@ impl Database {
                     ON subscription.plugin_id = delivery.plugin_id
                    AND subscription.event_type = delivery.event_type
                  WHERE plugin.status = 'enabled'
+                   AND plugin.execution = 'wasm'
                    AND plugin.business_api_version = '0.1.0'
                    AND plugin.capabilities ? 'events.subscribe'
                    AND subscription.enabled
@@ -1178,6 +1179,7 @@ impl Database {
                  ORDER BY delivery.available_at, delivery.created_at,
                           delivery.plugin_id, delivery.outbox_event_id
                  FOR UPDATE OF delivery SKIP LOCKED
+                  FOR SHARE OF plugin SKIP LOCKED
                  LIMIT $1
              )
              UPDATE plugin_event_deliveries AS delivery
@@ -1345,6 +1347,7 @@ impl Database {
                  FROM plugin_tasks AS task
                  INNER JOIN plugins AS plugin ON plugin.id = task.plugin_id
                  WHERE plugin.status = 'enabled'
+                   AND plugin.execution = 'wasm'
                    AND plugin.business_api_version = '0.1.0'
                    AND plugin.capabilities ? 'tasks.schedule'
                    AND task.attempts < task.max_attempts
@@ -1354,6 +1357,7 @@ impl Database {
                    )
                  ORDER BY task.available_at, task.created_at, task.id
                  FOR UPDATE OF task SKIP LOCKED
+                  FOR SHARE OF plugin SKIP LOCKED
                  LIMIT $1
              )
              UPDATE plugin_tasks AS task
@@ -1542,7 +1546,7 @@ async fn lock_runtime_access(
                 quotas.command_daily_limit, plugin.installed_by
          FROM plugins AS plugin
          INNER JOIN plugin_runtime_quotas AS quotas ON quotas.plugin_id = plugin.id
-         WHERE plugin.id = $1
+         WHERE plugin.id = $1 AND plugin.execution = 'wasm'
          FOR UPDATE OF plugin, quotas",
     )
     .bind(plugin_id)

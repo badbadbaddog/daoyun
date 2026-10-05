@@ -2,11 +2,21 @@ import type {
   MemberCommunityGroup,
   MemberEntitlement,
   MemberMedal,
-  MembershipCenterData,
+  MembershipSectionData,
+  MemberTab,
+  MembershipExperience,
   MembershipGrowthLevel,
   PointsLedgerItem,
 } from "../features/membership/membershipTypes"
 import { getCurrentMembership, listUserMedals } from "./users"
+
+export class MembershipApiError extends Error {
+  constructor(readonly status: number, readonly code: string) {
+    super(status === 401 ? "登录已失效，请重新登录后查看。"
+      : status === 403 ? "当前账号无权查看这项会员信息。" : "会员信息暂时不可用，请稍后重试。")
+    this.name = "MembershipApiError"
+  }
+}
 
 export interface CurrentExperience {
   experience: number
@@ -79,6 +89,9 @@ export async function listMyPointsLedger(options: { cursor?: string; limit?: num
       delta: integer(item.amount, "积分流水响应格式无效"),
       balanceAfter: integer(item.balance_after, "积分流水响应格式无效"),
       reason: pointsReason(text(item.reason, "积分流水响应格式无效")),
+      actorUsername: nullableText(item.actor_username, "积分流水响应格式无效"),
+      actorDisplayName: nullableText(item.actor_display_name, "积分流水响应格式无效"),
+      operationRequestId: nullableText(item.operation_request_id, "积分流水响应格式无效"),
       createdAt: text(item.created_at, "积分流水响应格式无效"),
     }
   })
@@ -114,27 +127,29 @@ export async function listUserMembershipSummary(username: string, signal?: Abort
   }
 }
 
-export async function loadMembershipCenterData(username: string, signal?: AbortSignal): Promise<MembershipCenterData> {
-  const [experience, levels, account, ledger, communityGroups, entitlements, medals] = await Promise.all([
-    getCurrentExperience(signal),
-    listGrowthLevels(signal),
-    getCurrentMembership(signal),
-    listMyPointsLedger({ signal }),
-    getCurrentCommunityGroups(signal),
-    listMyEntitlements(signal),
-    listUserMedals(username, signal),
-  ])
-  const nextLevel = [...levels]
-    .filter((level) => level.requiredExperience > experience.experience)
+export async function getMembershipExperience(signal?: AbortSignal): Promise<MembershipExperience> {
+  const [experience, levels] = await Promise.all([getCurrentExperience(signal), listGrowthLevels(signal)])
+  const nextLevel = [...levels].filter((level) => level.requiredExperience > experience.experience)
     .sort((left, right) => left.requiredExperience - right.requiredExperience)[0] ?? null
-  return {
-    experience: { experience: experience.experience, level: experience.currentLevel, nextLevel },
-    pointsBalance: account.pointsBalance,
-    pointsLedger: ledger.entries,
-    communityGroups,
-    entitlements,
-    medals: medals.map((medal) => ({ ...medal, isPublic: true })),
+  return { experience: experience.experience, level: experience.currentLevel, nextLevel }
+}
+
+export async function loadMembershipCenterData(username: string, signal?: AbortSignal, tab: MemberTab = "overview"): Promise<MembershipSectionData> {
+  if (tab === "growth") return { experience: await getMembershipExperience(signal) }
+  if (tab === "points") {
+    const [account, ledger] = await Promise.all([getCurrentMembership(signal), listMyPointsLedger({ signal })])
+    return { pointsBalance: account.pointsBalance, pointsLedger: ledger.entries }
   }
+  if (tab === "benefits") return { entitlements: await listMyEntitlements(signal) }
+  if (tab === "medals") return { medals: (await listUserMedals(username, signal)).map((medal) => ({ ...medal, isPublic: true })) }
+  const [growth, summary] = await Promise.allSettled([getMembershipExperience(signal), listUserMembershipSummary(username, signal)])
+  const data: MembershipSectionData = { errors: [] }
+  if (growth.status === "fulfilled") data.experience = growth.value
+  else data.errors!.push("成长信息暂时不可用")
+  if (summary.status === "fulfilled") data.medals = summary.value.medals
+  else data.errors!.push("公开勋章暂时不可用")
+  if (growth.status === "rejected" && summary.status === "rejected") throw growth.reason
+  return data
 }
 
 function mapGrowthLevel(value: Record<string, unknown>): MembershipGrowthLevel {
@@ -158,13 +173,17 @@ function mapMedal(value: unknown): MemberMedal {
 async function getEnvelope(url: string, signal?: AbortSignal): Promise<{ data: unknown; meta: unknown }> {
   const response = await fetch(url, { headers: { Accept: "application/json" }, credentials: "include", signal })
   const payload: unknown = await response.json().catch(() => undefined)
-  if (!response.ok) throw new Error("会员服务请求失败")
+  if (!response.ok) {
+    const error = typeof payload === "object" && payload !== null && "error" in payload ? payload.error : null
+    const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "membership.request_failed"
+    throw new MembershipApiError(response.status, code)
+  }
   const envelope = record(payload, "会员服务响应格式无效")
   return { data: envelope.data, meta: envelope.meta }
 }
 
 function pointsReason(reason: string): string {
-  const labels: Record<string, string> = { "content.topic.quality": "发布优质主题", "content.reply.quality": "发布优质回复", "operations.adjustment": "运营调整", "points.redemption": "积分兑换" }
+  const labels: Record<string, string> = { "content.topic.quality": "发布优质主题", "content.reply.quality": "发布优质回复", "operations.adjustment": "运营调整", "operations.community_reward": "社区贡献奖励", "operations.event_reward": "活动奖励", "operations.correction": "账务纠正", "operations.compensation": "服务补偿", "points.redemption": "积分兑换" }
   return labels[reason] ?? reason
 }
 

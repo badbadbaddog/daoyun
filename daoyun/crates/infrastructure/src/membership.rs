@@ -26,6 +26,15 @@ pub struct MembershipLedgerResult {
     pub account: MembershipAccountRecord,
     pub created: bool,
     pub audit_id: Option<Uuid>,
+    pub entry_id: Uuid,
+    pub balance_before: i64,
+    pub balance_after: i64,
+}
+
+#[derive(Debug, Default)]
+pub struct PointsGrantContext<'a> {
+    pub details: Option<&'a str>,
+    pub request_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
@@ -35,6 +44,10 @@ pub struct PointsLedgerEntryRecord {
     pub reason: String,
     pub balance_after: i64,
     pub created_at: OffsetDateTime,
+    pub actor_id: Option<Uuid>,
+    pub actor_username: Option<String>,
+    pub actor_display_name: Option<String>,
+    pub operation_request_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
@@ -178,8 +191,23 @@ impl Database {
         limit: i64,
     ) -> Result<Vec<PointsLedgerEntryRecord>, DatabaseError> {
         Ok(sqlx::query_as::<_, PointsLedgerEntryRecord>(
-            "SELECT entry.id, entry.amount, entry.reason, entry.balance_after, entry.created_at
+            "SELECT entry.id, entry.amount, entry.reason, entry.balance_after, entry.created_at,
+                     audit.actor_id, actor.username AS actor_username, actor.display_name AS actor_display_name,
+                     audit.summary ->> 'request_id' AS operation_request_id
              FROM point_ledger_entries AS entry
+             LEFT JOIN point_redemptions AS redemption ON redemption.ledger_entry_id = entry.id
+             LEFT JOIN LATERAL (
+                 SELECT actor_id, summary FROM admin_audit_log
+                 WHERE (action = 'membership.points.grant' AND resource_type = 'membership_account'
+                        AND resource_id = entry.user_id
+                        AND (summary ->> 'ledger_entry_id' = entry.id::text
+                             OR (summary ->> 'ledger_entry_id' IS NULL AND entry.idempotency_key IS NOT NULL
+                                 AND summary ->> 'idempotency_key' = entry.idempotency_key)))
+                    OR (action = 'membership.redemption.create' AND resource_type = 'point_redemption'
+                        AND resource_id = redemption.id)
+                 ORDER BY created_at DESC, id DESC LIMIT 1
+             ) AS audit ON true
+             LEFT JOIN users AS actor ON actor.id = audit.actor_id
              LEFT JOIN point_ledger_entries AS cursor_entry
                ON cursor_entry.id = $2 AND cursor_entry.user_id = $1
              WHERE entry.user_id = $1
@@ -235,15 +263,15 @@ impl Database {
         user_id: Uuid,
         amount: i64,
         reason: &str,
-        details: Option<&str>,
+        context: PointsGrantContext<'_>,
         idempotency_key: Option<&str>,
     ) -> Result<MembershipLedgerResult, AppendPointsLedgerError> {
         self.append_points_ledger_with_actor(
-            PointsLedgerActor::Admin(actor_id),
+            PointsLedgerActor::Admin(actor_id, context.request_id),
             user_id,
             amount,
             reason,
-            details,
+            context.details,
             idempotency_key,
         )
         .await
@@ -807,10 +835,10 @@ impl Database {
         }
 
         let mut transaction = self.pool.begin().await?;
-        let (actor_id, enforce_admin_authorization) = match actor {
-            PointsLedgerActor::None => (None, false),
-            PointsLedgerActor::Admin(actor_id) => (Some(actor_id), true),
-            PointsLedgerActor::Trusted(actor_id) => (Some(actor_id), false),
+        let (actor_id, enforce_admin_authorization, request_id) = match actor {
+            PointsLedgerActor::None => (None, false, None),
+            PointsLedgerActor::Admin(actor_id, request_id) => (Some(actor_id), true, request_id),
+            PointsLedgerActor::Trusted(actor_id) => (Some(actor_id), false, None),
         };
         if enforce_admin_authorization
             && let Some(actor_id) = actor_id
@@ -840,7 +868,7 @@ impl Database {
 
         if let Some(key) = idempotency_key
             && let Some(existing) = sqlx::query_as::<_, ExistingLedgerEntry>(
-                "SELECT amount, reason FROM point_ledger_entries
+                "SELECT id, amount, reason, balance_after FROM point_ledger_entries
                  WHERE user_id = $1 AND idempotency_key = $2",
             )
             .bind(user_id)
@@ -872,6 +900,9 @@ impl Database {
                 account,
                 created: false,
                 audit_id,
+                entry_id: existing.id,
+                balance_before: existing.balance_after - existing.amount,
+                balance_after: existing.balance_after,
             });
         }
 
@@ -936,6 +967,9 @@ impl Database {
                     Some(user_id),
                     serde_json::json!({
                         "amount": amount,
+                        "ledger_entry_id": entry_id,
+                        "request_id": request_id,
+                        "balance_before": account.points_balance,
                         "balance_after": balance,
                         "idempotency_key": idempotency_key,
                         "level_after": level_key,
@@ -1009,6 +1043,9 @@ impl Database {
             account,
             created: true,
             audit_id,
+            entry_id,
+            balance_before: balance - amount,
+            balance_after: balance,
         })
     }
 }
@@ -1063,13 +1100,15 @@ async fn ensure_medal_asset(
 
 #[derive(Debug, FromRow)]
 struct ExistingLedgerEntry {
+    id: Uuid,
     amount: i64,
     reason: String,
+    balance_after: i64,
 }
 
 enum PointsLedgerActor {
     None,
-    Admin(Uuid),
+    Admin(Uuid, Option<Uuid>),
     Trusted(Uuid),
 }
 

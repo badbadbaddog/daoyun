@@ -25,7 +25,7 @@ if [[ -f "$backup_file.sha256" ]]; then
   sha256sum --check "$backup_file.sha256"
 fi
 
-pg_restore \
+if ! pg_restore \
   --dbname="$database_url" \
   --clean \
   --if-exists \
@@ -33,4 +33,7 @@ pg_restore \
   --no-owner \
   --no-acl \
   --single-transaction \
-  "$backup_file"
+  "$backup_file" >/dev/null 2>&1; then
+  echo "pg_restore failed." >&2
+  exit 1
+fi

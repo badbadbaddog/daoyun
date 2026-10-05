@@ -11,6 +11,7 @@ import { UserAvatar } from "./UserAvatar"
 interface RightSidebarProps {
   variant?: "default" | "home" | "boardDirectory" | "boardDetail" | "topicDetail"
   topics: Topic[]
+  showDiscovery?: boolean
   boards?: Board[]
   currentBoard?: BoardDetail
   currentTopic?: Topic | null
@@ -21,7 +22,7 @@ interface RightSidebarProps {
   onOpenTopic: (topicId: string) => void
 }
 
-export function RightSidebar({ variant = "default", topics, boards = [], currentBoard, currentTopic, session, membershipExperience, onCompose, onLogin, onOpenTopic }: RightSidebarProps) {
+export function RightSidebar({ variant = "default", topics, showDiscovery = true, boards = [], currentBoard, currentTopic, session, membershipExperience, onCompose, onLogin, onOpenTopic }: RightSidebarProps) {
   const hotTopics = [...topics]
     .sort((left, right) => (right.replies * 12 + right.likes * 8) - (left.replies * 12 + left.likes * 8))
     .slice(0, 4)
@@ -31,9 +32,6 @@ export function RightSidebar({ variant = "default", topics, boards = [], current
     displayName: topic.author,
     avatarUrl: topic.avatarUrl,
   }])).values()].slice(0, 5)
-  const ownTopics = session ? topics.filter((topic) => topic.authorUsername === session.user.username) : []
-  const ownReplies = ownTopics.reduce((total, topic) => total + topic.replies, 0)
-  const ownLikes = ownTopics.reduce((total, topic) => total + topic.likes, 0)
 
   if (variant === "home") {
     const levelProgressValue = membershipExperience?.nextLevel
@@ -76,11 +74,6 @@ export function RightSidebar({ variant = "default", topics, boards = [], current
                   <PublicMemberIdentity username={session.user.username} maxMedals={0} />
                 </div>
               )}
-              <dl className="home-profile-panel__stats">
-                <div><dt>我的发布</dt><dd>{ownTopics.length}</dd></div>
-                <div><dt>收到回复</dt><dd>{ownReplies}</dd></div>
-                <div><dt>获得喜欢</dt><dd>{ownLikes}</dd></div>
-              </dl>
               <button className="primary-button" type="button" onClick={onCompose} aria-label="发布主题">
                 <MessageSquare size={15} aria-hidden="true" />
                 发布主题
@@ -380,7 +373,7 @@ export function RightSidebar({ variant = "default", topics, boards = [], current
         )}
       </section>
 
-      <section className="panel hot-panel">
+      {showDiscovery && <section className="panel hot-panel">
         <div className="panel-heading">
           <div><Flame size={17} /><h2>今日热帖</h2></div>
           <a href="#hot">更多<ArrowUpRight size={13} /></a>
@@ -401,7 +394,7 @@ export function RightSidebar({ variant = "default", topics, boards = [], current
             </li>
           )) : <li className="hot-list__empty">暂无公开主题</li>}
         </ol>
-      </section>
+      </section>}
 
       {activeBoards.length > 0 && (
         <section className="panel community-panel">

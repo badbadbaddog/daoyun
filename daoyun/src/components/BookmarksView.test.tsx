@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -81,7 +81,7 @@ describe("BookmarksView", () => {
 
     expect(await screen.findByRole("heading", { name: "我的收藏" })).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: `取消收藏主题：${topic.title}` }))
-    expect(setTopicBookmark).toHaveBeenCalledWith(topic.id, false, session.csrfToken)
+    expect(setTopicBookmark).toHaveBeenCalledWith(topic.id, false, session.csrfToken, expect.any(AbortSignal))
     expect(await screen.findByText("还没有收藏主题")).toBeInTheDocument()
   })
 
@@ -122,4 +122,54 @@ describe("BookmarksView", () => {
     expect(await screen.findByText(topic.title)).toBeInTheDocument()
     expect(listBookmarks).toHaveBeenCalledTimes(2)
   })
+})
+
+it("keeps the bookmark row when removal fails", async () => {
+  vi.mocked(setTopicBookmark).mockRejectedValueOnce(new Error("offline"))
+  render(<BookmarksView session={session} onBack={vi.fn()} onLogin={vi.fn()} onOpenTopic={vi.fn()} />)
+  await userEvent.click(await screen.findByRole("button", { name: `取消收藏主题：${topic.title}` }))
+  expect(await screen.findByRole("alert")).toHaveTextContent("收藏状态暂时无法更新")
+  expect(screen.getByText(topic.title)).toBeInTheDocument()
+})
+
+it("ignores an old account bookmark page after switching accounts", async () => {
+  let finish!: (page: { topics: Topic[]; nextCursor: string | null }) => void
+  vi.mocked(listBookmarks).mockResolvedValueOnce({ topics: [topic], nextCursor: "old" })
+    .mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    .mockResolvedValueOnce({ topics: [secondTopic], nextCursor: null })
+  const props = { onBack: vi.fn(), onLogin: vi.fn(), onOpenTopic: vi.fn() }
+  const view = render(<BookmarksView {...props} session={session} />)
+  await userEvent.click(await screen.findByRole("button", { name: "加载更多" }))
+  view.rerender(<BookmarksView {...props} session={{ ...session, user: { ...session.user, id: "other-account" } }} />)
+  await screen.findByText(secondTopic.title)
+  await act(async () => finish({ topics: [topic], nextCursor: null }))
+  expect(screen.queryByText(topic.title)).not.toBeInTheDocument()
+})
+
+it("does not remove a new account bookmark or notify from an old mutation", async () => {
+  let finish!: (value: { topicId: string; bookmarked: boolean }) => void
+  vi.mocked(setTopicBookmark).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  const onBookmarkChanged = vi.fn()
+  const props = { onBack: vi.fn(), onLogin: vi.fn(), onOpenTopic: vi.fn(), onBookmarkChanged }
+  const view = render(<BookmarksView {...props} session={session} />)
+  await userEvent.click(await screen.findByRole("button", { name: `取消收藏主题：${topic.title}` }))
+  view.rerender(<BookmarksView {...props} session={{ ...session, user: { ...session.user, id: "other-account" } }} />)
+  await screen.findByText(topic.title)
+  await act(async () => finish({ topicId: topic.id, bookmarked: false }))
+  expect(screen.getByText(topic.title)).toBeInTheDocument()
+  expect(onBookmarkChanged).not.toHaveBeenCalled()
+})
+
+it("releases an old pending bookmark when the same account receives a new session", async () => {
+  let finish!: (value: { topicId: string; bookmarked: boolean }) => void
+  vi.mocked(setTopicBookmark).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  const props = { onBack: vi.fn(), onLogin: vi.fn(), onOpenTopic: vi.fn() }
+  const view = render(<BookmarksView {...props} session={session} />)
+  await userEvent.click(await screen.findByRole("button", { name: `取消收藏主题：${topic.title}` }))
+  view.rerender(<BookmarksView {...props} session={{ ...session, csrfToken: "b".repeat(64) }} />)
+  const button = await screen.findByRole("button", { name: `取消收藏主题：${topic.title}` })
+  expect(button).toBeEnabled()
+  await act(async () => finish({ topicId: topic.id, bookmarked: false }))
+  expect(screen.getByText(topic.title)).toBeInTheDocument()
+  expect(button).toBeEnabled()
 })

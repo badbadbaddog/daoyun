@@ -59,8 +59,8 @@ describe("SearchPage", () => {
         boards={[board]}
         users={[user]}
         tags={topic.tags}
-        loading={false}
-        error={null}
+        contentLoading={false} userLoading={false}
+
         onScopeChange={onScopeChange}
         onLoadMore={vi.fn()}
         nextCursor={null}
@@ -82,10 +82,24 @@ describe("SearchPage", () => {
 
 it("shows filter-only content and clears filters without removing the search page",()=>{
  const onFiltersChange=vi.fn()
- render(<SearchPage query="" scope="topics" topics={[topic]} boards={[]} users={[]} tags={[]} loading={false} error={null} onScopeChange={vi.fn()} onLoadMore={vi.fn()} nextCursor={null} loadingMore={false} errorMore={null} filters={{author:"rustacean",from:"2026-08-01"}} onFiltersChange={onFiltersChange} availableBoards={[board]}/>)
+ render(<SearchPage query="" scope="topics" topics={[topic]} boards={[]} users={[]} tags={[]} contentLoading={false} userLoading={false}  onScopeChange={vi.fn()} onLoadMore={vi.fn()} nextCursor={null} loadingMore={false} errorMore={null} filters={{author:"rustacean",from:"2026-08-01"}} onFiltersChange={onFiltersChange} availableBoards={[board]}/>)
  expect(screen.getByRole("link",{name:/Rust 搜索主题/})).toBeInTheDocument()
  expect(screen.getByLabelText("作者用户名")).toHaveValue("rustacean")
  expect(screen.getByLabelText("开始日期")).toHaveValue("2026-08-01")
  fireEvent.click(screen.getByRole("button",{name:"清除筛选"}))
  expect(onFiltersChange).toHaveBeenCalledWith({})
+})
+
+it("shows completed content while users are still loading", () => {
+  render(<SearchPage query="Rust" scope="all" topics={[topic]} boards={[board]} users={[]} tags={[]} userLoading={true} contentLoading={false}  onScopeChange={vi.fn()} onLoadMore={vi.fn()} nextCursor={null} loadingMore={false} errorMore={null} />)
+  expect(screen.getByRole("link", { name: /Rust 搜索主题/ })).toBeInTheDocument()
+  expect(screen.getByText("正在搜索用户")).toBeInTheDocument()
+})
+
+it("retries only the failed search section", () => {
+  const onUserRetry = vi.fn(), onContentRetry = vi.fn()
+  render(<SearchPage query="Rust" scope="all" topics={[topic]} boards={[]} users={[]} tags={[]} contentLoading={false} userLoading={false}  userError="用户搜索失败" onUserRetry={onUserRetry} onContentRetry={onContentRetry} onScopeChange={vi.fn()} onLoadMore={vi.fn()} nextCursor={null} loadingMore={false} errorMore={null} />)
+  fireEvent.click(screen.getByRole("button", { name: "重试用户搜索" }))
+  expect(onUserRetry).toHaveBeenCalledTimes(1)
+  expect(onContentRetry).not.toHaveBeenCalled()
 })

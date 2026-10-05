@@ -28,6 +28,11 @@ mod mfa;
 mod notifications;
 mod operations;
 mod outbox;
+mod permission_matrix;
+pub use permission_matrix::{
+    BoardPermissionMatrixRecord, PermissionMatrixActionRecord, PermissionMatrixError,
+    PermissionMatrixQuotaRecord, PermissionMatrixScenarioRecord, PermissionMatrixSourceRecord,
+};
 mod passkeys;
 mod plugin_business_runtime;
 mod plugins;
@@ -129,9 +134,10 @@ pub use membership::{
     AppendPointsLedgerError, GrantMembershipMedalError, GrantMembershipMedalResult,
     ListMembershipMedalOperationsError, MembershipAccountRecord, MembershipLedgerResult,
     MembershipLevelRuleRecord, MembershipMedalOperationRecord, MembershipMedalRecord,
-    MembershipMedalRuleRecord, PointsLedgerEntryRecord, RevokeMembershipMedalError,
-    RevokeMembershipMedalResult, UpdateMembershipLevelRuleError, UpdateMembershipLevelRuleRecord,
-    UpdateMembershipMedalRuleError, UpdateMembershipMedalRuleRecord,
+    MembershipMedalRuleRecord, PointsGrantContext, PointsLedgerEntryRecord,
+    RevokeMembershipMedalError, RevokeMembershipMedalResult, UpdateMembershipLevelRuleError,
+    UpdateMembershipLevelRuleRecord, UpdateMembershipMedalRuleError,
+    UpdateMembershipMedalRuleRecord,
 };
 pub use messages::{
     ArchiveConversationError, ConversationLastMessageRecord, ConversationReadStateRecord,
@@ -200,7 +206,8 @@ pub use users::{
     UpdateUserProfileError, UpdateUserProfileRecord, UserProfileViewerRecord, UserRelationKind,
 };
 
-use storage::AttachmentStore;
+pub use storage::AttachmentStorageConfigurationRecord;
+use storage::AttachmentStores;
 
 // Source: https://docs.rs/sqlx/0.9.0/sqlx/macro.migrate.html
 pub static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
@@ -208,14 +215,14 @@ pub static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 #[derive(Clone, Debug)]
 pub struct Database {
     pool: PgPool,
-    attachment_store: AttachmentStore,
+    attachment_store: AttachmentStores,
 }
 
 impl Database {
     pub fn from_pool(pool: PgPool) -> Self {
         Self {
             pool,
-            attachment_store: AttachmentStore::from_environment(),
+            attachment_store: AttachmentStores::from_environment(),
         }
     }
 

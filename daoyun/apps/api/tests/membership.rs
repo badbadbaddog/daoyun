@@ -350,6 +350,36 @@ async fn openapi_documents_membership_catalog() {
     assert!(document["paths"]["/api/v1/users/me/entitlements"]["get"].is_object());
     assert!(document["paths"]["/api/v1/users/{username}/membership-summary"]["get"].is_object());
     assert!(document["components"]["schemas"]["PointsLedgerEntry"].is_object());
+    for field in [
+        "actor_id",
+        "actor_username",
+        "actor_display_name",
+        "operation_request_id",
+    ] {
+        assert!(
+            document["components"]["schemas"]["PointsLedgerEntry"]["properties"][field].is_object()
+        );
+    }
+    for field in ["ledger_entry_id", "balance_before", "balance_after"] {
+        assert!(
+            document["components"]["schemas"]["MembershipPointsGrant"]["properties"][field]
+                .is_object()
+        );
+    }
+    for path in [
+        "/api/v1/admin/membership/points",
+        "/api/v1/users/me/points/ledger",
+    ] {
+        let method = if path.ends_with("ledger") {
+            "get"
+        } else {
+            "post"
+        };
+        assert!(
+            document["paths"][path][method]["responses"]["200"]["headers"]["x-request-id"]
+                .is_object()
+        );
+    }
     assert!(document["components"]["schemas"]["StandardEntitlement"].is_object());
     assert!(document["components"]["schemas"]["UserMembershipSummary"].is_object());
     assert!(document["components"]["schemas"]["GrowthLevel"].is_object());
@@ -772,8 +802,13 @@ async fn admin_membership_rules_and_points_require_capabilities_and_csrf(pool: P
         .await
         .expect("membership points grant must respond");
     assert_eq!(grant.status(), StatusCode::OK);
+    let grant_request_id = grant.headers()["x-request-id"].to_str().unwrap().to_owned();
     let grant_payload = response_json(grant).await;
+    assert_eq!(grant_payload["meta"]["request_id"], grant_request_id);
     assert_eq!(grant_payload["data"]["created"], true);
+    assert_eq!(grant_payload["data"]["balance_before"], 0);
+    assert_eq!(grant_payload["data"]["balance_after"], 25);
+    assert!(grant_payload["data"]["ledger_entry_id"].is_string());
     assert_eq!(grant_payload["data"]["account"]["level_key"], "lv_2");
     assert_eq!(grant_payload["data"]["account"]["level_number"], 2);
     assert!(grant_payload["data"]["audit_id"].is_string());
@@ -781,6 +816,9 @@ async fn admin_membership_rules_and_points_require_capabilities_and_csrf(pool: P
         grant_payload["data"]["account"]["level_display_name"],
         "新会员"
     );
+
+    let later = app.clone().oneshot(json_request(Method::POST, "/api/v1/admin/membership/points", json!({"user_id": member_id, "amount": 5, "reason": "admin.grant", "idempotency_key": "points-api-2"}), &owner_cookies, Some(&owner_csrf))).await.expect("later adjustment must respond");
+    assert_eq!(later.status(), StatusCode::OK);
 
     let replay = app
         .clone()
@@ -806,6 +844,38 @@ async fn admin_membership_rules_and_points_require_capabilities_and_csrf(pool: P
         replay_payload["data"]["audit_id"],
         grant_payload["data"]["audit_id"]
     );
+
+    assert_eq!(replay_payload["data"]["account"]["points_balance"], 30);
+    for field in ["ledger_entry_id", "balance_before", "balance_after"] {
+        assert_eq!(replay_payload["data"][field], grant_payload["data"][field]);
+    }
+    let ledger = app
+        .clone()
+        .oneshot(get_request(
+            "/api/v1/users/me/points/ledger",
+            &member_cookies,
+        ))
+        .await
+        .expect("ledger must respond");
+    assert_eq!(ledger.status(), StatusCode::OK);
+    let ledger_payload = response_json(ledger).await;
+    let entry = ledger_payload["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["id"] == grant_payload["data"]["ledger_entry_id"])
+        .unwrap();
+    assert_eq!(entry["actor_username"], "owner");
+    assert_eq!(
+        entry["operation_request_id"],
+        grant_payload["meta"]["request_id"]
+    );
+    assert_ne!(
+        entry["operation_request_id"],
+        ledger_payload["meta"]["request_id"]
+    );
+    assert!(entry.get("operator_details").is_none());
+    assert!(entry.get("email").is_none());
 
     let member_forbidden = app
         .clone()
@@ -857,7 +927,7 @@ async fn admin_community_groups_and_memberships_are_revisioned_and_idempotent(po
         .await
         .expect("member registration must respond");
     assert_eq!(member.status(), StatusCode::CREATED);
-    let (member_cookies, _) = session_cookies(&member).await;
+    let (member_cookies, member_csrf) = session_cookies(&member).await;
     let member_id =
         sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username = 'event_member'")
             .fetch_one(&pool)
@@ -904,6 +974,23 @@ async fn admin_community_groups_and_memberships_are_revisioned_and_idempotent(po
         .expect("group id must be text")
         .to_owned();
     assert_eq!(created["data"]["revision"], 1);
+
+    let forbidden = app.clone().oneshot(json_request(
+        Method::POST, "/api/v1/admin/community/memberships",
+        json!({ "user_id": member_id, "group_id": group_id, "membership_kind": "additional",
+            "source": "operator", "source_reference_id": null, "reason": "unauthorized grant",
+            "starts_at": "2020-01-01T00:00:00Z", "ends_at": null, "idempotency_key": "forbidden-group-grant" }),
+        &member_cookies, Some(&member_csrf),
+    )).await.expect("unauthorized grant must respond");
+    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+    let forbidden_request_id = forbidden.headers()["x-request-id"]
+        .to_str()
+        .expect("request id header")
+        .to_owned();
+    assert_eq!(
+        response_json(forbidden).await["meta"]["request_id"],
+        forbidden_request_id
+    );
 
     let updated = app
         .clone()
@@ -1793,4 +1880,329 @@ fn json_request(
     builder
         .body(Body::from(value.to_string()))
         .expect("JSON request must be valid")
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn redemption_trace_preserves_history_and_entitlements_when_disabled(pool: PgPool) {
+    let db = Database::from_pool(pool.clone());
+    let app = daoyun_api::app_with_config(
+        db.clone(),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    initialize(&app).await;
+    let (cookies, csrf) = login(&app, "owner", "correct horse battery staple").await;
+    let actor: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE username='owner'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO plugins(id,key,name,version,description,capabilities,component_bytes,component_sha256,status,installed_by,business_api_version,data_scopes,event_subscriptions) VALUES($1,'official_points_redemption','Points redemption','1.0.0','','[\"membership.redemption\",\"ui.panel\"]',$2,$3,'enabled',$4,'0.1.0','[]','[]')").bind(Uuid::now_v7()).bind(vec![0_u8]).bind("a".repeat(64)).bind(actor).execute(&pool).await.unwrap();
+    let kind = db
+        .put_standard_entitlement_type(
+            actor,
+            infrastructure::PutStandardEntitlementTypeRecord {
+                internal_key: "trace_vip".into(),
+                display_name: "七日权益".into(),
+                permission_keys: vec!["topic.poll.create".into()],
+                quotas: Default::default(),
+                expected_revision: None,
+            },
+        )
+        .await
+        .unwrap();
+    let product = db
+        .put_redemption_product(
+            actor,
+            infrastructure::PutRedemptionProduct {
+                id: Uuid::now_v7(),
+                name: "七日权益".into(),
+                entitlement_type_id: kind.id,
+                type_version: 1,
+                price: 60,
+                duration_days: 7,
+                per_user_limit: 1,
+                enabled: true,
+                expected_revision: None,
+            },
+        )
+        .await
+        .unwrap();
+    let input = json!({"product_id": product.id, "expected_revision": product.revision, "idempotency_key":"trace-redeem"});
+    let denied = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/users/me/redemptions",
+            input.clone(),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        response_json(denied).await["error"]["code"],
+        "redemption.insufficient_balance"
+    );
+    for (table, sql) in [
+        (
+            "point_redemptions",
+            "SELECT count(*) FROM point_redemptions WHERE user_id=$1",
+        ),
+        (
+            "point_ledger_entries",
+            "SELECT count(*) FROM point_ledger_entries WHERE user_id=$1",
+        ),
+        (
+            "user_standard_entitlements",
+            "SELECT count(*) FROM user_standard_entitlements WHERE user_id=$1",
+        ),
+    ] {
+        let count: i64 = sqlx::query_scalar(sql)
+            .bind(actor)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            count, 0,
+            "{table} must remain empty after an insufficient balance"
+        );
+    }
+    assert_eq!(
+        db.get_membership_account(actor)
+            .await
+            .unwrap()
+            .unwrap()
+            .points_balance,
+        0
+    );
+    db.append_points_ledger(actor, 100, "test.credit", Some("trace-credit"))
+        .await
+        .unwrap();
+    let result = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/users/me/redemptions",
+            input.clone(),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(result.status(), StatusCode::OK);
+    let request_id = result.headers()["x-request-id"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let receipt = response_json(result).await;
+    assert_eq!(receipt["meta"]["request_id"], request_id);
+    let ledger = app
+        .clone()
+        .oneshot(get_request("/api/v1/users/me/points/ledger", &cookies))
+        .await
+        .unwrap();
+    let ledger = response_json(ledger).await;
+    let entry = ledger["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["reason"] == "points.redemption")
+        .unwrap();
+    assert_eq!(entry["actor_username"], "owner");
+    assert_eq!(entry["operation_request_id"], request_id);
+    sqlx::query("UPDATE plugins SET status='disabled' WHERE key='official_points_redemption'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let catalog = app
+        .clone()
+        .oneshot(get_request(
+            "/api/v1/membership/redemption-products",
+            &cookies,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response_json(catalog).await["data"]["enabled"], false);
+    let history = app
+        .clone()
+        .oneshot(get_request("/api/v1/users/me/redemptions", &cookies))
+        .await
+        .unwrap();
+    assert_eq!(
+        response_json(history).await["data"]["records"][0]["id"],
+        receipt["data"]["id"]
+    );
+    let entitlements = app
+        .clone()
+        .oneshot(get_request("/api/v1/users/me/entitlements", &cookies))
+        .await
+        .unwrap();
+    assert_eq!(entitlements.status(), StatusCode::OK);
+    let entitlements = response_json(entitlements).await;
+    assert!(
+        entitlements["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["id"] == receipt["data"]["entitlement_id"])
+    );
+    let replay = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/users/me/redemptions",
+            input,
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(replay.status(), StatusCode::OK);
+    assert_eq!(response_json(replay).await["data"], receipt["data"]);
+    assert_eq!(
+        db.get_membership_account(actor)
+            .await
+            .unwrap()
+            .unwrap()
+            .points_balance,
+        40
+    );
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn public_profiles_exclude_private_entitlement_and_ledger_facts(pool: PgPool) {
+    let db = Database::from_pool(pool.clone());
+    let app = daoyun_api::app_with_config(
+        db.clone(),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    initialize(&app).await;
+    let (cookies, csrf) = login(&app, "owner", "correct horse battery staple").await;
+    let actor: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE username='owner'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let kind = db
+        .put_standard_entitlement_type(
+            actor,
+            infrastructure::PutStandardEntitlementTypeRecord {
+                internal_key: "private_profile_vip".into(),
+                display_name: "Private VIP marker".into(),
+                permission_keys: vec!["topic.poll.create".into()],
+                quotas: Default::default(),
+                expected_revision: None,
+            },
+        )
+        .await
+        .unwrap();
+    let grant = db
+        .grant_standard_entitlement(infrastructure::GrantStandardEntitlementRecord {
+            user_id: actor,
+            entitlement_type_id: kind.id,
+            actor_id: actor,
+            source: "operator".into(),
+            source_reference_id: Some("private-order-marker".into()),
+            reason: "private-reason-marker".into(),
+            starts_at: time::OffsetDateTime::now_utc() - time::Duration::minutes(1),
+            ends_at: None,
+            idempotency_key: "private-grant-marker".into(),
+        })
+        .await
+        .unwrap();
+    let credit = app.clone().oneshot(json_request(Method::POST, "/api/v1/admin/membership/points",
+        json!({"user_id":actor,"amount":17,"reason":"private-ledger-marker","details":"private-detail-marker","idempotency_key":"private-credit-marker"}),
+        &cookies,Some(&csrf))).await.unwrap();
+    assert_eq!(credit.status(), StatusCode::OK);
+    let own = app
+        .clone()
+        .oneshot(get_request("/api/v1/users/me/entitlements", &cookies))
+        .await
+        .unwrap();
+    let own = response_json(own).await;
+    assert_eq!(own["data"][0]["id"], grant.entitlement.id.to_string());
+    let own = app
+        .clone()
+        .oneshot(get_request("/api/v1/users/me/points/ledger", &cookies))
+        .await
+        .unwrap();
+    assert_eq!(
+        response_json(own).await["data"][0]["reason"],
+        "private-ledger-marker"
+    );
+    for cookie in ["", cookies.as_str()] {
+        for path in [
+            "/api/v1/users/owner",
+            "/api/v1/users/owner/membership-summary",
+        ] {
+            let response = app
+                .clone()
+                .oneshot(get_request(path, cookie))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let request_id = response.headers()["x-request-id"]
+                .to_str()
+                .unwrap()
+                .to_owned();
+            let body = response_json(response).await;
+            assert_eq!(body["meta"]["request_id"], request_id);
+            let text = body["data"].to_string();
+            for private in [
+                "private_profile_vip",
+                "Private VIP marker",
+                "private-order-marker",
+                "private-reason-marker",
+                "private-ledger-marker",
+                "private-detail-marker",
+                "entitlements",
+                "points_balance",
+                "points_ledger",
+                "permission_snapshot",
+                "quota_snapshot",
+                "idempotency_key",
+                "granted_by",
+            ] {
+                assert!(!text.contains(private), "public {path} leaked {private}");
+            }
+        }
+    }
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn concurrent_medal_revocation_appends_exactly_one_fact(pool: PgPool) {
+    let db = Database::from_pool(pool.clone());
+    let app = daoyun_api::app_with_config(
+        db.clone(),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    initialize(&app).await;
+    let actor: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE username='owner'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    db.grant_membership_medal(actor, actor, "medal_01", "operator.award")
+        .await
+        .unwrap();
+    let (first, second) = tokio::join!(
+        db.revoke_membership_medal(actor, actor, "medal_01", "operator.revoke"),
+        db.revoke_membership_medal(actor, actor, "medal_01", "operator.revoke")
+    );
+    let results = [first.unwrap().revoked, second.unwrap().revoked];
+    assert_eq!(results.iter().filter(|revoked| **revoked).count(), 1);
+    assert!(
+        !db.revoke_membership_medal(actor, actor, "medal_01", "operator.revoke")
+            .await
+            .unwrap()
+            .revoked
+    );
+    let facts: i64=sqlx::query_scalar("SELECT count(*) FROM admin_audit_log WHERE resource_id=$1 AND action='membership.medal.revoke'").bind(actor).fetch_one(&pool).await.unwrap();
+    assert_eq!(facts, 1);
+    let held: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM membership_medals WHERE user_id=$1 AND medal_key='medal_01'",
+    )
+    .bind(actor)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(held, 0);
 }

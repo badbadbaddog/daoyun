@@ -1,9 +1,13 @@
+#![cfg(feature = "wasm-plugins")]
+
 use std::{fs, path::PathBuf, time::Duration};
 
 use daoyun_api::{
     PluginBusinessWorker, PluginBusinessWorkerConfig, PluginHostConfig, PluginRuntime,
 };
-use infrastructure::{Database, InstallationAdministrator, NewUserRecord};
+use infrastructure::{
+    Database, InstallationAdministrator, NewUserRecord, UpdatePluginStatusRecord,
+};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
@@ -196,6 +200,33 @@ async fn official_growth_component_runs_from_outbox_through_worker_to_ledger(poo
         3
     );
 
+    let original_deliveries = delivery_snapshot(&pool, plugin_id).await;
+    assert_eq!(original_deliveries.as_array().unwrap().len(), 5);
+    let original_claims = growth_claims_snapshot(&pool).await;
+    let before_replay: (i64, i64) =
+        sqlx::query_as("SELECT experience, revision FROM experience_accounts WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await
+            .expect("account snapshot must load");
+    // Replaying the saved delivery retains its original UTC day and stable claim.
+    sqlx::query("UPDATE plugin_event_deliveries SET status = 'pending', available_at = CURRENT_TIMESTAMP, attempts = 0, completed_at = NULL WHERE plugin_id = $1")
+        .bind(plugin_id).execute(&pool).await.expect("completed deliveries must replay");
+    let replay = worker.run_once().await.expect("event replay must succeed");
+    assert_eq!(replay.completed_events, 5);
+    let after_replay: (i64, i64) =
+        sqlx::query_as("SELECT experience, revision FROM experience_accounts WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await
+            .expect("replayed account must load");
+    assert_eq!(after_replay, before_replay);
+    assert_eq!(
+        delivery_snapshot(&pool, plugin_id).await,
+        original_deliveries
+    );
+    assert_eq!(growth_claims_snapshot(&pool).await, original_claims);
+
     sqlx::query(
         "UPDATE plugin_event_catalog SET payload_schema_version = 2
          WHERE event_type = 'topic.published'",
@@ -322,4 +353,124 @@ async fn official_growth_component_runs_from_outbox_through_worker_to_ledger(poo
         .expect("second experience account must load"),
         10
     );
+    let historical_deliveries = delivery_snapshot(&pool, plugin_id).await;
+    let historical_claims = growth_claims_snapshot(&pool).await;
+    let ledger_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM experience_ledger_entries")
+        .fetch_one(&pool)
+        .await
+        .expect("ledger count must load");
+    database
+        .update_plugin_status(
+            user_id,
+            UpdatePluginStatusRecord {
+                plugin_id,
+                expected_revision: 1,
+                status: "disabled".to_owned(),
+            },
+        )
+        .await
+        .expect("idle growth plugin must disable");
+    assert_eq!(
+        worker
+            .run_once()
+            .await
+            .expect("disabled worker must stay idle")
+            .claimed_events,
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM experience_ledger_entries")
+            .fetch_one(&pool)
+            .await
+            .expect("historical ledger must remain"),
+        ledger_count
+    );
+    assert_eq!(
+        delivery_snapshot(&pool, plugin_id).await,
+        historical_deliveries
+    );
+    assert_eq!(growth_claims_snapshot(&pool).await, historical_claims);
+
+    let accounts_before_restart: serde_json::Value = sqlx::query_scalar(
+        "SELECT jsonb_agg(to_jsonb(account) ORDER BY user_id) FROM experience_accounts account",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("accounts before worker handoff must load");
+    let receipts_before_restart: serde_json::Value = sqlx::query_scalar(
+        "SELECT jsonb_agg(to_jsonb(receipt) ORDER BY idempotency_key) FROM plugin_command_receipts receipt",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("command receipts before worker handoff must load");
+    drop(worker);
+    let enabled = database
+        .update_plugin_status(
+            user_id,
+            UpdatePluginStatusRecord {
+                plugin_id,
+                expected_revision: 2,
+                status: "enabled".to_owned(),
+            },
+        )
+        .await
+        .expect("growth plugin must re-enable after the old worker stops");
+    assert_eq!(enabled.revision, 3);
+    let replayed_deliveries = sqlx::query("UPDATE plugin_event_deliveries SET status = 'pending', available_at = CURRENT_TIMESTAMP, attempts = 0, completed_at = NULL WHERE plugin_id = $1 AND status = 'completed' AND payload_schema_version = 1")
+        .bind(plugin_id)
+        .execute(&pool)
+        .await
+        .expect("successful historical deliveries must replay after worker handoff");
+    assert_eq!(replayed_deliveries.rows_affected(), 6);
+    let restarted_worker = PluginBusinessWorker::new(
+        database.clone(),
+        PluginRuntime::enabled(PluginHostConfig::default())
+            .expect("fresh plugin runtime must configure"),
+        PluginBusinessWorkerConfig {
+            batch_size: 10,
+            lease_duration: Duration::from_secs(120),
+            poll_interval: Duration::from_secs(1),
+        },
+    )
+    .expect("replacement worker must configure");
+    let restarted = restarted_worker
+        .run_once()
+        .await
+        .expect("replacement worker must replay the original events");
+    assert_eq!(restarted.completed_events, 6);
+    // The deliberately unsupported schema event may become due again during compilation.
+    assert!(restarted.failed_events <= 1);
+    assert_eq!(
+        restarted.claimed_events,
+        restarted.completed_events + restarted.failed_events
+    );
+    assert_eq!(
+        delivery_snapshot(&pool, plugin_id).await,
+        historical_deliveries
+    );
+    assert_eq!(growth_claims_snapshot(&pool).await, historical_claims);
+    let accounts_after_restart: serde_json::Value = sqlx::query_scalar(
+        "SELECT jsonb_agg(to_jsonb(account) ORDER BY user_id) FROM experience_accounts account",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("accounts after worker handoff must load");
+    assert_eq!(accounts_after_restart, accounts_before_restart);
+    let receipts_after_restart: serde_json::Value = sqlx::query_scalar(
+        "SELECT jsonb_agg(to_jsonb(receipt) ORDER BY idempotency_key) FROM plugin_command_receipts receipt",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("command receipts after worker handoff must load");
+    assert_eq!(receipts_after_restart, receipts_before_restart);
+}
+
+// Stable event identity, original UTC time and payload must survive replay and disable.
+async fn delivery_snapshot(pool: &PgPool, plugin_id: Uuid) -> serde_json::Value {
+    sqlx::query_scalar("SELECT COALESCE(jsonb_agg(jsonb_build_object('event', outbox_event_id, 'occurred_at', created_at, 'payload', payload, 'schema', payload_schema_version, 'status', status) ORDER BY outbox_event_id), '[]'::jsonb) FROM plugin_event_deliveries WHERE plugin_id = $1")
+        .bind(plugin_id).fetch_one(pool).await.expect("delivery identity snapshot must load")
+}
+async fn growth_claims_snapshot(pool: &PgPool) -> serde_json::Value {
+    sqlx::query_scalar("SELECT COALESCE(jsonb_agg(to_jsonb(entry) ORDER BY id), '[]'::jsonb) FROM experience_ledger_entries entry")
+        .fetch_one(pool).await.expect("growth claim snapshot must load")
 }

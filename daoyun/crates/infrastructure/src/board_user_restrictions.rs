@@ -252,22 +252,34 @@ pub(crate) async fn is_board_user_action_restricted_with_executor(
     action: &str,
     effective_at: OffsetDateTime,
 ) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(
-             SELECT 1 FROM board_user_restrictions
-             WHERE user_id = $1 AND board_id = $2
-               AND $3 = ANY(actions)
-               AND starts_at <= $4
-               AND (ends_at IS NULL OR ends_at > $4)
-             FOR SHARE
-         )",
-    )
-    .bind(user_id)
-    .bind(board_id)
-    .bind(action)
-    .bind(effective_at)
-    .fetch_one(&mut *connection)
-    .await
+    read_board_user_action_restriction(connection, user_id, board_id, action, effective_at, true)
+        .await
+}
+
+pub(crate) async fn read_board_user_action_restriction(
+    connection: &mut PgConnection,
+    user_id: Uuid,
+    board_id: Uuid,
+    action: &str,
+    effective_at: OffsetDateTime,
+    lock: bool,
+) -> Result<bool, sqlx::Error> {
+    let query = if lock {
+        "SELECT EXISTS(SELECT 1 FROM board_user_restrictions
+         WHERE user_id = $1 AND board_id = $2 AND $3 = ANY(actions)
+           AND starts_at <= $4 AND (ends_at IS NULL OR ends_at > $4) FOR SHARE)"
+    } else {
+        "SELECT EXISTS(SELECT 1 FROM board_user_restrictions
+         WHERE user_id = $1 AND board_id = $2 AND $3 = ANY(actions)
+           AND starts_at <= $4 AND (ends_at IS NULL OR ends_at > $4))"
+    };
+    sqlx::query_scalar::<_, bool>(query)
+        .bind(user_id)
+        .bind(board_id)
+        .bind(action)
+        .bind(effective_at)
+        .fetch_one(&mut *connection)
+        .await
 }
 
 fn normalized_actions(actions: &[BoardUserRestrictionAction]) -> Option<Vec<String>> {

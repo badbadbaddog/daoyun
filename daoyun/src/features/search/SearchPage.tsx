@@ -1,4 +1,4 @@
-import { FileSearch, LoaderCircle, RefreshCw } from "lucide-react"
+import { FileSearch, LoaderCircle } from "lucide-react"
 
 import type { BoardSummary } from "../../api/boards"
 import type { UserSummary } from "../../api/users"
@@ -22,12 +22,13 @@ interface SearchPageProps {
   boards: BoardSummary[]
   users: UserSummary[]
   tags: TopicTag[]
-  loading: boolean
+  contentLoading: boolean
+  userLoading: boolean
   contentError?: string | null
   userError?: string | null
-  error: string | null
   onScopeChange: (scope: SearchScope) => void
-  onRetry?: () => void
+  onContentRetry?: () => void
+  onUserRetry?: () => void
   onLoadMore: () => void
   nextCursor: string | null
   loadingMore: boolean
@@ -52,15 +53,11 @@ export function SearchPage(props: SearchPageProps) {
       <div id="search-results-panel" role="tabpanel" tabIndex={0} aria-labelledby={`search-tab-${props.scope}`}>
         {!props.query && !(showTopics && hasFilters) ? (
         <div className="empty-state" role="status"><FileSearch size={28} /><h2>输入搜索词</h2><p>搜索词会保存到网址，可刷新或分享。</p></div>
-      ) : props.loading ? (
-        <div className="topic-loading" role="status"><LoaderCircle className="topic-loading__spinner" size={22} />正在搜索</div>
-      ) : props.error ? (
-        <div className="empty-state" role="alert"><FileSearch size={28} /><h2>搜索暂时不可用</h2><p>{props.error}</p>{props.onRetry && <button className="secondary-button" type="button" onClick={props.onRetry}><RefreshCw size={15} />重试</button>}</div>
       ) : (
         <div className="search-results">
-          {showTopics && (props.contentError ? <div role="alert"><p>{props.contentError}</p><button type="button" onClick={props.onRetry}>重试内容搜索</button></div> : <TopicSearchResults topics={props.topics} />)}
+          {showTopics && (props.contentLoading ? <SearchLoading label="正在搜索内容" /> : props.contentError ? <div role="alert"><p>{props.contentError}</p><button type="button" onClick={props.onContentRetry}>重试内容搜索</button></div> : <TopicSearchResults topics={props.topics} />)}
           {showBoards && <BoardSearchResults boards={props.boards} />}
-          {showUsers && (props.userError ? <div role="alert"><p>{props.userError}</p><button type="button" onClick={props.onRetry}>重试用户搜索</button></div> : <UserSearchResults users={props.users} />)}
+          {showUsers && (props.userLoading ? <SearchLoading label="正在搜索用户" /> : props.userError ? <div role="alert"><p>{props.userError}</p><button type="button" onClick={props.onUserRetry}>重试用户搜索</button></div> : <UserSearchResults users={props.users} />)}
           {showTags && <TagSearchResults tags={props.tags} />}
         </div>
       )}
@@ -69,4 +66,8 @@ export function SearchPage(props: SearchPageProps) {
       {showTopics && props.nextCursor && <button className="secondary-button search-load-more" type="button" disabled={props.loadingMore} onClick={props.onLoadMore}>{props.loadingMore ? "正在加载" : "加载更多主题"}</button>}
     </section>
   )
+}
+
+function SearchLoading({ label }: { label: string }) {
+  return <div className="topic-loading" role="status"><LoaderCircle className="topic-loading__spinner" size={22} aria-hidden="true" />{label}</div>
 }

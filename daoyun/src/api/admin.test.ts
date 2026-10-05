@@ -397,6 +397,7 @@ describe("admin API", () => {
       .resolves.toEqual({
         created: true,
         auditId: null,
+        ledgerEntryId: null, balanceBefore: null, balanceAfter: null, requestId,
         account: { userId: memberId, pointsBalance: 25, lifetimePoints: 25, levelKey: "lv_2", levelNumber: 2, levelDisplayName: "Lv2", revision: 2, updatedAt: "2026-08-07T01:00:00Z" },
       })
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/admin/membership/points", expect.objectContaining({
@@ -603,6 +604,7 @@ function authorizationAssignmentDto() {
     user: { id: memberId, username: "demo_member", display_name: "演示成员", avatar_url: null },
     role: { id: roleId, key: "board_moderator", name: "版主", scope: "board", is_system: false, revision: 2 },
     scope_id: boardId,
+    scope_mode: "exact",
     assigned_by: userDto(),
     created_at: "2026-08-10T02:00:00Z",
   }
@@ -611,3 +613,14 @@ function authorizationAssignmentDto() {
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
 }
+
+it("sends the explicit exact board scope for a local appointment", async () => {
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ data: authorizationAssignmentDto(), meta: { request_id: requestId } }, 201))
+  await createAuthorizationAssignment({ username: "demo_member", roleId, scopeId: boardId, scopeMode: "exact" }, "csrf")
+  expect(fetchMock).toHaveBeenCalledWith("/api/v1/admin/authorization/assignments", expect.objectContaining({ body: JSON.stringify({ username: "demo_member", role_id: roleId, scope_id: boardId, scope_mode: "exact" }) }))
+})
+
+it("keeps an original points receipt distinct from the current account and request", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ data: { created: false, audit_id: memberId, ledger_entry_id: memberId, balance_before: 0, balance_after: 25, account: { user_id: memberId, points_balance: 80, lifetime_points: 80, level_key: "lv_2", level_number: 2, level_display_name: "Lv2", revision: 4, updated_at: "2026-10-03T00:00:00Z" } }, meta: { request_id: requestId } }))
+  expect(await grantMembershipPoints({ userId: memberId, amount: 25, reason: "admin.grant", idempotencyKey: "original" }, "csrf")).toMatchObject({ created: false, balanceBefore: 0, balanceAfter: 25, ledgerEntryId: memberId, requestId, account: { pointsBalance: 80 } })
+})

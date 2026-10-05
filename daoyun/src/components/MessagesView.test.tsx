@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { AuthSession } from "../api/auth"
 import {
+  MessageApiError,
   archiveConversation,
   listConversations,
   listMessages,
@@ -178,6 +179,7 @@ describe("MessagesView", () => {
         conversation.id,
         incomingMessage.id,
         session.csrfToken,
+        expect.any(AbortSignal),
       )
     })
     await user.type(screen.getByRole("textbox", { name: "消息正文" }), "发出的消息")
@@ -187,6 +189,7 @@ describe("MessagesView", () => {
       "发出的消息",
       session.csrfToken,
       expect.any(String),
+      expect.any(AbortSignal),
     )
     expect(await screen.findAllByText("发出的消息")).toHaveLength(2)
   })
@@ -198,6 +201,7 @@ describe("MessagesView", () => {
         session={session}
         conversationId={conversation.id}
         initialConversation={conversation}
+        initialConversationOwnerId={session.user.id}
         onSelectConversation={vi.fn()}
         onBack={vi.fn()}
         onLogin={vi.fn()}
@@ -269,6 +273,7 @@ describe("MessagesView", () => {
       validContent,
       session.csrfToken,
       expect.any(String),
+      expect.any(AbortSignal),
     ))
 
     fireEvent.change(textarea, { target: { value: `${validContent}😀` } })
@@ -296,7 +301,7 @@ describe("MessagesView", () => {
     await user.click(await screen.findByRole("button", { name: "重试加载会话" }))
     await screen.findAllByText("第二位用户")
     await user.click(screen.getByRole("button", { name: "归档与第二位用户的会话" }))
-    expect(archiveConversation).toHaveBeenCalledWith(conversation.id, session.csrfToken)
+    expect(archiveConversation).toHaveBeenCalledWith(conversation.id, session.csrfToken, expect.any(AbortSignal))
     expect(onSelectConversation).toHaveBeenCalledWith(null)
     expect(await screen.findByText("还没有私信会话")).toBeInTheDocument()
   })
@@ -498,3 +503,61 @@ function deferred<T>() {
   })
   return { promise, reject, resolve }
 }
+
+it("locks unknown message content and preserves its key across conversation changes", async () => {
+  vi.mocked(listConversations).mockResolvedValue({ conversations: [conversation, secondConversation], nextCursor: null })
+  vi.mocked(listMessages).mockImplementation(id => Promise.resolve({ messages: id === conversation.id ? [incomingMessage] : [secondConversationMessage], nextCursor: null }))
+  vi.mocked(sendMessage).mockRejectedValueOnce(new TypeError("response lost")).mockResolvedValueOnce({ ...incomingMessage, id: "019fc900-0000-7000-8000-000000000299", content: "不可换键的消息" })
+  render(<MessagesView session={session} conversationId={conversation.id} onSelectConversation={vi.fn()} onBack={vi.fn()} onLogin={vi.fn()} />)
+  await screen.findAllByText("最近一条消息")
+  const field = screen.getByRole("textbox", { name: "消息正文" })
+  fireEvent.change(field, { target: { value: "不可换键的消息" } })
+  await userEvent.click(screen.getByRole("button", { name: "发送消息" }))
+  await screen.findByRole("alert")
+  expect(field).toHaveAttribute("readonly")
+  await userEvent.click(screen.getByRole("button", { name: /第三位用户/ }))
+  expect(screen.getByRole("textbox", { name: "消息正文" })).toHaveValue("")
+  await userEvent.click(screen.getByRole("button", { name: /第二位用户/ }))
+  expect(screen.getByRole("textbox", { name: "消息正文" })).toHaveValue("不可换键的消息")
+  await userEvent.click(screen.getByRole("button", { name: "重新发送" }))
+  expect(vi.mocked(sendMessage).mock.calls[1].slice(0,4)).toEqual(vi.mocked(sendMessage).mock.calls[0].slice(0,4))
+})
+
+it("does not publish an old send or draft into another account", async () => {
+  const pending = deferred<DirectMessage>()
+  vi.mocked(sendMessage).mockReturnValueOnce(pending.promise)
+  const props = { conversationId: conversation.id, onSelectConversation: vi.fn(), onBack: vi.fn(), onLogin: vi.fn() }
+  const view = render(<MessagesView {...props} session={session} />)
+  await screen.findAllByText("最近一条消息")
+  fireEvent.change(screen.getByRole("textbox", { name: "消息正文" }), { target: { value: "旧账号私密正文" } })
+  await userEvent.click(screen.getByRole("button", { name: "发送消息" }))
+  view.rerender(<MessagesView {...props} session={{ ...session, user: { ...session.user, id: "new-account" } }} />)
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "消息正文" })).toHaveValue(""))
+  await act(async () => pending.resolve({ ...incomingMessage, content: "旧账号私密正文" }))
+  expect(screen.queryByText("旧账号私密正文")).not.toBeInTheDocument()
+  expect(screen.getByRole("textbox", { name: "消息正文" })).toHaveValue("")
+})
+
+it("keeps an unknown snapshot when a retry then gets an authentication rejection", async () => {
+  vi.mocked(sendMessage).mockRejectedValueOnce(new TypeError("lost")).mockRejectedValueOnce(new MessageApiError(401, "auth.unauthenticated", "expired"))
+  const onLogin = vi.fn()
+  render(<MessagesView session={session} conversationId={conversation.id} onSelectConversation={vi.fn()} onBack={vi.fn()} onLogin={onLogin} />)
+  await screen.findAllByText("最近一条消息")
+  fireEvent.change(screen.getByRole("textbox", { name: "消息正文" }), { target: { value: "保留未知结果" } })
+  await userEvent.click(screen.getByRole("button", { name: "发送消息" }))
+  await userEvent.click(await screen.findByRole("button", { name: "重新发送" }))
+  await userEvent.click(await screen.findByRole("button", { name: "重新登录" }))
+  expect(onLogin).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole("textbox", { name: "消息正文" })).toHaveValue("保留未知结果")
+  expect(screen.getByRole("textbox", { name: "消息正文" })).toHaveAttribute("readonly")
+})
+
+it("does not seed the previous account conversation after an account change", async () => {
+  vi.mocked(listConversations).mockResolvedValue({ conversations: [], nextCursor: null })
+  const props = { conversationId: conversation.id, initialConversation: conversation, initialConversationOwnerId: session.user.id, onSelectConversation: vi.fn(), onBack: vi.fn(), onLogin: vi.fn() }
+  const view = render(<MessagesView {...props} session={session} />)
+  await screen.findAllByText("第二位用户")
+  view.rerender(<MessagesView {...props} initialConversation={{ ...conversation }} session={{ ...session, user: { ...session.user, id: "other-account" } }} />)
+  expect(await screen.findByText("还没有私信会话")).toBeInTheDocument()
+  expect(screen.queryByText("最近一条消息")).not.toBeInTheDocument()
+})

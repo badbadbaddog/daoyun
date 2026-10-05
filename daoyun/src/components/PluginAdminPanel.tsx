@@ -6,11 +6,7 @@ import {
   deletePlugin,
   executePluginUiAction,
   installPlugin,
-  loadOfficialEditReviewPackage,
-  loadOfficialRedemptionPackage,
-  loadOfficialAnalyticsPackage,
-  loadOfficialPollsPackage,
-  loadOfficialSupplementPackage,
+  configureBuiltinPlugin,
   parsePluginManifest,
   invokePlugin,
   listPluginUiContributions,
@@ -29,17 +25,18 @@ import {
 import { ActionMenu } from "./ui/ActionMenu"
 import { ConfirmDialog } from "./ui/ConfirmDialog"
 import { AdminActionDialog } from "./admin/AdminActionDialog"
+import { PluginCapabilityStatus } from "./PluginCapabilityStatus"
 import { TopicSupplementSettingsPanel } from "./TopicSupplementAdminPanel"
 import { EditReviewAdminPanel } from "./EditReviewAdminPanel"
 
 
 const OFFICIAL_PLUGINS = [
-  { key: "official_topic_supplements", capability: "topic.supplements", name: "帖子补充", directory: "official-topic-supplements", icon: FilePlus2, description: "作者在正文下方追加补充，保存后直接发布。" },
-  { key: "official_topic_edit_review", capability: "topic.edit_review", name: "编辑审核", directory: "official-topic-edit-review", icon: ShieldCheck, description: "按版块控制主题和回复编辑审核，待审期间保留旧版本。" },
-  { key: "official_points_redemption", capability: "membership.redemption", name: "积分兑换", directory: "official-points-redemption", icon: Gift, description: "配置兑换商品，让成员使用积分兑换限时权益。" },
-  { key: "official_community_analytics", capability: "community.analytics", name: "运营报表", directory: "official-community-analytics", icon: ChartNoAxesCombined, description: "查看社区增长、内容参与和积分收支。" },
-  { key: "official_polls", capability: "topic.polls", name: "单选投票", directory: "official-polls", icon: Vote, description: "发布主题时创建单选投票，成员一人一票。" },
-] satisfies { key: string; capability: PluginCapability; name: string; directory: string; icon: typeof Box; description: string }[]
+  { key: "official_topic_supplements", capability: "topic.supplements", name: "帖子补充", icon: FilePlus2, description: "作者在正文下方追加补充，保存后直接发布。" },
+  { key: "official_topic_edit_review", capability: "topic.edit_review", name: "编辑审核", icon: ShieldCheck, description: "按版块控制主题和回复编辑审核，待审期间保留旧版本。" },
+  { key: "official_points_redemption", capability: "membership.redemption", name: "积分兑换", icon: Gift, description: "配置兑换商品，让成员使用积分兑换限时权益。" },
+  { key: "official_community_analytics", capability: "community.analytics", name: "运营报表", icon: ChartNoAxesCombined, description: "查看社区增长、内容参与和积分收支。" },
+  { key: "official_polls", capability: "topic.polls", name: "单选投票", icon: Vote, description: "发布主题时创建单选投票，成员一人一票。" },
+] satisfies { key: string; capability: PluginCapability; name: string; icon: typeof Box; description: string }[]
 
 const MAX_COMPONENT_BYTES = 8 * 1024 * 1024
 const DEFAULT_UI_INPUT = JSON.stringify({
@@ -92,7 +89,14 @@ const TARGETED_WRITE_CAPABILITIES: PluginCapability[] = [
   "points.write", "experience.write", "entitlements.write", "notifications.write",
 ]
 
-export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvoke, canConfigure = false }: PluginAdminPanelProps) {
+export function PluginAdminPanel(props: PluginAdminPanelProps) {
+  // 会话切换时清除私有状态，并让旧请求的回调留在已卸载的实例中。
+  return <PluginAdminSession key={props.csrfToken} {...props} />
+}
+
+function PluginAdminSession({ csrfToken, canInstall, canLifecycle, canInvoke, canConfigure = false }: PluginAdminPanelProps) {
+  const configureControllerRef = useRef<AbortController | null>(null)
+  useEffect(() => { setBusyId(null); return () => configureControllerRef.current?.abort() }, [csrfToken])
   const [view, setView] = useState<"installed" | "official">("installed")
   const [query, setQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
@@ -152,7 +156,7 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
     const loaded = await listPlugins(signal)
     setPlugins(loaded)
     const results = await Promise.all(loaded
-      .filter((plugin) => plugin.status === "enabled" && plugin.businessApiVersion && plugin.capabilities.includes("ui.panel"))
+      .filter((plugin) => plugin.status === "enabled" && plugin.execution !== "native" && plugin.businessApiVersion && plugin.capabilities.includes("ui.panel"))
       .map(async (plugin) => {
         try {
           return { id: plugin.id, items: await listPluginUiContributions(plugin.id, signal), error: "" }
@@ -246,119 +250,21 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
       capabilities: [...manifest.capabilities], dataScopes: manifest.dataScopes ?? [], eventSubscriptions: manifest.eventSubscriptions ?? [] })
   }
 
-  async function prepareOfficial() {
-    setBusyId("prepare-official"); setError(""); setNotice("")
+  async function configureBuiltin(key: string) {
+    setBusyId(key); setError(""); setNotice("")
+    const controller = new AbortController()
+    configureControllerRef.current?.abort()
+    configureControllerRef.current = controller
     try {
-      const input = await loadOfficialSupplementPackage()
-      useManifest(input.manifest)
-      const bytes = Uint8Array.from(atob(input.componentBase64), (character) => character.charCodeAt(0))
-      setComponentFile(new File([bytes], "official-topic-supplements.wasm", { type: "application/wasm" }))
-      setInstallStep(4); setInstallOpen(true)
-    } catch (error) { setError(apiMessage(error, "官方插件文件暂时无法加载，请检查插件资源是否已发布。")) }
-    finally { setBusyId(null) }
-  }
-
-  async function prepareOfficialEditReview() {
-    setBusyId("official-edit-review")
-    setError("")
-    setNotice("")
-    try {
-      const { manifest, componentBase64 } = await loadOfficialEditReviewPackage()
-      setDraft({
-        key: manifest.key,
-        name: manifest.name,
-        version: manifest.version,
-        description: manifest.description,
-        capabilities: manifest.capabilities,
-        dataScopes: manifest.dataScopes ?? [],
-        eventSubscriptions: manifest.eventSubscriptions ?? [],
-      })
-      const bytes = Uint8Array.from(atob(componentBase64), (value) => value.charCodeAt(0))
-      setComponentFile(new File([bytes], "official-topic-edit-review.wasm", { type: "application/wasm" }))
-      setInstallStep(1)
-      setInstallOpen(true)
+      const configured = await configureBuiltinPlugin(key, csrfToken, controller.signal)
+      if (controller.signal.aborted) return
+      setPlugins(current => [...current.filter(item => item.id !== configured.id), configured].sort((left, right) => left.key.localeCompare(right.key)))
+      setView("installed"); setQuery(""); setStatusFilter("all")
+      setNotice(configured.status === "disabled" ? "内置模块已配置，当前已停用，请按需启用。" : "内置模块已配置，保留当前启用状态。")
     } catch (reason) {
-      setError(apiMessage(reason, "编辑审核插件资源暂时不可用。"))
+      if (!controller.signal.aborted) setError(apiMessage(reason, "内置模块配置失败，请重试。"))
     } finally {
-      setBusyId(null)
-    }
-  }
-
-  async function prepareOfficialRedemption() {
-    setBusyId("official-redemption")
-    setError("")
-    setNotice("")
-    try {
-      const { manifest, componentBase64 } = await loadOfficialRedemptionPackage()
-      setDraft({
-        key: manifest.key,
-        name: manifest.name,
-        version: manifest.version,
-        description: manifest.description,
-        capabilities: manifest.capabilities,
-        dataScopes: manifest.dataScopes ?? [],
-        eventSubscriptions: manifest.eventSubscriptions ?? [],
-      })
-      const bytes = Uint8Array.from(atob(componentBase64), (value) => value.charCodeAt(0))
-      setComponentFile(new File([bytes], "official-points-redemption.wasm", { type: "application/wasm" }))
-      setInstallStep(1)
-      setInstallOpen(true)
-    } catch (reason) {
-      setError(apiMessage(reason, "积分兑换插件资源暂时不可用。"))
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  async function prepareOfficialAnalytics() {
-    setBusyId("official-analytics")
-    setError("")
-    setNotice("")
-    try {
-      const { manifest, componentBase64 } = await loadOfficialAnalyticsPackage()
-      setDraft({
-        key: manifest.key,
-        name: manifest.name,
-        version: manifest.version,
-        description: manifest.description,
-        capabilities: manifest.capabilities,
-        dataScopes: manifest.dataScopes ?? [],
-        eventSubscriptions: manifest.eventSubscriptions ?? [],
-      })
-      const bytes = Uint8Array.from(atob(componentBase64), (value) => value.charCodeAt(0))
-      setComponentFile(new File([bytes], "official-community-analytics.wasm", { type: "application/wasm" }))
-      setInstallStep(1)
-      setInstallOpen(true)
-    } catch (reason) {
-      setError(apiMessage(reason, "运营报表插件资源暂时不可用。"))
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  async function prepareOfficialPolls() {
-    setBusyId("official-polls")
-    setError("")
-    setNotice("")
-    try {
-      const { manifest, componentBase64 } = await loadOfficialPollsPackage()
-      setDraft({
-        key: manifest.key,
-        name: manifest.name,
-        version: manifest.version,
-        description: manifest.description,
-        capabilities: manifest.capabilities,
-        dataScopes: manifest.dataScopes ?? [],
-        eventSubscriptions: manifest.eventSubscriptions ?? [],
-      })
-      const bytes = Uint8Array.from(atob(componentBase64), (value) => value.charCodeAt(0))
-      setComponentFile(new File([bytes], "official-polls.wasm", { type: "application/wasm" }))
-      setInstallStep(1)
-      setInstallOpen(true)
-    } catch (reason) {
-      setError(apiMessage(reason, "单选投票插件资源暂时不可用。"))
-    } finally {
-      setBusyId(null)
+      if (!controller.signal.aborted) setBusyId(null)
     }
   }
 
@@ -383,7 +289,7 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
         setOutputs((current) => omitKey(current, plugin.id))
         setContributions((current) => omitKey(current, plugin.id))
         setContributionErrors((current) => omitKey(current, plugin.id))
-      } else if (updated.businessApiVersion && updated.capabilities.includes("ui.panel")) {
+      } else if (updated.execution !== "native" && updated.businessApiVersion && updated.capabilities.includes("ui.panel")) {
         try {
           const items = await listPluginUiContributions(updated.id)
           setContributions((current) => ({ ...current, [updated.id]: items }))
@@ -473,22 +379,22 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
       </div>
       {error && !installOpen && !toolsId && <p className="form-alert" role="alert">{error}</p>}
       {notice && <p className="admin-success" role="status">{notice}</p>}
+      {!loading && <PluginCapabilityStatus csrfToken={csrfToken} revisionKey={plugins.map(plugin => plugin.id + ":" + plugin.revision).join(",")} />}
       <div className="plugin-admin__tabs" role="tablist" aria-label="插件分类" onKeyDown={navigatePluginTabs}>
         <button id="plugins-installed-tab" role="tab" tabIndex={view === "installed" ? 0 : -1} aria-selected={view === "installed"} aria-controls="plugins-installed" type="button" onClick={() => setView("installed")}>已安装 <span>{plugins.length}</span></button>
-        <button id="plugins-official-tab" role="tab" tabIndex={view === "official" ? 0 : -1} aria-selected={view === "official"} aria-controls="plugins-official" type="button" onClick={() => setView("official")}>官方插件</button>
+        <button id="plugins-official-tab" role="tab" tabIndex={view === "official" ? 0 : -1} aria-selected={view === "official"} aria-controls="plugins-official" type="button" onClick={() => setView("official")}>内置模块</button>
       </div>
       {loading ? <div className="admin-state" role="status"><LoaderCircle className="topic-loading__spinner" size={22} aria-hidden="true" /><span>正在读取插件列表</span></div> : view === "official" ? (
         <div className="plugin-catalog" role="tabpanel" id="plugins-official" aria-labelledby="plugins-official-tab">
-          <p className="plugin-admin__hint">选择需要的社区功能，安装后可在“已安装”中启用和配置。</p>
-          {OFFICIAL_PLUGINS.map((item, index) => {
-            const installed = plugins.find((plugin) => plugin.capabilities.includes(item.capability))
+          <p className="plugin-admin__hint">按需配置内置社区功能，默认停用，配置后可在“已安装”中显式启用。</p>
+          {OFFICIAL_PLUGINS.map((item) => {
+            const installed = plugins.find((plugin) => plugin.key === item.key)
             const Icon = item.icon
-            return <article className="plugin-catalog__item" key={item.key} aria-label={"官方插件：" + item.name}>
+            return <article className="plugin-catalog__item" key={item.key} aria-label={"内置模块：" + item.name}>
               <span className="plugin-admin__icon"><Icon size={22} aria-hidden="true" /></span>
-              <div className="plugin-catalog__info"><h3>{item.name} <span className="admin-badge">官方插件</span></h3><p>{item.description}</p>
-                <details className="plugin-catalog__downloads"><summary>下载插件包</summary><a href={"/plugins/" + item.directory + "/plugin.wasm"} download={item.directory + ".wasm"}>下载插件文件</a><a href={"/plugins/" + item.directory + "/plugin.json"} download="plugin.json">下载插件清单</a></details>
+              <div className="plugin-catalog__info"><h3>{item.name} <span className="admin-badge">内置模块</span></h3><p>{item.description}</p>
               </div>
-              {installed ? <span className="plugin-catalog__installed">已安装</span> : canInstall && <button className="secondary-button" type="button" disabled={busyId !== null} onClick={() => void [prepareOfficial, prepareOfficialEditReview, prepareOfficialRedemption, prepareOfficialAnalytics, prepareOfficialPolls][index]()}>{"安装" + item.name}</button>}
+              {installed ? <span className="plugin-catalog__installed">已安装</span> : canInstall && <button className="secondary-button" type="button" disabled={busyId !== null} onClick={() => void configureBuiltin(item.key)}>{"配置" + item.name}</button>}
             </article>
           })}
         </div>
@@ -501,17 +407,17 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
           </div>
           <div className={"plugin-admin__workspace" + (selectedPlugin ? " plugin-admin__workspace--selected" : "")}>
             <div className="plugin-admin__list">
-              {plugins.length === 0 ? <div className="admin-empty" role="status"><Box size={24} aria-hidden="true" /><span>尚未安装插件</span><button className="secondary-button" type="button" onClick={() => setView("official")}>浏览官方插件</button></div> : filteredPlugins.length === 0 ? <div className="admin-empty" role="status"><Search size={24} aria-hidden="true" /><span>没有符合条件的插件</span><button className="secondary-button" type="button" onClick={() => { setQuery(""); setStatusFilter("all") }}>清除筛选</button></div> : <>
+              {plugins.length === 0 ? <div className="admin-empty" role="status"><Box size={24} aria-hidden="true" /><span>尚未安装插件</span><button className="secondary-button" type="button" onClick={() => setView("official")}>浏览内置模块</button></div> : filteredPlugins.length === 0 ? <div className="admin-empty" role="status"><Search size={24} aria-hidden="true" /><span>没有符合条件的插件</span><button className="secondary-button" type="button" onClick={() => { setQuery(""); setStatusFilter("all") }}>清除筛选</button></div> : <>
                 <div className="plugin-admin__columns" aria-hidden="true"><span>插件</span><span>状态</span><span>操作</span></div>
                 {filteredPlugins.map((plugin) => {
                   const official = OFFICIAL_PLUGINS.find((item) => item.key === plugin.key)
                   const Icon = official?.icon ?? Box
                   const configurable = canConfigure && plugin.capabilities.some((item) => item === "topic.supplements" || item === "topic.edit_review")
                   return <article className={"plugin-entry" + (selectedId === plugin.id ? " plugin-entry--selected" : "")} key={plugin.id} aria-label={"插件：" + plugin.name}>
-                    <div className="plugin-entry__info"><span className="plugin-admin__icon"><Icon size={22} aria-hidden="true" /></span><div><h3>{plugin.name}</h3><p>{plugin.description || "暂无插件说明"}</p><small>{official ? "官方插件" : plugin.key} · {plugin.version}</small></div></div>
+                    <div className="plugin-entry__info"><span className="plugin-admin__icon"><Icon size={22} aria-hidden="true" /></span><div><h3>{plugin.name}</h3><p>{plugin.description || "暂无插件说明"}</p><small>{plugin.execution === "native" ? "内置模块" : plugin.key} · {plugin.version}</small></div></div>
                     <div className="plugin-entry__status">{canLifecycle && <button className="plugin-switch" type="button" role="switch" aria-checked={plugin.status === "enabled"} aria-label={(plugin.status === "enabled" ? "停用" : "启用") + "插件：" + plugin.name} title={plugin.status === "enabled" ? "停用插件" : "启用插件"} disabled={busyId !== null} onClick={() => void changeStatus(plugin)}><span /></button>}<span>{plugin.status === "enabled" ? "已启用" : "已停用"}</span></div>
                     <div className="plugin-entry__actions"><button className="plugin-entry__open" type="button" aria-label={"查看插件：" + plugin.name} aria-expanded={selectedId === plugin.id} aria-controls="plugin-detail" onClick={(event) => openPlugin(plugin, event.currentTarget)}>{configurable ? "设置" : "详情"}</button>
-                      {canLifecycle && plugin.status === "disabled" && <ActionMenu label={"更多操作：" + plugin.name} disabled={busyId !== null} items={[{ label: "卸载插件：" + plugin.name, danger: true, icon: <Trash2 size={14} aria-hidden="true" />, onSelect: () => { confirmationReturnFocusRef.current = document.activeElement as HTMLElement; setPendingRemoval(plugin) } }]} />}
+                      {canLifecycle && plugin.execution !== "native" && plugin.status === "disabled" && <ActionMenu label={"更多操作：" + plugin.name} disabled={busyId !== null} items={[{ label: "卸载插件：" + plugin.name, danger: true, icon: <Trash2 size={14} aria-hidden="true" />, onSelect: () => { confirmationReturnFocusRef.current = document.activeElement as HTMLElement; setPendingRemoval(plugin) } }]} />}
                     </div>
                   </article>
                 })}
@@ -524,7 +430,7 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
               </div>
               <div className="plugin-detail__body" id="plugin-detail-content" role="tabpanel" aria-labelledby={"plugin-" + detailTab + "-tab"}>
                 <div hidden={detailTab !== "settings"}>
-                  {plugin.capabilities.includes("topic.supplements") ? canConfigure ? <TopicSupplementSettingsPanel csrfToken={csrfToken} /> : <p className="plugin-admin__hint">你没有修改全站补充设置的权限。</p> : plugin.capabilities.includes("topic.edit_review") ? <><p className="plugin-admin__hint">按版块设置主题与回复的编辑审核策略，并处理待审内容。</p>{canConfigure && <button className="secondary-button" type="button" onClick={() => setEditReviewPanelOpen(true)}>编辑审核管理</button>}</> : <p className="plugin-admin__hint">{plugin.capabilities.includes("membership.redemption") ? "在后台「会员经济 → 积分兑换」中管理兑换商品。" : plugin.capabilities.includes("community.analytics") ? "在后台「运营数据」中查看社区报表。" : plugin.capabilities.includes("topic.polls") ? "启用后，可在发布主题时创建单选投票，无需额外配置。" : "此插件没有额外的全站设置。"}</p>}
+                  {plugin.capabilities.includes("topic.supplements") ? canConfigure ? <TopicSupplementSettingsPanel csrfToken={csrfToken} /> : <p className="plugin-admin__hint">你没有修改全站补充设置的权限。</p> : plugin.capabilities.includes("topic.edit_review") ? <><p className="plugin-admin__hint">按版块设置主题与回复的编辑审核策略，并处理待审内容。</p>{canConfigure && <button className="secondary-button" type="button" onClick={() => setEditReviewPanelOpen(true)}>编辑审核管理</button>}</> : <p className="plugin-admin__hint">{plugin.capabilities.includes("membership.redemption") ? "在后台「用户与会员 → 积分与兑换」中管理兑换商品。" : plugin.capabilities.includes("community.analytics") ? "在后台「扩展与数据 → 运营数据」中查看社区报表。" : plugin.capabilities.includes("topic.polls") ? "启用后，可在发布主题时创建单选投票，无需额外配置。" : "此插件没有额外的全站设置。"}</p>}
                   {plugin.status === "disabled" && <p className="plugin-detail__note">插件已停用。启用后，新操作将使用当前配置。</p>}
                                 {contributionErrors[plugin.id] && <p className="plugin-contribution-error" role="status"><strong>贡献加载故障</strong><span>{contributionErrors[plugin.id]}</span></p>}
               {(contributions[plugin.id] ?? []).filter((item) => item.slot === "admin_plugin").map((item, index) => (
@@ -548,7 +454,7 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
                   )}
                 </section>
               ))}
-                  {canInvoke && plugin.status === "enabled" && <details className="plugin-detail__advanced"><summary>高级与开发者工具</summary><p>仅用于授权调试插件的输入与输出。</p><button className="secondary-button" type="button" onClick={() => { setError(""); setToolsId(plugin.id) }}>开发者工具</button></details>}
+                  {canInvoke && plugin.execution !== "native" && plugin.status === "enabled" && <details className="plugin-detail__advanced"><summary>高级与开发者工具</summary><p>仅用于授权调试插件的输入与输出。</p><button className="secondary-button" type="button" onClick={() => { setError(""); setToolsId(plugin.id) }}>开发者工具</button></details>}
                 </div>
                 {detailTab === "permissions" && <dl className="plugin-detail__metadata">
                   <div><dt>风险等级</dt><dd><strong>{riskLabel(pluginRisk(plugin.capabilities, plugin.dataScopes)) + "风险"}</strong></dd></div>
@@ -558,10 +464,10 @@ export function PluginAdminPanel({ csrfToken, canInstall, canLifecycle, canInvok
                 </dl>}
                 {detailTab === "details" && <dl className="plugin-detail__metadata">
                   <div><dt>插件键</dt><dd>{plugin.key}</dd></div><div><dt>运行状态</dt><dd>{plugin.status === "enabled" ? "正在运行" : "已停用"}</dd></div>
-                  <div><dt>WIT / ABI</dt><dd>{plugin.businessApiVersion ? "业务 ABI " + plugin.businessApiVersion : "旧版 content-transform ABI"}</dd></div>
-                  <div><dt>组件</dt><dd>Wasm Component · {formatBytes(plugin.componentSize)} · SHA-256 {plugin.componentSha256.slice(0, 12)}…</dd></div>
+                  <div><dt>WIT / ABI</dt><dd>{plugin.execution === "native" ? "内置业务" : plugin.businessApiVersion ? "业务 ABI " + plugin.businessApiVersion : "旧版 content-transform ABI"}</dd></div>
+                  <div><dt>组件</dt><dd>{plugin.execution === "native" ? "无需 Wasm 组件" : <>Wasm Component · {formatBytes(plugin.componentSize)} · SHA-256 {plugin.componentSha256.slice(0, 12)}…</>}</dd></div>
                   <div><dt>Revision</dt><dd>{plugin.revision}</dd></div>
-                  <div><dt>隔离方式</dt><dd>组件不获得 WASI、网络、文件系统或环境变量；每次调用使用独立的资源配额。</dd></div>
+                  {plugin.execution !== "native" && <div><dt>隔离方式</dt><dd>组件不获得 WASI、网络、文件系统或环境变量；每次调用使用独立的资源配额。</dd></div>}
                 </dl>}
               </div>
             </section>)}

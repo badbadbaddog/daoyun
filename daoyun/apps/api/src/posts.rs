@@ -82,10 +82,11 @@ pub(crate) async fn list(
         (status = 200, description = "The idempotent replay of an existing post", body = ApiResponse<TopicDetail>, headers(("x-request-id" = String))),
         (status = 201, description = "The published post", body = ApiResponse<TopicDetail>, headers(("x-request-id" = String))),
         (status = 401, description = "The request has no active session", body = ErrorResponse, headers(("x-request-id" = String), ("set-cookie" = String))),
-        (status = 403, description = "The CSRF token is missing or invalid", body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 403, description = "The CSRF token is invalid, the account is restricted, or community permission is missing", body = ErrorResponse, headers(("x-request-id" = String))),
         (status = 404, description = "The requested community is unavailable", body = ErrorResponse, headers(("x-request-id" = String))),
         (status = 409, description = "The idempotency key conflicts with a previous request", body = ErrorResponse, headers(("x-request-id" = String))),
         (status = 422, description = "The post fields or request body are invalid", body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 429, description = "The current community action quota is exhausted", body = ErrorResponse, headers(("x-request-id" = String))),
         (status = 503, description = "The post database is unavailable", body = ErrorResponse, headers(("x-request-id" = String)))
     )
 )]
@@ -263,10 +264,11 @@ pub(crate) async fn list_comments(
         (status = 201, description = "The published comment", body = ApiResponse<TopicReply>, headers(("x-request-id" = String))),
         (status = 400, description = "The post path is invalid", body = ErrorResponse, headers(("x-request-id" = String))),
         (status = 401, description = "The request has no active session", body = ErrorResponse, headers(("x-request-id" = String), ("set-cookie" = String))),
-        (status = 403, description = "The CSRF token is missing or invalid", body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 403, description = "The CSRF token is invalid, the account is restricted, or community permission is missing", body = ErrorResponse, headers(("x-request-id" = String))),
         (status = 404, description = "The post is unavailable", body = ErrorResponse, headers(("x-request-id" = String))),
         (status = 409, description = "The idempotency key conflicts with a previous request", body = ErrorResponse, headers(("x-request-id" = String))),
         (status = 422, description = "The comment content or request body is invalid", body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 429, description = "The current community action quota is exhausted", body = ErrorResponse, headers(("x-request-id" = String))),
         (status = 503, description = "The comment database is unavailable", body = ErrorResponse, headers(("x-request-id" = String)))
     )
 )]

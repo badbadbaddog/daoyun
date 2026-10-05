@@ -6,33 +6,39 @@ interface CacheEntry {
   value: PublicMembershipSummary
   expiresAt: number
 }
+interface SummaryState {
+  username: string
+  summary: PublicMembershipSummary | null
+  status: "loading" | "ready" | "error"
+}
 
 const CACHE_TTL_MS = 60_000
 const cache = new Map<string, CacheEntry>()
 const pending = new Map<string, Promise<PublicMembershipSummary>>()
 
-export function usePublicMembershipSummary(username: string): PublicMembershipSummary | null {
-  const [summary, setSummary] = useState<PublicMembershipSummary | null>(() => cachedSummary(username))
+export function usePublicMembershipSummary(username: string) {
+  const [state, setState] = useState<SummaryState>(() => {
+    const summary = cachedSummary(username)
+    return { username, summary, status: summary ? "ready" : "loading" }
+  })
+  const [requestVersion, setRequestVersion] = useState(0)
 
   useEffect(() => {
     let active = true
-    const cached = cachedSummary(username)
-    if (cached) {
-      setSummary(cached)
-      return () => { active = false }
+    const summary = cachedSummary(username)
+    setState({ username, summary, status: summary ? "ready" : "loading" })
+    if (!summary) {
+      loadSummary(username).then(value => {
+        if (active) setState({ username, summary: value, status: "ready" })
+      }).catch(() => {
+        if (active) setState({ username, summary: null, status: "error" })
+      })
     }
-
-    setSummary(null)
-    loadSummary(username).then((value) => {
-      if (active) setSummary(value)
-    }).catch(() => {
-      if (active) setSummary(null)
-    })
-
     return () => { active = false }
-  }, [username])
+  }, [username, requestVersion])
 
-  return summary
+  const current = state.username === username ? state : { summary: null, status: "loading" as const }
+  return { summary: current.summary, status: current.status, retry: () => setRequestVersion(value => value + 1) }
 }
 
 function cachedSummary(username: string): PublicMembershipSummary | null {

@@ -11,13 +11,16 @@ import {
 } from "../api/adminUsers"
 import { listAuthorizationRoles, type AdminBoard, type AuthorizationRole } from "../api/admin"
 import { encodeCsv } from "../lib/csv"
+import { PermissionCheckPanel, permissionCheckCapabilities } from "./PermissionCheckPanel"
 import { UserActivityPanel } from "./UserActivityPanel"
 import { UserAvatar } from "./UserAvatar"
+import { UserCommunityGroupAction } from "./UserCommunityGroupAction"
 import { UserRoleAction } from "./UserRoleAction"
 import { UserStatusAction } from "./UserStatusAction"
 import { RelatedAuditLog } from "./RelatedAuditLog"
 import { PluginUiSurface } from "./PluginUiSurface"
 import { Drawer } from "./ui/Drawer"
+import { adminObjectId, adminObjectQuery, restoreAdminScroll } from "./admin/adminQuery"
 
 interface UserAdminPanelProps {
   requestedQuery?: string
@@ -28,11 +31,15 @@ interface UserAdminPanelProps {
   canAssignRoles?: boolean
   canReadAudit?: boolean
   canReadReports?: boolean
+  canReadGroups?: boolean
+  canReadGroupMemberships?: boolean
+  canWriteGroupMemberships?: boolean
+  capabilityKeys?: string[]
   boards?: AdminBoard[]
 }
 
 type LoadState = "loading" | "ready" | "error"
-type DetailTab = "overview" | "content" | "reports" | "audit"
+type DetailTab = "overview" | "groups" | "permissions" | "content" | "reports" | "audit"
 
 const statusLabels: Record<AdminUserStatus, string> = {
   active: "正常",
@@ -40,7 +47,7 @@ const statusLabels: Record<AdminUserStatus, string> = {
   suspended: "已暂停",
 }
 
-export function UserAdminPanel({ requestedQuery = "", onQueryChange, csrfToken = "", canModerate = false, canAssignRoles = false, canReadRoles = false, canReadAudit = false, canReadReports = false, boards = [] }: UserAdminPanelProps) {
+export function UserAdminPanel({ requestedQuery = "", onQueryChange, csrfToken = "", canModerate = false, canAssignRoles = false, canReadRoles = false, canReadAudit = false, canReadReports = false, canReadGroups = false, canReadGroupMemberships = false, canWriteGroupMemberships = false, boards = [], capabilityKeys = [] }: UserAdminPanelProps) {
   const initialFilters = filtersFromQuery(requestedQuery)
   const [queryDraft, setQueryDraft] = useState(initialFilters.query)
   const [query, setQuery] = useState(initialFilters.query)
@@ -69,11 +76,12 @@ export function UserAdminPanel({ requestedQuery = "", onQueryChange, csrfToken =
   const [detailState, setDetailState] = useState<LoadState>("ready")
   const [detailError, setDetailError] = useState("")
   const [detailTab, setDetailTab] = useState<DetailTab>("overview")
+  const [detailBusy, setDetailBusy] = useState(false)
   const detailRequest = useRef<AbortController | null>(null)
   const listRequestVersion = useRef(0)
   const detailScroll = useRef<HTMLElement>(null)
   const selectedIndex = users.findIndex((user) => user.id === selectedId)
-  const navigationDisabled = detailState === "loading" || listState !== "ready"
+  const navigationDisabled = detailBusy || detailState === "loading" || listState !== "ready"
 
   useEffect(() => {
     detailScroll.current?.scrollTo?.({ top: 0 })
@@ -88,6 +96,14 @@ export function UserAdminPanel({ requestedQuery = "", onQueryChange, csrfToken =
     setFrom(filters.from); setFromDraft(filters.from)
     setThrough(filters.through); setThroughDraft(filters.through)
   }, [requestedQuery])
+
+  const requestedUserId = adminObjectId(requestedQuery, "user_id")
+  useEffect(() => {
+    if (requestedUserId) {
+      if (requestedUserId !== selectedId) void openUser(requestedUserId, false)
+    } else if (selectedId) closeUser(false)
+    // Only a URL object change opens or closes the drawer; list refreshes preserve it.
+  }, [requestedUserId])
 
   useEffect(() => {
     if (!canReadRoles && !canAssignRoles) return
@@ -137,12 +153,12 @@ export function UserAdminPanel({ requestedQuery = "", onQueryChange, csrfToken =
     const nextQuery = queryDraft.trim()
     setFrom(fromDraft); setThrough(throughDraft)
     setQuery(nextQuery)
-    publishFilters(nextQuery, statusFilter, roleId, fromDraft, throughDraft, onQueryChange)
+    publishFilters(nextQuery, statusFilter, roleId, fromDraft, throughDraft, onQueryChange, requestedQuery)
   }
 
   function changeStatus(nextStatus: AdminUserStatus | "all") {
     setStatusFilter(nextStatus)
-    publishFilters(query, nextStatus, roleId, from, through, onQueryChange)
+    publishFilters(query, nextStatus, roleId, from, through, onQueryChange, requestedQuery)
   }
 
   async function loadMoreUsers() {
@@ -163,7 +179,8 @@ export function UserAdminPanel({ requestedQuery = "", onQueryChange, csrfToken =
     }
   }
 
-  async function openUser(userId: string) {
+  async function openUser(userId: string, publish = true) {
+    if (publish) onQueryChange?.(adminObjectQuery(requestedQuery, "user_id", userId))
     if (!selectedId) opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     detailRequest.current?.abort()
     const controller = new AbortController()
@@ -185,33 +202,35 @@ export function UserAdminPanel({ requestedQuery = "", onQueryChange, csrfToken =
     }
   }
 
-  function updateSelectedUser(statusUpdate: { status: AdminUserStatus; reason: string | null; expiresAt: string | null; revision: number }) {
-    setDetail((current) => current ? {
+  function updateSelectedUser(userId: string, statusUpdate: { status: AdminUserStatus; reason: string | null; expiresAt: string | null; revision: number }) {
+    setDetail((current) => current?.id === userId ? {
       ...current,
       status: statusUpdate.status,
       restrictionReason: statusUpdate.reason,
       restrictionExpiresAt: statusUpdate.expiresAt,
       revision: statusUpdate.revision,
     } : current)
-    setUsers((current) => current.map((user) => user.id === selectedId ? { ...user, status: statusUpdate.status } : user).filter((user) => statusFilter === "all" || user.status === statusFilter))
+    setUsers((current) => current.map((user) => user.id === userId ? { ...user, status: statusUpdate.status } : user).filter((user) => statusFilter === "all" || user.status === statusFilter))
   }
 
-  function closeUser() {
+  function closeUser(publish = true) {
+    if (publish) onQueryChange?.(adminObjectQuery(requestedQuery, "user_id", null))
+    restoreAdminScroll(requestedQuery)
     detailRequest.current?.abort()
     setSelectedId(null)
     setDetail(null)
     queueMicrotask(() => (opener.current?.isConnected ? opener.current : searchInput.current)?.focus())
   }
 
-  function updateSelectedRoles(roles: AdminUserDetail["roles"]) {
+  function updateSelectedRoles(userId: string, roles: AdminUserDetail["roles"]) {
     setReload(value => value + 1)
-    setDetail(current => current ? { ...current, roles, primaryRole: roles.some(role => role.name === current.primaryRole) ? current.primaryRole : roles[0]?.name ?? null } : current)
+    setDetail(current => current?.id === userId ? { ...current, roles, primaryRole: roles.some(role => role.name === current.primaryRole) ? current.primaryRole : roles[0]?.name ?? null } : current)
   }
 
   function resetFilters() {
     setQueryDraft(""); setQuery(""); setStatusFilter("all"); setRoleId("")
     setFrom(""); setThrough(""); setFromDraft(""); setThroughDraft("")
-    setCheckedIds(new Set()); setNotice(""); publishFilters("", "all", "", "", "", onQueryChange)
+    setCheckedIds(new Set()); setNotice(""); publishFilters("", "all", "", "", "", onQueryChange, requestedQuery)
   }
 
   const statusCounts = {
@@ -239,7 +258,7 @@ export function UserAdminPanel({ requestedQuery = "", onQueryChange, csrfToken =
       </div>
         <form className="user-catalog-filters" role="search" onSubmit={submitSearch}>
           <label className="user-catalog-search"><Search size={16} aria-hidden="true" /><input ref={searchInput} type="search" aria-label="搜索用户" placeholder="昵称、用户名或用户 ID…" value={queryDraft} onChange={(event) => setQueryDraft(event.target.value)} /></label>
-          {(canReadRoles || canAssignRoles) && <select aria-label="用户角色" value={roleId} onChange={(event) => { setRoleId(event.target.value); publishFilters(query, statusFilter, event.target.value, from, through, onQueryChange) }}><option value="">全部角色</option>{roleId && !roles.some((role) => role.id === roleId) && <option value={roleId}>指定角色</option>}{roles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select>}
+          {(canReadRoles || canAssignRoles) && <select aria-label="用户角色" value={roleId} onChange={(event) => { setRoleId(event.target.value); publishFilters(query, statusFilter, event.target.value, from, through, onQueryChange, requestedQuery) }}><option value="">全部角色</option>{roleId && !roles.some((role) => role.id === roleId) && <option value={roleId}>指定角色</option>}{roles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select>}
           <select aria-label="用户状态" value={statusFilter} onChange={(event) => changeStatus(event.target.value as AdminUserStatus | "all")}><option value="all">全部状态</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
           <div className="user-catalog-date-range" role="group" aria-label="注册时间"><CalendarDays size={15} aria-hidden="true" /><label className="user-catalog-date"><span className="sr-only">注册起</span><input type="date" aria-label="注册开始日期" max={throughDraft || undefined} value={fromDraft} onChange={(event) => setFromDraft(event.target.value)} /></label>
           <span aria-hidden="true">→</span><label className="user-catalog-date"><span className="sr-only">至</span><input type="date" aria-label="注册结束日期" min={fromDraft || undefined} value={throughDraft} onChange={(event) => setThroughDraft(event.target.value)} /></label></div>
@@ -269,7 +288,7 @@ export function UserAdminPanel({ requestedQuery = "", onQueryChange, csrfToken =
         {listState === "ready" && listError ? <p className="form-alert" role="alert">{listError}</p> : null}
         <footer className="user-catalog-footer"><div><span>已加载 {users.length} 位用户{nextCursor ? "，还有更多结果" : ""}</span><small>统计和导出仅包含当前筛选下已加载的用户</small></div><label><span className="sr-only">每次加载用户数</span><select aria-label="每次加载用户数" value={limit} onChange={(event) => setLimit(Number(event.target.value))}><option value={20}>20 位 / 次</option><option value={50}>50 位 / 次</option></select></label>{listState === "ready" && nextCursor ? <button className="secondary-button" type="button" disabled={loadingMore} onClick={() => void loadMoreUsers()}>{loadingMore ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" /> : null}加载更多用户</button> : null}</footer>
       </section>
-        {selectedId ? <Drawer title="用户详情" onClose={closeUser}>
+        {selectedId ? <Drawer title="用户详情" busy={detailBusy} onClose={() => closeUser()}>
         <section ref={detailScroll} className="user-admin-detail" aria-label="用户详情">
           {selectedId && detailState === "loading" ? <PanelState kind="loading" text="正在读取用户详情" /> : null}
           {selectedId && detailState === "error" ? <PanelState kind="error" text={detailError} onRetry={() => void openUser(selectedId)} /> : null}
@@ -277,23 +296,28 @@ export function UserAdminPanel({ requestedQuery = "", onQueryChange, csrfToken =
             key={detail.id}
             detail={detail}
             tab={detailTab}
-            onTabChange={setDetailTab}
+            onTabChange={(tab) => { if (!detailBusy) setDetailTab(tab) }}
+            canReadGroups={canReadGroups && canReadGroupMemberships}
+            canWriteGroupMemberships={canWriteGroupMemberships}
+            membershipBusy={detailBusy}
+            onMembershipBusyChange={setDetailBusy}
             canModerate={canModerate}
             canAssignRoles={canAssignRoles}
             canReadAudit={canReadAudit}
             canReadReports={canReadReports}
             csrfToken={csrfToken}
             boards={boards}
-            onStatusUpdated={updateSelectedUser}
-            onRolesUpdated={updateSelectedRoles}
-            onRefreshed={(fresh) => { setDetail(fresh); setReload((value) => value + 1) }}
+            capabilityKeys={capabilityKeys}
+            onStatusUpdated={(update) => updateSelectedUser(detail.id, update)}
+            onRolesUpdated={(roles) => updateSelectedRoles(detail.id, roles)}
+            onRefreshed={(fresh) => { setDetail((current) => current?.id === fresh.id && fresh.id === detail.id ? fresh : current); setReload((value) => value + 1) }}
           /> : null}
         </section>
         <footer className="user-detail-navigation">
           <p aria-live="polite">{listState === "loading" ? "正在更新用户列表…" : listState === "error" ? "列表暂时不可用，请返回重试" : selectedIndex < 0 ? "该用户已不在当前筛选结果中" : `已加载用户 ${selectedIndex + 1} / ${users.length}`}</p>
           <div>
             <button className="secondary-button" type="button" aria-label="上一位用户" disabled={navigationDisabled || selectedIndex <= 0} onClick={() => void openUser(users[selectedIndex - 1].id)}><ChevronLeft size={15} aria-hidden="true" />上一位</button>
-            <button className="user-detail-return" type="button" onClick={closeUser}>返回列表</button>
+            <button className="user-detail-return" type="button" disabled={detailBusy} onClick={() => closeUser()}>返回列表</button>
             <button className="secondary-button" type="button" aria-label="下一位用户" disabled={navigationDisabled || selectedIndex < 0 || selectedIndex >= users.length - 1} onClick={() => void openUser(users[selectedIndex + 1].id)}>下一位<ChevronRight size={15} aria-hidden="true" /></button>
           </div>
         </footer>
@@ -310,14 +334,21 @@ interface UserDetailProps {
   canAssignRoles: boolean
   canReadAudit: boolean
   canReadReports: boolean
+  canReadGroups: boolean
+  canWriteGroupMemberships: boolean
+  membershipBusy: boolean
+  onMembershipBusyChange: (busy: boolean) => void
   csrfToken: string
   boards: AdminBoard[]
+  capabilityKeys: string[]
   onStatusUpdated: (update: { status: AdminUserStatus; reason: string | null; expiresAt: string | null; revision: number }) => void
   onRolesUpdated: (roles: AdminUserDetail["roles"]) => void
   onRefreshed: (detail: AdminUserDetail) => void
 }
 
-function UserDetail({ detail, tab, onTabChange, canModerate, canAssignRoles, canReadAudit, canReadReports, csrfToken, boards, onStatusUpdated, onRolesUpdated, onRefreshed }: UserDetailProps) {
+function UserDetail({ detail, tab, onTabChange, canModerate, canAssignRoles, canReadAudit, canReadReports, canReadGroups, canWriteGroupMemberships, membershipBusy, onMembershipBusyChange, csrfToken, boards, capabilityKeys, onStatusUpdated, onRolesUpdated, onRefreshed }: UserDetailProps) {
+  const canCheckPermissions = permissionCheckCapabilities.every(key => capabilityKeys.includes(key))
+  useEffect(() => { if (tab === "permissions" && !canCheckPermissions) onTabChange("overview") }, [tab, canCheckPermissions, onTabChange])
   const tabSetId = useId()
   const [copyMessage, setCopyMessage] = useState("")
   const websiteHref = safeWebsiteHref(detail.websiteUrl)
@@ -340,7 +371,7 @@ function UserDetail({ detail, tab, onTabChange, canModerate, canAssignRoles, can
     "aria-labelledby": `${tabSetId}-${name}-tab`,
     role: "tabpanel" as const,
   })
-  const visibleTabs: DetailTab[] = canReadAudit ? ["overview", "content", "reports", "audit"] : ["overview", "content", "reports"]
+  const visibleTabs: DetailTab[] = ["overview", ...(canCheckPermissions ? ["permissions" as const] : []), ...(canReadGroups ? ["groups" as const] : []), "content", "reports", ...(canReadAudit ? ["audit" as const] : [])]
   const handleTabKey = (event: React.KeyboardEvent<HTMLButtonElement>, name: DetailTab) => {
     const index = visibleTabs.indexOf(name)
     let nextIndex: number | null = null
@@ -348,7 +379,7 @@ function UserDetail({ detail, tab, onTabChange, canModerate, canAssignRoles, can
     else if (event.key === "ArrowLeft") nextIndex = index - 1
     else if (event.key === "Home") nextIndex = 0
     else if (event.key === "End") nextIndex = visibleTabs.length - 1
-    if (nextIndex === null) return
+    if (nextIndex === null || membershipBusy) return
     event.preventDefault()
     const next = visibleTabs[(nextIndex + visibleTabs.length) % visibleTabs.length]
     onTabChange(next)
@@ -361,10 +392,12 @@ function UserDetail({ detail, tab, onTabChange, canModerate, canAssignRoles, can
       <div className="user-detail-profile-links"><a className="user-catalog-profile-link" href={"#user/" + encodeURIComponent(detail.username)}>查看用户主页<ExternalLink size={13} aria-hidden="true" /></a><span>已关注 {detail.followingCount.toLocaleString()} 人</span></div>
     </header>
     <div className="user-admin-tabs" role="tablist" aria-label="用户详情分类">
-      <button type="button" role="tab" {...tabAttributes("overview")} onClick={() => onTabChange("overview")} onKeyDown={(event) => handleTabKey(event, "overview")}>概览</button>
-      <button type="button" role="tab" {...tabAttributes("content")} onClick={() => onTabChange("content")} onKeyDown={(event) => handleTabKey(event, "content")}>最近内容</button>
-      <button type="button" role="tab" {...tabAttributes("reports")} onClick={() => onTabChange("reports")} onKeyDown={(event) => handleTabKey(event, "reports")}>相关举报</button>
-      {canReadAudit ? <button type="button" role="tab" {...tabAttributes("audit")} onClick={() => onTabChange("audit")} onKeyDown={(event) => handleTabKey(event, "audit")}>管理记录</button> : null}
+      <button type="button" role="tab" disabled={membershipBusy} {...tabAttributes("overview")} onClick={() => onTabChange("overview")} onKeyDown={(event) => handleTabKey(event, "overview")}>概览</button>
+      {canCheckPermissions && <button type="button" role="tab" disabled={membershipBusy} {...tabAttributes("permissions")} onClick={() => onTabChange("permissions")} onKeyDown={event => handleTabKey(event, "permissions")}>有效权限</button>}
+      {canReadGroups && <button type="button" role="tab" disabled={membershipBusy} {...tabAttributes("groups")} onClick={() => onTabChange("groups")} onKeyDown={event => handleTabKey(event, "groups")}>用户组</button>}
+      <button type="button" role="tab" disabled={membershipBusy} {...tabAttributes("content")} onClick={() => onTabChange("content")} onKeyDown={(event) => handleTabKey(event, "content")}>最近内容</button>
+      <button type="button" role="tab" disabled={membershipBusy} {...tabAttributes("reports")} onClick={() => onTabChange("reports")} onKeyDown={(event) => handleTabKey(event, "reports")}>相关举报</button>
+      {canReadAudit ? <button type="button" role="tab" disabled={membershipBusy} {...tabAttributes("audit")} onClick={() => onTabChange("audit")} onKeyDown={(event) => handleTabKey(event, "audit")}>管理记录</button> : null}
     </div>
     {tab === "overview" ? <div className="user-admin-overview" {...panelAttributes("overview")}>
       <dl className="user-catalog-facts user-detail-facts">
@@ -383,6 +416,8 @@ function UserDetail({ detail, tab, onTabChange, canModerate, canAssignRoles, can
       {canModerate ? <UserStatusAction detail={detail} csrfToken={csrfToken} onUpdated={onStatusUpdated} onRefreshed={onRefreshed} /> : null}
       <section className="user-detail-recent"><div className="user-detail-section-heading"><h4>最近动态</h4><button className="link-button" type="button" onClick={showAllActivity}>查看全部动态 <ExternalLink size={12} aria-hidden="true" /></button></div><UserActivityPanel userId={detail.id} kind="content" preview /></section>
     </div> : null}
+    {tab === "permissions" && canCheckPermissions && <div {...panelAttributes("permissions")}><PermissionCheckPanel key={detail.id} boards={boards} capabilityKeys={capabilityKeys} fixedUser={detail} /></div>}
+    {tab === "groups" && canReadGroups && <div {...panelAttributes("groups")}><UserCommunityGroupAction user={detail} csrfToken={csrfToken} canWrite={canWriteGroupMemberships} onBusyChange={onMembershipBusyChange} /></div>}
     {tab === "content" || tab === "reports" ? <div {...panelAttributes(tab)}><UserActivityPanel key={detail.id + tab} userId={detail.id} kind={tab} canReadReports={canReadReports} /></div> : null}
     {tab === "audit" && canReadAudit ? <div {...panelAttributes("audit")}><RelatedAuditLog filter={{ userId: detail.id }} title="管理记录" /></div> : null}
     <PluginUiSurface slot="admin_user" subjectId={detail.id} csrfToken={canModerate ? csrfToken : undefined} />
@@ -409,8 +444,9 @@ function filtersFromQuery(query: string): { query: string; status: AdminUserStat
   }
 }
 
-function publishFilters(query: string, status: AdminUserStatus | "all", roleId: string, from: string, through: string, onQueryChange?: (query: string) => void) {
-  const params = new URLSearchParams()
+function publishFilters(query: string, status: AdminUserStatus | "all", roleId: string, from: string, through: string, onQueryChange?: (query: string) => void, currentQuery = "") {
+  const params = new URLSearchParams(adminObjectQuery(currentQuery, "user_id", null))
+  for (const key of ["q", "status", "role", "from", "through"]) params.delete(key)
   if (query) params.set("q", query)
   if (status !== "all") params.set("status", status)
   if (roleId) params.set("role", roleId)

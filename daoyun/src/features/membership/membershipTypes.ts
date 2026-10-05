@@ -18,6 +18,9 @@ export interface MembershipExperience {
 }
 
 export interface PointsLedgerItem {
+  actorUsername?: string | null
+  actorDisplayName?: string | null
+  operationRequestId?: string | null
   id: string
   delta: number
   balanceAfter: number
@@ -49,6 +52,8 @@ export interface MemberMedal {
   grantedAt: string
   isPublic: boolean
 }
+
+export type MembershipSectionData = Partial<MembershipCenterData> & { errors?: string[] }
 
 export interface MembershipCenterData {
   experience: MembershipExperience

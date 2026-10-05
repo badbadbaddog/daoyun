@@ -11,6 +11,7 @@ import {
 
 import type { AuthSession } from "../api/auth"
 import {
+  MessageApiError,
   archiveConversation,
   listConversations,
   listMessages,
@@ -24,6 +25,7 @@ interface MessagesViewProps {
   session: AuthSession | null
   conversationId: string | null
   initialConversation?: ConversationSummary | null
+  initialConversationOwnerId?: string | null
   onSelectConversation: (conversationId: string | null) => void
   onBack: () => void
   onLogin: () => void
@@ -34,12 +36,14 @@ type LoadStatus = "loading" | "ready" | "error"
 interface RetryMessage {
   content: string
   key: string
+  unknown: boolean
 }
 
 export function MessagesView({
   session,
   conversationId,
   initialConversation = null,
+  initialConversationOwnerId = null,
   onSelectConversation,
   onBack,
   onLogin,
@@ -65,7 +69,48 @@ export function MessagesView({
   const [archivePending, setArchivePending] = useState(false)
   const [interactionError, setInteractionError] = useState("")
 
+  const sessionRef = useRef(session); sessionRef.current = session
+  const lifetimeRef = useRef<AbortController | null>(null)
+  const messageLifetimeRef = useRef<AbortController | null>(null)
+  const ownerRef = useRef(session?.user.id)
+  const retriesRef = useRef(new Map<string, RetryMessage>())
+  const sendingRef = useRef(false)
+  const [loginRequired, setLoginRequired] = useState(false)
+
+  function active(controller: AbortController, owner: AuthSession) {
+    return !controller.signal.aborted && lifetimeRef.current === controller && sessionRef.current === owner
+  }
+
+  function restoreDraft(id: string | null) {
+    const retry = id ? retriesRef.current.get(id) ?? null : null
+    setDraft(retry?.content ?? "")
+    setRetryMessage(retry)
+    setSendError(retry?.unknown ? "消息发送结果尚未确认，请重新发送原内容。" : "")
+    setLoginRequired(false)
+  }
+
   useEffect(() => {
+    const controller = new AbortController()
+    lifetimeRef.current = controller
+    sendingRef.current = false
+    setSendPending(false)
+    setArchivePending(false)
+    setLoadingMoreConversations(false)
+    setInteractionError("")
+    if (session) setLoginRequired(false)
+    if (session && ownerRef.current !== session.user.id) {
+      ownerRef.current = session.user.id
+      retriesRef.current.clear()
+      setDraft("")
+      setRetryMessage(null)
+      setSendError("")
+      setLoginRequired(false)
+    }
+    return () => controller.abort()
+  }, [session])
+
+  useEffect(() => {
+    restoreDraft(conversationId)
     selectedIdRef.current = conversationId
     setSelectedId(conversationId)
   }, [conversationId])
@@ -83,7 +128,7 @@ export function MessagesView({
     setConversationStatus("loading")
     listConversations({ signal: controller.signal }).then((page) => {
       if (controller.signal.aborted) return
-      const seed = initialConversation?.id === conversationId ? initialConversation : null
+      const seed = initialConversationOwnerId === session.user.id && initialConversation?.id === conversationId ? initialConversation : null
       const nextConversations = seed && !page.conversations.some((item) => item.id === seed.id)
         ? [seed, ...page.conversations]
         : page.conversations
@@ -99,7 +144,7 @@ export function MessagesView({
       if (!controller.signal.aborted) setConversationStatus("error")
     })
     return () => controller.abort()
-  }, [conversationId, conversationRequestVersion, initialConversation, session])
+  }, [conversationId, conversationRequestVersion, initialConversation, initialConversationOwnerId, session])
 
   useEffect(() => {
     if (!session || !selectedId) {
@@ -109,8 +154,9 @@ export function MessagesView({
       return
     }
     const controller = new AbortController()
+    messageLifetimeRef.current = controller
+    setLoadingOlderMessages(false)
     setMessageStatus("loading")
-    setSendError("")
     listMessages(selectedId, { signal: controller.signal }).then((page) => {
       if (controller.signal.aborted) return
       setMessages(page.messages)
@@ -118,7 +164,8 @@ export function MessagesView({
       setMessageStatus("ready")
       const latest = page.messages[0]
       if (latest && latest.sender.id !== session.user.id) {
-        void markConversationRead(selectedId, latest.id, session.csrfToken).then((state) => {
+        void markConversationRead(selectedId, latest.id, session.csrfToken, controller.signal).then((state) => {
+          if (controller.signal.aborted || sessionRef.current !== session) return
           setConversations((current) => current.map((conversation) => (
             conversation.id === state.conversationId
               ? { ...conversation, unreadCount: state.unreadCount }
@@ -138,56 +185,60 @@ export function MessagesView({
   function selectConversation(id: string) {
     selectedIdRef.current = id
     setSelectedId(id)
-    setDraft("")
-    setRetryMessage(null)
-    setSendError("")
+    restoreDraft(id)
     onSelectConversation(id)
   }
 
   async function handleLoadMoreConversations() {
-    if (!conversationCursor || loadingMoreConversations) return
+    const controller = lifetimeRef.current
+    if (!session || !controller || !active(controller, session) || !conversationCursor || loadingMoreConversations) return
     setLoadingMoreConversations(true)
     setInteractionError("")
     try {
-      const page = await listConversations({ cursor: conversationCursor })
+      const page = await listConversations({ cursor: conversationCursor, signal: controller.signal })
+      if (!active(controller, session)) return
       setConversations((current) => [
         ...current,
         ...page.conversations.filter((item) => !current.some((existing) => existing.id === item.id)),
       ])
       setConversationCursor(page.nextCursor)
     } catch {
-      setInteractionError("更多会话暂时无法加载。")
+      if (active(controller, session)) setInteractionError("更多会话暂时无法加载。")
     } finally {
-      setLoadingMoreConversations(false)
+      if (active(controller, session)) setLoadingMoreConversations(false)
     }
   }
 
   async function handleLoadOlderMessages() {
-    if (!selectedId || !messageCursor || loadingOlderMessages) return
+    const controller = messageLifetimeRef.current
+    if (!session || !controller || controller.signal.aborted || !selectedId || !messageCursor || loadingOlderMessages) return
+    const current = () => !controller.signal.aborted && messageLifetimeRef.current === controller && sessionRef.current === session
     const requestConversationId = selectedId
     setLoadingOlderMessages(true)
     setInteractionError("")
     try {
-      const page = await listMessages(requestConversationId, { cursor: messageCursor })
-      if (selectedIdRef.current !== requestConversationId) return
+      const page = await listMessages(requestConversationId, { cursor: messageCursor, signal: controller.signal })
+      if (!current() || selectedIdRef.current !== requestConversationId) return
       setMessages((current) => [
         ...current,
         ...page.messages.filter((item) => !current.some((existing) => existing.id === item.id)),
       ])
       setMessageCursor(page.nextCursor)
     } catch {
-      if (selectedIdRef.current === requestConversationId) {
+      if (current() && selectedIdRef.current === requestConversationId) {
         setInteractionError("更早的消息暂时无法加载。")
       }
     } finally {
-      setLoadingOlderMessages(false)
+      if (current()) setLoadingOlderMessages(false)
     }
   }
 
   async function handleSend(event?: FormEvent) {
     event?.preventDefault()
-    if (!session || !selectedId || sendPending) return
-    const content = draft.trim()
+    const controller = lifetimeRef.current
+    if (!session || !controller || !active(controller, session) || !selectedId || sendingRef.current) return
+    const existing = retriesRef.current.get(selectedId)
+    const content = existing?.content ?? draft.trim()
     if (!content) {
       setSendError("请输入消息正文。")
       return
@@ -196,10 +247,11 @@ export function MessagesView({
       setSendError("消息正文不能超过 10000 个字符。")
       return
     }
-    const retry = retryMessage?.content === content ? retryMessage : {
-      content,
-      key: createMessageKey(),
-    }
+    const wasUnknown = existing?.unknown ?? false
+    const retry: RetryMessage = { content, key: existing?.key ?? createMessageKey(), unknown: true }
+    retriesRef.current.set(selectedId, retry)
+    sendingRef.current = true
+    setLoginRequired(false)
     setRetryMessage(retry)
     setSendPending(true)
     setSendError("")
@@ -210,7 +262,10 @@ export function MessagesView({
         content,
         session.csrfToken,
         retry.key,
+        controller.signal,
       )
+      if (!active(controller, session)) return
+      retriesRef.current.delete(requestConversationId)
       if (selectedIdRef.current === requestConversationId) {
         setMessages((current) => [message, ...current.filter((item) => item.id !== message.id)])
       }
@@ -234,22 +289,30 @@ export function MessagesView({
         setDraft("")
         setRetryMessage(null)
       }
-    } catch {
+    } catch (error) {
+      if (!active(controller, session)) return
+      const definitive = error instanceof MessageApiError && error.status >= 400 && error.status < 500
+      if (definitive && !wasUnknown) retriesRef.current.delete(requestConversationId)
       if (selectedIdRef.current === requestConversationId) {
-        setSendError("消息暂时无法发送。")
+        setRetryMessage(retriesRef.current.get(requestConversationId) ?? null)
+        const unauthenticated = error instanceof MessageApiError && error.status === 401
+        setLoginRequired(unauthenticated)
+        setSendError(unauthenticated ? "登录已失效，正文已保留。" : error instanceof MessageApiError && error.status === 403 ? "当前没有发送权限，正文已保留。" : "消息暂时无法发送。结果尚未确认时，请以原内容重试。")
       }
     } finally {
-      setSendPending(false)
+      if (active(controller, session)) { sendingRef.current = false; setSendPending(false) }
     }
   }
 
   async function handleArchive() {
-    if (!session || !selectedConversation || archivePending) return
+    const controller = lifetimeRef.current
+    if (!session || !controller || !active(controller, session) || !selectedConversation || archivePending) return
     const requestConversationId = selectedConversation.id
     setArchivePending(true)
     setInteractionError("")
     try {
-      await archiveConversation(requestConversationId, session.csrfToken)
+      await archiveConversation(requestConversationId, session.csrfToken, controller.signal)
+      if (!active(controller, session)) return
       setConversations((current) => current.filter((item) => item.id !== requestConversationId))
       if (selectedIdRef.current === requestConversationId) {
         selectedIdRef.current = null
@@ -258,11 +321,11 @@ export function MessagesView({
         onSelectConversation(null)
       }
     } catch {
-      if (selectedIdRef.current === requestConversationId) {
+      if (active(controller, session) && selectedIdRef.current === requestConversationId) {
         setInteractionError("会话暂时无法归档。")
       }
     } finally {
-      setArchivePending(false)
+      if (active(controller, session)) setArchivePending(false)
     }
   }
 
@@ -361,9 +424,11 @@ export function MessagesView({
                   onClick={() => {
                     selectedIdRef.current = null
                     setSelectedId(null)
-                    onSelectConversation(null)
+                    restoreDraft(null)
+                   onSelectConversation(null)
                   }}
                   aria-label="返回会话列表"
+                  title="返回会话列表"
                 >
                   <ArrowLeft size={17} />
                 </button>
@@ -430,8 +495,8 @@ export function MessagesView({
               {sendError && (
                 <div className="message-composer__error" role="alert">
                   <span>{sendError}</span>
-                  <button type="button" onClick={() => void handleSend()} disabled={sendPending}>
-                    重新发送
+                  <button type="button" onClick={loginRequired ? onLogin : () => void handleSend()} disabled={sendPending}>
+                    {loginRequired ? "重新登录" : "重新发送"}
                   </button>
                 </div>
               )}
@@ -441,15 +506,18 @@ export function MessagesView({
                   placeholder="输入消息"
                   value={draft}
                   rows={2}
+                  readOnly={sendPending || Boolean(retryMessage?.unknown)}
                   onChange={(event) => {
+                    if (sendPending || retryMessage?.unknown) return
                     setDraft(event.target.value)
                     setSendError("")
                     if (retryMessage && retryMessage.content !== event.target.value.trim()) {
+                      retriesRef.current.delete(selectedId!)
                       setRetryMessage(null)
                     }
                   }}
                 />
-                <button className="primary-button" type="submit" disabled={sendPending || !draft.trim()} aria-label="发送消息">
+                <button className="primary-button" type="submit" disabled={sendPending || loginRequired || !draft.trim()} title="发送消息" aria-label="发送消息">
                   {sendPending
                     ? <LoaderCircle className="topic-loading__spinner" size={17} aria-hidden="true" />
                     : <Send size={17} aria-hidden="true" />}

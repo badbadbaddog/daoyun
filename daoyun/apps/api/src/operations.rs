@@ -71,6 +71,7 @@ pub(crate) async fn summary(
     Extension(request_id): Extension<RequestId>,
     Extension(auth_runtime): Extension<AuthRuntime>,
     Extension(observability): Extension<ObservabilityRuntime>,
+    evaluation_config: Option<Extension<crate::OperationsAlertWorkerConfig>>,
     headers: HeaderMap,
 ) -> Result<Json<ApiResponse<OperationsSummary>>, ApiError> {
     authorize_capability_read(
@@ -91,6 +92,7 @@ pub(crate) async fn summary(
         .map_err(|error| database_error(request_id, error, "Operations summary query failed"))?;
     let snapshot = observability.snapshot();
     let data = OperationsSummary {
+        alert_evaluation_enabled: evaluation_config.is_some_and(|Extension(config)| config.enabled),
         observed_at: format_time(OffsetDateTime::now_utc()),
         uptime_seconds: snapshot.uptime_seconds,
         http: OperationsHttpSummary {

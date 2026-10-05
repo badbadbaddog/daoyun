@@ -65,3 +65,8 @@ describe("ConfirmDialog", () => {
     expect(onConfirm).not.toHaveBeenCalled()
   })
 })
+
+it("announces the concrete destructive consequences as the confirmation description", () => {
+  render(<ConfirmDialog title="删除角色" confirmLabel="确认删除" onConfirm={vi.fn()} onCancel={vi.fn()}><p>删除后无法继续分配该角色。</p></ConfirmDialog>)
+  expect(screen.getByRole("alertdialog", { name: "删除角色" })).toHaveAccessibleDescription("删除后无法继续分配该角色。")
+})

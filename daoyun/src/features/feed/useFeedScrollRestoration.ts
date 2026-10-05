@@ -12,7 +12,7 @@ export function useFeedScrollRestoration(route: CommunityRoute, ready = true) {
   useEffect(() => {
     const previousKey = previousKeyRef.current
     if (previousKey && previousKey !== activeKey) {
-      sessionStorage.setItem(previousKey, String(Math.max(0, window.scrollY)))
+      saveScrollPosition(previousKey)
       if (!activeKey && window.scrollY > 0) window.scrollTo({ top: 0, behavior: "auto" })
     }
     if (previousKey !== activeKey) restoredKeyRef.current = null
@@ -22,7 +22,8 @@ export function useFeedScrollRestoration(route: CommunityRoute, ready = true) {
   useEffect(() => {
     if (activeKey && ready && restoredKeyRef.current !== activeKey) {
       restoredKeyRef.current = activeKey
-      const storedPosition = sessionStorage.getItem(activeKey)
+      let storedPosition: string | null = null
+      try { storedPosition = sessionStorage.getItem(activeKey) } catch { /* Browsing remains available without saved positions. */ }
       const savedPosition = storedPosition === null ? 0 : Number(storedPosition)
       const targetPosition = Number.isFinite(savedPosition) && savedPosition >= 0 ? savedPosition : 0
       if (window.scrollY !== targetPosition) window.scrollTo({ top: targetPosition, behavior: "auto" })
@@ -32,7 +33,11 @@ export function useFeedScrollRestoration(route: CommunityRoute, ready = true) {
   useEffect(() => {
     return () => {
       const currentKey = previousKeyRef.current
-      if (currentKey) sessionStorage.setItem(currentKey, String(Math.max(0, window.scrollY)))
+      if (currentKey) saveScrollPosition(currentKey)
     }
   }, [])
+}
+
+function saveScrollPosition(key: string) {
+  try { sessionStorage.setItem(key, String(Math.max(0, window.scrollY))) } catch { /* Scroll persistence is optional. */ }
 }

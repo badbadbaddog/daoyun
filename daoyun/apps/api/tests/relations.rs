@@ -503,3 +503,102 @@ async fn insert_reply(pool: &PgPool, id: Uuid, topic_id: Uuid, author_id: Uuid, 
     .await
     .expect("reply fixture must insert");
 }
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn restricted_bookmarks_search_and_old_links_do_not_leak_saved_topic_metadata(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    initialize(&app).await;
+    let reader = register(&app, "policy_reader").await;
+    let reader_id = Uuid::parse_str(&reader.user_id).expect("reader UUID");
+    let author = fixture_id(2);
+    let board = fixture_id(11);
+    let topic = fixture_id(101);
+    insert_user(&pool, author, "policy_author", "active").await;
+    insert_board(&pool, board, "policy-bookmarks", "public").await;
+    insert_topic(&pool, topic, board, author).await;
+    let database = Database::from_pool(pool.clone());
+    database
+        .set_topic_bookmarked(reader_id, topic, true)
+        .await
+        .expect("public bookmark");
+    let policy = Uuid::now_v7();
+    let group: Uuid = sqlx::query_scalar(
+        "SELECT id FROM community_groups WHERE internal_key='established_member'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("seed group");
+    sqlx::query("INSERT INTO content_access_policies (id,target_type,target_id,operator) VALUES ($1,'board',$2,'any_of')")
+        .bind(policy).bind(board).execute(&pool).await.expect("policy fixture");
+    sqlx::query("INSERT INTO content_access_policy_subjects (policy_id,subject_type,community_group_id) VALUES ($1,'community_group',$2)")
+        .bind(policy).bind(group).execute(&pool).await.expect("subject fixture");
+    for cookies in ["", reader.cookies.as_str()] {
+        let detail = app
+            .clone()
+            .oneshot(get_request(&format!("/api/v1/topics/{topic}"), cookies))
+            .await
+            .expect("old link response");
+        assert_eq!(detail.status(), StatusCode::NOT_FOUND);
+        let header = detail.headers()["x-request-id"]
+            .to_str()
+            .expect("request id")
+            .to_owned();
+        let payload = response_json(detail).await;
+        assert_eq!(payload["meta"]["request_id"], header);
+        let search = app
+            .clone()
+            .oneshot(get_request("/api/v1/topics?query=Excerpt", cookies))
+            .await
+            .expect("search response");
+        assert_eq!(search.status(), StatusCode::OK);
+        assert!(
+            response_json(search).await["data"]
+                .as_array()
+                .expect("search list")
+                .is_empty()
+        );
+    }
+    let bookmarks = app
+        .clone()
+        .oneshot(get_request("/api/v1/users/me/bookmarks", &reader.cookies))
+        .await
+        .expect("bookmark list");
+    assert_eq!(bookmarks.status(), StatusCode::OK);
+    let header = bookmarks.headers()["x-request-id"]
+        .to_str()
+        .expect("request id")
+        .to_owned();
+    let payload = response_json(bookmarks).await;
+    assert_eq!(payload["meta"]["request_id"], header);
+    assert!(
+        payload["data"]
+            .as_array()
+            .expect("bookmark list")
+            .is_empty(),
+        "saved title and excerpt must not leak"
+    );
+    for method in [Method::PUT, Method::DELETE] {
+        let response = app
+            .clone()
+            .oneshot(state_change_request(
+                method,
+                &format!("/api/v1/topics/{topic}/bookmark"),
+                &reader.cookies,
+                &reader.csrf,
+            ))
+            .await
+            .expect("restricted mutation");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+    let edges: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM topic_bookmarks WHERE user_id=$1 AND topic_id=$2")
+            .bind(reader_id)
+            .bind(topic)
+            .fetch_one(&pool)
+            .await
+            .expect("saved edge");
+    assert_eq!(edges, 1);
+}

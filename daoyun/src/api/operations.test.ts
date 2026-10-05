@@ -16,6 +16,13 @@ const alertId = "019fc900-0000-7000-8000-000000000702"
 afterEach(() => vi.restoreAllMocks())
 
 describe("operations API", () => {
+  it("maps disabled evaluation and rejects an invalid enabled flag", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ data: { ...summaryDto(), alert_evaluation_enabled: false }, meta: { request_id: requestId } }))
+      .mockResolvedValueOnce(jsonResponse({ data: { ...summaryDto(), alert_evaluation_enabled: "false" }, meta: { request_id: requestId } }))
+    await expect(getOperationsSummary()).resolves.toMatchObject({ alertEvaluationEnabled: false })
+    await expect(getOperationsSummary()).rejects.toMatchObject({ code: "response.invalid" })
+  })
   it("maps summary, rules and alert pages and sends protected mutations", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(jsonResponse({ data: summaryDto(), meta: { request_id: requestId } }))
@@ -92,6 +99,7 @@ describe("operations API", () => {
 
 function summaryDto() {
   return {
+    alert_evaluation_enabled: true,
     observed_at: "2026-08-11T10:00:00Z",
     uptime_seconds: 120,
     http: { total_requests: 25, in_flight_requests: 1, errors_5m: 2, p95_ms_5m: 42 },

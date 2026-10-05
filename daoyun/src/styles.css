@@ -6470,6 +6470,8 @@ body:has(.membership-growth-dialog-backdrop) { overflow: hidden; }
 }
 /* Public search */
 .search-page {
+  min-width: 0;
+  overflow-wrap: anywhere;
   display: grid;
   gap: var(--space-4);
 }
@@ -7183,14 +7185,22 @@ body:has(.membership-growth-dialog-backdrop) { overflow: hidden; }
     position: fixed;
     z-index: 70;
     right: 0;
-    bottom: 64px;
+    bottom: calc(var(--reply-bottom-gap, 64px) + var(--reply-keyboard-inset, 0px) + env(safe-area-inset-bottom, 0px));
     left: 0;
-    max-height: calc(100dvh - 74px);
+    max-height: calc(var(--reply-viewport-height, 100dvh) - var(--reply-bottom-gap, 64px) - 10px - env(safe-area-inset-bottom, 0px));
     overflow-y: auto;
     border-top-color: var(--border-strong);
     background: var(--surface);
     box-shadow: 0 -8px 24px rgb(22 38 70 / 10%);
     padding: 12px 14px 16px;
+  }
+
+  .reply-form--mobile-open .reply-form__actions {
+    position: sticky;
+    bottom: -16px;
+    z-index: 2;
+    background: var(--surface);
+    padding: 10px 0;
   }
 
   .reply-form--mobile-open .reply-form__mobile-header {
@@ -9486,10 +9496,35 @@ body:has(.membership-growth-dialog-backdrop) { overflow: hidden; }
 }
 
 
-/* Semantic success colors shared by administrative status indicators. */
-:root { --success: #067650; --success-soft: #e7f7f0; }
-:root[data-theme="dark"] { --success: #68dcb3; --success-soft: #173c32; }
 
 @media (max-width: 340px) {
   .composer-image-dropzone { grid-template-columns: minmax(0, 1fr); }
+}
+
+.points-ledger time,
+.points-ledger dl { grid-column: 1 / -1; }
+.points-ledger dl,
+.points-receipt { display: grid; gap: 6px; margin: 6px 0 0; font-size: .8rem; }
+.points-ledger dl div,
+.points-receipt div { display: grid; grid-template-columns: 6em minmax(0, 1fr); gap: 8px; }
+.points-ledger dt,
+.points-receipt dt { color: var(--text-muted); }
+.points-ledger dd,
+.points-receipt dd { margin: 0; overflow-wrap: anywhere; }
+
+.redemption-history code { overflow-wrap: anywhere; }
+
+.points-attempt { overflow-wrap: anywhere; font-size: .8rem; color: var(--text-muted); }
+
+/* Keep form controls inside the visible area when a mobile keyboard reduces it. */
+@media (max-width: 768px) {
+  .dialog-backdrop {
+    top: var(--app-visible-offset, 0px);
+    bottom: auto;
+    height: var(--app-visible-height, 100dvh);
+  }
+  .dialog-backdrop > [role="dialog"],
+  .dialog-backdrop > [role="alertdialog"] {
+    max-height: calc(var(--app-visible-height, 100dvh) - 24px);
+  }
 }

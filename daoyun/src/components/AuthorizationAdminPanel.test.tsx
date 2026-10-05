@@ -13,6 +13,7 @@ import {
   listAuthorizationRoles,
   updateAuthorizationRole,
 } from "../api/admin"
+import { listAdminUsers } from "../api/adminUsers"
 import { AuthorizationAdminPanel } from "./AuthorizationAdminPanel"
 
 vi.mock("../api/admin", async () => {
@@ -30,6 +31,8 @@ vi.mock("../api/admin", async () => {
   }
 })
 
+vi.mock("../api/adminUsers", () => ({ listAdminUsers: vi.fn() }))
+const capabilityKeys = ["authorization.roles.read", "authorization.roles.write", "authorization.assignments.read", "authorization.assignments.write", "admin.users.read"]
 const csrfToken = "a".repeat(64)
 const board = { id: "019fc900-0000-7000-8000-000000000101", parentId: null, slug: "general", name: "社区广场", description: "公开讨论", icon: "messages", tone: "green" as const, position: 0, visibility: "public" as const, topicCount: 2, revision: 1, status: "open" as const, mergedIntoBoardId: null }
 const customRole = {
@@ -50,11 +53,13 @@ const assignment = {
   user: { id: "019fc900-0000-7000-8000-000000000401", username: "demo_member", displayName: "演示成员", avatarUrl: null },
   role: { id: customRole.id, key: customRole.key, name: customRole.name, scope: customRole.scope, isSystem: false, revision: 1 },
   scopeId: board.id,
+  scopeMode: "exact" as const,
   assignedBy: { id: "019fc900-0000-7000-8000-000000000004", username: "admin", displayName: "管理员", avatarUrl: null },
   createdAt: "2026-08-10T02:00:00Z",
 }
 
 beforeEach(() => {
+  vi.mocked(listAdminUsers).mockResolvedValue({ users: [{ ...assignment.user, status: "active", primaryRole: null, topicCount: 0, postCount: 0, reportCount: 0, createdAt: assignment.createdAt, lastSeenAt: null }], nextCursor: null })
   vi.mocked(listAuthorizationPermissions).mockResolvedValue([{ key: "content.moderate", name: "内容管理", description: "管理主题与回复" }])
   vi.mocked(listAuthorizationRoles).mockResolvedValue([systemRole, customRole])
   vi.mocked(listAuthorizationAssignments).mockResolvedValue({ assignments: [], nextCursor: null })
@@ -74,7 +79,7 @@ describe("AuthorizationAdminPanel", () => {
       { key: "content.moderate", name: "内容管理", description: "管理主题" },
       { key: "admin.users.read", name: "读取用户", description: "查看用户" },
     ])
-    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} />)
+    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} capabilityKeys={capabilityKeys} />)
     await user.click(await screen.findByRole("button", { name: "新建角色" }))
     await user.click(screen.getByRole("checkbox", { name: "选择当前显示的 1 项权限" }))
     await user.click(screen.getByRole("button", { name: /用户与权限/ }))
@@ -89,7 +94,7 @@ describe("AuthorizationAdminPanel", () => {
 
   it("searches roles and opens system permissions without offering a save action", async () => {
     const user = userEvent.setup()
-    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} />)
+    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} capabilityKeys={capabilityKeys} />)
     await screen.findByText("超级管理员")
     await user.type(screen.getByRole("searchbox", { name: "搜索角色" }), "超级")
     expect(screen.queryByText("版主")).not.toBeInTheDocument()
@@ -100,7 +105,7 @@ describe("AuthorizationAdminPanel", () => {
 
   it("opens a dedicated role editor and an assignment dialog instead of inline forms", async () => {
     const user = userEvent.setup()
-    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} />)
+    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} capabilityKeys={capabilityKeys} />)
     await screen.findByText("超级管理员")
     expect(screen.queryByLabelText("角色名称")).not.toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "新建角色" }))
@@ -115,7 +120,7 @@ describe("AuthorizationAdminPanel", () => {
   it("renders system roles as read-only and creates a custom role", async () => {
     const user = userEvent.setup()
     vi.mocked(createAuthorizationRole).mockResolvedValueOnce({ ...customRole, id: "019fc900-0000-7000-8000-000000000503", key: "topic_reviewer", name: "主题审核员" })
-    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} />)
+    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} capabilityKeys={capabilityKeys} />)
 
     expect(await screen.findByRole("heading", { name: "角色与权限" })).toBeInTheDocument()
     expect(screen.getByText("超级管理员")).toBeInTheDocument()
@@ -138,7 +143,7 @@ describe("AuthorizationAdminPanel", () => {
     const user = userEvent.setup()
     let resolveCreate!: (role: typeof customRole) => void
     vi.mocked(createAuthorizationRole).mockImplementationOnce(() => new Promise((resolve) => { resolveCreate = resolve }))
-    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} />)
+    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} capabilityKeys={capabilityKeys} />)
     await screen.findByRole("heading", { name: "角色与权限" })
     await user.click(screen.getByRole("button", { name: "新建角色" }))
 
@@ -160,23 +165,26 @@ describe("AuthorizationAdminPanel", () => {
 
   it("assigns a board-scoped custom role by exact username", async () => {
     const user = userEvent.setup()
-    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} />)
+    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} capabilityKeys={capabilityKeys} />)
     await screen.findByRole("heading", { name: "角色与权限" })
     await user.click(screen.getByRole("button", { name: "人员授权" }))
     await user.click(screen.getByRole("button", { name: "新增授权" }))
 
-    await user.type(screen.getByLabelText("用户名（精确匹配）"), "demo_member")
+    vi.mocked(listAuthorizationAssignments).mockResolvedValue({ assignments: [assignment], nextCursor: null })
+    await user.type(screen.getByLabelText("搜索用户"), "demo_member")
+    await user.click(await screen.findByRole("button", { name: "选择演示成员 @demo_member" }))
     await user.selectOptions(screen.getByLabelText("自定义角色"), customRole.id)
     await user.selectOptions(screen.getByLabelText("作用板块"), board.id)
-    await user.click(screen.getByRole("button", { name: "分配角色" }))
+    await user.click(screen.getByRole("button", { name: "预览任命" }))
+    await user.click(screen.getByRole("button", { name: "确认任命" }))
 
-    expect(createAuthorizationAssignment).toHaveBeenCalledWith({ username: "demo_member", roleId: customRole.id, scopeId: board.id }, csrfToken)
-    expect(await screen.findByText("demo_member")).toBeInTheDocument()
+    expect(createAuthorizationAssignment).toHaveBeenCalledWith({ username: "demo_member", roleId: customRole.id, scopeId: board.id, scopeMode: "exact" }, csrfToken)
+    expect(await screen.findByText(/@demo_member/)).toBeInTheDocument()
   })
 
   it("edits a role using its current revision", async () => {
     const user = userEvent.setup()
-    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} />)
+    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} capabilityKeys={capabilityKeys} />)
     await screen.findByRole("heading", { name: "角色与权限" })
 
     await user.click(screen.getByRole("button", { name: "编辑角色：版主" }))
@@ -199,7 +207,7 @@ describe("AuthorizationAdminPanel", () => {
     vi.mocked(updateAuthorizationRole)
       .mockRejectedValueOnce(new AdminApiError(409, "authorization.role_conflict", "角色已更新"))
       .mockResolvedValueOnce({ ...latestRole, name: "本地版主", revision: 3 })
-    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} />)
+    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} capabilityKeys={capabilityKeys} />)
     await screen.findByRole("heading", { name: "角色与权限" })
 
     await user.click(screen.getByRole("button", { name: "编辑角色：版主" }))
@@ -220,7 +228,7 @@ describe("AuthorizationAdminPanel", () => {
 
   it("cancels and confirms a destructive role deletion without using a browser prompt", async () => {
     const user = userEvent.setup()
-    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} />)
+    render(<AuthorizationAdminPanel csrfToken={csrfToken} boards={[board]} capabilityKeys={capabilityKeys} />)
     await screen.findByRole("heading", { name: "角色与权限" })
 
     const trigger = screen.getByRole("button", { name: "删除角色：版主" })

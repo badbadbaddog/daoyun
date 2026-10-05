@@ -14,6 +14,7 @@ pub struct NotificationRecord {
     pub actor: Option<PublicUserSummaryRecord>,
     pub target_type: String,
     pub target_id: Uuid,
+    pub topic_id: Option<Uuid>,
     pub read_at: Option<OffsetDateTime>,
     pub created_at: OffsetDateTime,
 }
@@ -45,6 +46,7 @@ struct NotificationRow {
     actor_avatar_url: Option<String>,
     target_type: String,
     target_id: Uuid,
+    topic_id: Option<Uuid>,
     read_at: Option<OffsetDateTime>,
     created_at: OffsetDateTime,
 }
@@ -63,10 +65,40 @@ impl NotificationRow {
             actor,
             target_type: self.target_type,
             target_id: self.target_id,
+            topic_id: self.topic_id,
             read_at: self.read_at,
             created_at: self.created_at,
         }
     }
+}
+
+// Governance notifications retain the recipient's own handling facts, without content snapshots.
+// Other content targets share the current topic, board and post read boundaries.
+macro_rules! notification_sql {
+    ($before:literal, $after:literal) => {
+        concat!(
+            $before,
+            "(
+    n.kind = 'topic_governance' OR n.target_type NOT IN ('topic', 'post') OR EXISTS (
+        SELECT 1 FROM topics AS topic
+        JOIN boards AS board ON board.id = topic.board_id
+        JOIN users AS author ON author.id = topic.author_id
+        WHERE topic.id = CASE WHEN n.target_type = 'topic' THEN n.target_id ELSE (
+            SELECT post.topic_id FROM posts AS post
+            JOIN users AS post_author ON post_author.id = post.author_id
+            WHERE post.id = n.target_id AND post.status = 'published'
+              AND post.deleted_at IS NULL AND post_author.status = 'active'
+              AND daoyun_can_access_content('post', post.id, n.recipient_id, CURRENT_TIMESTAMP)
+        ) END
+          AND topic.status = 'published' AND topic.deleted_at IS NULL
+          AND board.visibility = 'public' AND board.deleted_at IS NULL
+          AND author.status = 'active'
+          AND daoyun_can_access_content('topic', topic.id, n.recipient_id, CURRENT_TIMESTAMP)
+    )
+)",
+            $after
+        )
+    };
 }
 
 impl Database {
@@ -75,6 +107,17 @@ impl Database {
         recipient_id: Uuid,
         cursor: Option<Uuid>,
         limit: i64,
+    ) -> Result<Vec<NotificationRecord>, ListNotificationsError> {
+        self.list_filtered_notifications(recipient_id, cursor, limit, false)
+            .await
+    }
+
+    pub async fn list_filtered_notifications(
+        &self,
+        recipient_id: Uuid,
+        cursor: Option<Uuid>,
+        limit: i64,
+        unread: bool,
     ) -> Result<Vec<NotificationRecord>, ListNotificationsError> {
         if let Some(cursor) = cursor {
             let valid = sqlx::query_scalar::<_, bool>(
@@ -89,23 +132,27 @@ impl Database {
             }
         }
 
-        let rows = sqlx::query_as::<_, NotificationRow>(
+        let rows = sqlx::query_as::<_, NotificationRow>(notification_sql!(
             "SELECT n.id, n.kind, actor.id AS actor_id, actor.username AS actor_username,
                     actor.display_name AS actor_display_name, actor.avatar_url AS actor_avatar_url,
-                    n.target_type, n.target_id, n.read_at, n.created_at
+                    n.target_type, n.target_id, post.topic_id, n.read_at, n.created_at
              FROM notifications AS n
              LEFT JOIN users AS actor ON actor.id = n.actor_id AND actor.status = 'active'
-             WHERE n.recipient_id = $1
+              LEFT JOIN posts AS post ON n.target_type = 'post' AND post.id = n.target_id
+             WHERE n.recipient_id = $1 AND ",
+            "
+               AND (NOT $4::boolean OR n.read_at IS NULL)
                AND ($2::uuid IS NULL OR (n.created_at, n.id) < (
                    SELECT cursor.created_at, cursor.id FROM notifications AS cursor
                    WHERE cursor.recipient_id = $1 AND cursor.id = $2
                ))
              ORDER BY n.created_at DESC, n.id DESC
-             LIMIT $3",
-        )
+             LIMIT $3"
+        ))
         .bind(recipient_id)
         .bind(cursor)
         .bind(limit)
+        .bind(unread)
         .fetch_all(&self.pool)
         .await?;
         Ok(rows.into_iter().map(NotificationRow::into_record).collect())
@@ -116,7 +163,7 @@ impl Database {
         recipient_id: Uuid,
     ) -> Result<NotificationUnreadCountRecord, DatabaseError> {
         let unread_count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM notifications WHERE recipient_id = $1 AND read_at IS NULL",
+            notification_sql!("SELECT COUNT(*) FROM notifications AS n WHERE n.recipient_id = $1 AND n.read_at IS NULL AND ", ""),
         )
         .bind(recipient_id)
         .fetch_one(&self.pool)
@@ -130,19 +177,21 @@ impl Database {
         notification_id: Uuid,
     ) -> Result<NotificationRecord, NotificationMutationError> {
         let mut transaction = self.pool.begin().await?;
-        let updated = sqlx::query(
-            "UPDATE notifications SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
-             WHERE id = $1 AND recipient_id = $2 AND read_at IS NULL",
-        )
+        let updated = sqlx::query(notification_sql!(
+            "UPDATE notifications AS n SET read_at = COALESCE(n.read_at, CURRENT_TIMESTAMP)
+             WHERE n.id = $1 AND n.recipient_id = $2 AND n.read_at IS NULL AND ",
+            ""
+        ))
         .bind(notification_id)
         .bind(recipient_id)
         .execute(&mut *transaction)
         .await?;
         if updated.rows_affected() == 0 {
-            let exists = sqlx::query_scalar::<_, bool>(
-                "SELECT EXISTS (SELECT 1 FROM notifications
-                 WHERE id = $1 AND recipient_id = $2)",
-            )
+            let exists = sqlx::query_scalar::<_, bool>(notification_sql!(
+                "SELECT EXISTS (SELECT 1 FROM notifications AS n
+                 WHERE n.id = $1 AND n.recipient_id = $2 AND ",
+                ")"
+            ))
             .bind(notification_id)
             .bind(recipient_id)
             .fetch_one(&mut *transaction)
@@ -162,9 +211,7 @@ impl Database {
             .await?;
         }
         transaction.commit().await?;
-        self.notification_by_id(recipient_id, notification_id)
-            .await
-            .map_err(NotificationMutationError::Database)
+        self.notification_by_id(recipient_id, notification_id).await
     }
 
     pub async fn mark_all_notifications_read(
@@ -172,10 +219,13 @@ impl Database {
         recipient_id: Uuid,
     ) -> Result<NotificationUnreadCountRecord, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
-        let updated = sqlx::query(
-            "UPDATE notifications SET read_at = CURRENT_TIMESTAMP
-             WHERE recipient_id = $1 AND read_at IS NULL",
-        )
+        // READ COMMITTED fixes the UPDATE target set at statement start, including while waiting for locks.
+        // https://www.postgresql.org/docs/16/transaction-iso.html#XACT-READ-COMMITTED
+        let updated = sqlx::query(notification_sql!(
+            "UPDATE notifications AS n SET read_at = CURRENT_TIMESTAMP
+             WHERE n.recipient_id = $1 AND n.read_at IS NULL AND ",
+            ""
+        ))
         .bind(recipient_id)
         .execute(&mut *transaction)
         .await?;
@@ -190,29 +240,37 @@ impl Database {
             )
             .await?;
         }
+        let unread_count = sqlx::query_scalar::<_, i64>(
+            notification_sql!("SELECT COUNT(*) FROM notifications AS n WHERE n.recipient_id = $1 AND n.read_at IS NULL AND ", ""),
+        )
+        .bind(recipient_id)
+        .fetch_one(&mut *transaction)
+        .await?;
         transaction.commit().await?;
-        self.count_unread_notifications(recipient_id).await
+        Ok(NotificationUnreadCountRecord { unread_count })
     }
 
     async fn notification_by_id(
         &self,
         recipient_id: Uuid,
         notification_id: Uuid,
-    ) -> Result<NotificationRecord, DatabaseError> {
-        sqlx::query_as::<_, NotificationRow>(
+    ) -> Result<NotificationRecord, NotificationMutationError> {
+        sqlx::query_as::<_, NotificationRow>(notification_sql!(
             "SELECT n.id, n.kind, actor.id AS actor_id, actor.username AS actor_username,
                     actor.display_name AS actor_display_name, actor.avatar_url AS actor_avatar_url,
-                    n.target_type, n.target_id, n.read_at, n.created_at
+                    n.target_type, n.target_id, post.topic_id, n.read_at, n.created_at
              FROM notifications AS n
              LEFT JOIN users AS actor ON actor.id = n.actor_id AND actor.status = 'active'
-             WHERE n.recipient_id = $1 AND n.id = $2",
-        )
+              LEFT JOIN posts AS post ON n.target_type = 'post' AND post.id = n.target_id
+             WHERE n.recipient_id = $1 AND n.id = $2 AND ",
+            ""
+        ))
         .bind(recipient_id)
         .bind(notification_id)
         .fetch_optional(&self.pool)
         .await?
         .map(NotificationRow::into_record)
-        .ok_or_else(|| DatabaseError::Sqlx(sqlx::Error::RowNotFound))
+        .ok_or(NotificationMutationError::NotFound)
     }
 }
 

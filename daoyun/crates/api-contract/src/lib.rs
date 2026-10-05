@@ -17,6 +17,13 @@ mod messages;
 mod moderation;
 mod notifications;
 mod pagination;
+mod permission_matrix;
+pub use permission_matrix::{
+    BoardPermissionMatrix, PermissionCheck, PermissionMatrixAction, PermissionMatrixActionResult,
+    PermissionMatrixDecision, PermissionMatrixQuota, PermissionMatrixScenario,
+    PermissionMatrixScenarioKind, PermissionMatrixSource, PermissionMatrixSourceKind,
+};
+pub mod plugin_validation;
 mod plugins;
 mod redemptions;
 pub use redemptions::{
@@ -55,7 +62,8 @@ pub use admin::{
     UpdateSmtpSettingsRequest,
 };
 pub use attachments::{
-    AttachmentCleanupResult, AttachmentScanStatus, AttachmentStatus, DraftImageAttachment,
+    AttachmentCleanupResult, AttachmentScanStatus, AttachmentStatus,
+    AttachmentStorageConfiguration, AttachmentStorageProvider, DraftImageAttachment,
     TopicAttachment,
 };
 pub use auth::{
@@ -121,16 +129,18 @@ pub use moderation::{
     TopicModerationStatus,
 };
 pub use notifications::{
-    Notification, NotificationKind, NotificationTarget, NotificationUnreadCount,
+    Notification, NotificationKind, NotificationPageQuery, NotificationTarget,
+    NotificationUnreadCount,
 };
 pub use pagination::{PageMeta, PageResponse};
 pub use plugins::{
     BusinessPluginCapability, BusinessPluginManifestSchema, ExecutePluginUiActionRequest,
     InstallPluginRequest, InvokePluginRequest, LegacyPluginCapability, LegacyPluginManifestSchema,
-    Plugin, PluginBusinessApiVersion, PluginCapability, PluginDataScope, PluginEventSubscription,
-    PluginInvocation, PluginManifestRequest, PluginOperation, PluginSchemaVersion, PluginStatus,
-    PluginUiActionResult, PluginUiBlock, PluginUiContribution, PluginUiSchema, PluginUiSlot,
-    PluginUiSurfaceContribution, PluginUiTone, UpdatePluginRequest,
+    Plugin, PluginBusinessApiVersion, PluginCapabilitiesSnapshot, PluginCapability,
+    PluginDataScope, PluginEventSubscription, PluginInvocation, PluginManifestRequest,
+    PluginModuleExecution, PluginModuleSnapshot, PluginModuleStatus, PluginOperation,
+    PluginSchemaVersion, PluginStatus, PluginUiActionResult, PluginUiBlock, PluginUiContribution,
+    PluginUiSchema, PluginUiSlot, PluginUiSurfaceContribution, PluginUiTone, UpdatePluginRequest,
 };
 pub use relations::{BookmarkState, PostLikeState};
 pub use reports::{

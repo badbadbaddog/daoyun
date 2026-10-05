@@ -205,3 +205,93 @@ async fn polls_allow_author_edits_only_before_first_vote_and_reject_restricted_a
         1
     );
 }
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn builtin_migration_preserves_disabled_poll_history_and_blocks_incompatible_rollback(
+    pool: PgPool,
+) {
+    infrastructure::MIGRATOR
+        .undo(&pool, 202609160004)
+        .await
+        .unwrap();
+    let (db, author, voter, board) = setup(&pool).await;
+    let topic = input(author, board);
+    let topic_id = topic.id;
+    db.create_published_topic_with_extensions(topic, None, None, Some(poll()))
+        .await
+        .unwrap();
+    let option = db
+        .topic_poll(topic_id, Some(voter))
+        .await
+        .unwrap()
+        .unwrap()
+        .options[0]
+        .id;
+    db.vote_poll(voter, topic_id, option).await.unwrap();
+    sqlx::query("UPDATE plugins SET status='disabled',revision=7 WHERE key='official_polls'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO plugins(id,key,name,version,business_api_version,capabilities,component_bytes,component_sha256,installed_by) VALUES($1,'official_topic_supplements','Single capability','0.1.0','0.1.0','[\"topic.supplements\"]',$4,$5,$6),($2,'official_points_redemption','Mixed capabilities','0.1.0','0.1.0','[\"membership.redemption\",\"topic.polls\",\"ui.panel\"]',$4,$5,$6),($3,'third_party_polls','Third party','0.1.0','0.1.0','[\"topic.polls\",\"ui.panel\"]',$4,$5,$6)").bind(Uuid::now_v7()).bind(Uuid::now_v7()).bind(Uuid::now_v7()).bind(vec![0u8]).bind("a".repeat(64)).bind(author).execute(&pool).await.unwrap();
+    let before: serde_json::Value =
+        sqlx::query_scalar("SELECT to_jsonb(p) FROM plugins p WHERE key='official_polls'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    infrastructure::MIGRATOR.run(&pool).await.unwrap();
+    let exists: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='plugins' AND column_name='execution')").fetch_one(&pool).await.unwrap();
+    assert!(
+        exists,
+        "builtin migration must record execution independently of Wasm"
+    );
+    let mut after: serde_json::Value =
+        sqlx::query_scalar("SELECT to_jsonb(p) FROM plugins p WHERE key='official_polls'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(after["execution"], "native");
+    assert_eq!(after["revision"], 8);
+    after.as_object_mut().unwrap().remove("execution");
+    after["revision"] = serde_json::json!(7);
+    assert_eq!(after, before);
+    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM plugins WHERE key IN ('official_topic_supplements','official_points_redemption','third_party_polls') AND execution='wasm' AND revision=1").fetch_one(&pool).await.unwrap(),3,"migration must leave nonmatching official and third-party contracts unchanged");
+    let history = db.topic_poll(topic_id, Some(voter)).await.unwrap().unwrap();
+    assert!(!history.enabled);
+    assert_eq!(history.total_votes, Some(1));
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("SELECT provider_key FROM topic_polls WHERE topic_id=$1")
+            .bind(topic_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        "official_polls"
+    );
+    infrastructure::MIGRATOR
+        .undo(&pool, 202609160004)
+        .await
+        .expect("retained legacy components permit schema rollback");
+    assert_eq!(
+        db.topic_poll(topic_id, Some(voter))
+            .await
+            .unwrap()
+            .unwrap()
+            .total_votes,
+        Some(1)
+    );
+    infrastructure::MIGRATOR.run(&pool).await.unwrap();
+    sqlx::query("INSERT INTO plugins(id,key,name,version,business_api_version,capabilities,component_bytes,component_sha256,execution,installed_by) VALUES($1,'official_community_analytics','Analytics','0.1.0','0.1.0','[\"community.analytics\"]'::jsonb,$2,$3,'native',$4)").bind(Uuid::now_v7()).bind(Vec::<u8>::new()).bind("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855").bind(author).execute(&pool).await.unwrap();
+    assert!(
+        infrastructure::MIGRATOR
+            .undo(&pool, 202609160004)
+            .await
+            .is_err(),
+        "new native records must block an incompatible schema rollback"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM topic_poll_votes")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        1
+    );
+}

@@ -32,6 +32,32 @@ afterEach(() => {
 })
 
 describe("auth API client", () => {
+  it("announces successful logout to other tabs without storing credentials", async () => {
+    const storage = vi.spyOn(Storage.prototype, "setItem")
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      data: { logged_out: true },
+      meta: { request_id: "019fc700-0000-7000-8000-000000000005" },
+    }), { status: 200 }))
+
+    await logout("c".repeat(64))
+
+    expect(storage).toHaveBeenCalledWith("daoyun:session-change", expect.any(String))
+    const hint = storage.mock.calls.find(([key]) => key === "daoyun:session-change")?.[1]
+    expect(hint).not.toContain("c".repeat(64))
+  })
+
+  it("does not announce failed authentication or ordinary session reads", async () => {
+    const storage = vi.spyOn(Storage.prototype, "setItem")
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      error: { code: "auth.unauthenticated", message: "当前请求未通过身份认证" },
+      meta: { request_id: "019fc700-0000-7000-8000-000000000005" },
+    }), { status: 401 }))
+
+    await getCurrentSession()
+    await expect(login({ identifier: "member", password: "wrong" })).rejects.toThrow()
+
+    expect(storage).not.toHaveBeenCalled()
+  })
   it("maps the authenticated session envelope and sends credentials", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       data: {
@@ -283,6 +309,21 @@ describe("auth API client", () => {
         headers: expect.objectContaining({ "x-csrf-token": "j".repeat(64) }),
       }),
     )
+  })
+
+  it.each(["registration", "assertion"] as const)("accepts omitted empty credential lists in real %s options", async (kind) => {
+    const options = kind === "registration" ? {
+      challenge: "challenge", rp: { id: "localhost", name: "DaoYun" },
+      user: { id: "user", name: "member", displayName: "成员" },
+      pubKeyCredParams: [{ type: "public-key", alg: -7 }], timeout: 60000,
+      authenticatorSelection: { residentKey: "required", userVerification: "required" }, attestation: "none",
+    } : { challenge: "challenge", rpId: "localhost", timeout: 60000, userVerification: "required" }
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      data: { challenge_id: "019fc700-0000-7000-8000-000000000009", options },
+      meta: { request_id: "019fc700-0000-7000-8000-000000000005" },
+    }), { status: 200 }))
+    const result = kind === "registration" ? await startPasskeyRegistration("j".repeat(64)) : await startPasskeyAssertion()
+    expect("excludeCredentials" in result.options ? result.options.excludeCredentials : result.options.allowCredentials).toEqual([])
   })
 
   it("lists and deletes passkeys with the server summary contract", async () => {

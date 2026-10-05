@@ -1743,6 +1743,1165 @@ async fn public_branding_fails_open_when_redis_is_unavailable(pool: PgPool) {
     assert_eq!(response_json(response).await["data"]["site_name"], "刀云");
 }
 
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn board_permission_matrix_explains_entitlement_upload_without_consuming_quota(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    initialize(&app).await;
+    let registered = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/auth/register",
+            json!({
+                "username": "matrix_member", "email": "matrix_member@example.com",
+                "display_name": "矩阵会员", "password": "correct horse battery staple"
+            }),
+            "",
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(registered.status(), StatusCode::CREATED);
+    let (member_cookies, _) = session_cookies(&registered).await;
+    let user_id = response_json(registered).await["data"]["user"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    sqlx::query(
+        "DELETE FROM community_group_permissions WHERE permission_key = 'attachment.upload'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (cookies, csrf) = login_owner(&app).await;
+    let board = app.clone().oneshot(json_request(Method::POST, "/api/v1/admin/boards", json!({
+        "name": "权限矩阵", "slug": "matrix-board", "description": "", "position": 1,
+        "parent_id": null, "visibility": "public", "status": "open", "icon": "messages", "tone": "green"
+    }), &cookies, Some(&csrf))).await.unwrap();
+    assert_eq!(board.status(), StatusCode::CREATED);
+    let board_id = response_json(board).await["data"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let published = app
+        .clone()
+        .oneshot(json_request(
+            Method::PUT,
+            "/api/v1/admin/entitlements/types/matrix_upload",
+            json!({
+                "display_name": "上传权益", "permission_keys": ["attachment.upload"],
+                "quotas": {"attachment.upload.daily": 20, "attachment.file.bytes": 20971520},
+                "expected_revision": null
+            }),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(published.status(), StatusCode::OK);
+    let entitlement_type_id = response_json(published).await["data"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let granted = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entitlements",
+            json!({
+                "user_id": user_id, "entitlement_type_id": entitlement_type_id, "source": "admin",
+                "source_reference_id": null, "reason": "只读矩阵来源测试",
+                "starts_at": "2020-01-01T00:00:00Z", "ends_at": "2030-01-01T00:00:00Z",
+                "idempotency_key": "matrix-upload-grant"
+            }),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(granted.status(), StatusCode::OK);
+    let before: i64 = sqlx::query_scalar("SELECT count(*) FROM community_quota_usage")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    for _ in 0..2 {
+        let response = app
+            .clone()
+            .oneshot(get_request(
+                &format!("/api/v1/admin/boards/{board_id}/permission-matrix?user_id={user_id}"),
+                &cookies,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let request_id = response.headers()["x-request-id"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let payload = response_json(response).await;
+        assert_eq!(payload["meta"]["request_id"], request_id);
+        assert_eq!(payload["data"]["board_id"], board_id);
+        assert!(payload["data"]["evaluated_at"].is_string());
+        let scenario = &payload["data"]["scenarios"][0];
+        assert_eq!(scenario["kind"], "user");
+        let upload = scenario["actions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|action| action["action"] == "attachment_upload")
+            .unwrap();
+        assert_eq!(upload["decision"], "missing_context");
+        assert_eq!(upload["permission_provided"], true);
+        assert!(upload["source_ids"].as_array().unwrap().iter().any(|id| {
+            scenario["sources"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|source| {
+                    source["id"] == *id
+                        && source["kind"] == "entitlement"
+                        && source["key"] == "matrix_upload"
+                })
+        }));
+        let quota = scenario["quotas"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|quota| quota["key"] == "attachment.upload.daily")
+            .unwrap();
+        assert_eq!(quota["limit"], 20);
+        assert_eq!(quota["used"], 0);
+    }
+    let after: i64 = sqlx::query_scalar("SELECT count(*) FROM community_quota_usage")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        after, before,
+        "matrix reads must never create quota consumption rows"
+    );
+    let denied = app
+        .clone()
+        .oneshot(get_request(
+            &format!("/api/v1/admin/boards/{board_id}/permission-matrix?user_id={user_id}"),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+
+    let forbidden = app
+        .clone()
+        .oneshot(get_request(
+            &format!("/api/v1/admin/boards/{board_id}/permission-matrix?user_id={user_id}"),
+            &member_cookies,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+    let forbidden_id = forbidden.headers()["x-request-id"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let forbidden_body = response_json(forbidden).await;
+    assert_eq!(forbidden_body["meta"]["request_id"], forbidden_id);
+    assert!(forbidden_body.get("data").is_none());
+    for query in ["", "?group_ids=invalid", "?unexpected=true"] {
+        let invalid = app
+            .clone()
+            .oneshot(get_request(
+                &format!("/api/v1/admin/boards/{board_id}/permission-matrix{query}"),
+                &cookies,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(invalid.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let id = invalid.headers()["x-request-id"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(response_json(invalid).await["meta"]["request_id"], id);
+    }
+    let invalid_path = app
+        .clone()
+        .oneshot(get_request(
+            "/api/v1/admin/boards/invalid/permission-matrix?group_ids=invalid",
+            &cookies,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(invalid_path.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let invalid_path_id = invalid_path.headers()["x-request-id"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(
+        response_json(invalid_path).await["meta"]["request_id"],
+        invalid_path_id
+    );
+
+    let group_id: Uuid = sqlx::query_scalar("SELECT group_id FROM community_group_memberships WHERE user_id = $1 AND revoked_at IS NULL LIMIT 1")
+        .bind(Uuid::parse_str(&user_id).unwrap()).fetch_one(&pool).await.unwrap();
+    let group_read = app
+        .clone()
+        .oneshot(get_request(
+            &format!("/api/v1/admin/boards/{board_id}/permission-matrix?group_ids={group_id}"),
+            &cookies,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(group_read.status(), StatusCode::OK);
+    let group_data = response_json(group_read).await;
+    assert_eq!(group_data["data"]["scenarios"][0]["complete"], false);
+    let group_upload = group_data["data"]["scenarios"][0]["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["action"] == "attachment_upload")
+        .unwrap();
+    assert_eq!(group_upload["decision"], "not_provided");
+    for ids in [
+        format!("{group_id},{group_id}"),
+        std::iter::repeat_n(group_id.to_string(), 5)
+            .collect::<Vec<_>>()
+            .join(","),
+    ] {
+        let invalid = app
+            .clone()
+            .oneshot(get_request(
+                &format!("/api/v1/admin/boards/{board_id}/permission-matrix?group_ids={ids}"),
+                &cookies,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(invalid.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    sqlx::query("INSERT INTO community_quota_usage(user_id, quota_key, window_start, used) VALUES ($1, 'attachment.upload.daily', $2, 19)")
+        .bind(Uuid::parse_str(&user_id).unwrap()).bind(time::OffsetDateTime::now_utc().date()).execute(&pool).await.unwrap();
+    for _ in 0..2 {
+        let response = app
+            .clone()
+            .oneshot(get_request(
+                &format!("/api/v1/admin/boards/{board_id}/permission-matrix?user_id={user_id}"),
+                &cookies,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = response_json(response).await;
+        let quota = payload["data"]["scenarios"][0]["quotas"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|quota| quota["key"] == "attachment.upload.daily")
+            .unwrap();
+        assert_eq!(quota["limit"], 20);
+        assert_eq!(quota["used"], 19);
+    }
+    let usage: (i64, i64) = sqlx::query_as("SELECT used, revision FROM community_quota_usage WHERE user_id = $1 AND quota_key = 'attachment.upload.daily'")
+        .bind(Uuid::parse_str(&user_id).unwrap()).fetch_one(&pool).await.unwrap();
+    assert_eq!(
+        usage,
+        (19, 1),
+        "read-only checks must not consume or revise existing usage"
+    );
+    let policy_response = app.clone().oneshot(json_request(Method::PUT,
+        &format!("/api/v1/admin/content-access-policies/board/{board_id}"),
+        json!({"operator": "any_of", "subjects": [{"subject_type": "governance", "subject_key": "moderation.topic", "community_group_id": null}], "expected_revision": null}),
+        &cookies, Some(&csrf)
+    )).await.unwrap();
+    assert_eq!(policy_response.status(), StatusCode::OK);
+    let child = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/boards",
+            json!({
+                "name": "独立子版", "slug": "matrix-child", "description": "", "position": 0,
+                "parent_id": board_id, "visibility": "public", "icon": "messages", "tone": "green"
+            }),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(child.status(), StatusCode::CREATED);
+    let child_id = response_json(child).await["data"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    for (id, slug, expected_status, expected_decision) in [
+        (&board_id, "matrix-board", StatusCode::FORBIDDEN, "denied"),
+        (&child_id, "matrix-child", StatusCode::OK, "allowed"),
+    ] {
+        let actual = app
+            .clone()
+            .oneshot(get_request(
+                &format!("/api/v1/boards/{slug}"),
+                &member_cookies,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(actual.status(), expected_status);
+        let matrix = app
+            .clone()
+            .oneshot(get_request(
+                &format!("/api/v1/admin/boards/{id}/permission-matrix?user_id={user_id}"),
+                &cookies,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(matrix.status(), StatusCode::OK);
+        let payload = response_json(matrix).await;
+        assert_eq!(
+            payload["data"]["scenarios"][0]["actions"][0]["decision"],
+            expected_decision
+        );
+    }
+    sqlx::query(
+        "UPDATE user_standard_entitlements SET ends_at = CURRENT_TIMESTAMP WHERE user_id = $1",
+    )
+    .bind(Uuid::parse_str(&user_id).unwrap())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let expired = app
+        .clone()
+        .oneshot(get_request(
+            &format!("/api/v1/admin/boards/{child_id}/permission-matrix?user_id={user_id}"),
+            &cookies,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(expired.status(), StatusCode::OK);
+    let payload = response_json(expired).await;
+    let expired_upload = payload["data"]["scenarios"][0]["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["action"] == "attachment_upload")
+        .unwrap();
+    assert_eq!(expired_upload["permission_provided"], false);
+    assert_eq!(expired_upload["decision"], "denied");
+    assert!(
+        payload["data"]["scenarios"][0]["sources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|source| source["kind"] != "entitlement")
+    );
+
+    let openapi = response_json(
+        app.oneshot(get_request("/api/v1/openapi.json", ""))
+            .await
+            .unwrap(),
+    )
+    .await;
+    let operation = &openapi["paths"]["/api/v1/admin/boards/{board_id}/permission-matrix"]["get"];
+    for code in ["200", "401", "403", "404", "422", "503"] {
+        assert!(operation["responses"][code]["headers"]["x-request-id"].is_object());
+    }
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn team_last_administrator_revoke_is_denied_and_audited(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    initialize(&app).await;
+    let (cookies, csrf) = login_owner(&app).await;
+    let assignment_id: Uuid = sqlx::query_scalar(
+        "SELECT assignment.id FROM role_assignments AS assignment
+         JOIN roles AS role ON role.id = assignment.role_id
+         JOIN users AS account ON account.id = assignment.user_id
+         WHERE role.key = 'super_admin' AND account.username = 'owner'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let response = app
+        .clone()
+        .oneshot(json_request(
+            Method::DELETE,
+            &format!("/api/v1/admin/authorization/assignments/{assignment_id}"),
+            json!(null),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let request_id = response.headers()["x-request-id"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let body = response_json(response).await;
+    assert_eq!(body["meta"]["request_id"], request_id);
+    assert_eq!(body["error"]["code"], "authorization.role_system_managed");
+    let retained: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM role_assignments WHERE id = $1)")
+            .bind(assignment_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(retained);
+    let denied: Value = sqlx::query_scalar(
+        "SELECT summary FROM admin_audit_log
+         WHERE action = 'authorization.assignment.delete.denied' AND resource_id = $1",
+    )
+    .bind(assignment_id)
+    .fetch_one(&pool)
+    .await
+    .expect("protected administrator refusal must be audited");
+    assert_eq!(denied["reason"], "authorization.role_system_managed");
+    assert_eq!(denied["role_key"], "super_admin");
+    assert_eq!(denied["target_username"], "owner");
+    let permissions = app
+        .oneshot(get_request(
+            "/api/v1/admin/authorization/permissions",
+            &cookies,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(permissions.status(), StatusCode::OK);
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn team_scoped_appointment_limits_real_governance_actions(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    initialize(&app).await;
+    let registered = app.clone().oneshot(json_request(
+        Method::POST, "/api/v1/auth/register",
+        json!({"username": "team_moderator", "email": "team_moderator@example.com", "display_name": "团队版主", "password": "correct horse battery staple"}),
+        "", None,
+    )).await.unwrap();
+    assert_eq!(registered.status(), StatusCode::CREATED);
+    let (member_cookies, member_csrf) = session_cookies(&registered).await;
+    let (cookies, csrf) = login_owner(&app).await;
+    let boards = app
+        .clone()
+        .oneshot(get_request("/api/v1/admin/boards", &cookies))
+        .await
+        .unwrap();
+    let assigned_board_id = response_json(boards).await["data"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut board_ids = vec![assigned_board_id.clone()];
+    for (slug, parent_id) in [
+        ("team-other", None),
+        ("team-child", Some(assigned_board_id.as_str())),
+    ] {
+        let board = app.clone().oneshot(json_request(
+            Method::POST, "/api/v1/admin/boards",
+            json!({"name": slug, "slug": slug, "description": "", "position": 1, "parent_id": parent_id, "visibility": "public", "status": "open", "icon": "messages", "tone": "green"}),
+            &cookies, Some(&csrf),
+        )).await.unwrap();
+        assert_eq!(board.status(), StatusCode::CREATED);
+        board_ids.push(
+            response_json(board).await["data"]["id"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        );
+    }
+    let role = app.clone().oneshot(json_request(
+        Method::POST, "/api/v1/admin/authorization/roles",
+        json!({"key": "team_scoped_moderator", "name": "团队版主", "scope": "board", "permission_keys": ["moderation.topic", "moderation.topic.pin"]}),
+        &cookies, Some(&csrf),
+    )).await.unwrap();
+    assert_eq!(role.status(), StatusCode::CREATED);
+    let role_id = response_json(role).await["data"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let assigned = app.clone().oneshot(json_request(
+        Method::POST, "/api/v1/admin/authorization/assignments",
+        json!({"username": "team_moderator", "role_id": role_id, "scope_id": assigned_board_id, "scope_mode": "exact"}),
+        &cookies, Some(&csrf),
+    )).await.unwrap();
+    assert_eq!(assigned.status(), StatusCode::CREATED);
+    let assignment_id = response_json(assigned).await["data"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut topic_ids = Vec::new();
+    for (index, board_id) in board_ids.iter().enumerate() {
+        let mut request = json_request(
+            Method::POST,
+            "/api/v1/topics",
+            json!({"board_id": board_id, "title": format!("团队作用域 {index}"), "content": "验证真实治理入口的版块边界"}),
+            &cookies,
+            Some(&csrf),
+        );
+        request.headers_mut().insert(
+            "idempotency-key",
+            format!("team-scope-topic-{index}").parse().unwrap(),
+        );
+        let topic = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(topic.status(), StatusCode::CREATED);
+        topic_ids.push(
+            response_json(topic).await["data"]["id"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        );
+    }
+    for (index, topic_id) in topic_ids.iter().enumerate() {
+        let response = app
+            .clone()
+            .oneshot(json_request(
+                Method::PATCH,
+                &format!("/api/v1/topics/{topic_id}/governance"),
+                json!({"action": "pin", "expected_revision": 1, "reason": "核验任命范围"}),
+                &member_cookies,
+                Some(&member_csrf),
+            ))
+            .await
+            .unwrap();
+        let expected = if index == 0 {
+            StatusCode::OK
+        } else {
+            StatusCode::FORBIDDEN
+        };
+        assert_eq!(
+            response.status(),
+            expected,
+            "exact appointment must exclude sibling and child boards"
+        );
+        let request_id = response.headers()["x-request-id"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let body = response_json(response).await;
+        assert_eq!(body["meta"]["request_id"], request_id);
+        if index == 0 {
+            assert_eq!(body["data"]["is_pinned"], true);
+        }
+    }
+    let revoked = app
+        .clone()
+        .oneshot(json_request(
+            Method::DELETE,
+            &format!("/api/v1/admin/authorization/assignments/{assignment_id}"),
+            json!(null),
+            &cookies,
+            Some(&csrf),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(revoked.status(), StatusCode::OK);
+    let assigned = app.clone().oneshot(json_request(
+        Method::POST, "/api/v1/admin/authorization/assignments",
+        json!({"username": "team_moderator", "role_id": role_id, "scope_id": assigned_board_id, "scope_mode": "subtree"}),
+        &cookies, Some(&csrf),
+    )).await.unwrap();
+    assert_eq!(assigned.status(), StatusCode::CREATED);
+    assert_eq!(
+        response_json(assigned).await["data"]["scope_mode"],
+        "subtree"
+    );
+    for (index, expected) in [(2, StatusCode::OK), (1, StatusCode::FORBIDDEN)] {
+        let response = app
+            .clone()
+            .oneshot(json_request(
+                Method::PATCH,
+                &format!("/api/v1/topics/{}/governance", topic_ids[index]),
+                json!({"action": "pin", "expected_revision": 1, "reason": "核验子版任命范围"}),
+                &member_cookies,
+                Some(&member_csrf),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            expected,
+            "subtree appointment must still exclude unrelated boards"
+        );
+    }
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn team_delegated_assigner_cannot_elevate_its_own_permissions(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    initialize(&app).await;
+    let registered = app.clone().oneshot(json_request(
+        Method::POST, "/api/v1/auth/register",
+        json!({"username": "team_assigner", "email": "team_assigner@example.com", "display_name": "有限任命者", "password": "correct horse battery staple"}),
+        "", None,
+    )).await.unwrap();
+    assert_eq!(registered.status(), StatusCode::CREATED);
+    let (member_cookies, member_csrf) = session_cookies(&registered).await;
+    let (cookies, csrf) = login_owner(&app).await;
+    let mut role_ids = Vec::new();
+    for (key, scope, permissions) in [
+        (
+            "team_assignment_delegate",
+            "instance",
+            vec![
+                "authorization.assignments.read",
+                "authorization.assignments.write",
+            ],
+        ),
+        ("team_unheld_moderation", "board", vec!["moderation.topic"]),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(json_request(
+                Method::POST,
+                "/api/v1/admin/authorization/roles",
+                json!({"key": key, "name": key, "scope": scope, "permission_keys": permissions}),
+                &cookies,
+                Some(&csrf),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        role_ids.push(
+            response_json(response).await["data"]["id"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        );
+    }
+    let assigned = app.clone().oneshot(json_request(
+        Method::POST, "/api/v1/admin/authorization/assignments",
+        json!({"username": "team_assigner", "role_id": role_ids[0], "scope_id": null, "scope_mode": "exact"}),
+        &cookies, Some(&csrf),
+    )).await.unwrap();
+    assert_eq!(assigned.status(), StatusCode::CREATED);
+    let board_id: Uuid = sqlx::query_scalar("SELECT id FROM boards WHERE slug = 'general'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let before: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM role_assignments WHERE user_id = (SELECT id FROM users WHERE username = 'team_assigner')",
+    ).fetch_one(&pool).await.unwrap();
+    let response = app.oneshot(json_request(
+        Method::POST, "/api/v1/admin/authorization/assignments",
+        json!({"username": "team_assigner", "role_id": role_ids[1], "scope_id": board_id, "scope_mode": "subtree"}),
+        &member_cookies, Some(&member_csrf),
+    )).await.unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let request_id = response.headers()["x-request-id"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let body = response_json(response).await;
+    assert_eq!(body["meta"]["request_id"], request_id);
+    assert_eq!(body["error"]["code"], "authorization.permission_invalid");
+    let after: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM role_assignments WHERE user_id = (SELECT id FROM users WHERE username = 'team_assigner')",
+    ).fetch_one(&pool).await.unwrap();
+    assert_eq!(after, before);
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn permission_check_is_read_only_and_never_authorizes_a_later_upload(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    initialize(&app).await;
+    let registered = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/auth/register",
+            json!({
+                "username": "check_member", "email": "check_member@example.com",
+                "display_name": "检查会员", "password": "correct horse battery staple"
+            }),
+            "",
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(registered.status(), StatusCode::CREATED);
+    let (member_cookies, member_csrf) = session_cookies(&registered).await;
+    let user_id: Uuid = response_json(registered).await["data"]["user"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let (cookies, csrf) = login_owner(&app).await;
+    let board = app.clone().oneshot(json_request(Method::POST, "/api/v1/admin/boards", json!({
+        "name": "权限检查", "slug": "permission-check-board", "description": "", "position": 1,
+        "parent_id": null, "visibility": "public", "status": "open", "icon": "messages", "tone": "green"
+    }), &cookies, Some(&csrf))).await.unwrap();
+    assert_eq!(board.status(), StatusCode::CREATED);
+    let board_id: Uuid = response_json(board).await["data"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let mut topic_request = json_request(
+        Method::POST,
+        "/api/v1/topics",
+        json!({
+            "board_id": board_id, "title": "检查不能代替授权", "content": "真实主题正文"
+        }),
+        &member_cookies,
+        Some(&member_csrf),
+    );
+    topic_request
+        .headers_mut()
+        .insert("idempotency-key", "permission-check-topic".parse().unwrap());
+    let topic = app.clone().oneshot(topic_request).await.unwrap();
+    assert_eq!(topic.status(), StatusCode::CREATED);
+    let topic_id: Uuid = response_json(topic).await["data"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    sqlx::query(
+        "DELETE FROM community_group_permissions WHERE permission_key = 'attachment.upload'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let group_id = Uuid::now_v7();
+    let membership_id = Uuid::now_v7();
+    sqlx::query("INSERT INTO community_groups(id,internal_key,display_name,display_order) VALUES ($1,'check_upload','检查上传组',100)")
+        .bind(group_id).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO community_group_permissions(group_id,permission_key) VALUES ($1,'attachment.upload')")
+        .bind(group_id).execute(&pool).await.unwrap();
+    for (key, amount) in [
+        ("attachment.upload.daily", 20_i64),
+        ("attachment.file.bytes", 100),
+        ("attachment.storage.bytes", 100),
+    ] {
+        sqlx::query("INSERT INTO community_group_quota_rules(group_id,quota_key,quota_value) VALUES ($1,$2,$3)")
+            .bind(group_id).bind(key).bind(amount).execute(&pool).await.unwrap();
+    }
+    sqlx::query("INSERT INTO community_group_memberships(id,user_id,group_id,membership_kind,source,reason,idempotency_key) VALUES ($1,$2,$3,'additional','admin','只读检查测试','permission-check-membership')")
+        .bind(membership_id).bind(user_id).bind(group_id).execute(&pool).await.unwrap();
+    // 使全局 MAX 的文件／存储额度与本测试边界一致。
+    sqlx::query("UPDATE community_group_quota_rules SET quota_value=100 WHERE quota_key IN ('attachment.file.bytes','attachment.storage.bytes')").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO community_quota_usage(user_id,quota_key,window_start,used,revision) VALUES ($1,'attachment.upload.daily',(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date,19,1)")
+        .bind(user_id).execute(&pool).await.unwrap();
+    let uri = format!(
+        "/api/v1/admin/permission-check?board_id={board_id}&user_id={user_id}&action=attachment_upload&topic_id={topic_id}&file_bytes=68"
+    );
+    let before = check_side_effect_counts(&pool, user_id).await;
+    for _ in 0..10 {
+        let response = app
+            .clone()
+            .oneshot(get_request(&uri, &cookies))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        let request_id = response.headers()["x-request-id"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let payload = response_json(response).await;
+        assert_eq!(payload["meta"]["request_id"], request_id);
+        assert_eq!(
+            payload["data"]["scenario"]["actions"][0]["decision"],
+            "allowed"
+        );
+        assert_eq!(
+            payload["data"]["scenario"]["sources"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(payload["data"]["file_bytes"], 68);
+    }
+    assert_eq!(check_side_effect_counts(&pool, user_id).await, before);
+    for query in [
+        "file_bytes=101",
+        "file_bytes=52428801",
+        "file_bytes=0",
+        "at=2099-01-01",
+        "action=governance_delete",
+        "user_id=invalid",
+    ] {
+        let response = app.clone().oneshot(get_request(&format!("/api/v1/admin/permission-check?board_id={board_id}&user_id={user_id}&action=attachment_upload&topic_id={topic_id}&{query}"), &cookies)).await.unwrap();
+        if query == "file_bytes=101" {
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response_json(response).await["data"]["scenario"]["actions"][0]["decision"],
+                "denied"
+            );
+        } else {
+            assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+            let request_id = response.headers()["x-request-id"]
+                .to_str()
+                .unwrap()
+                .to_owned();
+            assert_eq!(
+                response_json(response).await["meta"]["request_id"],
+                request_id
+            );
+        }
+    }
+    let missing = app.clone().oneshot(get_request(&format!("/api/v1/admin/permission-check?board_id={board_id}&user_id={user_id}&action=attachment_upload"), &cookies)).await.unwrap();
+    assert_eq!(
+        response_json(missing).await["data"]["scenario"]["actions"][0]["decision"],
+        "missing_context"
+    );
+    let owner_id: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE username='owner'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    for subject in [owner_id, user_id, Uuid::now_v7()] {
+        let response = app.clone().oneshot(get_request(&format!("/api/v1/admin/permission-check?board_id={board_id}&user_id={subject}&action=browse"), &member_cookies)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let payload = response_json(response).await;
+        assert!(payload.get("data").is_none());
+        assert!(!payload.to_string().contains("source_ids"));
+        assert!(!payload.to_string().contains("permission_keys"));
+    }
+    // 撤销唯一来源之后，实际上传重新鉴权，先前诊断不能放行。
+    sqlx::query("UPDATE community_group_memberships SET revoked_at=CURRENT_TIMESTAMP,revocation_reason='撤销测试来源',revoke_idempotency_key='check-revoke' WHERE id=$1")
+        .bind(membership_id).execute(&pool).await.unwrap();
+    let png: &[u8] = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x04\x00\x00\x00\xb5\x1c\x0c\x02\x00\x00\x00\x0bIDATx\xda\x63d\xf8\x0f\x00\x01\x05\x01\x01'\x18\xe3f\x00\x00\x00\x00IEND\xaeB\x60\x82";
+    let upload = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/api/v1/topics/{topic_id}/attachments"))
+                .header("cookie", &member_cookies)
+                .header("x-csrf-token", &member_csrf)
+                .header("content-type", "image/png")
+                .header("x-file-name", "check.png")
+                .body(Body::from(png))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(upload.status(), StatusCode::FORBIDDEN);
+    assert_eq!(check_side_effect_counts(&pool, user_id).await, before);
+    let denied = app
+        .clone()
+        .oneshot(get_request(&uri, &cookies))
+        .await
+        .unwrap();
+    assert_eq!(
+        response_json(denied).await["data"]["scenario"]["actions"][0]["reason"],
+        "community.permission_not_provided"
+    );
+    let openapi = serde_json::to_value(daoyun_api::openapi_document()).unwrap();
+    let operation = &openapi["paths"]["/api/v1/admin/permission-check"]["get"];
+    assert_eq!(operation["operationId"], "getPermissionCheck");
+    for status in ["200", "401", "403", "404", "422", "503"] {
+        assert!(operation["responses"][status]["headers"]["x-request-id"].is_object());
+    }
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn permission_check_matches_resource_states_sizes_and_real_attachment_reads(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    initialize(&app).await;
+    let registered = app.clone().oneshot(json_request(Method::POST, "/api/v1/auth/register", json!({
+        "username": "check_resource", "email": "check_resource@example.com", "display_name": "资源检查会员", "password": "correct horse battery staple"
+    }), "", None)).await.unwrap();
+    assert_eq!(registered.status(), StatusCode::CREATED);
+    let (member_cookies, member_csrf) = session_cookies(&registered).await;
+    let user_id: Uuid = response_json(registered).await["data"]["user"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let (cookies, csrf) = login_owner(&app).await;
+    let board = app.clone().oneshot(json_request(Method::POST, "/api/v1/admin/boards", json!({
+        "name": "资源条件检查", "slug": "check-resources", "description": "", "position": 1,
+        "parent_id": null, "visibility": "public", "status": "open", "icon": "messages", "tone": "green"
+    }), &cookies, Some(&csrf))).await.unwrap();
+    assert_eq!(board.status(), StatusCode::CREATED);
+    let board_id: Uuid = response_json(board).await["data"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let mut request = json_request(
+        Method::POST,
+        "/api/v1/topics",
+        json!({"board_id": board_id, "title": "检查资源状态", "content": "资源状态正文"}),
+        &member_cookies,
+        Some(&member_csrf),
+    );
+    request
+        .headers_mut()
+        .insert("idempotency-key", "check-resource-topic".parse().unwrap());
+    let topic = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(topic.status(), StatusCode::CREATED);
+    let topic_id: Uuid = response_json(topic).await["data"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let uri = format!("/api/v1/admin/permission-check?board_id={board_id}&user_id={user_id}");
+    for action in ["browse", "topic_create", "reply_create"] {
+        let context = if action == "topic_create" {
+            String::new()
+        } else {
+            format!("&topic_id={topic_id}")
+        };
+        let response = app
+            .clone()
+            .oneshot(get_request(
+                &format!("{uri}&action={action}{context}"),
+                &cookies,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response_json(response).await["data"]["scenario"]["actions"][0]["decision"],
+            "allowed"
+        );
+    }
+    sqlx::query("UPDATE topics SET locked_at=CURRENT_TIMESTAMP,locked_by=author_id WHERE id=$1")
+        .bind(topic_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let locked = app
+        .clone()
+        .oneshot(get_request(
+            &format!("{uri}&action=reply_create&topic_id={topic_id}"),
+            &cookies,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        response_json(locked).await["data"]["scenario"]["actions"][0]["reason"],
+        "topic.locked"
+    );
+    sqlx::query("UPDATE topics SET locked_at=NULL,locked_by=NULL WHERE id=$1")
+        .bind(topic_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let owner_id: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE username='owner'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let not_owner = app.clone().oneshot(get_request(&format!("/api/v1/admin/permission-check?board_id={board_id}&user_id={owner_id}&action=attachment_upload&topic_id={topic_id}&file_bytes=68"), &cookies)).await.unwrap();
+    assert_eq!(
+        response_json(not_owner).await["data"]["scenario"]["actions"][0]["reason"],
+        "attachment.owner_required"
+    );
+    let other_board: Uuid =
+        sqlx::query_scalar("SELECT id FROM boards WHERE id<>$1 AND deleted_at IS NULL LIMIT 1")
+            .bind(board_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let mismatch = app.clone().oneshot(get_request(&format!("/api/v1/admin/permission-check?board_id={other_board}&user_id={user_id}&action=reply_create&topic_id={topic_id}"), &cookies)).await.unwrap();
+    assert_eq!(mismatch.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    sqlx::query("UPDATE boards SET visibility='hidden' WHERE id=$1")
+        .bind(board_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let hidden_upload = app
+        .clone()
+        .oneshot(get_request(
+            &format!("{uri}&action=attachment_upload&topic_id={topic_id}&file_bytes=68"),
+            &cookies,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        response_json(hidden_upload).await["data"]["scenario"]["actions"][0]["decision"],
+        "allowed"
+    );
+    let png: &[u8] = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x04\x00\x00\x00\xb5\x1c\x0c\x02\x00\x00\x00\x0bIDATx\xda\x63d\xf8\x0f\x00\x01\x05\x01\x01'\x18\xe3f\x00\x00\x00\x00IEND\xaeB\x60\x82";
+    let upload = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/api/v1/topics/{topic_id}/attachments"))
+                .header("cookie", &member_cookies)
+                .header("x-csrf-token", &member_csrf)
+                .header("content-type", "image/png")
+                .header("x-file-name", "state.png")
+                .body(Body::from(png))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(upload.status(), StatusCode::CREATED);
+    let attachment_id: Uuid = response_json(upload).await["data"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    sqlx::query("UPDATE boards SET visibility='public' WHERE id=$1")
+        .bind(board_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE community_group_quota_rules SET quota_value=150 WHERE quota_key='attachment.download.bytes.daily'").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO community_quota_usage(user_id,quota_key,window_start,used,revision) VALUES ($1,'attachment.download.bytes.daily',(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date,100,1)").bind(user_id).execute(&pool).await.unwrap();
+    let download_uri = format!("{uri}&action=attachment_download&attachment_id={attachment_id}");
+    let too_big = app
+        .clone()
+        .oneshot(get_request(&download_uri, &cookies))
+        .await
+        .unwrap();
+    assert_eq!(
+        response_json(too_big).await["data"]["scenario"]["actions"][0]["reason"],
+        "community.quota_exhausted"
+    );
+    let actual = app
+        .clone()
+        .oneshot(get_request(
+            &format!("/api/v1/attachments/{attachment_id}"),
+            &member_cookies,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(actual.status(), StatusCode::TOO_MANY_REQUESTS);
+    sqlx::query("UPDATE community_quota_usage SET used=82 WHERE user_id=$1 AND quota_key='attachment.download.bytes.daily'").bind(user_id).execute(&pool).await.unwrap();
+    let exact = app
+        .clone()
+        .oneshot(get_request(&download_uri, &cookies))
+        .await
+        .unwrap();
+    assert_eq!(
+        response_json(exact).await["data"]["scenario"]["actions"][0]["decision"],
+        "allowed"
+    );
+    let actual = app
+        .clone()
+        .oneshot(get_request(
+            &format!("/api/v1/attachments/{attachment_id}"),
+            &member_cookies,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(actual.status(), StatusCode::OK);
+    let used: i64 = sqlx::query_scalar("SELECT used FROM community_quota_usage WHERE user_id=$1 AND quota_key='attachment.download.bytes.daily'").bind(user_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(used, 150);
+    sqlx::query("UPDATE community_quota_usage SET used=0 WHERE user_id=$1 AND quota_key='attachment.download.bytes.daily'").bind(user_id).execute(&pool).await.unwrap();
+    for (scan, deleted) in [
+        ("infected", false),
+        ("pending", false),
+        ("error", false),
+        ("clean", true),
+    ] {
+        sqlx::query("UPDATE topic_attachments SET scan_status=$2,deleted_at=CASE WHEN $3 THEN CURRENT_TIMESTAMP ELSE NULL END WHERE id=$1")
+            .bind(attachment_id).bind(scan).bind(deleted).execute(&pool).await.unwrap();
+        let checked = app
+            .clone()
+            .oneshot(get_request(&download_uri, &cookies))
+            .await
+            .unwrap();
+        assert_eq!(
+            response_json(checked).await["data"]["scenario"]["actions"][0]["reason"],
+            "resource.unavailable",
+            "state {scan}, deleted {deleted}"
+        );
+        let actual = app
+            .clone()
+            .oneshot(get_request(
+                &format!("/api/v1/attachments/{attachment_id}"),
+                &member_cookies,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(actual.status(), StatusCode::NOT_FOUND);
+        let thumbnail = app
+            .clone()
+            .oneshot(get_request(
+                &format!("/api/v1/attachments/{attachment_id}/thumbnail"),
+                &member_cookies,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(thumbnail.status(), StatusCode::NOT_FOUND);
+        let listed = app
+            .clone()
+            .oneshot(get_request(
+                &format!("/api/v1/topics/{topic_id}/attachments"),
+                &member_cookies,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(listed.status(), StatusCode::OK);
+        assert!(
+            response_json(listed).await["data"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+    }
+    let used: i64 = sqlx::query_scalar("SELECT used FROM community_quota_usage WHERE user_id=$1 AND quota_key='attachment.download.bytes.daily'").bind(user_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(used, 0);
+    // 最高管理身份只豁免上传额度，仍须拥有上传能力并上传到自己的主题。
+    let mut request = json_request(
+        Method::POST,
+        "/api/v1/topics",
+        json!({"board_id": board_id, "title": "管理者上传", "content": "管理者正文"}),
+        &cookies,
+        Some(&csrf),
+    );
+    request
+        .headers_mut()
+        .insert("idempotency-key", "check-owner-topic".parse().unwrap());
+    let topic = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(topic.status(), StatusCode::CREATED);
+    let owner_topic: Uuid = response_json(topic).await["data"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    sqlx::query("UPDATE community_group_quota_rules SET quota_value=0 WHERE quota_key IN ('attachment.upload.daily','attachment.file.bytes','attachment.storage.bytes')").execute(&pool).await.unwrap();
+    let checked = app.clone().oneshot(get_request(&format!("/api/v1/admin/permission-check?board_id={board_id}&user_id={owner_id}&action=attachment_upload&topic_id={owner_topic}&file_bytes=68"), &cookies)).await.unwrap();
+    assert_eq!(
+        response_json(checked).await["data"]["scenario"]["actions"][0]["decision"],
+        "allowed"
+    );
+    let upload = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/api/v1/topics/{owner_topic}/attachments"))
+                .header("cookie", &cookies)
+                .header("x-csrf-token", &csrf)
+                .header("content-type", "image/png")
+                .header("x-file-name", "owner.png")
+                .body(Body::from(png))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(upload.status(), StatusCode::CREATED);
+}
+
+async fn check_side_effect_counts(pool: &PgPool, user_id: Uuid) -> (i64, i64, i64, i64, i64) {
+    sqlx::query_as("SELECT
+        (SELECT used FROM community_quota_usage WHERE user_id=$1 AND quota_key='attachment.upload.daily'),
+        (SELECT revision FROM community_quota_usage WHERE user_id=$1 AND quota_key='attachment.upload.daily'),
+        (SELECT count(*) FROM point_ledger_entries),
+        (SELECT count(*) FROM admin_audit_log),
+        (SELECT COALESCE(sum(size_bytes),0)::bigint FROM topic_attachments WHERE uploader_id=$1 AND deleted_at IS NULL)")
+        .bind(user_id).fetch_one(pool).await.unwrap()
+}
+
 async fn initialize(app: &axum::Router) {
     let response = app
         .clone()

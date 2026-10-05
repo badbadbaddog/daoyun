@@ -5,7 +5,7 @@ import { ActionMenu, type ActionMenuItem } from "./ui/ActionMenu"
 
 export interface BoardTreeNode { board: AdminBoard; children: BoardTreeNode[]; depth: number }
 interface BoardTreeProps {
-  nodes: BoardTreeNode[]; expandedIds: Set<string>; forceExpanded: boolean; reorderDisabled: boolean; canWrite: boolean; pendingId: string | null
+  nodes: BoardTreeNode[]; expandedIds: Set<string>; forceExpanded: boolean; reorderDisabled: boolean; canWrite: boolean; canReadAccess?: boolean; canReadGovernance?: boolean; pendingId: string | null
   feedback: { boardId: string; message: string; kind: "success" | "error" } | null
   onToggle: (boardId: string) => void; onAddChild: (board: AdminBoard) => void; onEdit: (board: AdminBoard) => void
   onMove: (board: AdminBoard, direction: "up" | "down" | "in" | "out") => void; onVisibility: (board: AdminBoard) => void
@@ -19,7 +19,7 @@ function BoardTreeItem({ node, siblingIndex, siblingCount, ...props }: BoardTree
   const { board, children, depth } = node; const hasChildren = children.length > 0; const expanded = props.forceExpanded || props.expandedIds.has(board.id)
   const pending = props.pendingId === board.id; const feedback = props.feedback?.boardId === board.id ? props.feedback : null; const locked = props.pendingId !== null
   const reorderTitle = props.reorderDisabled ? "（搜索时不可调整）" : ""
-  const items: ActionMenuItem[] = [
+  const allItems: ActionMenuItem[] = [
     { label: "编辑设置", onSelect: () => props.onEdit(board) },
     { label: board.visibility === "public" ? "设为隐藏" : "设为公开", onSelect: () => props.onVisibility(board) },
     { label: `上移${reorderTitle}`, onSelect: () => props.onMove(board, "up"), disabled: props.reorderDisabled || siblingIndex === 0 },
@@ -31,11 +31,12 @@ function BoardTreeItem({ node, siblingIndex, siblingCount, ...props }: BoardTree
     { label: "合并版块", onSelect: () => props.onMerge(board) },
     { label: "删除版块", onSelect: () => props.onDelete(board), danger: true },
   ]
+  const items = props.canWrite ? allItems : allItems.filter(item => item.label === "访问策略" ? props.canReadAccess : item.label === "治理人员" ? props.canReadGovernance : false)
   return <li role="treeitem" aria-expanded={hasChildren ? expanded : undefined}><div className="admin-board-tree__row" data-depth={depth}>
-    <div className="admin-board-tree__identity">{hasChildren ? <button className="icon-button admin-board-tree__toggle" type="button" onClick={() => props.onToggle(board.id)} aria-label={`${expanded ? "收起" : "展开"}版块：${board.name}`} title={expanded ? "收起" : "展开"}>{expanded ? <ChevronDown size={15} aria-hidden="true" /> : <ChevronRight size={15} aria-hidden="true" />}</button> : <span className="admin-board-tree__toggle-spacer" aria-hidden="true" />}<span className={`admin-board-mark admin-board-mark--${board.tone}`} aria-hidden="true"><Folder size={19} /></span><div>{props.canWrite ? <button className="admin-board-name" type="button" disabled={locked} onClick={() => props.onEdit(board)} aria-label={`编辑设置：${board.name}`}>{board.name}</button> : <strong>{board.name}</strong>}<span>{board.description || `/${board.slug}`}</span></div></div>
+    <div className="admin-board-tree__identity">{hasChildren ? <button className="icon-button admin-board-tree__toggle" type="button" onClick={() => props.onToggle(board.id)} aria-label={`${expanded ? "收起" : "展开"}版块：${board.name}`} title={expanded ? "收起" : "展开"}>{expanded ? <ChevronDown size={15} aria-hidden="true" /> : <ChevronRight size={15} aria-hidden="true" />}</button> : <span className="admin-board-tree__toggle-spacer" aria-hidden="true" />}<span className={`admin-board-mark admin-board-mark--${board.tone}`} aria-hidden="true"><Folder size={19} /></span><div><button className="admin-board-name" type="button" disabled={locked} onClick={() => props.onEdit(board)} aria-label={`${props.canWrite ? "编辑" : "查看"}设置：${board.name}`}>{board.name}</button><span>{board.description || `/${board.slug}`}</span></div></div>
     <span className={`admin-board-visibility admin-board-visibility--${board.visibility}`}>{board.visibility === "public" ? <Eye size={13} aria-hidden="true" /> : <EyeOff size={13} aria-hidden="true" />}{board.visibility === "public" ? "公开" : "隐藏"}</span>
     <span className="admin-board-tree__topics">{board.topicCount} 个主题</span>
-    {props.canWrite && <div className="admin-board-tree__actions">{depth < 2 && <button className="icon-button" type="button" aria-label={`新增子版块：${board.name}`} title="新增子版块" disabled={locked} onClick={() => props.onAddChild(board)}><Plus size={14} aria-hidden="true" /></button>}<ActionMenu label={`更多操作：${board.name}`} items={items} disabled={locked} /></div>}
+    {(props.canWrite || items.length > 0) && <div className="admin-board-tree__actions">{props.canWrite && depth < 2 && <button className="icon-button" type="button" aria-label={`新增子版块：${board.name}`} title="新增子版块" disabled={locked} onClick={() => props.onAddChild(board)}><Plus size={14} aria-hidden="true" /></button>}<ActionMenu label={`更多操作：${board.name}`} items={items} disabled={locked} /></div>}
     {pending && <small className="admin-board-tree__feedback" role="status">保存中</small>}{feedback && <small className={`admin-board-tree__feedback admin-board-tree__feedback--${feedback.kind}`} role={feedback.kind === "error" ? "alert" : "status"}>{feedback.message}</small>}
   </div>{hasChildren && expanded && <ul role="group">{children.map((child, index) => <BoardTreeItem key={child.board.id} node={child} siblingIndex={index} siblingCount={children.length} {...props} />)}</ul>}</li>
 }

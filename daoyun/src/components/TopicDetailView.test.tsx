@@ -760,3 +760,96 @@ describe("TopicDetailView", () => {
 })
 
 vi.mock("./TopicPollPanel",()=>({TopicPollPanel:()=>null}))
+
+it("freezes an uncertain reply across target changes and composer reopening", async () => {
+  const user = userEvent.setup()
+  vi.mocked(listReplies).mockResolvedValue({ replies: [reply], nextCursor: null })
+  vi.mocked(createReply).mockRejectedValueOnce(new Error("response lost")).mockResolvedValueOnce({ ...reply, id: "019fc800-0000-7000-8000-000000000299", floorNumber: 2 })
+  render(<TopicDetailView topicId={topic.id} session={session} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+  await user.click(await screen.findByRole("button", { name: "回复 1 楼" }))
+  await user.type(screen.getByRole("textbox", { name: "参与讨论" }), "原请求正文")
+  await user.click(screen.getByRole("button", { name: "发布回复" }))
+  await screen.findByRole("alert")
+  expect(screen.getByRole("textbox", { name: "参与讨论" })).toHaveAttribute("contenteditable", "false")
+  expect(screen.getByRole("button", { name: "取消回复指定楼层" })).toBeDisabled()
+  await user.click(screen.getByRole("button", { name: "收起评论输入框" }))
+  await user.click(screen.getByRole("button", { name: "写评论" }))
+  expect(screen.getByText("回复 #1 @member")).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "发布回复" }))
+  await waitFor(() => expect(createReply).toHaveBeenCalledTimes(2))
+  const [first, second] = vi.mocked(createReply).mock.calls
+  expect(second[1]).toBe(first[1])
+  expect(second[2]).toEqual(first[2])
+  expect(second[3]).toEqual(first[3])
+})
+
+it("locks reply submission synchronously before React commits", async () => {
+  vi.mocked(createReply).mockReturnValue(new Promise(() => undefined))
+  render(<TopicDetailView topicId={topic.id} session={session} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+  await userEvent.type(await screen.findByRole("textbox", { name: "参与讨论" }), "一次提交")
+  const form = screen.getByRole("form", { name: "评论编辑器" })
+  act(() => { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })) })
+  expect(createReply).toHaveBeenCalledTimes(1)
+})
+
+it("stops automatic floor pagination after failure until the reader retries", async () => {
+  const later = { ...reply, id: "019fc800-0000-7000-8000-000000000299", floorNumber: 30 }
+  vi.mocked(listReplies).mockResolvedValueOnce({ replies: [reply], nextCursor: reply.id })
+    .mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ replies: [later], nextCursor: null })
+  render(<TopicDetailView topicId={topic.id} focusReplyId={later.id} session={null} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+  await screen.findByRole("alert")
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
+  expect(listReplies).toHaveBeenCalledTimes(2)
+  await userEvent.click(screen.getByRole("button", { name: "加载更多回复" }))
+  await waitFor(() => expect(screen.getByRole("article", { name: "第 30 楼回复" })).toHaveFocus())
+})
+
+it("discards a late reply result after navigation and clears the old private input", async () => {
+  let finish!: (value: typeof reply) => void
+  vi.mocked(createReply).mockReturnValue(new Promise(resolve => { finish = resolve }))
+  const props = { session, onBack: vi.fn(), onLogin: vi.fn(), onReplyPublished: vi.fn() }
+  const view = render(<TopicDetailView {...props} topicId={topic.id} />)
+  await userEvent.type(await screen.findByRole("textbox", { name: "参与讨论" }), "旧主题私有输入")
+  await userEvent.click(screen.getByRole("button", { name: "发布回复" }))
+  view.rerender(<TopicDetailView {...props} topicId="019fc800-0000-7000-8000-000000000199" />)
+  await screen.findByRole("textbox", { name: "参与讨论" })
+  await act(async () => finish(reply))
+  expect(screen.getByRole("textbox", { name: "参与讨论" })).not.toHaveTextContent("旧主题私有输入")
+  expect(screen.queryByRole("article", { name: "第 1 楼回复" })).not.toBeInTheDocument()
+  expect(props.onReplyPublished).not.toHaveBeenCalled()
+})
+
+it("tracks the visible viewport while the mobile reply editor is open", async () => {
+  const viewport = Object.assign(new EventTarget(), { height: 360, offsetTop: 0 })
+  const original = Object.getOwnPropertyDescriptor(window, "visualViewport")
+  Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport })
+  try {
+    render(<TopicDetailView topicId={topic.id} session={session} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+    await screen.findByRole("textbox", { name: "参与讨论" })
+    await userEvent.click(screen.getByRole("button", { name: "写评论" }))
+    const form = screen.getByRole("form", { name: "评论编辑器" })
+    expect(form.style.getPropertyValue("--reply-keyboard-inset")).toBe(`${Math.max(0, window.innerHeight - 360)}px`)
+    viewport.height = 440
+    act(() => viewport.dispatchEvent(new Event("resize")))
+    expect(form.style.getPropertyValue("--reply-viewport-height")).toBe("440px")
+  } finally {
+    if (original) Object.defineProperty(window, "visualViewport", original)
+    else Reflect.deleteProperty(window, "visualViewport")
+  }
+})
+
+it("keeps the original uncertain request after a later forbidden retry", async () => {
+  vi.mocked(createReply).mockRejectedValueOnce(new Error("lost"))
+    .mockRejectedValueOnce(new TopicApiError(403, "board.forbidden", "当前无权回复"))
+    .mockResolvedValueOnce(reply)
+  render(<TopicDetailView topicId={topic.id} session={session} onBack={vi.fn()} onLogin={vi.fn()} onReplyPublished={vi.fn()} />)
+  await userEvent.type(await screen.findByRole("textbox", { name: "参与讨论" }), "原请求正文")
+  await userEvent.click(screen.getByRole("button", { name: "发布回复" }))
+  await screen.findByRole("alert")
+  await userEvent.click(screen.getByRole("button", { name: "发布回复" }))
+  expect(await screen.findByRole("alert")).toHaveTextContent("当前无权回复")
+  expect(screen.getByRole("textbox", { name: "参与讨论" })).toHaveAttribute("contenteditable", "false")
+  await userEvent.click(screen.getByRole("button", { name: "发布回复" }))
+  await waitFor(() => expect(createReply).toHaveBeenCalledTimes(3))
+  expect(vi.mocked(createReply).mock.calls[2][2].idempotencyKey).toBe(vi.mocked(createReply).mock.calls[0][2].idempotencyKey)
+})

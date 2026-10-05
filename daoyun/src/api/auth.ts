@@ -1,5 +1,17 @@
 import type { components } from "./generated"
 
+export function isSessionExpiredError(error: unknown): boolean {
+  return error instanceof Error && "status" in error && error.status === 401
+    && "code" in error && error.code === "auth.unauthenticated"
+}
+
+export const AUTH_SESSION_CHANGE_KEY = "daoyun:session-change"
+
+function notifySessionChange() {
+  try { localStorage.setItem(AUTH_SESSION_CHANGE_KEY, crypto.randomUUID()) }
+  catch { /* The initiating tab still uses the verified server response. */ }
+}
+
 const SESSION_ENDPOINT = "/api/v1/auth/session"
 const REGISTER_ENDPOINT = "/api/v1/auth/register"
 const REGISTRATION_POLICY_ENDPOINT = "/api/v1/auth/registration-policy"
@@ -287,6 +299,7 @@ export async function register(input: RegisterInput, signal?: AbortSignal): Prom
   if (response.status !== 201 || !isAuthSessionResponse(payload)) {
     throw new Error("注册响应格式无效")
   }
+  notifySessionChange()
   return mapSession(payload)
 }
 
@@ -351,6 +364,7 @@ export async function login(input: LoginInput, signal?: AbortSignal): Promise<Au
   if (response.status !== 200 || !isAuthSessionResponse(payload)) {
     throw new Error("登录响应格式无效")
   }
+  notifySessionChange()
   return mapSession(payload)
 }
 
@@ -371,6 +385,7 @@ export async function logout(csrfToken: string, signal?: AbortSignal): Promise<b
   if (response.status !== 200 || !isLogoutResponse(payload)) {
     throw new Error("退出响应格式无效")
   }
+  notifySessionChange()
   return payload.data.logged_out
 }
 
@@ -534,6 +549,7 @@ export async function verifyPasskeyAssertion(
   if (response.status !== 200 || !isAuthSessionResponse(payload)) {
     throw new Error("通行密钥登录响应格式无效")
   }
+  notifySessionChange()
   return mapSession(payload)
 }
 
@@ -559,6 +575,7 @@ export async function verifyMfaChallenge(
   if (response.status !== 200 || !isAuthSessionResponse(payload)) {
     throw new Error("多因素认证响应格式无效")
   }
+  notifySessionChange()
   return mapSession(payload)
 }
 
@@ -829,6 +846,7 @@ export async function createOidcClaimAccount(
   if (response.status !== 201 || !isAuthSessionResponse(payload)) {
     throw new Error("外部身份账户创建响应格式无效")
   }
+  notifySessionChange()
   return mapSession(payload)
 }
 
@@ -1185,6 +1203,7 @@ function mapCredentialDescriptors(
   field: string,
 ): Array<{ type: string; id: string; transports?: string[] }> {
   const descriptors = value[field]
+  if (descriptors === undefined) return []
   if (!Array.isArray(descriptors)) {
     throw new Error("通行密钥选项中的凭据描述符无效")
   }

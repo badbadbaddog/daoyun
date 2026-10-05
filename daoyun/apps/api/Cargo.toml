@@ -5,6 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+# Source: https://doc.rust-lang.org/cargo/reference/features.html#optional-dependencies
+default = []
+wasm-plugins = ["dep:plugin-host"]
+
 [dependencies]
 api-contract.workspace = true
 aes-gcm.workspace = true
@@ -19,7 +24,7 @@ opentelemetry.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry_sdk.workspace = true
 passkey-auth.workspace = true
-plugin-host.workspace = true
+plugin-host = { workspace = true, optional = true }
 rand_core.workspace = true
 reqwest.workspace = true
 redis.workspace = true

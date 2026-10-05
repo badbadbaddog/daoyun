@@ -2,7 +2,7 @@ import { act, cleanup, render, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { createAuthorizationAssignment, deleteAuthorizationAssignment, listAdminAudit, listAuthorizationAssignments, listAuthorizationRoles } from "../api/admin"
+import { createAuthorizationAssignment, deleteAuthorizationAssignment, listAdminAudit, listAuthorizationAssignments, listAuthorizationRoles, listAdminCommunityGroups, listAdminCommunityGroupMemberships } from "../api/admin"
 import { AdminUsersApiError, getAdminUser, listAdminUserContent, listAdminUsers, updateAdminUserStatus } from "../api/adminUsers"
 import { listAdminUserReports } from "../api/reports"
 import { UserAdminPanel } from "./UserAdminPanel"
@@ -14,7 +14,7 @@ vi.mock("../api/adminUsers", async () => {
 
 vi.mock("../api/admin", async () => {
   const actual = await vi.importActual<typeof import("../api/admin")>("../api/admin")
-  return { ...actual, createAuthorizationAssignment: vi.fn(), deleteAuthorizationAssignment: vi.fn(), listAdminAudit: vi.fn(), listAuthorizationAssignments: vi.fn(), listAuthorizationRoles: vi.fn() }
+  return { ...actual, createAuthorizationAssignment: vi.fn(), deleteAuthorizationAssignment: vi.fn(), listAdminAudit: vi.fn(), listAuthorizationAssignments: vi.fn(), listAuthorizationRoles: vi.fn(), listAdminCommunityGroups: vi.fn(), listAdminCommunityGroupMemberships: vi.fn() }
 })
 
 vi.mock("../api/reports", async () => {
@@ -44,6 +44,8 @@ beforeEach(() => {
     userId, status: "suspended", reason: "严重违规", expiresAt: null, revision: 3,
     auditId: secondUserId, actor: { id: secondUserId, username: "owner", displayName: "站长", avatarUrl: null }, changedAt: "2026-08-12T08:00:00Z",
   })
+  vi.mocked(listAdminCommunityGroups).mockReset().mockResolvedValue([])
+  vi.mocked(listAdminCommunityGroupMemberships).mockReset().mockResolvedValue([])
   vi.mocked(listAuthorizationRoles).mockReset().mockResolvedValue([])
   vi.mocked(listAuthorizationAssignments).mockReset().mockResolvedValue({ assignments: [], nextCursor: null })
   vi.mocked(createAuthorizationAssignment).mockReset()
@@ -62,6 +64,21 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
 describe("UserAdminPanel", () => {
+  it("offers community memberships as a separate lazy user-detail tab", async () => {
+    const user = userEvent.setup()
+    render(<UserAdminPanel canReadGroups canReadGroupMemberships canWriteGroupMemberships csrfToken="csrf-token" />)
+    await user.click(await screen.findByRole("button", { name: /社区成员/ }))
+    const tab = await screen.findByRole("tab", { name: "用户组" })
+    expect(tab).toHaveAttribute("aria-selected", "false")
+    expect(screen.queryByRole("button", { name: "管理权限角色" })).not.toBeInTheDocument()
+    expect(listAdminCommunityGroups).not.toHaveBeenCalled()
+    await user.click(tab)
+    expect(tab).toHaveAttribute("aria-selected", "true")
+    await waitFor(() => expect(listAdminCommunityGroupMemberships).toHaveBeenCalledWith(userId, expect.any(AbortSignal)))
+    expect(screen.queryByRole("searchbox", { name: "搜索需要绑定用户组的用户" })).not.toBeInTheDocument()
+    expect(createAuthorizationAssignment).not.toHaveBeenCalled()
+  })
+
   it("opens details only in a drawer and keeps action forms behind dialogs", async () => {
     const user = userEvent.setup()
     render(<UserAdminPanel canModerate canAssignRoles csrfToken="csrf-token" />)
@@ -225,7 +242,7 @@ describe("UserAdminPanel", () => {
     vi.mocked(createAuthorizationAssignment).mockResolvedValue({
       id: secondUserId, user: { id: userId, username: "member", displayName: "社区成员", avatarUrl: null },
       role: { id: role.id, key: role.key, name: role.name, scope: role.scope, isSystem: false, revision: 1 },
-      scopeId: null, assignedBy: { id: secondUserId, username: "owner", displayName: "站长", avatarUrl: null }, createdAt: "2026-08-12T08:00:00Z",
+      scopeId: null, scopeMode: "exact" as const, assignedBy: { id: secondUserId, username: "owner", displayName: "站长", avatarUrl: null }, createdAt: "2026-08-12T08:00:00Z",
     })
     const user = userEvent.setup()
     render(<UserAdminPanel canAssignRoles csrfToken="csrf-token" />)
@@ -249,6 +266,7 @@ describe("UserAdminPanel", () => {
       user: { id: userId, username: "member", displayName: "社区成员", avatarUrl: null },
       role: { id: userId, key: "moderator", name: "版主", scope: "site", isSystem: false, revision: 1 },
       scopeId: null,
+      scopeMode: "exact",
       assignedBy: { id: secondUserId, username: "owner", displayName: "站长", avatarUrl: null },
       createdAt: "2026-08-12T08:00:00Z",
     }], nextCursor: null })
@@ -463,7 +481,7 @@ it("locks role assignment fields and rejects duplicate submissions until complet
   expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: "取消" })).toBeDisabled()
   await user.keyboard("{Escape}")
   expect(screen.getByRole("alertdialog", { name: "确认角色变更" })).toBeInTheDocument()
-  await act(async () => { pending.resolve({ id: secondUserId, role, user: { id: userId, username: summary.username, displayName: summary.displayName, avatarUrl: null }, scopeId: null, assignedBy: { id: secondUserId, username: "owner", displayName: "站长", avatarUrl: null }, createdAt: summary.createdAt }); await pending.promise })
+  await act(async () => { pending.resolve({ id: secondUserId, role, user: { id: userId, username: summary.username, displayName: summary.displayName, avatarUrl: null }, scopeId: null, scopeMode: "exact" as const, assignedBy: { id: secondUserId, username: "owner", displayName: "站长", avatarUrl: null }, createdAt: summary.createdAt }); await pending.promise })
   expect(await screen.findByText("角色已保存")).toBeInTheDocument()
   expect(screen.getByRole("checkbox", { name: "协管员" })).toBeEnabled()
 })
@@ -544,4 +562,90 @@ it("shows loaded status counts beside the reference-style filters", async () => 
   expect(within(filters.getByRole("button", { name: "正常" })).getByText("1")).toBeInTheDocument()
   expect(within(filters.getByRole("button", { name: "已限制" })).getByText("1")).toBeInTheDocument()
   expect(screen.getAllByText("占已加载 50.0%")).toHaveLength(2)
+})
+
+it("opens the requested user outside the loaded page and returns with filters intact", async () => {
+  vi.mocked(listAdminUsers).mockResolvedValue({ users: [], nextCursor: null })
+  const onQueryChange = vi.fn()
+  const query = "q=member&status=restricted&from=2026-08-01&user_id=" + userId
+  const view = render(<UserAdminPanel requestedQuery={query} onQueryChange={onQueryChange} />)
+  expect(await screen.findByRole("dialog", { name: "用户详情" })).toBeInTheDocument()
+  await screen.findByRole("heading", { name: "社区成员" })
+  expect(getAdminUser).toHaveBeenCalledWith(userId, expect.any(AbortSignal))
+  expect(listAdminUsers).toHaveBeenCalledTimes(1)
+  await userEvent.setup().click(screen.getByRole("button", { name: "返回列表" }))
+  expect(onQueryChange).toHaveBeenLastCalledWith("q=member&status=restricted&from=2026-08-01")
+  view.rerender(<UserAdminPanel requestedQuery="q=member&status=restricted&from=2026-08-01" onQueryChange={onQueryChange} />)
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  expect(screen.getByRole("searchbox", { name: "搜索用户" })).toHaveValue("member")
+  expect(screen.getByRole("button", { name: "已限制" })).toHaveAttribute("aria-pressed", "true")
+  expect(listAdminUsers).toHaveBeenCalledTimes(1)
+})
+
+it("publishes the selected user without dropping the current filters", async () => {
+  const onQueryChange = vi.fn()
+  render(<UserAdminPanel requestedQuery="status=restricted&q=member" onQueryChange={onQueryChange} />)
+  await userEvent.setup().click(await screen.findByRole("button", { name: /社区成员/ }))
+  const params = new URLSearchParams(onQueryChange.mock.calls.at(-1)?.[0])
+  expect(params.get("user_id")).toBe(userId)
+  expect(params.get("status")).toBe("restricted")
+  expect(params.get("q")).toBe("member")
+})
+
+it("ignores an invalid user ID and cancels the previous direct-detail request", async () => {
+  const view = render(<UserAdminPanel requestedQuery="user_id=invalid" />)
+  await screen.findByRole("button", { name: /社区成员/ })
+  expect(getAdminUser).not.toHaveBeenCalled()
+  vi.mocked(getAdminUser).mockImplementationOnce((_id, signal) => new Promise((_resolve, reject) => signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")))))
+  view.rerender(<UserAdminPanel requestedQuery={"user_id=" + userId} />)
+  await screen.findByRole("dialog", { name: "用户详情" })
+  const signal = vi.mocked(getAdminUser).mock.calls.at(-1)?.[1]
+  view.rerender(<UserAdminPanel requestedQuery="status=restricted" />)
+  expect(signal?.aborted).toBe(true)
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+})
+
+it("does not apply a previous user's pending status result to a new detail", async () => {
+  let finish!: (value: Awaited<ReturnType<typeof updateAdminUserStatus>>) => void
+  vi.mocked(updateAdminUserStatus).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  vi.mocked(getAdminUser).mockImplementation(async id => id === userId ? detail : { ...detail, id: secondUserId, username: "second", displayName: "第二位成员", status: "active", restrictionReason: null })
+  const view = render(<UserAdminPanel canModerate csrfToken="csrf" requestedQuery={"user_id=" + userId} />)
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole("button", { name: "管理账号状态" }))
+  await user.selectOptions(screen.getByLabelText("账号动作"), "suspended")
+  await user.clear(screen.getByLabelText("操作原因"))
+  await user.type(screen.getByLabelText("操作原因"), "来自旧用户的原因")
+  await user.click(screen.getByRole("button", { name: "确认提交" }))
+  await user.click(screen.getByRole("button", { name: "确认暂停账号" }))
+  view.rerender(<UserAdminPanel canModerate csrfToken="csrf" requestedQuery={"user_id=" + secondUserId} />)
+  await screen.findByRole("heading", { name: "第二位成员" })
+  await act(async () => finish({ userId, status: "suspended", reason: "来自旧用户的原因", expiresAt: null, revision: 3, auditId: userId, actor: { id: userId, username: "admin", displayName: "管理员", avatarUrl: null }, changedAt: "2026-08-12T08:00:00Z" }))
+  expect(screen.queryByText("来自旧用户的原因")).not.toBeInTheDocument()
+  expect(screen.getByRole("heading", { name: "第二位成员" })).toBeInTheDocument()
+})
+
+
+it.each([[true, false], [false, true]])("requires both group and membership read access for the user tab (%s, %s)", async (canReadGroups, canReadGroupMemberships) => {
+  const user = userEvent.setup()
+  render(<UserAdminPanel canReadGroups={canReadGroups} canReadGroupMemberships={canReadGroupMemberships} canWriteGroupMemberships />)
+  await user.click(await screen.findByRole("button", { name: /社区成员/ }))
+  expect(await screen.findByRole("dialog", { name: "用户详情" })).toBeInTheDocument()
+  expect(screen.queryByRole("tab", { name: "用户组" })).not.toBeInTheDocument()
+  expect(listAdminCommunityGroups).not.toHaveBeenCalled()
+  expect(listAdminCommunityGroupMemberships).not.toHaveBeenCalled()
+})
+
+it("loads final permission sources only from a separate authorized user-detail tab",async()=>{
+  const user=userEvent.setup()
+  const keys=["content.access_policies.read","community.groups.read","admin.users.read","community.memberships.read","entitlements.types.read","entitlements.grants.read","authorization.assignments.read"]
+  const view=render(<UserAdminPanel capabilityKeys={keys} />)
+  await user.click(await screen.findByRole("button",{name:/社区成员/}))
+  await user.click(await screen.findByRole("tab",{name:"有效权限"}))
+  expect(await screen.findByRole("region",{name:"只读权限检查"})).toBeInTheDocument()
+  expect(screen.getByText("指定用户：社区成员 @member")).toBeInTheDocument()
+  expect(within(screen.getByRole("dialog",{name:"用户详情"})).queryByLabelText("搜索用户")).not.toBeInTheDocument()
+  expect(getAdminUser).toHaveBeenCalledTimes(1)
+  view.rerender(<UserAdminPanel capabilityKeys={keys.filter(key=>key!=="entitlements.grants.read")} />)
+  expect(screen.queryByRole("region",{name:"只读权限检查"})).not.toBeInTheDocument()
+  expect(screen.queryByRole("tab",{name:"有效权限"})).not.toBeInTheDocument()
 })

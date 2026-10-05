@@ -1,6 +1,7 @@
 import { RefreshCw } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
-import { listEditReviewPage, resolveEditReview, type EditReviewItem } from "../api/editReviews"
+import { getEditReview, listEditReviewPage, resolveEditReview, type EditReviewItem } from "../api/editReviews"
+import { PluginApiError } from "../api/plugins"
 import type { ModerationBoard } from "../api/moderation"
 import { sanitizeRichContent } from "../editor/richContent"
 import { RichTextContent } from "./RichTextContent"
@@ -22,6 +23,8 @@ export function ContentReviewAdminPanel({ boards, csrfToken }: { boards: Moderat
   const [reload, setReload] = useState(0)
   const [intent, setIntent] = useState<{ item: EditReviewItem; decision: "approve" | "reject" } | null>(null)
   const [reason, setReason] = useState("")
+  const [latestReview, setLatestReview] = useState<EditReviewItem | null>(null)
+  const [conflict, setConflict] = useState(false)
   const [actionError, setActionError] = useState("")
   const [busy, setBusy] = useState(false)
   const busyRef = useRef(false)
@@ -41,15 +44,26 @@ export function ContentReviewAdminPanel({ boards, csrfToken }: { boards: Moderat
     return () => controller.abort()
   }, [activeBoardId, cursor, reload, status, targetType])
   function refresh() { setCursor(null); setReload((value) => value + 1) }
-  function open(item: EditReviewItem, decision: "approve" | "reject") { setIntent({ item, decision }); setReason(""); setActionError(""); setNotice("") }
+  function open(item: EditReviewItem, decision: "approve" | "reject") { setIntent({ item, decision }); setReason(""); setActionError(""); setConflict(false); setLatestReview(null); setNotice("") }
+  async function refreshConflict() {
+    if (!intent || busyRef.current) return
+    busyRef.current = true; setBusy(true)
+    try { setLatestReview(await getEditReview(intent.item.id)); refresh() }
+    catch (caught) { setActionError(message(caught)) }
+    finally { busyRef.current = false; setBusy(false) }
+  }
   async function submit() {
-    if (!intent || busyRef.current || reason.trim().length < 2) return
+    if (!intent || busyRef.current || conflict || reason.trim().length < 2) return
     busyRef.current = true; setBusy(true); setActionError("")
     try {
       await resolveEditReview(intent.item, intent.decision, reason.trim(), csrfToken)
       setNotice(intent.decision === "approve" ? "编辑已通过并发布" : "编辑已驳回")
       setIntent(null); refresh()
-    } catch (caught) { setActionError(message(caught)) }
+    } catch (caught) {
+      if (caught instanceof PluginApiError && caught.status === 409) {
+        setConflict(true); setActionError("其他审核者已处理或公开版本已变化。说明已保留，请刷新队列核实结果后关闭本次操作。")
+      } else setActionError(message(caught))
+    }
     finally { busyRef.current = false; setBusy(false) }
   }
   if (!activeBoardId) return <p className="admin-empty" role="status">当前账号没有可审核的版块</p>
@@ -76,10 +90,12 @@ export function ContentReviewAdminPanel({ boards, csrfToken }: { boards: Moderat
     <footer className="admin-catalog-footer"><span>已加载 {items.length} 条审核记录</span>{nextCursor && <button className="secondary-button" type="button" disabled={loading || busy} onClick={() => setCursor(nextCursor)}>{loading ? "正在加载" : "加载更多审核记录"}</button>}</footer>
     {intent && <AdminActionDialog title={intent.decision === "approve" ? "通过编辑" : "驳回编辑"} busy={busy} onClose={() => setIntent(null)}>
       <form className="admin-form" onSubmit={(event) => { event.preventDefault(); void submit() }}>
-        {actionError && <div className="form-alert" role="alert">{actionError}<button className="secondary-button" type="button" disabled={busy} onClick={() => { setIntent(null); refresh() }}>关闭并刷新队列</button></div>}
+        {actionError && <div className="form-alert" role="alert">{actionError}<button className="secondary-button" type="button" disabled={busy} onClick={() => { if (conflict) void refreshConflict(); else { setIntent(null); refresh() } }}>{conflict ? "刷新队列并保留说明" : "关闭并刷新队列"}</button></div>}
+        <p className="content-admin-hint">审核记录 {intent.item.id} · 版本 {intent.item.revision}</p>
+        {latestReview && <section aria-label="最新审核记录"><p>最新审核结论：{{ pending: "待审核", approved: "已通过", rejected: "已驳回" }[latestReview.status]} · 版本 {latestReview.revision}</p>{latestReview.review_reason && <p>审核说明：{latestReview.review_reason}</p>}<p>当前公开内容：{latestReview.current_content}</p><a href={"#topic/" + latestReview.topic_id}>查看原帖</a></section>}
         <p>{intent.decision === "approve" ? "确认后将发布此待审版本。公开版本已变化时，本次操作会被拒绝。" : "驳回后保留当前公开版本。"}</p>
         <label><span>审核说明</span><textarea required minLength={2} maxLength={500} rows={3} value={reason} disabled={busy} onChange={(event) => setReason(event.target.value)} /></label>
-        <div className="admin-form__actions"><button className="secondary-button" type="button" disabled={busy} onClick={() => setIntent(null)}>取消</button><button className="primary-button" type="submit" disabled={busy || reason.trim().length < 2}>{busy ? "正在提交" : intent.decision === "approve" ? "确认通过" : "确认驳回"}</button></div>
+        <div className="admin-form__actions"><button className="secondary-button" type="button" disabled={busy} onClick={() => setIntent(null)}>取消</button><button className="primary-button" type="submit" disabled={busy || conflict || reason.trim().length < 2}>{busy ? "正在提交" : intent.decision === "approve" ? "确认通过" : "确认驳回"}</button></div>
       </form>
     </AdminActionDialog>}
   </section>

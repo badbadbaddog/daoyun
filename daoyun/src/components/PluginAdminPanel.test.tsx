@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -7,9 +7,11 @@ import {
   deletePlugin,
   executePluginUiAction,
   installPlugin,
+  configureBuiltinPlugin,
   invokePlugin,
   listPluginUiContributions,
   listPlugins,
+  listPluginCapabilities,
   updatePluginStatus,
   type Plugin,
 } from "../api/plugins"
@@ -22,9 +24,11 @@ vi.mock("../api/plugins", async () => {
     deletePlugin: vi.fn(),
     executePluginUiAction: vi.fn(),
     installPlugin: vi.fn(),
+    configureBuiltinPlugin: vi.fn(),
     invokePlugin: vi.fn(),
     listPluginUiContributions: vi.fn(),
     listPlugins: vi.fn(),
+    listPluginCapabilities: vi.fn(),
     updatePluginStatus: vi.fn(),
   }
 })
@@ -69,6 +73,7 @@ async function openDeveloperTools(user: ReturnType<typeof userEvent.setup>, name
 }
 
 beforeEach(() => {
+  vi.mocked(listPluginCapabilities).mockResolvedValue({ wasm_supported: true, wasm_runtime_enabled: false, can_manage_lifecycle: true, modules: [] })
   vi.mocked(listPlugins).mockResolvedValue([plugin])
   vi.mocked(installPlugin).mockResolvedValue(plugin)
   vi.mocked(updatePluginStatus).mockResolvedValue({ ...plugin, status: "enabled", revision: 2 })
@@ -98,15 +103,15 @@ describe("PluginAdminPanel", () => {
     vi.mocked(listPlugins).mockResolvedValueOnce([plugin, { ...legacyPlugin, id: "second", name: "Second plugin", key: "second_plugin", status: "enabled" }])
     render(<PluginAdminPanel csrfToken="csrf" canInstall canLifecycle canInvoke={false} />)
     await screen.findByText("Identity plugin")
-    expect(screen.queryByRole("article", { name: "官方插件：帖子补充" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("article", { name: "内置模块：帖子补充" })).not.toBeInTheDocument()
     await user.selectOptions(screen.getByLabelText("插件状态"), "enabled")
     expect(screen.queryByText("Identity plugin")).not.toBeInTheDocument()
     await user.type(screen.getByRole("searchbox", { name: "搜索插件" }), "missing")
     expect(screen.getByText("没有符合条件的插件")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "清除筛选" }))
     expect(screen.getByText("Identity plugin")).toBeInTheDocument()
-    await user.click(screen.getByRole("tab", { name: "官方插件" }))
-    expect(screen.getByRole("article", { name: "官方插件：帖子补充" })).toBeInTheDocument()
+    await user.click(screen.getByRole("tab", { name: "内置模块" }))
+    expect(screen.getByRole("article", { name: "内置模块：帖子补充" })).toBeInTheDocument()
     expect(screen.queryByText("Identity plugin")).not.toBeInTheDocument()
   })
 
@@ -468,4 +473,90 @@ describe("PluginAdminPanel", () => {
     expect(await screen.findByText("贡献加载故障")).toBeInTheDocument()
     expect(screen.getByText("组件实例化失败")).toBeInTheDocument()
   })
+})
+
+it("shows native polls as available separately from a disabled Wasm runtime", async () => {
+  vi.mocked(listPluginCapabilities).mockResolvedValue({ wasm_supported: true, wasm_runtime_enabled: false, can_manage_lifecycle: false, modules: [{ capability: "topic.polls", name: "单选投票", execution: "native", supported: true, runtime_ready: true, business_enabled: true, status: "available", target_authorization_required: true }] })
+  render(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle={false} canInvoke={false} />)
+  const region = await screen.findByRole("region", { name: "扩展能力状态" })
+  expect(await within(region).findByText("Wasm 运行时未启用")).toBeInTheDocument()
+  expect(within(region).getByText("可用")).toBeInTheDocument()
+  expect(within(region).getByText(/^内置业务 · 本构建支持 · 运行条件就绪 · 业务已启用$/)).toBeInTheDocument()
+  expect(within(region).getByText("当前账号不能更改启停状态。")).toBeInTheDocument()
+  expect(within(region).getByText(/具体用户与内容权限由提交时检查/)).toBeInTheDocument()
+})
+
+it("retries a failed capability snapshot without replacing the installed list", async () => {
+  vi.mocked(listPluginCapabilities).mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ wasm_supported: true, wasm_runtime_enabled: false, can_manage_lifecycle: true, modules: [] })
+  const user = userEvent.setup(); render(<PluginAdminPanel csrfToken="csrf" canInstall={false} canLifecycle={false} canInvoke={false} />)
+  await screen.findByRole("button", { name: "查看插件：Identity plugin" })
+  await user.click(await screen.findByRole("button", { name: "重试扩展状态" }))
+  await screen.findByText("Wasm 运行时未启用")
+  expect(listPlugins).toHaveBeenCalledTimes(1)
+  expect(listPluginCapabilities).toHaveBeenCalledTimes(2)
+})
+
+it("ignores an old capability snapshot after the session changes", async () => {
+  let resolveOld!: (snapshot: Awaited<ReturnType<typeof listPluginCapabilities>>) => void
+  const old = new Promise<Awaited<ReturnType<typeof listPluginCapabilities>>>(resolve => { resolveOld = resolve })
+  const polls = { capability: "topic.polls" as const, name: "单选投票", execution: "native" as const, supported: true, runtime_ready: true, business_enabled: false, status: "not_configured" as const, target_authorization_required: true }
+  vi.mocked(listPluginCapabilities).mockReturnValueOnce(old).mockResolvedValue({ wasm_supported: true, wasm_runtime_enabled: false, can_manage_lifecycle: false, modules: [polls] })
+  const view = render(<PluginAdminPanel csrfToken="first-session" canInstall={false} canLifecycle={false} canInvoke={false} />)
+  await screen.findByRole("button", { name: "查看插件：Identity plugin" })
+  view.rerender(<PluginAdminPanel csrfToken="second-session" canInstall={false} canLifecycle={false} canInvoke={false} />)
+  const region = await screen.findByRole("region", { name: "扩展能力状态" })
+  await within(region).findByText("未配置")
+  await act(async () => resolveOld({ wasm_supported: true, wasm_runtime_enabled: true, can_manage_lifecycle: true, modules: [{ ...polls, business_enabled: true, status: "available" }] }))
+  expect(within(region).getByText("未配置")).toBeInTheDocument()
+  expect(within(region).queryByText("可用")).not.toBeInTheDocument()
+})
+
+ it("configures native polls without uploading a component or enabling automatically", async () => {
+   const user = userEvent.setup();
+   vi.mocked(listPlugins).mockResolvedValueOnce([]);
+   vi.mocked(configureBuiltinPlugin).mockResolvedValueOnce({...plugin,key:"official_polls",name:"单选投票",execution:"native",componentSize:0,capabilities:["topic.polls"],dataScopes:[]});
+   render(<PluginAdminPanel csrfToken="csrf" canInstall canLifecycle canInvoke />);
+   await user.click(await screen.findByRole("tab",{name:"内置模块"}));
+   await user.click(screen.getByRole("button",{name:"配置单选投票"}));
+   expect(configureBuiltinPlugin).toHaveBeenCalledWith("official_polls","csrf",expect.any(AbortSignal));
+   expect(await screen.findByRole("switch",{name:"启用插件：单选投票"})).toHaveAttribute("aria-checked","false");
+   expect(installPlugin).not.toHaveBeenCalled();
+   expect(updatePluginStatus).not.toHaveBeenCalled();
+   expect(screen.queryByRole("dialog",{name:"安装插件"})).not.toBeInTheDocument();
+ });
+ it("does not request native UI contributions or show native developer and removal tools",async()=>{
+   vi.mocked(listPlugins).mockResolvedValueOnce([{...plugin,key:"official_polls",name:"单选投票",execution:"native",capabilities:["topic.polls","ui.panel"],dataScopes:[],status:"enabled"}]);
+   render(<PluginAdminPanel csrfToken="csrf" canInstall canLifecycle canInvoke />);
+   await openPluginPanel(userEvent.setup(),"单选投票","详情");
+   expect(await screen.findByText("内置业务")).toBeInTheDocument();
+   expect(listPluginUiContributions).not.toHaveBeenCalled();
+   expect(screen.queryByText("高级与开发者工具")).not.toBeInTheDocument();
+ });
+
+
+it("discards an old plugin list after the session changes", async () => {
+  let resolveOld!: (plugins: Plugin[]) => void
+  vi.mocked(listPlugins).mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve })).mockResolvedValue([])
+  const view = render(<PluginAdminPanel csrfToken="old-session" canInstall canLifecycle canInvoke />)
+  view.rerender(<PluginAdminPanel csrfToken="new-session" canInstall canLifecycle canInvoke />)
+  await screen.findByText("尚未安装插件")
+  await act(async () => resolveOld([plugin]))
+  expect(screen.queryByRole("button", { name: "查看插件：Identity plugin" })).not.toBeInTheDocument()
+  expect(listPlugins).toHaveBeenCalledTimes(2)
+})
+
+it("clears private details and ignores late configuration on a new session", async () => {
+  let resolveOld!: (plugin: Plugin) => void
+  vi.mocked(configureBuiltinPlugin).mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve }))
+  const user = userEvent.setup()
+  const view = render(<PluginAdminPanel csrfToken="old-session" canInstall canLifecycle canInvoke />)
+  await openPluginPanel(user, "Identity plugin", "详情")
+  await user.click(screen.getByRole("tab", { name: "内置模块" }))
+  await user.click(screen.getByRole("button", { name: "配置单选投票" }))
+  vi.mocked(listPlugins).mockResolvedValue([])
+  view.rerender(<PluginAdminPanel csrfToken="new-session" canInstall canLifecycle canInvoke />)
+  await screen.findByText("尚未安装插件")
+  await act(async () => resolveOld({ ...plugin, key: "official_polls", name: "旧会话投票", execution: "native", componentSize: 0 }))
+  expect(screen.queryByRole("button", { name: "查看插件：旧会话投票" })).not.toBeInTheDocument()
+  expect(screen.queryByText("Identity plugin")).not.toBeInTheDocument()
 })

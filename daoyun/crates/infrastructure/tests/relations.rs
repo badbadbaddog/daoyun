@@ -485,3 +485,76 @@ async fn topic_and_post_like_counts(pool: &PgPool, topic_id: Uuid) -> (i64, i64)
     .await
     .expect("topic and post like counts must be readable")
 }
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn bookmarks_recheck_current_topic_and_board_policies_without_deleting_edges(pool: PgPool) {
+    let reader = fixture_id(1);
+    let author = fixture_id(2);
+    insert_user(&pool, reader, "policy_reader", "active").await;
+    insert_user(&pool, author, "policy_author", "active").await;
+    let database = Database::from_pool(pool.clone());
+    let group: Uuid = sqlx::query_scalar(
+        "SELECT id FROM community_groups WHERE internal_key = 'established_member'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("seed group must exist");
+    for (index, target_type) in ["topic", "board"].iter().enumerate() {
+        let board = fixture_id(20 + index as u128);
+        let topic = fixture_id(120 + index as u128);
+        insert_board(&pool, board, &format!("policy-{index}"), "public").await;
+        insert_topic(&pool, topic, board, author, "published", false).await;
+        database
+            .set_topic_bookmarked(reader, topic, true)
+            .await
+            .expect("public bookmark must succeed");
+        let policy = Uuid::now_v7();
+        sqlx::query("INSERT INTO content_access_policies (id, target_type, target_id, operator) VALUES ($1,$2,$3,'any_of')")
+            .bind(policy).bind(target_type).bind(if *target_type == "topic" { topic } else { board })
+            .execute(&pool).await.expect("policy must insert");
+        sqlx::query("INSERT INTO content_access_policy_subjects (policy_id, subject_type, community_group_id) VALUES ($1,'community_group',$2)")
+            .bind(policy).bind(group).execute(&pool).await.expect("policy subject must insert");
+        let page = database
+            .list_user_bookmarks(reader, None, 20)
+            .await
+            .expect("bookmarks must resolve");
+        assert!(
+            !page.iter().any(|item| item.id == topic),
+            "restricted title and excerpt must not leak"
+        );
+        assert!(matches!(
+            database.list_user_bookmarks(reader, Some(topic), 20).await,
+            Err(ListBookmarksError::InvalidCursor)
+        ));
+        for bookmarked in [true, false] {
+            assert!(matches!(
+                database
+                    .set_topic_bookmarked(reader, topic, bookmarked)
+                    .await,
+                Err(BookmarkMutationError::TopicUnavailable)
+            ));
+        }
+        let edges: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM topic_bookmarks WHERE user_id=$1 AND topic_id=$2",
+        )
+        .bind(reader)
+        .bind(topic)
+        .fetch_one(&pool)
+        .await
+        .expect("edge count must resolve");
+        assert_eq!(
+            edges, 1,
+            "visibility changes must preserve the user's saved edge"
+        );
+        sqlx::query("UPDATE content_access_policy_subjects SET subject_type='public', community_group_id=NULL WHERE policy_id=$1")
+            .bind(policy).execute(&pool).await.expect("fixture policy must reopen");
+        assert!(
+            database
+                .list_user_bookmarks(reader, None, 20)
+                .await
+                .expect("reopened bookmarks must resolve")
+                .iter()
+                .any(|item| item.id == topic)
+        );
+    }
+}

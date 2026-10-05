@@ -220,103 +220,8 @@ impl Database {
         user_id: Uuid,
         effective_at: OffsetDateTime,
     ) -> Result<CommunityAccessSnapshot, CommunityAccessError> {
-        let account_status =
-            sqlx::query_scalar::<_, String>("SELECT status FROM users WHERE id = $1")
-                .bind(user_id)
-                .fetch_optional(&self.pool)
-                .await?
-                .ok_or(CommunityAccessError::UserNotFound)?;
-
-        if account_status == "suspended" || account_status == "deleted" {
-            return Ok(merge_community_group_policies(
-                user_id,
-                effective_at,
-                &account_status,
-                Vec::new(),
-            ));
-        }
-
-        let entitlement_sources = self
-            .list_active_standard_entitlements(user_id, effective_at)
-            .await
-            .map_err(CommunityAccessError::Database)?
-            .into_iter()
-            .map(|entitlement| StandardEntitlementPolicy {
-                entitlement_id: entitlement.id,
-                entitlement_key: entitlement.entitlement_key,
-                type_version: entitlement.type_version,
-                permission_keys: entitlement.permission_snapshot.into_iter().collect(),
-                quotas: entitlement.quota_snapshot,
-            })
-            .collect::<Vec<_>>();
-
-        let memberships = self
-            .list_active_community_memberships(user_id, effective_at)
-            .await?;
-        let group_ids = memberships
-            .iter()
-            .map(|membership| membership.group_id)
-            .collect::<Vec<_>>();
-        let permission_rules = if group_ids.is_empty() {
-            Vec::new()
-        } else {
-            sqlx::query_as::<_, CommunityPermissionRuleRecord>(
-                "SELECT group_id, permission_key
-                 FROM community_group_permissions
-                 WHERE group_id = ANY($1) AND allowed
-                 ORDER BY group_id, permission_key",
-            )
-            .bind(&group_ids)
-            .fetch_all(&self.pool)
-            .await?
-        };
-        let quota_rules = if group_ids.is_empty() {
-            Vec::new()
-        } else {
-            sqlx::query_as::<_, CommunityQuotaRuleRecord>(
-                "SELECT group_id, quota_key, quota_value
-                 FROM community_group_quota_rules
-                 WHERE group_id = ANY($1)
-                 ORDER BY group_id, quota_key",
-            )
-            .bind(&group_ids)
-            .fetch_all(&self.pool)
-            .await?
-        };
-
-        let mut policies = memberships
-            .into_iter()
-            .map(|membership| {
-                (
-                    membership.group_id,
-                    CommunityGroupPolicy {
-                        membership_id: membership.id,
-                        group_id: membership.group_id,
-                        group_key: membership.group_key,
-                        permission_keys: BTreeSet::new(),
-                        quotas: BTreeMap::new(),
-                    },
-                )
-            })
-            .collect::<BTreeMap<_, _>>();
-        for rule in permission_rules {
-            if let Some(policy) = policies.get_mut(&rule.group_id) {
-                policy.permission_keys.insert(rule.permission_key);
-            }
-        }
-        for rule in quota_rules {
-            if let Some(policy) = policies.get_mut(&rule.group_id) {
-                policy.quotas.insert(rule.quota_key, rule.quota_value);
-            }
-        }
-
-        Ok(merge_community_access_policies(
-            user_id,
-            effective_at,
-            &account_status,
-            policies.into_values().collect(),
-            entitlement_sources,
-        ))
+        let mut connection = self.pool.acquire().await?;
+        community_access_snapshot_with_executor(&mut connection, user_id, effective_at).await
     }
 }
 
@@ -451,4 +356,118 @@ impl From<sqlx::Error> for CommunityActionError {
     fn from(error: sqlx::Error) -> Self {
         Self::Database(error)
     }
+}
+
+#[cfg(test)]
+#[path = "community_permissions_characterization_tests.rs"]
+mod characterization_tests;
+
+pub(crate) async fn community_access_snapshot_with_executor(
+    connection: &mut sqlx::PgConnection,
+    user_id: Uuid,
+    effective_at: OffsetDateTime,
+) -> Result<CommunityAccessSnapshot, CommunityAccessError> {
+    let account_status = sqlx::query_scalar::<_, String>("SELECT status FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(&mut *connection)
+        .await?
+        .ok_or(CommunityAccessError::UserNotFound)?;
+
+    if account_status == "suspended" || account_status == "deleted" {
+        return Ok(merge_community_group_policies(
+            user_id,
+            effective_at,
+            &account_status,
+            Vec::new(),
+        ));
+    }
+
+    let entitlement_sources =
+        crate::standard_entitlements::list_active_standard_entitlements_with_executor(
+            connection,
+            user_id,
+            effective_at,
+        )
+        .await
+        .map_err(CommunityAccessError::Database)?
+        .into_iter()
+        .map(|entitlement| StandardEntitlementPolicy {
+            entitlement_id: entitlement.id,
+            entitlement_key: entitlement.entitlement_key,
+            type_version: entitlement.type_version,
+            permission_keys: entitlement.permission_snapshot.into_iter().collect(),
+            quotas: entitlement.quota_snapshot,
+        })
+        .collect::<Vec<_>>();
+
+    let memberships = crate::community_groups::list_active_community_memberships_with_executor(
+        connection,
+        user_id,
+        effective_at,
+    )
+    .await?;
+    let group_ids = memberships
+        .iter()
+        .map(|membership| membership.group_id)
+        .collect::<Vec<_>>();
+    let permission_rules = if group_ids.is_empty() {
+        Vec::new()
+    } else {
+        sqlx::query_as::<_, CommunityPermissionRuleRecord>(
+            "SELECT group_id, permission_key
+                 FROM community_group_permissions
+                 WHERE group_id = ANY($1) AND allowed
+                 ORDER BY group_id, permission_key",
+        )
+        .bind(&group_ids)
+        .fetch_all(&mut *connection)
+        .await?
+    };
+    let quota_rules = if group_ids.is_empty() {
+        Vec::new()
+    } else {
+        sqlx::query_as::<_, CommunityQuotaRuleRecord>(
+            "SELECT group_id, quota_key, quota_value
+                 FROM community_group_quota_rules
+                 WHERE group_id = ANY($1)
+                 ORDER BY group_id, quota_key",
+        )
+        .bind(&group_ids)
+        .fetch_all(&mut *connection)
+        .await?
+    };
+
+    let mut policies = memberships
+        .into_iter()
+        .map(|membership| {
+            (
+                membership.group_id,
+                CommunityGroupPolicy {
+                    membership_id: membership.id,
+                    group_id: membership.group_id,
+                    group_key: membership.group_key,
+                    permission_keys: BTreeSet::new(),
+                    quotas: BTreeMap::new(),
+                },
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    for rule in permission_rules {
+        if let Some(policy) = policies.get_mut(&rule.group_id) {
+            policy.permission_keys.insert(rule.permission_key);
+        }
+    }
+    for rule in quota_rules {
+        if let Some(policy) = policies.get_mut(&rule.group_id) {
+            policy.quotas.insert(rule.quota_key, rule.quota_value);
+        }
+    }
+
+    Ok(merge_community_access_policies(
+        user_id,
+        effective_at,
+        &account_status,
+        policies.into_values().collect(),
+        entitlement_sources,
+    ))
 }

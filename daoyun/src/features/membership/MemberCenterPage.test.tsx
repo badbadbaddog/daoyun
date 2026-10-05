@@ -24,22 +24,22 @@ const data: MembershipCenterData = {
 afterEach(cleanup)
 
 describe("MemberCenterPage", () => {
-  it("keeps growth, points, groups, entitlements and medals in one identity story", () => {
+  it("shows growth and visible medals with entries for lazy private details", () => {
     render(<MemberCenterPage activeTab="overview" data={data} status="ready" onTabChange={vi.fn()} onRetry={vi.fn()} />)
 
     expect(screen.getByRole("heading", { name: "会员中心" })).toBeInTheDocument()
     expect(screen.getByText("开拓者")).toBeInTheDocument()
     expect(screen.getByText("距离领航者还需 140 EXP")).toBeInTheDocument()
-    expect(within(screen.getByLabelText("积分概览")).getByText("1,280")).toBeInTheDocument()
-    expect(within(screen.getByLabelText("社区用户组")).getByText("正式会员")).toBeInTheDocument()
-    expect(within(screen.getByLabelText("标准权益")).getByText("专业附件额度")).toBeInTheDocument()
-    expect(within(screen.getByLabelText("公开勋章")).getByText("创作者")).toBeInTheDocument()
+    expect(screen.queryByLabelText("社区用户组")).not.toBeInTheDocument()
+    expect(screen.getByText("创作者")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "查看权益详情" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "查看勋章详情" })).toBeInTheDocument()
     const summary = screen.getByRole("region", { name: "我的成长概览" })
     expect(within(summary).getByRole("heading", { name: "开拓者" })).toBeInTheDocument()
     expect(summary).toHaveTextContent("760 EXP")
-    expect(summary).toHaveTextContent("1,280 积分")
-    expect(summary).toHaveTextContent("1 项权益")
-    expect(summary).toHaveTextContent("1 枚公开勋章")
+    expect(summary).not.toHaveTextContent("1,280")
+    expect(summary).toHaveTextContent("标准权益")
+    expect(summary).toHaveTextContent("公开勋章")
     expect(summary).not.toHaveTextContent("pathfinder")
     expect(summary).not.toHaveTextContent("pro_upload")
   })
@@ -62,4 +62,33 @@ describe("MemberCenterPage", () => {
     expect(screen.getByText("开拓者")).toBeInTheDocument()
     expect(screen.getByText("扩展面板暂时不可用")).toBeInTheDocument()
   })
+})
+
+it("keeps private details and ledger out of the overview summary", () => {
+  render(<MemberCenterPage activeTab="overview" data={data} status="ready" onTabChange={vi.fn()} onRetry={vi.fn()} />)
+  expect(screen.getByText("开拓者")).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "查看积分详情" })).toBeInTheDocument()
+  expect(screen.queryByLabelText("积分概览")).not.toBeInTheDocument()
+  expect(screen.queryByLabelText("标准权益")).not.toBeInTheDocument()
+  expect(screen.getByLabelText("公开勋章")).toHaveTextContent("创作者")
+})
+
+it("keeps partial overview growth visible and makes failed medals retryable", async () => {
+  const retry = vi.fn()
+  render(<MemberCenterPage activeTab="overview" data={{ experience: data.experience, errors: ["公开勋章暂时不可用"] }} status="ready" onTabChange={vi.fn()} onRetry={retry} />)
+  expect(screen.getByText("开拓者")).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "查看积分详情" })).toHaveTextContent("积分记录")
+  expect(screen.getByRole("button", { name: "查看积分详情" })).not.toHaveTextContent("0 积分")
+  await userEvent.setup().click(screen.getByRole("button", { name: "重试概览摘要" }))
+  expect(retry).toHaveBeenCalledOnce()
+})
+
+it("distinguishes a permission failure from an empty successful benefits list", () => {
+  const props = { activeTab: "benefits" as const, onTabChange: vi.fn(), onRetry: vi.fn() }
+  const view = render(<MemberCenterPage {...props} data={null} status="error" error="当前账号无权查看这项会员信息。" />)
+  expect(screen.getByRole("alert")).toHaveTextContent("当前账号无权查看")
+  expect(screen.queryByText("当前没有生效中的标准权益")).not.toBeInTheDocument()
+  view.rerender(<MemberCenterPage {...props} data={{ entitlements: [] }} status="ready" />)
+  expect(screen.getByText("当前没有生效中的标准权益")).toBeInTheDocument()
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument()
 })

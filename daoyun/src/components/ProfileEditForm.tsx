@@ -8,9 +8,11 @@ interface ProfileEditFormProps {
   profile: UserProfile
   onSave: (input: UpdateUserProfileInput) => Promise<void>
   onCancel: () => void
+  sessionExpired?: boolean
+  onLogin?: () => void
 }
 
-export function ProfileEditForm({ profile, onSave, onCancel }: ProfileEditFormProps) {
+export function ProfileEditForm({ profile, onSave, onCancel, sessionExpired = false, onLogin }: ProfileEditFormProps) {
   const [displayName, setDisplayName] = useState(profile.displayName)
   const [bio, setBio] = useState(profile.bio)
   const [location, setLocation] = useState(profile.location ?? "")
@@ -22,6 +24,7 @@ export function ProfileEditForm({ profile, onSave, onCancel }: ProfileEditFormPr
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (submitting || sessionExpired) return
     setSubmitting(true)
     setMessage("")
     setFields({})
@@ -99,10 +102,11 @@ export function ProfileEditForm({ profile, onSave, onCancel }: ProfileEditFormPr
         <FieldError messages={fields.avatar_url} />
       </label>
 
-      {message && <p className="form-alert" role="alert">{message}</p>}
+      {sessionExpired && <div className="form-alert" role="alert"><p>登录已失效，未提交资料已保留。请使用原账号重新登录后保存。</p><button className="secondary-button" type="button" onClick={onLogin}>重新登录后保存</button></div>}
+      {message && !sessionExpired && <p className="form-alert" role="alert">{message}</p>}
       <div className="profile-edit-form__actions">
         <button className="secondary-button" type="button" onClick={onCancel}>取消</button>
-        <button className="primary-button" type="submit" disabled={submitting}>
+        <button className="primary-button" type="submit" disabled={submitting || sessionExpired}>
           {submitting ? <LoaderCircle className="topic-loading__spinner" size={15} aria-hidden="true" /> : <Save size={15} aria-hidden="true" />}
           保存资料
         </button>

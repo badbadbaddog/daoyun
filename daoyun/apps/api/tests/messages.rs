@@ -482,3 +482,64 @@ async fn response_json(response: axum::response::Response) -> Value {
         .expect("response body must be readable");
     serde_json::from_slice(&body).expect("response body must be JSON")
 }
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn blocking_rechecks_both_directions_in_an_existing_conversation(pool: PgPool) {
+    let app = test_app(pool.clone());
+    initialize(&app).await;
+    let first = register(&app, "block_first").await;
+    let second = register(&app, "block_second").await;
+    let created = create_conversation(&app, &first, &second.user_id).await;
+    let id = response_json(created).await["data"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let path = format!("/api/v1/conversations/{id}/messages");
+    assert_eq!(
+        send_message(&app, &first, &path, "Before block", Some("before-block"))
+            .await
+            .status(),
+        StatusCode::CREATED
+    );
+    let block_path = format!("/api/v1/users/{}/block", first.user_id);
+    let blocked = app
+        .clone()
+        .oneshot(state_change_request(Method::PUT, &block_path, &second))
+        .await
+        .unwrap();
+    assert_eq!(blocked.status(), StatusCode::OK);
+    for (sender, receiver) in [(&first, &second), (&second, &first)] {
+        let response =
+            send_message(&app, sender, &path, "Must not send", Some("after-block")).await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            response_json(response).await["error"]["code"],
+            "conversation.not_found"
+        );
+        assert_eq!(
+            create_conversation(&app, sender, &receiver.user_id)
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM direct_messages WHERE conversation_id=$1")
+            .bind(uuid::Uuid::parse_str(&id).unwrap())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 1);
+    let unblocked = app
+        .clone()
+        .oneshot(state_change_request(Method::DELETE, &block_path, &second))
+        .await
+        .unwrap();
+    assert_eq!(unblocked.status(), StatusCode::OK);
+    assert_eq!(
+        send_message(&app, &first, &path, "After unblock", Some("after-block"))
+            .await
+            .status(),
+        StatusCode::CREATED
+    );
+}

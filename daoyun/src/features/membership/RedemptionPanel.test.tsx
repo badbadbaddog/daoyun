@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { beforeEach,afterEach,expect,it,vi } from "vitest"
 import { RedemptionPanel } from "./RedemptionPanel"
 import { listRedemptionProducts,listRedemptions,redeemPoints } from "../../api/redemptions"
-vi.mock("../../api/redemptions",()=>({listRedemptionProducts:vi.fn(),listRedemptions:vi.fn(),redeemPoints:vi.fn()}))
+vi.mock("../../api/redemptions",async()=>({ ...await vi.importActual<typeof import("../../api/redemptions")>("../../api/redemptions"),listRedemptionProducts:vi.fn(),listRedemptions:vi.fn(),redeemPoints:vi.fn()}))
 const product={id:"019fc800-0000-7000-8000-000000000001",name:"七日权益",entitlement_type_id:"019fc800-0000-7000-8000-000000000002",type_version:1,price:60,duration_days:7,per_user_limit:1,enabled:true,revision:1,permission_keys:[],quotas:{},unavailable_reason:null}
 beforeEach(()=>{
  vi.clearAllMocks()
@@ -20,12 +20,23 @@ it("shows the deduction preview and reuses the attempt key after a network error
  vi.mocked(redeemPoints).mockRejectedValue(new Error("网络失败"))
  render(<RedemptionPanel balance={100} csrfToken="csrf" onChanged={()=>{}}/>)
  await user.click(await screen.findByRole("button",{name:"兑换 七日权益"}))
- expect(screen.getByText("兑换后余额：40")).toBeInTheDocument()
+ expect(screen.getByText("兑换后余额：40 积分")).toBeInTheDocument()
  await user.click(screen.getByRole("button",{name:"确认兑换"}))
- expect(await screen.findByRole("alert")).toHaveTextContent("网络失败")
+ expect(await screen.findByRole("alert")).toHaveTextContent("结果尚未确认")
  await user.click(screen.getByRole("button",{name:"确认兑换"}))
  expect(redeemPoints).toHaveBeenCalledTimes(2)
  expect(vi.mocked(redeemPoints).mock.calls[0]).toEqual(vi.mocked(redeemPoints).mock.calls[1])
 })
 
 afterEach(cleanup)
+
+it("keeps historical receipts readable while redemption is disabled",async()=>{
+ vi.mocked(listRedemptionProducts).mockResolvedValue({enabled:false,products:[],next_cursor:null})
+ vi.mocked(listRedemptions).mockResolvedValue({records:[{id:product.id,product_id:product.id,product_name:"已兑权益",product_revision:1,price:60,balance_after:40,entitlement_id:product.entitlement_type_id,created_at:"2026-10-03T00:00:00Z",ends_at:"2026-10-10T00:00:00Z"}],next_cursor:null})
+ render(<RedemptionPanel balance={40} csrfToken="csrf" onChanged={()=>{}}/>)
+ expect(await screen.findByText(/积分兑换暂未开放/)).toHaveTextContent("已获得的有效权益继续生效")
+ expect(screen.getByText("已兑权益")).toBeInTheDocument()
+ expect(screen.getByText(product.id)).toBeInTheDocument()
+ expect(screen.getByText("余额 100 → 40 积分")).toBeInTheDocument()
+ expect(redeemPoints).not.toHaveBeenCalled()
+})

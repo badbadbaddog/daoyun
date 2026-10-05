@@ -1,8 +1,8 @@
 import { ArrowLeft, Bell, CheckCheck, FileSearch, LoaderCircle, RefreshCw } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import type { AuthSession } from "../api/auth"
-import { listNotifications, markAllNotificationsRead, markNotificationRead } from "../api/notifications"
+import { getUnreadNotificationCount, listNotifications, markAllNotificationsRead, markNotificationRead } from "../api/notifications"
 import type { Notification } from "../api/notifications"
 import { UserAvatar } from "./UserAvatar"
 
@@ -11,13 +11,15 @@ interface NotificationsViewProps {
   onBack: () => void
   onLogin: () => void
   onOpenTarget: (notification: Notification) => void
-  onUnreadChange?: (count: number) => void
+  onUnreadChange?: (count: number, version?: number) => void
+  onUnreadRequest?: () => number
+  globalUnreadCount?: number | null
 }
 
 type LoadStatus = "loading" | "ready" | "error"
 type NotificationFilter = "all" | "unread"
 
-export function NotificationsView({ session, onBack, onLogin, onOpenTarget, onUnreadChange }: NotificationsViewProps) {
+export function NotificationsView({ session, onBack, onLogin, onOpenTarget, onUnreadChange, onUnreadRequest, globalUnreadCount }: NotificationsViewProps) {
   const [items, setItems] = useState<Notification[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
   const [status, setStatus] = useState<LoadStatus>(session ? "loading" : "ready")
@@ -26,7 +28,19 @@ export function NotificationsView({ session, onBack, onLogin, onOpenTarget, onUn
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState("")
   const [filter, setFilter] = useState<NotificationFilter>("all")
-  const visibleItems = filter === "unread" ? items.filter((item) => !item.readAt) : items
+  const visibleItems = items
+  const [unreadCount, setUnreadCount] = useState<number | null>(null)
+  const authoritativeCount = globalUnreadCount === undefined ? unreadCount : globalUnreadCount
+  const scope = useRef<AbortController | null>(null)
+  const countVersion = useRef(0)
+  const latestSession = useRef(session); latestSession.current = session
+  const unreadChanged = useRef(onUnreadChange); unreadChanged.current = onUnreadChange
+  const unreadRequested = useRef(onUnreadRequest); unreadRequested.current = onUnreadRequest
+  function applyCount(count: number, version: number | undefined) {
+    setUnreadCount(count)
+    if (version === undefined) unreadChanged.current?.(count)
+    else unreadChanged.current?.(count, version)
+  }
   const notificationFilters: NotificationFilter[] = ["all", "unread"]
   const selectFilter = (index: number) => {
     const next = notificationFilters[(index + notificationFilters.length) % notificationFilters.length]
@@ -41,73 +55,91 @@ export function NotificationsView({ session, onBack, onLogin, onOpenTarget, onUn
   }
 
   useEffect(() => {
-    if (!session) {
-      setItems([])
-      setCursor(null)
-      setStatus("ready")
-      return
-    }
+    const refresh = () => setRequestVersion(value => value + 1)
+    const visible = () => { if (document.visibilityState === "visible") refresh() }
+    window.addEventListener("focus", refresh)
+    document.addEventListener("visibilitychange", visible)
+    return () => { window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", visible) }
+  }, [])
+
+  useEffect(() => {
     const controller = new AbortController()
+    scope.current = controller
+    const version = ++countVersion.current
+    setItems([]); setCursor(null); setBusyId(null); setLoadingMore(false); setError(""); setUnreadCount(null)
+    if (!session) { setStatus("ready"); return () => controller.abort() }
+    const active = () => !controller.signal.aborted && latestSession.current === session
     setStatus("loading")
-    listNotifications({ signal: controller.signal }).then((page) => {
-      if (controller.signal.aborted) return
-      setItems(page.notifications)
-      setCursor(page.nextCursor)
-      setStatus("ready")
-    }).catch(() => {
-      if (!controller.signal.aborted) setStatus("error")
-    })
+    // Ignore cancelled effects: https://react.dev/reference/react/useEffect#fetching-data-with-effects
+    void listNotifications({ unread: filter === "unread", signal: controller.signal }).then(page => {
+      if (!active()) return
+      setItems(page.notifications); setCursor(page.nextCursor); setStatus("ready")
+    }).catch(() => { if (active()) setStatus("error") })
+    const globalVersion = unreadRequested.current?.()
+    void getUnreadNotificationCount(controller.signal).then(count => {
+      if (!active() || version !== countVersion.current) return
+      applyCount(count, globalVersion)
+    }).catch(() => { if (active() && version === countVersion.current) setUnreadCount(null) })
     return () => controller.abort()
-  }, [requestVersion, session])
+  }, [requestVersion, session, filter])
 
   async function markOne(item: Notification) {
-    if (!session || item.readAt || busyId) return
-    setBusyId(item.id)
+    if (!session || !scope.current) return
+    if (item.readAt) return
+    if (busyId) return
+    const controller = scope.current
+    const version = ++countVersion.current
+    const active = () => !controller.signal.aborted && scope.current === controller && latestSession.current === session
+    setBusyId(item.id); setError("")
     try {
-      const updated = await markNotificationRead(item.id, session.csrfToken)
-      setItems((current) => current.map((entry) => entry.id === updated.id ? updated : entry))
-      onUnreadChange?.(Math.max(0, items.filter((entry) => !entry.readAt).length - 1))
-    } catch {
-      setError("通知已读状态暂时无法更新。")
-    } finally {
-      setBusyId(null)
-    }
+      const updated = await markNotificationRead(item.id, session.csrfToken, controller.signal)
+      if (!active()) return
+      setItems(current => filter === "unread" ? current.filter(entry => entry.id !== updated.id) : current.map(entry => entry.id === updated.id ? updated : entry))
+      try {
+        const globalVersion = unreadRequested.current?.()
+        const count = await getUnreadNotificationCount(controller.signal)
+        if (active() && version === countVersion.current) { applyCount(count, globalVersion) }
+      } catch { if (active()) { setUnreadCount(null); setError("通知已标记为已读，未读计数暂时无法刷新。") } }
+    } catch { if (active()) setError("通知已读状态暂时无法更新。") }
+    finally { if (active()) setBusyId(null) }
   }
 
   async function markAll() {
-    if (!session || busyId || !items.some((item) => !item.readAt)) return
-    setBusyId("all")
+    if (!session || busyId || !scope.current) return
+    const controller = scope.current
+    ++countVersion.current
+    const active = () => !controller.signal.aborted && scope.current === controller && latestSession.current === session
+    setBusyId("all"); setError("")
     try {
-      const unread = await markAllNotificationsRead(session.csrfToken)
-      setItems((current) => current.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() })))
-      onUnreadChange?.(unread)
-    } catch {
-      setError("通知已读状态暂时无法更新。")
-    } finally {
-      setBusyId(null)
-    }
+      const globalVersion = unreadRequested.current?.()
+      const count = await markAllNotificationsRead(session.csrfToken, controller.signal)
+      if (!active()) return
+      applyCount(count, globalVersion)
+      setRequestVersion(value => value + 1)
+    } catch { if (active()) setError("通知已读状态暂时无法更新。") }
+    finally { if (active()) setBusyId(null) }
   }
 
   async function loadMore() {
-    if (!session || !cursor || loadingMore) return
-    setLoadingMore(true)
+    if (!session || !cursor || loadingMore || !scope.current) return
+    const controller = scope.current
+    const active = () => !controller.signal.aborted && scope.current === controller && latestSession.current === session
+    setLoadingMore(true); setError("")
     try {
-      const page = await listNotifications({ cursor })
-      setItems((current) => [...current, ...page.notifications.filter((item) => !current.some((entry) => entry.id === item.id))])
+      const page = await listNotifications({ cursor, unread: filter === "unread", signal: controller.signal })
+      if (!active()) return
+      setItems(current => [...current, ...page.notifications.filter(item => !current.some(entry => entry.id === item.id))])
       setCursor(page.nextCursor)
-    } catch {
-      setError("更多通知暂时无法加载。")
-    } finally {
-      setLoadingMore(false)
-    }
+    } catch { if (active()) setError("更多通知暂时无法加载。") }
+    finally { if (active()) setLoadingMore(false) }
   }
 
   return (
     <section className="notifications-view" aria-labelledby="notifications-heading">
       <button className="detail-back" type="button" onClick={onBack}><ArrowLeft size={16} aria-hidden="true" />返回社区</button>
       <header className="notifications-view__header">
-        <div><p>账户动态</p><h1 id="notifications-heading">通知</h1></div>
-        <button className="icon-button" type="button" onClick={() => void markAll()} disabled={!session || busyId !== null} aria-label="全部标记为已读" title="全部标记为已读"><CheckCheck size={19} /></button>
+        <div><p>账户动态</p><h1 id="notifications-heading">通知</h1>{session && <p aria-live="polite">{authoritativeCount === null ? "未读计数暂不可用" : `全站未读 ${authoritativeCount}`}</p>}</div>
+        <button className="icon-button" type="button" onClick={() => void markAll()} disabled={!session || status !== "ready" || busyId !== null || authoritativeCount === 0} aria-label="全部标记为已读" title="全部标记为已读"><CheckCheck size={19} /></button>
       </header>
       {session && (
         <div className="notifications-tabs" role="tablist" aria-label="通知筛选">
@@ -125,7 +157,7 @@ export function NotificationsView({ session, onBack, onLogin, onOpenTarget, onUn
         <>
           {error && <p className="interaction-alert" role="alert">{error}</p>}
           <div id="notifications-panel" role="tabpanel" aria-labelledby={`notifications-tab-${filter}`}>
-            {visibleItems.length === 0 ? <div className="empty-state" role="status"><Bell size={28} aria-hidden="true" /><h2>{filter === "unread" ? "没有未读通知" : "还没有通知"}</h2><p>{filter === "unread" ? "新通知会在这里出现。" : "新的社区动态会显示在这里。"}</p></div> : <div className="notification-list">{visibleItems.map((item) => <NotificationItem key={item.id} item={item} busy={busyId === item.id} onRead={() => void markOne(item)} onOpen={() => { void markOne(item); onOpenTarget(item) }} />)}</div>}
+            {visibleItems.length === 0 ? <div className="empty-state" role="status"><Bell size={28} aria-hidden="true" /><h2>{filter === "unread" ? "没有未读通知" : "还没有通知"}</h2><p>{filter === "unread" ? "新通知会在这里出现。" : "新的社区动态会显示在这里。"}</p></div> : <div className="notification-list">{visibleItems.map((item) => <NotificationItem key={item.id} item={item} busy={busyId === item.id} onRead={() => void markOne(item)} onOpen={() => onOpenTarget(item)} />)}</div>}
           </div>
           {cursor && <button className="secondary-button notifications-view__more" type="button" onClick={() => void loadMore()} disabled={loadingMore}>{loadingMore ? "正在加载" : "加载更多通知"}</button>}
         </>
@@ -146,5 +178,5 @@ function NotificationItem({ item, busy, onRead, onOpen }: { item: Notification; 
   </article>
 }
 
-function notificationText(kind: Notification["kind"], actor: string): string { return kind === "follow" ? `${actor} 开始关注你` : kind === "reply" ? `${actor} 回复了你的主题` : kind === "like" ? `${actor} 赞了你的内容` : kind === "message" ? `${actor} 给你发来一条私信` : "内容举报状态有新的更新" }
+function notificationText(kind: Notification["kind"], actor: string): string { return kind === "follow" ? `${actor} 开始关注你` : kind === "reply" ? `${actor} 回复了你的主题` : kind === "like" ? `${actor} 赞了你的内容` : kind === "message" ? `${actor} 给你发来一条私信` : kind === "topic_governance" ? "主题治理状态有新的更新" : "内容举报状态有新的更新" }
 function formatTime(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date) }

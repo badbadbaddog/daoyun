@@ -29,8 +29,8 @@ use utoipa::IntoParams;
 use uuid::Uuid;
 
 use crate::{
-    admin::{authorize_capability_read, authorize_capability_write},
-    auth::{ApiError, AuthRuntime, authenticate_state_change},
+    admin::authorize_capability_write,
+    auth::{ApiError, AuthRuntime, authenticate_session, authenticate_state_change},
 };
 
 const REPORT_BODY_LIMIT: usize = 32 * 1024;
@@ -85,18 +85,12 @@ pub(crate) async fn get_report(
     path: Result<Path<Uuid>, PathRejection>,
 ) -> Result<Json<ApiResponse<ContentReportDetail>>, ApiError> {
     let Path(report_id) = path.map_err(|_| path_invalid(request_id))?;
-    authorize_capability_read(
-        &database,
-        &runtime,
-        &headers,
-        request_id,
-        permission_keys::GOVERNANCE_REPORTS_READ,
-    )
-    .await?;
+    let (session, _) = authenticate_session(&database, &runtime, &headers, request_id).await?;
     let detail = database
-        .get_content_report_detail(report_id)
+        .get_content_report_detail(report_id, session.user.id)
         .await
         .map_err(|error| match error {
+            GetContentReportDetailError::Forbidden => report_forbidden(request_id),
             GetContentReportDetailError::NotFound => report_not_found(request_id),
             GetContentReportDetailError::Database(error) => database_unavailable(request_id, error),
         })?;
@@ -254,22 +248,16 @@ pub(crate) async fn list_reports(
     headers: HeaderMap,
     query: Result<Query<ListReportsQuery>, QueryRejection>,
 ) -> Result<Json<PageResponse<ContentReport>>, ApiError> {
-    authorize_capability_read(
-        &database,
-        &runtime,
-        &headers,
-        request_id,
-        permission_keys::GOVERNANCE_REPORTS_READ,
-    )
-    .await?;
+    let (session, _) = authenticate_session(&database, &runtime, &headers, request_id).await?;
     let query = validate_query(query)
         .map_err(|(field, message)| validation_error(request_id, field, message))?;
     let limit = query.limit.expect("validated report limit");
     let status = query.status.map(report_status);
     let mut records = database
-        .list_content_reports(status, query.cursor, i64::from(limit) + 1)
+        .list_content_reports(session.user.id, status, query.cursor, i64::from(limit) + 1)
         .await
         .map_err(|error| match error {
+            ListContentReportsError::Forbidden => report_forbidden(request_id),
             ListContentReportsError::InvalidCursor => {
                 validation_error(request_id, "cursor", "cursor 不属于当前举报列表")
             }
@@ -318,14 +306,7 @@ pub(crate) async fn update_report(
     request: Result<Json<UpdateReportRequest>, JsonRejection>,
 ) -> Result<Json<ApiResponse<ContentReport>>, ApiError> {
     let Path(report_id) = path.map_err(|_| path_invalid(request_id))?;
-    let session = authorize_capability_write(
-        &database,
-        &runtime,
-        &headers,
-        request_id,
-        permission_keys::GOVERNANCE_REPORTS_RESOLVE,
-    )
-    .await?;
+    let session = authenticate_state_change(&database, &runtime, &headers, request_id).await?;
     let Json(request) =
         request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
     let input =
@@ -344,6 +325,7 @@ pub(crate) async fn update_report(
             UpdateContentReportError::NotFound | UpdateContentReportError::TargetUnavailable => {
                 report_not_found(request_id)
             }
+            UpdateContentReportError::Forbidden => report_forbidden(request_id),
             UpdateContentReportError::InvalidAction => report_invalid_action(request_id),
             UpdateContentReportError::Conflict => report_conflict(request_id),
             UpdateContentReportError::Database(error) => database_unavailable(request_id, error),
@@ -410,6 +392,7 @@ pub(crate) async fn batch_update_reports(
             UpdateContentReportError::NotFound | UpdateContentReportError::TargetUnavailable => {
                 report_not_found(request_id)
             }
+            UpdateContentReportError::Forbidden => report_forbidden(request_id),
             UpdateContentReportError::InvalidAction => report_invalid_action(request_id),
             UpdateContentReportError::Conflict => report_conflict(request_id),
             UpdateContentReportError::Database(error) => database_unavailable(request_id, error),
@@ -1076,5 +1059,14 @@ fn governance_error(
             ErrorBody::new(ErrorCode::from_static(code), message),
             request_id,
         )),
+    )
+}
+
+fn report_forbidden(request_id: RequestId) -> ApiError {
+    governance_error(
+        StatusCode::FORBIDDEN,
+        error_codes::ADMIN_FORBIDDEN,
+        "当前账号没有此范围的举报权限",
+        request_id,
     )
 }

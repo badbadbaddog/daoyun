@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { useState } from "react"
 
 import { Drawer } from "./Drawer"
+import { ModalDialog } from "./ModalDialog"
 
 afterEach(() => cleanup())
 
@@ -99,4 +100,26 @@ it("keeps keyboard focus inside when a completed action removes its focused butt
   expect(screen.getByRole("dialog")).toContainElement(document.activeElement as HTMLElement)
   await user.keyboard("{Escape}")
   expect(close).toHaveBeenCalledOnce()
+})
+
+it("announces the busy state while dismissal remains locked", async () => {
+  render(<DrawerHarness busy />)
+  await userEvent.setup().click(screen.getByRole("button", { name: "打开设置" }))
+  expect(screen.getByRole("dialog", { name: "版块设置" })).toHaveAttribute("aria-busy", "true")
+})
+
+it("does not let Escape in a busy nested drawer dismiss its parent dialog", () => {
+  const closeParent = vi.fn()
+  render(<ModalDialog titleId="parent-heading" onClose={closeParent}><h2 id="parent-heading">父级表单</h2><Drawer title="处理中" busy onClose={vi.fn()}><input aria-label="处理中字段" /></Drawer></ModalDialog>)
+  fireEvent.keyDown(screen.getByLabelText("处理中字段"), { key: "Escape" })
+  expect(closeParent).not.toHaveBeenCalled()
+  expect(screen.getByRole("dialog", { name: "处理中" })).toBeInTheDocument()
+})
+
+it.each([false, true])("recaptures Tab when a child redirects focus outside the drawer (reverse=%s)", async reverse => {
+  const user = userEvent.setup()
+  render(<><button id="outside-drawer">外部操作</button><Drawer title="编辑详情" onClose={vi.fn()}><input aria-label="编辑字段" onKeyDown={event => { if (event.key === "Tab") document.getElementById("outside-drawer")?.focus() }} /><button>保存详情</button></Drawer></>)
+  screen.getByLabelText("编辑字段").focus()
+  await user.tab({ shift: reverse })
+  expect(screen.getByRole("button", { name: reverse ? "保存详情" : "关闭抽屉" })).toHaveFocus()
 })

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -16,6 +16,7 @@ import { setTopicBookmark } from "../api/relations"
 import { listTopics } from "../api/topics"
 import {
   getUserProfile,
+  UserApiError,
   listUserRelations,
   setUserFollowing,
   updateUserProfile,
@@ -143,7 +144,7 @@ const secondTopic = {
 }
 
 beforeEach(() => {
-  vi.mocked(usePublicMembershipSummary).mockReset().mockReturnValue(membershipSummary)
+  vi.mocked(usePublicMembershipSummary).mockReset().mockReturnValue({ summary: membershipSummary, status: "ready", retry: vi.fn() })
   vi.mocked(getUserProfile).mockReset().mockResolvedValue(profile)
   vi.mocked(listTopics).mockReset().mockResolvedValue({ topics: [topic], nextCursor: null })
   vi.mocked(listUserRelations).mockReset().mockResolvedValue({ users: [], nextCursor: null })
@@ -187,6 +188,18 @@ afterEach(() => {
 })
 
 describe("UserProfileView", () => {
+  it("keeps public topics usable when identity fails and offers an independent retry", async () => {
+    const retryIdentity = vi.fn()
+    vi.mocked(usePublicMembershipSummary).mockReturnValue({ summary: null, status: "error", retry: retryIdentity })
+    render(<UserProfileView username="member" session={null} onBack={vi.fn()} onLogin={vi.fn()} onOpenTopic={vi.fn()} />)
+    expect(await screen.findByRole("heading", { name: "公开主题" })).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole("button", { name: "重试加载公开身份" }))
+    expect(retryIdentity).toHaveBeenCalledTimes(1)
+    expect(getUserProfile).toHaveBeenCalledTimes(1)
+    expect(listTopics).toHaveBeenCalledTimes(1)
+    expect(listDeviceSessions).not.toHaveBeenCalled()
+  })
+
   it("creates a message conversation from a messageable profile", async () => {
     const user = userEvent.setup()
     const onOpenConversation = vi.fn()
@@ -430,6 +443,7 @@ describe("UserProfileView", () => {
     expect(updateUserProfile).toHaveBeenCalledWith(
       expect.objectContaining({ baseRevision: 2, displayName: "新名称" }),
       session.csrfToken,
+      expect.any(AbortSignal),
     )
     expect(await screen.findByRole("heading", { name: "新名称" })).toBeInTheDocument()
   })
@@ -662,4 +676,72 @@ describe("UserProfileView", () => {
     expect(await screen.findByText("管理员")).toBeInTheDocument()
     expect(listUserRelations).toHaveBeenCalledTimes(2)
   })
+})
+
+it("retains all profile edits across expiry and same-account login with the original revision", async () => {
+  const owner = { ...session, user: { ...session.user, id: profile.id, username: "member" } }
+  const ownProfile = { ...profile, viewer: { ...profile.viewer!, isSelf: true } }
+  vi.mocked(getUserProfile).mockResolvedValue(ownProfile)
+  const props = { username: "member", onBack: vi.fn(), onLogin: vi.fn(), onOpenTopic: vi.fn() }
+  const view = render(<UserProfileView {...props} session={owner} />)
+  await userEvent.click(await screen.findByRole("button", { name: "编辑资料" }))
+  const fields = [["显示名称", "保留名称"], ["简介", "保留简介"], ["所在地", "保留地点"], ["个人网站", "https://kept.example.com"], ["头像 HTTPS 地址", "https://kept.example.com/a.png"]]
+  for (const [label, value] of fields) { await userEvent.clear(screen.getByRole("textbox", { name: label })); await userEvent.type(screen.getByRole("textbox", { name: label }), value) }
+  vi.mocked(getUserProfile).mockResolvedValue({ ...ownProfile, profileRevision: 3, viewer: null })
+  view.rerender(<UserProfileView {...props} session={null} />)
+  await waitFor(() => expect(getUserProfile).toHaveBeenCalledTimes(2))
+  for (const [label, value] of fields) expect(screen.getByRole("textbox", { name: label })).toHaveValue(value)
+  await userEvent.click(screen.getByRole("button", { name: "重新登录后保存" }))
+  expect(props.onLogin).toHaveBeenCalledOnce()
+  view.rerender(<UserProfileView {...props} session={{ ...owner, csrfToken: "b".repeat(64) }} />)
+  await waitFor(() => expect(getUserProfile).toHaveBeenCalledTimes(3))
+  vi.mocked(updateUserProfile).mockResolvedValue({ ...ownProfile, displayName: "保留名称", profileRevision: 4 })
+  await userEvent.click(screen.getByRole("button", { name: "保存资料" }))
+  expect(updateUserProfile).toHaveBeenCalledWith(expect.objectContaining({ baseRevision: 2, displayName: "保留名称", bio: "保留简介", location: "保留地点", websiteUrl: "https://kept.example.com", avatarUrl: "https://kept.example.com/a.png" }), "b".repeat(64), expect.any(AbortSignal))
+})
+
+it("preserves profile input on a real expiry error and requests safe reauthentication", async () => {
+  const owner = { ...session, user: { ...session.user, id: profile.id, username: "member" } }
+  vi.mocked(getUserProfile).mockResolvedValue({ ...profile, viewer: { ...profile.viewer!, isSelf: true } })
+  vi.mocked(updateUserProfile).mockRejectedValue(new UserApiError(401, "auth.unauthenticated", "登录已失效"))
+  const expired = vi.fn()
+  render(<UserProfileView username="member" session={owner} onBack={vi.fn()} onLogin={vi.fn()} onOpenTopic={vi.fn()} onSessionExpired={expired} />)
+  await userEvent.click(await screen.findByRole("button", { name: "编辑资料" }))
+  await userEvent.clear(screen.getByRole("textbox", { name: "显示名称" }))
+  await userEvent.type(screen.getByRole("textbox", { name: "显示名称" }), "失效保留")
+  await userEvent.click(screen.getByRole("button", { name: "保存资料" }))
+  await waitFor(() => expect(expired).toHaveBeenCalledOnce())
+  expect(screen.getByRole("textbox", { name: "显示名称" })).toHaveValue("失效保留")
+  expect(screen.getByRole("button", { name: "重新登录后保存" })).toBeInTheDocument()
+})
+
+it("hides and discards an old account's unsaved profile when another account logs in", async () => {
+  const owner = { ...session, user: { ...session.user, id: profile.id, username: "member" } }
+  vi.mocked(getUserProfile).mockResolvedValue({ ...profile, viewer: { ...profile.viewer!, isSelf: true } })
+  const props = { username: "member", onBack: vi.fn(), onLogin: vi.fn(), onOpenTopic: vi.fn() }
+  const view = render(<UserProfileView {...props} session={owner} />)
+  await userEvent.click(await screen.findByRole("button", { name: "编辑资料" }))
+  await userEvent.type(screen.getByRole("textbox", { name: "简介" }), "原账号未提交秘密")
+  view.rerender(<UserProfileView {...props} session={session} />)
+  expect(screen.queryByRole("form", { name: "编辑公开资料" })).not.toBeInTheDocument()
+  await waitFor(() => expect(getUserProfile).toHaveBeenCalledTimes(2))
+  view.rerender(<UserProfileView {...props} session={owner} />)
+  await waitFor(() => expect(getUserProfile).toHaveBeenCalledTimes(3))
+  expect(screen.queryByText("原账号未提交秘密")).not.toBeInTheDocument()
+  expect(updateUserProfile).not.toHaveBeenCalled()
+})
+
+it("ignores a late profile save after the authenticated account changes", async () => {
+  const owner = { ...session, user: { ...session.user, id: profile.id, username: "member" } }
+  vi.mocked(getUserProfile).mockResolvedValue({ ...profile, viewer: { ...profile.viewer!, isSelf: true } })
+  let resolveSave!: (value: UserProfile) => void
+  vi.mocked(updateUserProfile).mockImplementation(() => new Promise(resolve => { resolveSave = resolve }))
+  const props = { username: "member", onBack: vi.fn(), onLogin: vi.fn(), onOpenTopic: vi.fn() }
+  const view = render(<UserProfileView {...props} session={owner} />)
+  await userEvent.click(await screen.findByRole("button", { name: "编辑资料" }))
+  await userEvent.click(screen.getByRole("button", { name: "保存资料" }))
+  view.rerender(<UserProfileView {...props} session={session} />)
+  await waitFor(() => expect(getUserProfile).toHaveBeenCalledTimes(2))
+  await act(async () => resolveSave({ ...profile, displayName: "迟到旧资料" }))
+  expect(screen.queryByRole("heading", { name: "迟到旧资料" })).not.toBeInTheDocument()
 })

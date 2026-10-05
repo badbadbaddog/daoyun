@@ -51,3 +51,19 @@ pub struct AttachmentCleanupResult {
     pub deleted_objects: u64,
     pub failed_objects: u64,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachmentStorageProvider {
+    Local,
+    S3,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct AttachmentStorageConfiguration {
+    pub write_provider: AttachmentStorageProvider,
+    pub legacy_provider: AttachmentStorageProvider,
+    pub local_configured: bool,
+    pub s3_configured: bool,
+    pub s3_supported: bool,
+}

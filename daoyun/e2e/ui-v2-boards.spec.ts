@@ -133,7 +133,7 @@ for (const width of [320, 390, 768, 1024, 1440]) {
     const imagePost = page.getByRole("link", { name: "查看图片帖", exact: true })
     await imagePost.focus()
     await page.keyboard.press("Enter")
-    await expect(page).toHaveURL(new RegExp("#topic/" + imageOnlyId + "$"))
+    await expect(page).toHaveURL(new RegExp("/t/" + imageOnlyId + "$"))
     await page.goBack()
     await expect(page.getByRole("heading", { name: "工程实践", level: 1 })).toBeVisible()
     await page.getByRole("button", { name: "发帖", exact: true }).click()

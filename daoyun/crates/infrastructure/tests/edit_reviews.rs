@@ -263,3 +263,144 @@ async fn topic_edit_review_keeps_public_revision_until_approval(pool: PgPool) {
         ("Approved", "Approved body", 2)
     );
 }
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn concurrent_edit_review_decisions_preserve_one_winner(pool: PgPool) {
+    use infrastructure::EditReviewError;
+    let author = Uuid::now_v7();
+    let reviewers = [Uuid::now_v7(), Uuid::now_v7()];
+    for (id, name) in [
+        (author, "race_author"),
+        (reviewers[0], "race_first"),
+        (reviewers[1], "race_second"),
+    ] {
+        sqlx::query("INSERT INTO users(id,username,email,display_name,status) VALUES($1,$2,$2 || '@example.com',$2,'active')")
+            .bind(id).bind(name).execute(&pool).await.unwrap();
+    }
+    let board = Uuid::now_v7();
+    let role = Uuid::now_v7();
+    sqlx::query("INSERT INTO boards(id,slug,name) VALUES($1,'race-review','Race review')")
+        .bind(board)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO roles(id,key,name,scope) VALUES($1,'race_review','Race review','site')",
+    )
+    .bind(role)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO role_permissions(role_id,permission_id) SELECT $1,id FROM permissions WHERE permission_key='moderation.topic'").bind(role).execute(&pool).await.unwrap();
+    for reviewer in reviewers {
+        sqlx::query("INSERT INTO role_assignments(id,user_id,role_id,assigned_by) VALUES(gen_random_uuid(),$1,$2,$1)").bind(reviewer).bind(role).execute(&pool).await.unwrap();
+    }
+    let database = Database::from_pool(pool.clone());
+    for target in ["topic", "reply"] {
+        for decisions in [
+            [
+                EditReviewDecisionRecord::Approve,
+                EditReviewDecisionRecord::Reject,
+            ],
+            [
+                EditReviewDecisionRecord::Reject,
+                EditReviewDecisionRecord::Approve,
+            ],
+            [
+                EditReviewDecisionRecord::Approve,
+                EditReviewDecisionRecord::Approve,
+            ],
+        ] {
+            let topic = Uuid::now_v7();
+            let post = if target == "topic" {
+                topic
+            } else {
+                Uuid::now_v7()
+            };
+            let review = Uuid::now_v7();
+            sqlx::query("INSERT INTO topics(id,board_id,author_id,title,content,status,published_at) VALUES($1,$2,$3,'Original','Original body','published',CURRENT_TIMESTAMP)")
+                .bind(topic).bind(board).bind(author).execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO posts(id,topic_id,author_id,kind,content,status) VALUES($1,$1,$2,'topic','Original body','published')")
+                .bind(topic).bind(author).execute(&pool).await.unwrap();
+            if target == "reply" {
+                sqlx::query("INSERT INTO posts(id,topic_id,author_id,kind,content,status,floor_number) VALUES($1,$2,$3,'reply','Original body','published',1)")
+                    .bind(post).bind(topic).bind(author).execute(&pool).await.unwrap();
+            }
+            sqlx::query("INSERT INTO post_revisions(id,post_id,editor_id,revision_number,content) VALUES(gen_random_uuid(),$1,$2,1,'Original body')")
+                .bind(post).bind(author).execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO content_edit_reviews(id,board_id,topic_id,post_id,target_type,editor_id,base_revision,proposed_content,content_changed) VALUES($1,$2,$3,$4,$5,$6,1,'Updated body',true)")
+                .bind(review).bind(board).bind(topic).bind(post).bind(target).bind(author).execute(&pool).await.unwrap();
+            let (first, second) = tokio::join!(
+                database.resolve_edit_review(
+                    reviewers[0],
+                    review,
+                    decisions[0],
+                    1,
+                    "first decision"
+                ),
+                database.resolve_edit_review(
+                    reviewers[1],
+                    review,
+                    decisions[1],
+                    1,
+                    "second decision"
+                ),
+            );
+            let (winner, loser, winning_index) = match (first, second) {
+                (Ok(winner), Err(loser)) => (winner, loser, 0),
+                (Err(loser), Ok(winner)) => (winner, loser, 1),
+                other => panic!("exactly one decision must win: {other:?}"),
+            };
+            assert!(matches!(loser, EditReviewError::Conflict));
+            assert_eq!(winner.revision, 2);
+            let row: (String,Uuid,String,i32) = sqlx::query_as("SELECT status,reviewer_id,review_reason,revision FROM content_edit_reviews WHERE id=$1")
+                .bind(review).fetch_one(&pool).await.unwrap();
+            let approved = decisions[winning_index] == EditReviewDecisionRecord::Approve;
+            assert_eq!(row.0, if approved { "approved" } else { "rejected" });
+            assert_eq!(row.1, reviewers[winning_index]);
+            assert_eq!(
+                row.2,
+                if winning_index == 0 {
+                    "first decision"
+                } else {
+                    "second decision"
+                }
+            );
+            let published: (String, i32) =
+                sqlx::query_as("SELECT content,revision_count FROM posts WHERE id=$1")
+                    .bind(post)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(
+                published,
+                (
+                    if approved {
+                        "Updated body"
+                    } else {
+                        "Original body"
+                    }
+                    .to_owned(),
+                    if approved { 2 } else { 1 }
+                )
+            );
+            assert_eq!(sqlx::query_scalar::<_,i64>("SELECT count(*) FROM admin_audit_log WHERE resource_type='edit_review' AND resource_id=$1")
+                .bind(review).fetch_one(&pool).await.unwrap(),1);
+            assert!(matches!(
+                database
+                    .resolve_edit_review(
+                        reviewers[1 - winning_index],
+                        review,
+                        EditReviewDecisionRecord::Reject,
+                        1,
+                        "late overwrite"
+                    )
+                    .await,
+                Err(EditReviewError::Conflict)
+            ));
+            let unchanged: (String,Uuid,String,i32) = sqlx::query_as("SELECT status,reviewer_id,review_reason,revision FROM content_edit_reviews WHERE id=$1")
+                .bind(review).fetch_one(&pool).await.unwrap();
+            assert_eq!(unchanged, row);
+        }
+    }
+}

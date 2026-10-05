@@ -2401,3 +2401,146 @@ async fn authorized_media_projection_includes_all_images_and_unlocked_gates(pool
         .unwrap();
     assert_eq!(locked.summary.image_attachment_ids, ids[..4]);
 }
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn concurrent_distinct_requests_cannot_overdraw_the_last_topic_quota(pool: PgPool) {
+    let authors = [fixture_id(1), fixture_id(2)];
+    let board = fixture_id(11);
+    for (index, author) in authors.into_iter().enumerate() {
+        insert_user(&pool, author, &format!("quota_race_{index}"), "active").await;
+    }
+    insert_board(&pool, board, "quota-race", "public").await;
+    sqlx::query("UPDATE community_group_quota_rules SET quota_value=1 WHERE group_id=(SELECT id FROM community_groups WHERE internal_key='registered_member') AND quota_key='topic.create.daily'").execute(&pool).await.unwrap();
+    let database = Database::from_pool(pool.clone());
+    let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(16));
+    let mut tasks = tokio::task::JoinSet::new();
+    for (author_index, author) in authors.into_iter().enumerate() {
+        for i in 0..8 {
+            let database = database.clone();
+            let barrier = barrier.clone();
+            tasks.spawn(async move {
+                barrier.wait().await;
+                let result = database
+                    .create_published_topic(
+                        NewTopicRecord {
+                            id: fixture_id(300 + (author_index * 8 + i) as u128),
+                            board_id: Some(board),
+                            author_id: author,
+                            title: format!("Quota race {author_index}/{i}"),
+                            excerpt: "Quota race".to_owned(),
+                            content: "One remaining quota".to_owned(),
+                            rich_content: None,
+                            tags: Vec::new(),
+                        },
+                        Some(IdempotencyInput {
+                            key: format!("quota-race-{author_index}-{i}"),
+                            request_hash: vec![i as u8; 32],
+                        }),
+                    )
+                    .await;
+                (author_index, result)
+            });
+        }
+    }
+    let mut created = [0; 2];
+    let mut rejected = [0; 2];
+    while let Some(result) = tasks.join_next().await {
+        let (author_index, result) = result.unwrap();
+        match result {
+            Ok(result) => {
+                assert!(result.created);
+                created[author_index] += 1;
+            }
+            Err(CreateTopicError::QuotaExceeded) => rejected[author_index] += 1,
+            other => panic!("Unexpected quota race result for author {author_index}: {other:?}"),
+        }
+    }
+    assert_eq!(created, [1, 1]);
+    assert_eq!(rejected, [7, 7]);
+    for author in authors {
+        let usage: i64 = sqlx::query_scalar("SELECT used FROM community_quota_usage WHERE user_id=$1 AND quota_key='topic.create.daily'").bind(author).fetch_one(&pool).await.unwrap();
+        let topics: i64 = sqlx::query_scalar("SELECT count(*) FROM topics WHERE author_id=$1")
+            .bind(author)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let keys: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM idempotency_records WHERE user_id=$1")
+                .bind(author)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!((usage, topics, keys), (1, 1, 1));
+    }
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn concurrent_authors_serialize_board_counter_updates_without_lock_upgrade_deadlock(
+    pool: PgPool,
+) {
+    let board = fixture_id(11);
+    insert_board(&pool, board, "board-counter-race", "public").await;
+    let authors = [fixture_id(1), fixture_id(2)];
+    for (index, author) in authors.into_iter().enumerate() {
+        insert_user(&pool, author, &format!("board_counter_{index}"), "active").await;
+    }
+    let mut blocker = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM boards WHERE id=$1 FOR SHARE")
+        .bind(board)
+        .fetch_one(&mut *blocker)
+        .await
+        .unwrap();
+    let mut tasks = tokio::task::JoinSet::new();
+    for (index, author) in authors.into_iter().enumerate() {
+        let database = Database::from_pool(pool.clone());
+        tasks.spawn(async move {
+            database
+                .create_published_topic(
+                    NewTopicRecord {
+                        id: fixture_id(31 + index as u128),
+                        board_id: Some(board),
+                        author_id: author,
+                        title: "Concurrent board counter".to_owned(),
+                        excerpt: "Counter".to_owned(),
+                        content: "Both authors may publish".to_owned(),
+                        rich_content: None,
+                        tags: Vec::new(),
+                    },
+                    Some(IdempotencyInput {
+                        key: format!("board-counter-{index}"),
+                        request_hash: vec![index as u8; 32],
+                    }),
+                )
+                .await
+        });
+    }
+    // Hold both writers at the board lock before releasing them. Shared-to-write
+    // upgrades deadlock here; acquiring the eventual write lock first serializes them.
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let waiting: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() \
+                 AND wait_event_type='Lock' AND (query LIKE '%FROM boards%' OR query LIKE '%UPDATE boards%')"
+            ).fetch_one(&pool).await.unwrap();
+            if waiting >= 2 { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    }).await.expect("both publishers must reach the blocked board lock");
+    blocker.commit().await.unwrap();
+    while let Some(result) = tasks.join_next().await {
+        assert!(
+            result
+                .unwrap()
+                .expect("both publications must finish without a deadlock")
+                .created
+        );
+    }
+    let counts: (i64,i64) = sqlx::query_as("SELECT topic_count,(SELECT count(*) FROM topics WHERE board_id=$1) FROM boards WHERE id=$1")
+        .bind(board).fetch_one(&pool).await.unwrap();
+    assert_eq!(counts, (2, 2));
+    for author in authors {
+        let counts: (i64,i64) = sqlx::query_as("SELECT (SELECT used FROM community_quota_usage WHERE user_id=$1 AND quota_key='topic.create.daily'),(SELECT count(*) FROM idempotency_records WHERE user_id=$1)")
+            .bind(author).fetch_one(&pool).await.unwrap();
+        assert_eq!(counts, (1, 1));
+    }
+}

@@ -1,16 +1,24 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, Weak},
+    sync::{Arc, Mutex},
     time::Instant,
 };
 
+#[cfg(feature = "wasm-plugins")]
+use std::sync::Weak;
+
+use api_contract::plugin_validation::{
+    MAX_MANIFEST_BYTES, PluginCapability, PluginDataScope, PluginEventSubscription,
+    PluginHostError, PluginManifest, PluginOperation, valid_ui_action_key,
+};
 use api_contract::{
     ApiResponse, BusinessPluginCapability as ContractBusinessPluginCapability, ErrorBody,
     ErrorCode, ErrorResponse, ExecutePluginUiActionRequest, FieldErrors, InstallPluginRequest,
     InvokePluginRequest, LegacyPluginCapability as ContractLegacyPluginCapability, Plugin,
-    PluginBusinessApiVersion as ContractPluginBusinessApiVersion,
+    PluginBusinessApiVersion as ContractPluginBusinessApiVersion, PluginCapabilitiesSnapshot,
     PluginCapability as ContractPluginCapability, PluginDataScope as ContractPluginDataScope,
     PluginEventSubscription as ContractPluginEventSubscription, PluginInvocation,
+    PluginModuleExecution, PluginModuleSnapshot, PluginModuleStatus,
     PluginOperation as ContractPluginOperation, PluginSchemaVersion, PluginStatus,
     PluginUiActionResult, PluginUiContribution, PluginUiSchema, PluginUiSlot,
     PluginUiSurfaceContribution, RequestId, UpdatePluginRequest, error_codes,
@@ -29,20 +37,21 @@ use axum::{
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use infrastructure::{
-    Database, InstallPluginRecord, ListPluginsError, PluginBusinessExecutableRecord,
-    PluginExecutableRecord, PluginInvokeError, PluginMutationError, PluginRecord,
-    PluginRuntimeError, UpdatePluginStatusRecord, permission_keys,
+    Database, InstallPluginRecord, ListPluginsError, PluginExecutableRecord, PluginInvokeError,
+    PluginMutationError, PluginRecord, UpdatePluginStatusRecord, permission_keys,
 };
+#[cfg(feature = "wasm-plugins")]
+use infrastructure::{PluginBusinessExecutableRecord, PluginRuntimeError};
+#[cfg(feature = "wasm-plugins")]
 use plugin_host::{
-    CompiledPlugin, MAX_MANIFEST_BYTES, PluginCapability, PluginDataScope, PluginEventSubscription,
-    PluginHost, PluginHostConfig, PluginHostError, PluginManifest, PluginOperation,
+    CompiledPlugin, PluginHost, PluginHostConfig,
     business::{BusinessPluginHost, CompiledBusinessPlugin},
-    valid_ui_action_key,
 };
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use sha2::{Digest, Sha256};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+#[cfg(feature = "wasm-plugins")]
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use uuid::Uuid;
 
@@ -51,6 +60,7 @@ use crate::auth::{
     ApiError, AuthRuntime, authenticate_optional_session, authenticate_session,
     authenticate_state_change,
 };
+#[cfg(feature = "wasm-plugins")]
 use crate::plugin_business::{
     PluginBusinessExecutionError, execute_plugin_ui_action, render_plugin_ui_contributions,
     render_plugin_ui_surface,
@@ -58,8 +68,11 @@ use crate::plugin_business::{
 
 const PLUGIN_BODY_LIMIT: usize = 12 * 1024 * 1024;
 const PLUGIN_UI_ACTION_BODY_LIMIT: usize = 16 * 1024;
+#[cfg(feature = "wasm-plugins")]
 const MAX_CONCURRENT_PLUGIN_JOBS: usize = 4;
+#[cfg(feature = "wasm-plugins")]
 const MAX_CONCURRENT_JOBS_PER_BUSINESS_PLUGIN: usize = 1;
+#[cfg(feature = "wasm-plugins")]
 const MAX_CACHED_PLUGIN_COMPONENTS: usize = 128;
 const MAX_TRACKED_PLUGIN_UI_ACTION_ACTORS: usize = 4_096;
 const PLUGIN_UI_ACTION_RATE_WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
@@ -73,12 +86,18 @@ struct RawInstallPluginRequest {
 
 #[derive(Clone)]
 pub struct PluginRuntime {
+    #[cfg(feature = "wasm-plugins")]
     host: Option<Arc<PluginHost>>,
+    #[cfg(feature = "wasm-plugins")]
     business_host: Option<Arc<BusinessPluginHost>>,
+    #[cfg(feature = "wasm-plugins")]
     execution_slots: Arc<Semaphore>,
+    #[cfg(feature = "wasm-plugins")]
     business_execution_slots: Arc<Mutex<HashMap<Uuid, Weak<Semaphore>>>>,
     ui_action_attempts: Arc<Mutex<HashMap<(Uuid, Uuid), Instant>>>,
+    #[cfg(feature = "wasm-plugins")]
     compiled_components: Arc<Mutex<HashMap<String, Arc<CompiledPlugin>>>>,
+    #[cfg(feature = "wasm-plugins")]
     compiled_business_components: Arc<Mutex<HashMap<String, Arc<CompiledBusinessPlugin>>>>,
 }
 
@@ -91,31 +110,52 @@ impl Default for PluginRuntime {
 impl PluginRuntime {
     pub fn disabled() -> Self {
         Self {
+            #[cfg(feature = "wasm-plugins")]
             host: None,
+            #[cfg(feature = "wasm-plugins")]
             business_host: None,
+            #[cfg(feature = "wasm-plugins")]
             execution_slots: Arc::new(Semaphore::new(MAX_CONCURRENT_PLUGIN_JOBS)),
+            #[cfg(feature = "wasm-plugins")]
             business_execution_slots: Arc::new(Mutex::new(HashMap::new())),
             ui_action_attempts: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(feature = "wasm-plugins")]
             compiled_components: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(feature = "wasm-plugins")]
             compiled_business_components: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
+    #[cfg(feature = "wasm-plugins")]
     pub fn enabled(config: PluginHostConfig) -> Result<Self, PluginHostError> {
         Ok(Self {
+            #[cfg(feature = "wasm-plugins")]
             host: Some(Arc::new(PluginHost::new(config)?)),
+            #[cfg(feature = "wasm-plugins")]
             business_host: Some(Arc::new(BusinessPluginHost::new(config)?)),
+            #[cfg(feature = "wasm-plugins")]
             execution_slots: Arc::new(Semaphore::new(MAX_CONCURRENT_PLUGIN_JOBS)),
+            #[cfg(feature = "wasm-plugins")]
             business_execution_slots: Arc::new(Mutex::new(HashMap::new())),
             ui_action_attempts: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(feature = "wasm-plugins")]
             compiled_components: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(feature = "wasm-plugins")]
             compiled_business_components: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
     pub fn from_environment() -> Result<Self, PluginHostError> {
+        // A builtin writer must not run until the stable claims and historical delivery cutoff
+        // have been verified. This release has only the existing Wasm reward executor.
+        match std::env::var("DAOYUN_GROWTH_REWARDS_EXECUTOR").as_deref() {
+            Err(std::env::VarError::NotPresent) => {}
+            Ok("wasm") if cfg!(feature = "wasm-plugins") => {}
+            _ => return Err(PluginHostError::InvalidConfiguration),
+        }
         match std::env::var("DAOYUN_PLUGINS_ENABLED").as_deref() {
             Err(std::env::VarError::NotPresent) | Ok("false" | "0") => Ok(Self::disabled()),
+            #[cfg(feature = "wasm-plugins")]
             Ok("true" | "1") => Self::enabled(PluginHostConfig::default()),
             Err(std::env::VarError::NotUnicode(_)) | Ok(_) => {
                 Err(PluginHostError::InvalidConfiguration)
@@ -124,17 +164,27 @@ impl PluginRuntime {
     }
 
     pub const fn is_enabled(&self) -> bool {
-        self.host.is_some()
+        #[cfg(feature = "wasm-plugins")]
+        {
+            self.host.is_some()
+        }
+        #[cfg(not(feature = "wasm-plugins"))]
+        {
+            false
+        }
     }
 
+    #[cfg(feature = "wasm-plugins")]
     pub(crate) fn host(&self) -> Option<Arc<PluginHost>> {
         self.host.clone()
     }
 
+    #[cfg(feature = "wasm-plugins")]
     pub(crate) fn business_host(&self) -> Option<Arc<BusinessPluginHost>> {
         self.business_host.clone()
     }
 
+    #[cfg(feature = "wasm-plugins")]
     pub(crate) async fn execution_permit(&self) -> OwnedSemaphorePermit {
         self.execution_slots
             .clone()
@@ -143,6 +193,7 @@ impl PluginRuntime {
             .expect("plugin execution semaphore is never closed")
     }
 
+    #[cfg(feature = "wasm-plugins")]
     pub(crate) fn try_business_execution_permit(
         &self,
         plugin_id: Uuid,
@@ -182,6 +233,7 @@ impl PluginRuntime {
         true
     }
 
+    #[cfg(feature = "wasm-plugins")]
     fn business_execution_slots(&self, plugin_id: Uuid) -> Arc<Semaphore> {
         {
             let mut slots = self
@@ -201,10 +253,12 @@ impl PluginRuntime {
         }
     }
 
+    #[cfg(feature = "wasm-plugins")]
     fn cached_component(&self, key: &str) -> Option<Arc<CompiledPlugin>> {
         self.compiled_components.lock().ok()?.get(key).cloned()
     }
 
+    #[cfg(feature = "wasm-plugins")]
     fn cache_component(&self, key: String, component: Arc<CompiledPlugin>) {
         let Ok(mut cache) = self.compiled_components.lock() else {
             return;
@@ -215,6 +269,7 @@ impl PluginRuntime {
         cache.insert(key, component);
     }
 
+    #[cfg(feature = "wasm-plugins")]
     pub(crate) fn cached_business_component(
         &self,
         key: &str,
@@ -226,6 +281,7 @@ impl PluginRuntime {
             .cloned()
     }
 
+    #[cfg(feature = "wasm-plugins")]
     pub(crate) fn cache_business_component(
         &self,
         key: String,
@@ -241,6 +297,7 @@ impl PluginRuntime {
     }
 }
 
+#[cfg(feature = "wasm-plugins")]
 pub(crate) struct PluginBusinessExecutionPermit {
     _plugin: OwnedSemaphorePermit,
     _global: OwnedSemaphorePermit,
@@ -251,6 +308,14 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
         .route(
             "/api/v1/admin/plugins",
             get(list_plugins).post(install_plugin),
+        )
+        .route(
+            "/api/v1/admin/plugins/builtins/{key}",
+            axum::routing::post(configure_builtin_plugin),
+        )
+        .route(
+            "/api/v1/admin/plugins/capabilities",
+            get(plugin_capabilities),
         )
         .route(
             "/api/v1/admin/plugins/{plugin_id}",
@@ -315,6 +380,43 @@ pub(crate) async fn list_plugins(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|()| invalid_record(request_id))?;
     Ok(Json(ApiResponse::new(plugins, request_id)))
+}
+
+#[utoipa::path(
+    post, path = "/api/v1/admin/plugins/builtins/{key}", operation_id = "configureBuiltinPlugin", tag = "plugins",
+    params(("key" = String, Path, description = "Fixed official builtin key"), ("x-csrf-token" = String, Header)),
+    responses(
+        (status = 200, body = ApiResponse<Plugin>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 409, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 422, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn configure_builtin_plugin(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    Path(key): Path<String>,
+) -> Result<Json<ApiResponse<Plugin>>, ApiError> {
+    let session = authorize_capability_write(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::PLUGINS_INSTALL,
+    )
+    .await?;
+    let plugin = database
+        .configure_builtin_plugin(session.user.id, &key)
+        .await
+        .map_err(|error| mutation_error(request_id, error))?;
+    Ok(Json(ApiResponse::new(
+        map_plugin(plugin).map_err(|()| invalid_record(request_id))?,
+        request_id,
+    )))
 }
 
 #[utoipa::path(
@@ -482,9 +584,13 @@ pub(crate) async fn update_plugin(
             .load_plugin_for_lifecycle(session.user.id, plugin_id)
             .await
             .map_err(|error| mutation_error(request_id, error))?;
-        let (manifest, bytes) =
-            executable_parts(executable).map_err(|()| invalid_record(request_id))?;
-        compile_component(&plugin_runtime, manifest, bytes, request_id).await?;
+        if executable.execution == "wasm" {
+            let (manifest, bytes) =
+                executable_parts(executable).map_err(|()| invalid_record(request_id))?;
+            compile_component(&plugin_runtime, manifest, bytes, request_id).await?;
+        } else if executable.execution != "native" {
+            return Err(invalid_record(request_id));
+        }
     }
     let plugin = database
         .update_plugin_status(
@@ -656,34 +762,42 @@ pub(crate) async fn plugin_ui_contributions(
         permission_keys::PLUGINS_READ,
     )
     .await?;
-    let rendered_contributions = render_plugin_ui_contributions(
-        database,
-        plugin_runtime,
-        plugin_id,
-        Some(session.user.id),
-        None,
-        plugin_host::business::UiSlot::AdminPlugin,
-        request_id.into(),
-    )
-    .await
-    .map_err(|error| business_execution_error(request_id, error))?;
-    let mut contributions = Vec::with_capacity(rendered_contributions.len());
-    for contribution in rendered_contributions {
-        let schema = match serde_json::from_str::<PluginUiSchema>(&contribution.schema_json) {
-            Ok(schema) => schema,
-            Err(_) => {
-                return Err(plugin_error(request_id, error_codes::PLUGIN_OUTPUT_INVALID));
-            }
-        };
-        let slot = match contribution.slot {
-            plugin_host::business::UiSlot::UserProfile => PluginUiSlot::UserProfile,
-            plugin_host::business::UiSlot::MembershipPanel => PluginUiSlot::MembershipPanel,
-            plugin_host::business::UiSlot::AdminUser => PluginUiSlot::AdminUser,
-            plugin_host::business::UiSlot::AdminPlugin => PluginUiSlot::AdminPlugin,
-        };
-        contributions.push(PluginUiContribution { slot, schema });
+    #[cfg(not(feature = "wasm-plugins"))]
+    {
+        let _ = (session, plugin_id, plugin_runtime);
+        Err(plugin_runtime_unavailable(request_id))
     }
-    Ok(Json(ApiResponse::new(contributions, request_id)))
+    #[cfg(feature = "wasm-plugins")]
+    {
+        let rendered_contributions = render_plugin_ui_contributions(
+            database,
+            plugin_runtime,
+            plugin_id,
+            Some(session.user.id),
+            None,
+            plugin_host::business::UiSlot::AdminPlugin,
+            request_id.into(),
+        )
+        .await
+        .map_err(|error| business_execution_error(request_id, error))?;
+        let mut contributions = Vec::with_capacity(rendered_contributions.len());
+        for contribution in rendered_contributions {
+            let schema = match serde_json::from_str::<PluginUiSchema>(&contribution.schema_json) {
+                Ok(schema) => schema,
+                Err(_) => {
+                    return Err(plugin_error(request_id, error_codes::PLUGIN_OUTPUT_INVALID));
+                }
+            };
+            let slot = match contribution.slot {
+                plugin_host::business::UiSlot::UserProfile => PluginUiSlot::UserProfile,
+                plugin_host::business::UiSlot::MembershipPanel => PluginUiSlot::MembershipPanel,
+                plugin_host::business::UiSlot::AdminUser => PluginUiSlot::AdminUser,
+                plugin_host::business::UiSlot::AdminPlugin => PluginUiSlot::AdminPlugin,
+            };
+            contributions.push(PluginUiContribution { slot, schema });
+        }
+        Ok(Json(ApiResponse::new(contributions, request_id)))
+    }
 }
 
 #[utoipa::path(
@@ -737,25 +851,32 @@ pub(crate) async fn plugin_ui_action(
     {
         return Err(validation_error(request_id, "body", "插件动作参数不正确"));
     }
-    let executed_commands = execute_plugin_ui_action(
-        database,
-        plugin_runtime,
-        plugin_id,
-        session.user.id,
-        request_id.into(),
-        plugin_host::business::UiAction {
-            slot: plugin_host::business::UiSlot::AdminPlugin,
-            action_key: request.action_key,
-            subject_id: None,
-            idempotency_key: request.idempotency_key,
-        },
-    )
-    .await
-    .map_err(|error| business_execution_error(request_id, error))?;
-    Ok(Json(ApiResponse::new(
-        PluginUiActionResult { executed_commands },
-        request_id,
-    )))
+    #[cfg(not(feature = "wasm-plugins"))]
+    {
+        Err(plugin_runtime_unavailable(request_id))
+    }
+    #[cfg(feature = "wasm-plugins")]
+    {
+        let executed_commands = execute_plugin_ui_action(
+            database,
+            plugin_runtime,
+            plugin_id,
+            session.user.id,
+            request_id.into(),
+            plugin_host::business::UiAction {
+                slot: plugin_host::business::UiSlot::AdminPlugin,
+                action_key: request.action_key,
+                subject_id: None,
+                idempotency_key: request.idempotency_key,
+            },
+        )
+        .await
+        .map_err(|error| business_execution_error(request_id, error))?;
+        Ok(Json(ApiResponse::new(
+            PluginUiActionResult { executed_commands },
+            request_id,
+        )))
+    }
 }
 
 #[utoipa::path(
@@ -847,36 +968,47 @@ pub(crate) async fn plugin_ui_surface(
     response_headers.insert(CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
     response_headers.insert(VARY, HeaderValue::from_static("Cookie"));
     ensure_surface_subject(&database, slot, subject_id, request_id).await?;
-    let rendered_contributions = render_plugin_ui_surface(
-        database,
-        plugin_runtime,
-        actor_id,
-        subject_id,
-        map_host_ui_slot(slot, request_id)?,
-        request_id.into(),
-    )
-    .await
-    .map_err(|error| surface_runtime_error(request_id, error))?;
-    let mut contributions = Vec::with_capacity(rendered_contributions.len());
-    for rendered in rendered_contributions {
-        let schema =
-            match serde_json::from_str::<PluginUiSchema>(&rendered.contribution.schema_json) {
-                Ok(schema) => schema,
-                Err(_) => {
-                    return Err(plugin_error(request_id, error_codes::PLUGIN_OUTPUT_INVALID));
-                }
-            };
-        contributions.push(PluginUiSurfaceContribution {
-            plugin_id: rendered.plugin_id,
-            plugin_key: rendered.plugin_key,
-            slot: map_contract_ui_slot(rendered.contribution.slot),
-            schema,
-        });
+    #[cfg(not(feature = "wasm-plugins"))]
+    {
+        let _ = (actor_id, plugin_runtime);
+        Ok((
+            response_headers,
+            Json(ApiResponse::new(Vec::new(), request_id)),
+        ))
     }
-    Ok((
-        response_headers,
-        Json(ApiResponse::new(contributions, request_id)),
-    ))
+    #[cfg(feature = "wasm-plugins")]
+    {
+        let rendered_contributions = render_plugin_ui_surface(
+            database,
+            plugin_runtime,
+            actor_id,
+            subject_id,
+            map_host_ui_slot(slot, request_id)?,
+            request_id.into(),
+        )
+        .await
+        .map_err(|error| surface_runtime_error(request_id, error))?;
+        let mut contributions = Vec::with_capacity(rendered_contributions.len());
+        for rendered in rendered_contributions {
+            let schema =
+                match serde_json::from_str::<PluginUiSchema>(&rendered.contribution.schema_json) {
+                    Ok(schema) => schema,
+                    Err(_) => {
+                        return Err(plugin_error(request_id, error_codes::PLUGIN_OUTPUT_INVALID));
+                    }
+                };
+            contributions.push(PluginUiSurfaceContribution {
+                plugin_id: rendered.plugin_id,
+                plugin_key: rendered.plugin_key,
+                slot: map_contract_ui_slot(rendered.contribution.slot),
+                schema,
+            });
+        }
+        Ok((
+            response_headers,
+            Json(ApiResponse::new(contributions, request_id)),
+        ))
+    }
 }
 
 #[utoipa::path(
@@ -968,25 +1100,32 @@ pub(crate) async fn plugin_ui_surface_action(
     {
         return Err(validation_error(request_id, "body", "插件动作参数不正确"));
     }
-    let executed_commands = execute_plugin_ui_action(
-        database,
-        plugin_runtime,
-        plugin_id,
-        actor_id,
-        request_id.into(),
-        plugin_host::business::UiAction {
-            slot: map_host_ui_slot(slot, request_id)?,
-            action_key: request.action_key,
-            subject_id: Some(subject_id.to_string()),
-            idempotency_key: request.idempotency_key,
-        },
-    )
-    .await
-    .map_err(|error| business_execution_error(request_id, error))?;
-    Ok(Json(ApiResponse::new(
-        PluginUiActionResult { executed_commands },
-        request_id,
-    )))
+    #[cfg(not(feature = "wasm-plugins"))]
+    {
+        Err(plugin_runtime_unavailable(request_id))
+    }
+    #[cfg(feature = "wasm-plugins")]
+    {
+        let executed_commands = execute_plugin_ui_action(
+            database,
+            plugin_runtime,
+            plugin_id,
+            actor_id,
+            request_id.into(),
+            plugin_host::business::UiAction {
+                slot: map_host_ui_slot(slot, request_id)?,
+                action_key: request.action_key,
+                subject_id: Some(subject_id.to_string()),
+                idempotency_key: request.idempotency_key,
+            },
+        )
+        .await
+        .map_err(|error| business_execution_error(request_id, error))?;
+        Ok(Json(ApiResponse::new(
+            PluginUiActionResult { executed_commands },
+            request_id,
+        )))
+    }
 }
 
 async fn ensure_surface_subject(
@@ -1025,6 +1164,7 @@ async fn ensure_surface_subject(
 }
 
 #[allow(clippy::result_large_err)]
+#[cfg(feature = "wasm-plugins")]
 fn map_host_ui_slot(
     slot: PluginUiSlot,
     request_id: RequestId,
@@ -1044,6 +1184,7 @@ fn map_host_ui_slot(
     })
 }
 
+#[cfg(feature = "wasm-plugins")]
 const fn map_contract_ui_slot(slot: plugin_host::business::UiSlot) -> PluginUiSlot {
     match slot {
         plugin_host::business::UiSlot::UserProfile => PluginUiSlot::UserProfile,
@@ -1053,6 +1194,7 @@ const fn map_contract_ui_slot(slot: plugin_host::business::UiSlot) -> PluginUiSl
     }
 }
 
+#[cfg(feature = "wasm-plugins")]
 async fn compile_component(
     runtime: &PluginRuntime,
     manifest: PluginManifest,
@@ -1085,6 +1227,7 @@ async fn compile_component(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(feature = "wasm-plugins")]
 async fn invoke_component(
     runtime: &PluginRuntime,
     manifest: PluginManifest,
@@ -1124,9 +1267,10 @@ async fn invoke_component(
     }
 }
 
+#[cfg(feature = "wasm-plugins")]
 fn compile_cached_component(
     runtime: &PluginRuntime,
-    host: &PluginHost,
+    #[cfg(feature = "wasm-plugins")] host: &PluginHost,
     manifest: PluginManifest,
     bytes: &[u8],
 ) -> Result<Arc<CompiledPlugin>, PluginHostError> {
@@ -1139,9 +1283,10 @@ fn compile_cached_component(
     Ok(component)
 }
 
+#[cfg(feature = "wasm-plugins")]
 pub(crate) fn compile_cached_business_component(
     runtime: &PluginRuntime,
-    host: &BusinessPluginHost,
+    #[cfg(feature = "wasm-plugins")] host: &BusinessPluginHost,
     manifest: PluginManifest,
     bytes: &[u8],
 ) -> Result<Arc<CompiledBusinessPlugin>, PluginHostError> {
@@ -1154,6 +1299,7 @@ pub(crate) fn compile_cached_business_component(
     Ok(component)
 }
 
+#[cfg(any(feature = "wasm-plugins", test))]
 fn component_cache_key(manifest: &PluginManifest, bytes: &[u8]) -> String {
     let mut digest = Sha256::new();
     digest.update(bytes);
@@ -1287,6 +1433,7 @@ fn executable_parts(record: PluginExecutableRecord) -> Result<(PluginManifest, V
     Ok((manifest, record.component_bytes))
 }
 
+#[cfg(feature = "wasm-plugins")]
 pub(crate) fn business_executable_parts(
     record: PluginBusinessExecutableRecord,
 ) -> Result<(PluginManifest, Vec<u8>), ()> {
@@ -1329,6 +1476,11 @@ pub(crate) fn business_executable_parts(
 fn map_plugin(record: PluginRecord) -> Result<Plugin, ()> {
     Ok(Plugin {
         id: record.id,
+        execution: match record.execution.as_str() {
+            "native" => PluginModuleExecution::Native,
+            "wasm" => PluginModuleExecution::Wasm,
+            _ => return Err(()),
+        },
         key: record.key,
         name: record.name,
         version: record.version,
@@ -1615,6 +1767,7 @@ fn plugin_runtime_unavailable(request_id: RequestId) -> ApiError {
     )
 }
 
+#[cfg(feature = "wasm-plugins")]
 fn host_error(request_id: RequestId, error: PluginHostError) -> ApiError {
     match error {
         PluginHostError::InvalidManifest => {
@@ -1644,6 +1797,7 @@ fn host_error(request_id: RequestId, error: PluginHostError) -> ApiError {
     }
 }
 
+#[cfg(feature = "wasm-plugins")]
 fn business_execution_error(
     request_id: RequestId,
     error: PluginBusinessExecutionError,
@@ -1703,6 +1857,7 @@ fn plugin_action_rate_limited(request_id: RequestId) -> ApiError {
     )
 }
 
+#[cfg(feature = "wasm-plugins")]
 fn surface_runtime_error(request_id: RequestId, error: PluginRuntimeError) -> ApiError {
     match error {
         PluginRuntimeError::Database(error) => database_error(request_id, error),
@@ -1814,12 +1969,18 @@ fn format_time(value: OffsetDateTime) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "wasm-plugins")]
     use std::time::Duration;
 
-    use plugin_host::{PluginCapability, PluginHostConfig, PluginManifest};
+    #[cfg(feature = "wasm-plugins")]
+    use api_contract::plugin_validation::PluginHostConfig;
+    use api_contract::plugin_validation::{PluginCapability, PluginManifest};
 
-    use super::{MAX_CONCURRENT_PLUGIN_JOBS, PluginRuntime, component_cache_key};
+    use super::component_cache_key;
+    #[cfg(feature = "wasm-plugins")]
+    use super::{MAX_CONCURRENT_PLUGIN_JOBS, PluginRuntime};
 
+    #[cfg(feature = "wasm-plugins")]
     #[tokio::test]
     async fn plugin_runtime_limits_concurrent_work() {
         let runtime = PluginRuntime::enabled(PluginHostConfig::default())
@@ -1842,6 +2003,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "wasm-plugins")]
     #[test]
     fn business_plugins_have_independent_single_execution_slots() {
         let runtime = PluginRuntime::enabled(PluginHostConfig::default())
@@ -1896,4 +2058,140 @@ mod tests {
             component_cache_key(&manifest, b"component-b")
         );
     }
+}
+
+#[utoipa::path(
+    get, path = "/api/v1/admin/plugins/capabilities", operation_id = "getPluginCapabilities", tag = "plugins",
+    responses(
+        (status = 200, body = ApiResponse<PluginCapabilitiesSnapshot>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn plugin_capabilities(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(auth_runtime): Extension<AuthRuntime>,
+    Extension(plugin_runtime): Extension<PluginRuntime>,
+    headers: HeaderMap,
+) -> Result<Json<ApiResponse<PluginCapabilitiesSnapshot>>, ApiError> {
+    let session = authorize_capability_read(
+        &database,
+        &auth_runtime,
+        &headers,
+        request_id,
+        permission_keys::PLUGINS_READ,
+    )
+    .await?;
+    let plugins = database
+        .list_plugins(session.user.id)
+        .await
+        .map_err(|error| list_error(request_id, error))?;
+    let can_manage_lifecycle = database
+        .has_permission(session.user.id, permission_keys::PLUGINS_LIFECYCLE, None)
+        .await
+        .map_err(|error| database_error(request_id, error))?;
+    let wasm_supported = cfg!(feature = "wasm-plugins");
+    let wasm_runtime_enabled = plugin_runtime.is_enabled();
+    let descriptors = [
+        ("topic.polls", "单选投票", PluginModuleExecution::Native),
+        (
+            "membership.redemption",
+            "积分兑换",
+            PluginModuleExecution::Native,
+        ),
+        (
+            "topic.supplements",
+            "帖子补充",
+            PluginModuleExecution::Native,
+        ),
+        (
+            "topic.edit_review",
+            "编辑审核",
+            PluginModuleExecution::Native,
+        ),
+        (
+            "community.analytics",
+            "运营报表",
+            PluginModuleExecution::Native,
+        ),
+        (
+            "experience.write",
+            "成长奖励（现有执行器）",
+            PluginModuleExecution::Wasm,
+        ),
+    ];
+    let modules = descriptors
+        .into_iter()
+        .map(|(key, name, execution)| {
+            let providers: Vec<_> = plugins
+                .iter()
+                .filter(|plugin| {
+                    plugin
+                        .capabilities
+                        .iter()
+                        .any(|capability| capability == key)
+                })
+                .collect();
+            let business_enabled = providers.iter().any(|plugin| plugin.status == "enabled");
+            let runtime_ready = execution == PluginModuleExecution::Native || wasm_runtime_enabled;
+            let supported = execution == PluginModuleExecution::Native || wasm_supported;
+            let status = if !supported {
+                PluginModuleStatus::Unsupported
+            } else if providers.is_empty() {
+                PluginModuleStatus::NotConfigured
+            } else if !business_enabled {
+                PluginModuleStatus::Disabled
+            } else if !runtime_ready {
+                PluginModuleStatus::RuntimeDisabled
+            } else {
+                PluginModuleStatus::Available
+            };
+            PluginModuleSnapshot {
+                capability: parse_contract_capability(key).expect("static capability is valid"),
+                name: name.to_owned(),
+                execution,
+                supported,
+                runtime_ready,
+                business_enabled,
+                status,
+                target_authorization_required: true,
+            }
+        })
+        .collect();
+    Ok(Json(ApiResponse::new(
+        PluginCapabilitiesSnapshot {
+            wasm_supported,
+            wasm_runtime_enabled,
+            can_manage_lifecycle,
+            modules,
+        },
+        request_id,
+    )))
+}
+
+#[cfg(not(feature = "wasm-plugins"))]
+async fn compile_component(
+    _runtime: &PluginRuntime,
+    _manifest: PluginManifest,
+    _bytes: Vec<u8>,
+    request_id: RequestId,
+) -> Result<(), ApiError> {
+    Err(plugin_runtime_unavailable(request_id))
+}
+
+#[cfg(not(feature = "wasm-plugins"))]
+#[allow(clippy::too_many_arguments)]
+async fn invoke_component(
+    _runtime: &PluginRuntime,
+    _manifest: PluginManifest,
+    _bytes: Vec<u8>,
+    _operation: PluginOperation,
+    _input: Vec<u8>,
+    _plugin_id: Uuid,
+    _plugin_key: String,
+    request_id: RequestId,
+) -> Result<Vec<u8>, ApiError> {
+    Err(plugin_runtime_unavailable(request_id))
 }

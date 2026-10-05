@@ -218,13 +218,12 @@ describe("BoardAdminPanel", () => {
     await user.click(screen.getByRole("button", { name: "新增子版块：社区交流" }))
     expect(screen.getByRole("heading", { name: "在“社区交流”下新增子版块" })).toBeInTheDocument()
     await user.type(screen.getByLabelText("版块名称"), "开发讨论")
-    await user.type(screen.getByLabelText("版块 Slug"), "development")
     await user.click(screen.getByRole("button", { name: "创建子版块" }))
 
     expect(createAdminBoard).toHaveBeenCalledWith(expect.objectContaining({
       parentId: rootId,
       name: "开发讨论",
-      slug: "development",
+      slug: expect.stringMatching(/^board-[a-f0-9-]{36}$/),
       position: 1,
     }), "csrf")
     expect(await screen.findByText("版块已创建")).toBeInTheDocument()
@@ -329,7 +328,7 @@ describe("BoardAdminPanel", () => {
     await user.click(screen.getByRole("menuitem", { name: "访问策略" }))
 
     expect(await screen.findByLabelText("访问策略匹配方式")).toHaveValue("any_of")
-    expect(getAdminContentAccessPolicy).toHaveBeenCalledWith("board", rootId)
+    expect(getAdminContentAccessPolicy).toHaveBeenCalledWith("board", rootId, expect.any(AbortSignal))
     await user.selectOptions(screen.getByLabelText("访问策略匹配方式"), "all_of")
     await user.click(screen.getByRole("button", { name: "保存访问策略" }))
 
@@ -477,7 +476,7 @@ describe("BoardAdminPanel", () => {
 })
 
 function renderPanel() {
-  return render(<BoardAdminPanel boards={boards} csrfToken="csrf" canWrite onChange={vi.fn()} />)
+  return render(<BoardAdminPanel boards={boards} csrfToken="csrf" capabilityKeys={["content.access_policies.read", "content.access_policies.write"]} canWrite onChange={vi.fn()} />)
 }
 
 function board(overrides: Partial<AdminBoard> & Pick<AdminBoard, "id" | "name" | "slug">): AdminBoard {
@@ -499,3 +498,57 @@ function board(overrides: Partial<AdminBoard> & Pick<AdminBoard, "id" | "name" |
     ...rest,
   }
 }
+
+it("opens a board from its ID and returns to the original search", async () => {
+  const onQueryChange = vi.fn()
+  render(<BoardAdminPanel boards={boards} csrfToken="csrf" capabilityKeys={["content.access_policies.read", "content.access_policies.write"]} canWrite onChange={vi.fn()} requestedQuery={"q=社区&board_id=" + childId} onQueryChange={onQueryChange} />)
+  expect(await screen.findByRole("dialog", { name: "编辑“新人报到”" })).toBeInTheDocument()
+  await userEvent.setup().click(screen.getByRole("button", { name: "取消" }))
+  expect(screen.getByRole("searchbox", { name: "搜索版块" })).toHaveValue("社区")
+  expect(onQueryChange).toHaveBeenLastCalledWith("q=%E7%A4%BE%E5%8C%BA")
+})
+
+it("makes a directly opened board read-only without configuration write permission", async () => {
+  render(<BoardAdminPanel boards={boards} csrfToken="csrf" canWrite={false} onChange={vi.fn()} requestedQuery={"board_id=" + rootId} />)
+  const drawer = await screen.findByRole("dialog", { name: "查看“社区交流”" })
+  expect(drawer).toBeInTheDocument()
+  expect(screen.getByLabelText("版块名称")).toBeDisabled()
+  expect(screen.queryByRole("button", { name: "保存版块" })).not.toBeInTheDocument()
+  expect(updateAdminBoard).not.toHaveBeenCalled()
+})
+
+it("clears the board object ID after a successful save", async () => {
+  const onQueryChange = vi.fn()
+  render(<BoardAdminPanel boards={boards} csrfToken="csrf" capabilityKeys={["content.access_policies.read", "content.access_policies.write"]} canWrite onChange={vi.fn()} requestedQuery={"q=社区&board_id=" + rootId} onQueryChange={onQueryChange} />)
+  await screen.findByRole("dialog", { name: "编辑“社区交流”" })
+  await userEvent.setup().click(screen.getByRole("button", { name: "保存版块" }))
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+  expect(onQueryChange).toHaveBeenLastCalledWith("q=%E7%A4%BE%E5%8C%BA")
+})
+
+it("ignores an old access policy after a different board is selected", async () => {
+  let finishOld!: (value: Awaited<ReturnType<typeof getAdminContentAccessPolicy>>) => void
+  const policy = { id: policyId, targetType: "board" as const, targetId: rootId, operator: "any_of" as const, subjects: [{ subjectType: "authenticated" as const, communityGroupId: null, subjectKey: null }], revision: 7, createdAt: "2026-08-28T00:00:00Z", updatedAt: "2026-08-28T00:00:00Z" }
+  vi.mocked(getAdminContentAccessPolicy).mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve })).mockResolvedValueOnce({ ...policy, targetId: secondRootId, operator: "all_of" })
+  const view = render(<BoardAdminPanel boards={boards} csrfToken="csrf" capabilityKeys={["content.access_policies.read", "content.access_policies.write"]} canWrite onChange={vi.fn()} requestedQuery={"board_id=" + rootId} />)
+  await screen.findByRole("dialog", { name: "编辑“社区交流”" })
+  await userEvent.setup().click(screen.getByRole("button", { name: "访问权限" }))
+  view.rerender(<BoardAdminPanel boards={boards} csrfToken="csrf" capabilityKeys={["content.access_policies.read", "content.access_policies.write"]} canWrite onChange={vi.fn()} requestedQuery={"board_id=" + secondRootId} />)
+  await screen.findByRole("dialog", { name: "编辑“站务反馈”" })
+  await userEvent.setup().click(screen.getByRole("button", { name: "访问权限" }))
+  await waitFor(() => expect(screen.getByLabelText("访问策略匹配方式")).toHaveValue("all_of"))
+  await act(async () => finishOld(policy))
+  expect(screen.getByLabelText("访问策略匹配方式")).toHaveValue("all_of")
+})
+
+it("preserves the access section when a board action publishes its object URL", async () => {
+  const onQueryChange = vi.fn()
+  const view = render(<BoardAdminPanel boards={boards} csrfToken="csrf" capabilityKeys={["content.access_policies.read", "content.access_policies.write"]} canWrite onChange={vi.fn()} onQueryChange={onQueryChange} />)
+  await userEvent.setup().click(screen.getByRole("button", { name: "更多操作：社区交流" }))
+  await userEvent.setup().click(screen.getByRole("menuitem", { name: "访问策略" }))
+  await screen.findByLabelText("访问策略匹配方式")
+  view.rerender(<BoardAdminPanel boards={boards} csrfToken="csrf" capabilityKeys={["content.access_policies.read", "content.access_policies.write"]} canWrite onChange={vi.fn()} onQueryChange={onQueryChange} requestedQuery={"board_id=" + rootId} />)
+  await act(async () => {})
+  expect(screen.getByLabelText("访问策略匹配方式")).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "访问权限" })).toHaveAttribute("aria-pressed", "true")
+})

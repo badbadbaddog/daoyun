@@ -54,6 +54,7 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
   const [grantReason, setGrantReason] = useState("")
   const [grantStartsAt, setGrantStartsAt] = useState("")
   const [grantEndsAt, setGrantEndsAt] = useState("")
+  const [grantAttempt, setGrantAttempt] = useState<Parameters<typeof grantStandardEntitlement>[0] | null>(null)
   const [mutating, setMutating] = useState(false)
   const [revokeTarget, setRevokeTarget] = useState<AdminStandardEntitlement | null>(null)
   const [revokeReason, setRevokeReason] = useState("")
@@ -156,6 +157,7 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
   }
 
   async function selectUser(user: AdminUserSummary) {
+    if (mutatingRef.current || (grantAttempt && grantAttempt.userId !== user.id)) return
     const requestId = ++entitlementsRequestRef.current
     setSelectedUser(user); setGrantsLoading(true); setEntitlements([]); setError(""); setMessage("")
     try {
@@ -170,18 +172,27 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
 
   async function grantEntitlement(event: FormEvent) {
     event.preventDefault()
-    if (mutatingRef.current) return
+    if (mutatingRef.current || !canWriteGrants) return
     if (!selectedUser || !grantTypeId) { setError("请先选择用户和权益类型。"); return }
     if (!grantSource.trim() || !grantReason.trim() || !grantStartsAt) { setError("请填写发放来源、发放原因和开始时间。"); return }
     const startsAt = toIso(grantStartsAt); const endsAt = grantEndsAt ? toIso(grantEndsAt) : null
     if (!startsAt || (grantEndsAt && !endsAt) || (endsAt && endsAt <= startsAt)) { setError("结束时间必须晚于开始时间。"); return }
+    const input = grantAttempt ?? { userId: selectedUser.id, entitlementTypeId: grantTypeId, source: grantSource.trim(), sourceReferenceId: grantReference.trim() || null, reason: grantReason.trim(), startsAt, endsAt, idempotencyKey: newIdempotencyKey("entitlement-grant") }
+    setGrantAttempt(input)
     mutatingRef.current = true
     setMutating(true); setError("")
     try {
-      const result = await grantStandardEntitlement({ userId: selectedUser.id, entitlementTypeId: grantTypeId, source: grantSource.trim(), sourceReferenceId: grantReference.trim() || null, reason: grantReason.trim(), startsAt, endsAt, idempotencyKey: newIdempotencyKey("entitlement-grant") }, csrfToken)
+      const result = await grantStandardEntitlement(input, csrfToken)
+      setGrantAttempt(null)
       setEntitlements((current) => [result.entitlement, ...current.filter((item) => item.id !== result.entitlement.id)])
       setGrantOpen(false); setMessage(result.replayed ? "权益发放已幂等重放" : "标准权益已安全发放")
-    } catch (reason) { setError(apiMessage(reason, "标准权益发放失败，请稍后重试。")) }
+    } catch (reason) {
+      if (grantAttempt || !(reason instanceof AdminApiError) || reason.status >= 500 || reason.code === "response.invalid") {
+        setError(grantAttempt && reason instanceof AdminApiError && reason.status >= 400 && reason.status < 500 && reason.code !== "response.invalid"
+          ? "本次核实被拒绝：" + reason.message + "。原发放结果仍未确认，请恢复访问后使用原请求核实。"
+          : "发放结果尚未确认。请使用原请求重试，避免重复授予。")
+      } else { setGrantAttempt(null); setError(apiMessage(reason, "标准权益发放失败，请稍后重试。")) }
+    }
     finally { mutatingRef.current = false; setMutating(false) }
   }
 
@@ -253,8 +264,8 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
       {selectedType && <section className="entitlement-version-history" role="region" aria-label={`${selectedType.displayName}版本历史`}><h4>{selectedType.displayName}版本历史</h4>{versionsLoading ? <p role="status">正在读取版本历史</p> : <ol>{versions.map((version) => <li key={version.id}><strong>版本 {version.version}</strong><span>{version.permissionKeys.join("、") || "无权限"}</span>{quotaLines(version.quotas).map((line) => <code key={line}>{line}</code>)}</li>)}</ol>}</section>}
     </>}</section> : <section id="entitlement-panel-users" role="tabpanel" aria-labelledby="entitlement-tab-users">
       <form className="entitlement-user-search" role="search" onSubmit={(event) => void searchUsers(event)}><label>搜索权益用户<input type="search" aria-label="搜索权益用户" placeholder="用户名或显示名称" value={query} onChange={(event) => setQuery(event.target.value)} /></label><button className="secondary-button" type="submit" disabled={searching || !canReadUsers}>{searching ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" /> : <Search size={14} aria-hidden="true" />}搜索用户</button></form>
-      {canWriteGrants && <button className="primary-button" type="button" disabled={!selectedUser || activeTypes.length === 0} onClick={() => { setGrantOpen(true); setError(""); setGrantTypeId(activeTypes[0]?.id ?? "") }}>发放标准权益</button>}
-      {users.length > 0 && <ul aria-label="权益用户搜索结果">{users.map((user) => <li key={user.id}><button type="button" aria-label={`选择${user.displayName} @${user.username}`} aria-pressed={selectedUser?.id === user.id} onClick={() => void selectUser(user)}>{user.displayName} <small>@{user.username}</small></button></li>)}</ul>}
+      {canWriteGrants && <button className="primary-button" type="button" disabled={!selectedUser || activeTypes.length === 0} onClick={() => { setGrantOpen(true); setError(""); if (!grantAttempt) setGrantTypeId(activeTypes[0]?.id ?? "") }}>发放标准权益</button>}
+      {users.length > 0 && <ul aria-label="权益用户搜索结果">{users.map((user) => <li key={user.id}><button type="button" aria-label={`选择${user.displayName} @${user.username}`} disabled={mutating || Boolean(grantAttempt && grantAttempt.userId !== user.id)} aria-pressed={selectedUser?.id === user.id} onClick={() => void selectUser(user)}>{user.displayName} <small>@{user.username}</small></button></li>)}</ul>}
       {selectedUser && <section className="entitlement-user-detail" aria-label={`${selectedUser.displayName}的标准权益`} aria-busy={grantsLoading}><header><div><h3>{selectedUser.displayName}</h3><small>@{selectedUser.username}</small></div><button className="icon-button" type="button" aria-label="刷新用户权益" title="刷新用户权益" disabled={grantsLoading} onClick={() => void selectUser(selectedUser)}><RefreshCw size={14} aria-hidden="true" /></button></header>
         {grantsLoading ? <p role="status">正在读取用户权益</p> : entitlements.length === 0 ? <p role="status">当前用户没有权益操作记录。</p> : <ul className="entitlement-operation-list" aria-label="权益操作记录">{entitlements.map((entitlement) => <li key={entitlement.id}><div><strong>{typeName(types, entitlement)}</strong><span>{entitlementState(entitlement)}</span></div><small>版本 {entitlement.typeVersion} · 来源 {entitlement.source}{entitlement.sourceReferenceId ? ` / ${entitlement.sourceReferenceId}` : ""}</small><p>{entitlement.reason}</p><time>{formatWindow(entitlement.startsAt, entitlement.endsAt)}</time><details><summary>权限与额度快照</summary><span>{entitlement.permissionSnapshot.join("、") || "无权限"}</span>{quotaLines(entitlement.quotaSnapshot).map((line) => <code key={line}>{line}</code>)}</details>{entitlement.revokedAt ? <p>撤销：{entitlement.revocationReason}</p> : canWriteGrants && <button className="danger-button" type="button" onClick={() => { setRevokeTarget(entitlement); setRevokeReason(""); setError("") }} aria-label={`撤销${typeName(types, entitlement)}`}>撤销</button>}</li>)}</ul>}
       </section>}
@@ -278,7 +289,7 @@ export function EntitlementsWorkspace({ children, csrfToken = "", canReadTypes =
       {conflict && <RevisionConflictNotice onRefresh={() => void refreshTypeConflictBaseline()} />}
       <footer className="admin-form__actions"><button className="secondary-button" type="button" disabled={publishing} onClick={() => setPublishOpen(false)}>取消</button><button className="primary-button" type="submit" disabled={publishing || !internalKey.trim() || !displayName.trim() || permissions.length === 0 || !Object.values(quotaDraft).some(value => value.trim() !== "")}>{publishing ? "正在发布" : "确认发布"}</button></footer>
     </ModalDialog>}
-    {grantOpen && selectedUser && <ModalDialog element="form" className="admin-action-dialog admin-form entitlement-dialog" titleId="grant-entitlement-heading" busy={mutating} initialFocusSelector="select:not(:disabled), input:not(:disabled), textarea:not(:disabled)" onClose={() => setGrantOpen(false)} onSubmit={(event) => void grantEntitlement(event)}><h3 id="grant-entitlement-heading">发放标准权益</h3><p>发放给 {selectedUser.displayName}；写入时固定当前类型版本的权限与额度快照。</p><label>权益类型<select aria-label="权益类型" disabled={mutating} value={grantTypeId} onChange={(event) => setGrantTypeId(event.target.value)}>{activeTypes.map((type) => <option key={type.id} value={type.id}>{type.displayName} · v{type.currentVersion}</option>)}</select></label><label>发放来源<input aria-label="发放来源" required disabled={mutating} value={grantSource} onChange={(event) => setGrantSource(event.target.value)} placeholder="operator" /></label><label>来源编号（可选）<input disabled={mutating} value={grantReference} onChange={(event) => setGrantReference(event.target.value)} /></label><label>发放原因<input aria-label="发放原因" required disabled={mutating} value={grantReason} onChange={(event) => setGrantReason(event.target.value)} /></label><label>开始时间<input aria-label="开始时间" required disabled={mutating} type="datetime-local" value={grantStartsAt} onChange={(event) => setGrantStartsAt(event.target.value)} /></label><label>结束时间（可选）<input aria-label="结束时间" disabled={mutating} type="datetime-local" value={grantEndsAt} onChange={(event) => setGrantEndsAt(event.target.value)} /></label>{error && <p className="form-alert" role="alert">{error}</p>}<div><button className="secondary-button" type="button" disabled={mutating} onClick={() => setGrantOpen(false)}>取消</button><button className="primary-button" type="submit" disabled={mutating}>确认发放</button></div></ModalDialog>}
+    {grantOpen && selectedUser && <ModalDialog element="form" className="admin-action-dialog admin-form entitlement-dialog" titleId="grant-entitlement-heading" busy={mutating} initialFocusSelector="select:not(:disabled), input:not(:disabled), textarea:not(:disabled)" onClose={() => setGrantOpen(false)} onSubmit={(event) => void grantEntitlement(event)}><h3 id="grant-entitlement-heading">发放标准权益</h3><p>发放给 {selectedUser.displayName}；写入时固定当前类型版本的权限与额度快照。</p>{grantAttempt && !mutating && <p role="status">原请求已保留；重新确认会使用同一幂等键核实结果。发放编号：<code>{grantAttempt.idempotencyKey}</code></p>}<label>权益类型<select aria-label="权益类型" disabled={mutating || Boolean(grantAttempt)} value={grantTypeId} onChange={(event) => setGrantTypeId(event.target.value)}>{activeTypes.map((type) => <option key={type.id} value={type.id}>{type.displayName} · v{type.currentVersion}</option>)}</select></label><label>发放来源<input aria-label="发放来源" required disabled={mutating || Boolean(grantAttempt)} value={grantSource} onChange={(event) => setGrantSource(event.target.value)} placeholder="operator" /></label><label>来源编号（可选）<input disabled={mutating || Boolean(grantAttempt)} value={grantReference} onChange={(event) => setGrantReference(event.target.value)} /></label><label>发放原因<input aria-label="发放原因" required disabled={mutating || Boolean(grantAttempt)} value={grantReason} onChange={(event) => setGrantReason(event.target.value)} /></label><label>开始时间<input aria-label="开始时间" required disabled={mutating} type="datetime-local" value={grantStartsAt} onChange={(event) => setGrantStartsAt(event.target.value)} /></label><label>结束时间（可选）<input aria-label="结束时间" disabled={mutating} type="datetime-local" value={grantEndsAt} onChange={(event) => setGrantEndsAt(event.target.value)} /></label>{error && <p className="form-alert" role="alert">{error}</p>}<div><button className="secondary-button" type="button" disabled={mutating} onClick={() => setGrantOpen(false)}>取消</button><button className="primary-button" type="submit" disabled={mutating || !canWriteGrants}>确认发放</button></div></ModalDialog>}
     {revokeTarget && <ModalDialog element="form" className="admin-action-dialog admin-form entitlement-dialog" titleId="revoke-entitlement-heading" busy={mutating} initialFocusSelector="input:not(:disabled), textarea:not(:disabled), select:not(:disabled)" onClose={() => setRevokeTarget(null)} onSubmit={(event) => void revokeEntitlement(event)}><h3 id="revoke-entitlement-heading">撤销{typeName(types, revokeTarget)}</h3><p>撤销立即生效，历史版本与发放记录仍会保留。</p><label>撤销原因<input aria-label="撤销原因" value={revokeReason} onChange={(event) => setRevokeReason(event.target.value)} /></label>{error && <p className="form-alert" role="alert">{error}</p>}{conflict && <RevisionConflictNotice onRefresh={() => void refreshRevocationConflictBaseline()} />}<div><button className="secondary-button" type="button" disabled={mutating} onClick={() => setRevokeTarget(null)}>取消</button><button className="danger-button" type="submit" disabled={mutating || revokeReason.trim().length < 2}>确认撤销</button></div></ModalDialog>}
     {error && !publishOpen && !grantOpen && !revokeTarget && <p className="form-alert" role="alert">{error}</p>}{message && <p className="admin-success" role="status">{message}</p>}
   </section>

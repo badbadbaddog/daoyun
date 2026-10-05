@@ -6,10 +6,14 @@ import { listAdminUsers, type AdminUserStatus, type AdminUserSummary } from "../
 import { listAdminReports, type ContentReport, type ReportStatus } from "../api/reports"
 import { AdminDashboardTrend } from "./AdminDashboardTrend"
 import type { AdminTab } from "./AdminView"
+import { restoreAdminScroll } from "./admin/adminQuery"
 
 interface AdminDashboardProps {
+  requestedQuery?: string
   capabilityKeys: string[]
   boards: AdminBoard[]
+  boardsStatus?: "loading" | "ready" | "error"
+  onRetryBoards?: () => void
   shortcuts?: { tab: AdminTab; label: string; icon: LucideIcon }[]
   onNavigate: (tab: AdminTab, query: string) => void
 }
@@ -23,7 +27,7 @@ interface SummaryState<T> {
 
 const emptySummary = <T,>(): SummaryState<T> => ({ items: [], hasMore: false, loading: true, error: "" })
 
-export function AdminDashboard({ capabilityKeys, boards, shortcuts = [], onNavigate }: AdminDashboardProps) {
+export function AdminDashboard({ requestedQuery = "", capabilityKeys, boards, boardsStatus = "ready", onRetryBoards, shortcuts = [], onNavigate }: AdminDashboardProps) {
   const capabilities = new Set(capabilityKeys)
   const canReadReports = capabilities.has("governance.reports.read")
   const canReadUsers = capabilities.has("admin.users.read")
@@ -51,18 +55,26 @@ export function AdminDashboard({ capabilityKeys, boards, shortcuts = [], onNavig
     return () => controller.abort()
   }, [canReadUsers, userReload])
 
+  useEffect(() => {
+    if (canReadReports && (openReports.loading || reviewReports.loading)) return
+    if (canReadUsers && (restrictedUsers.loading || suspendedUsers.loading)) return
+    if (canReadBoards && boardsStatus === "loading") return
+    restoreAdminScroll(requestedQuery, "scroll")
+  }, [requestedQuery, canReadReports, canReadUsers, canReadBoards, boardsStatus, openReports.loading, reviewReports.loading, restrictedUsers.loading, suspendedUsers.loading])
+
   const hiddenBoardCount = boards.filter((board) => board.visibility === "hidden").length
   const hiddenBoards = boards.filter((board) => board.visibility === "hidden").slice(0, 5)
 
   return <div className="admin-dashboard">
     <h2 className="sr-only">今天需要处理什么</h2>
+    {(canReadReports || canReadUsers) && <p className="admin-dashboard__section-summary">按状态汇总，每类最多展示 5 条；5+ 表示还有更多。</p>}
     {(canReadReports || canReadUsers || canReadBoards) && <section className="admin-dashboard__metrics" aria-label="待办概览">
       {canReadReports && <>
         <SummaryMetric label="待处理举报" icon={Flag} value={summaryCount(openReports)} hint="进入举报队列" onClick={() => onNavigate("reports", "status=open")} />
         <SummaryMetric label="处理中举报" icon={Inbox} value={summaryCount(reviewReports)} hint="继续核查内容" onClick={() => onNavigate("reports", "status=in_review")} />
       </>}
       {canReadUsers && <SummaryMetric label="受限账号" icon={UserRound} value={summaryCount(restrictedUsers)} hint="查看账号限制" onClick={() => onNavigate("users", "status=restricted")} />}
-      {canReadBoards && <SummaryMetric label="隐藏版块" icon={EyeOff} value={String(hiddenBoardCount)} hint="检查版块可见性" onClick={() => onNavigate("boards", "")} />}
+      {canReadBoards && <SummaryMetric label="隐藏版块" icon={EyeOff} value={boardsStatus === "loading" ? "加载中" : boardsStatus === "error" ? "暂不可用" : String(hiddenBoardCount)} hint="检查版块可见性" onClick={() => onNavigate("boards", "")} />}
     </section>}
     <div className="admin-dashboard__workspace">
       {(canReadReports || capabilities.has("community.analytics.read")) && <div className="admin-dashboard__primary">
@@ -94,14 +106,14 @@ export function AdminDashboard({ capabilityKeys, boards, shortcuts = [], onNavig
         emptyText={(label) => `暂无${label}账号`}
         itemLabel={(item) => item.displayName}
         itemMeta={(item) => `@${item.username} · ${item.lastSeenAt ? formatDateTime(item.lastSeenAt) : "暂无活动时间"}`}
-        onOpen={(_, status) => onNavigate("users", `status=${status}`)}
+        onOpen={(item, status) => onNavigate("users", `status=${status}&user_id=${item.id}`)}
         openLabel={(item) => `查看账号：${item.displayName}`}
         retryLabel="重试账号限制"
         onRetry={() => setUserReload((value) => value + 1)}
       /> : null}
       {canReadBoards ? <section className="admin-dashboard__section">
-        <header><div><EyeOff size={18} aria-hidden="true" /><h3>版块状态</h3></div><strong>{hiddenBoardCount} 个隐藏</strong></header>
-        {hiddenBoards.length === 0 ? <p role="status">当前没有隐藏版块。</p> : <ul>{hiddenBoards.map((board) => <li key={board.id}><button className="admin-dashboard__task" type="button" aria-label={`打开版块：${board.name}`} title={board.name} onClick={() => onNavigate("boards", "")}><span className="admin-dashboard__task-copy"><strong>{board.name}</strong><span>隐藏版块 · {board.topicCount} 个主题</span></span><ChevronRight size={15} aria-hidden="true" /></button></li>)}</ul>}
+        <header><div><EyeOff size={18} aria-hidden="true" /><h3>版块状态</h3></div><strong>{boardsStatus === "ready" ? `${hiddenBoardCount} 个隐藏` : boardsStatus === "loading" ? "加载中" : "暂不可用"}</strong></header>
+        {boardsStatus === "loading" ? <p role="status">正在读取版块状态</p> : boardsStatus === "error" ? <p className="form-alert" role="alert">版块摘要暂不可用<button className="secondary-button" type="button" onClick={onRetryBoards}>重试版块摘要</button></p> : hiddenBoards.length === 0 ? <p role="status">当前没有隐藏版块。</p> : <ul>{hiddenBoards.map((board) => <li key={board.id}><button className="admin-dashboard__task" type="button" aria-label={`打开版块：${board.name}`} title={board.name} onClick={() => onNavigate("boards", `board_id=${board.id}`)}><span className="admin-dashboard__task-copy"><strong>{board.name}</strong><span>隐藏版块 · {board.topicCount} 个主题</span></span><ChevronRight size={15} aria-hidden="true" /></button></li>)}</ul>}
       </section> : null}
       </div>}
       {!canReadReports && !canReadUsers && !canReadBoards ? <div className="admin-dashboard__empty" role="status"><AlertCircle size={20} aria-hidden="true" /><span>当前权限没有可汇总的治理待办，请从导航进入获授权模块。</span></div> : null}

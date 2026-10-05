@@ -12,7 +12,7 @@ interface PublicMemberIdentityProps extends Omit<MemberIdentityBadgesProps, "sum
 }
 
 export function PublicMemberIdentity({ username, variant = "compact", maxMedals = 2 }: PublicMemberIdentityProps) {
-  const summary = usePublicMembershipSummary(username)
+  const { summary } = usePublicMembershipSummary(username)
   return <MemberIdentityBadges summary={summary} variant={variant} maxMedals={maxMedals} />
 }
 

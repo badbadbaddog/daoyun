@@ -24,6 +24,8 @@ mod observability;
 mod oidc;
 mod operations;
 mod operations_worker;
+mod permission_matrix;
+#[cfg(feature = "wasm-plugins")]
 mod plugin_business;
 mod plugins;
 mod polls;
@@ -33,6 +35,7 @@ mod rejection;
 mod relations;
 mod restriction_worker;
 mod rich_content;
+mod storage_settings;
 mod topic_supplements;
 mod topics;
 mod users;
@@ -51,6 +54,8 @@ use infrastructure::Database;
 use utoipa::OpenApi;
 use uuid::Uuid;
 
+#[cfg(feature = "wasm-plugins")]
+pub use api_contract::plugin_validation::PluginHostConfig;
 pub use auth::AuthConfig;
 pub use cache::{
     CacheConfig, CacheConfigError, CacheError, CacheRuntime, SiteBrandingCacheInvalidationHandler,
@@ -72,11 +77,11 @@ pub use operations_worker::{
     OperationsAlertWorker, OperationsAlertWorkerConfig, OperationsAlertWorkerConfigError,
     OperationsAlertWorkerRun,
 };
+#[cfg(feature = "wasm-plugins")]
 pub use plugin_business::{
     PluginBusinessWorker, PluginBusinessWorkerConfig, PluginBusinessWorkerConfigError,
     PluginBusinessWorkerRun,
 };
-pub use plugin_host::PluginHostConfig;
 pub use plugins::PluginRuntime;
 pub use restriction_worker::{
     UserRestrictionWorker, UserRestrictionWorkerConfig, UserRestrictionWorkerConfigError,
@@ -149,6 +154,8 @@ pub fn install_rustls_crypto_provider() {
         admin::list_standard_entitlements,
         admin::grant_standard_entitlement,
         admin::revoke_standard_entitlement,
+        permission_matrix::get_matrix,
+        permission_matrix::get_permission_check,
         admin::get_content_access_policy,
         admin::put_content_access_policy,
         admin::list_membership_level_rules,
@@ -171,13 +178,16 @@ pub fn install_rustls_crypto_provider() {
         admin::list_risk_alerts,
         admin::update_risk_alert,
         admin::cleanup_attachments,
+        storage_settings::configuration,
         operations::summary,
         operations::list_alert_rules,
         operations::update_alert_rule,
         operations::list_alerts,
         operations::acknowledge_alert,
         plugins::list_plugins,
+        plugins::plugin_capabilities,
         plugins::install_plugin,
+        plugins::configure_builtin_plugin,
         plugins::update_plugin,
         plugins::delete_plugin,
         plugins::invoke_plugin,
@@ -370,6 +380,8 @@ pub fn install_rustls_crypto_provider() {
         api_contract::RiskAlertSeverity,
         api_contract::RiskAlertStatus,
         api_contract::OperationsSummary,
+        api_contract::AttachmentStorageConfiguration,
+        api_contract::AttachmentStorageProvider,
         api_contract::OperationsHttpSummary,
         api_contract::OperationsDatabaseSummary,
         api_contract::OperationsOutboxSummary,
@@ -384,6 +396,10 @@ pub fn install_rustls_crypto_provider() {
         api_contract::Plugin,
         api_contract::PluginCapability,
         api_contract::PluginStatus,
+        api_contract::PluginCapabilitiesSnapshot,
+        api_contract::PluginModuleExecution,
+        api_contract::PluginModuleSnapshot,
+        api_contract::PluginModuleStatus,
         api_contract::PluginOperation,
         api_contract::PluginManifestRequest,
         api_contract::InstallPluginRequest,
@@ -786,6 +802,7 @@ pub fn app_with_all_runtimes_and_email(
         .merge(attachments::router(auth_runtime.clone()))
         .merge(governance::router(auth_runtime.clone()))
         .merge(boards::router())
+        .merge(permission_matrix::router())
         .merge(health::router())
         .merge(installation::router())
         .merge(feed::router(auth_runtime.clone()))
@@ -804,6 +821,7 @@ pub fn app_with_all_runtimes_and_email(
         .merge(notifications::router(auth_runtime.clone()))
         .merge(observability::router())
         .merge(operations::router(auth_runtime.clone()))
+        .merge(storage_settings::router(auth_runtime.clone()))
         .merge(plugins::router(auth_runtime.clone()))
         .merge(users::router(auth_runtime.clone()))
         .route("/api/v1/openapi.json", get(openapi))
@@ -846,6 +864,9 @@ async fn assign_request_id(mut request: Request, next: Next) -> Response {
         .headers_mut()
         .insert(REQUEST_ID_HEADER, header_value);
     let headers = response.headers_mut();
+    headers
+        .entry(axum::http::header::CACHE_CONTROL)
+        .or_insert(HeaderValue::from_static("private, no-store"));
     headers.insert(
         CONTENT_TYPE_OPTIONS_HEADER,
         HeaderValue::from_static("nosniff"),

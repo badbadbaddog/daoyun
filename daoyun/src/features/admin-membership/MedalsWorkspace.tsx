@@ -105,6 +105,7 @@ export function MedalsWorkspace({ rules, canWrite, csrfToken, onChange, onRefres
       </div>
       {message && <p className="admin-success medal-catalog-notice" role="status">{message}</p>}
       {error && !editor && !deletion && <p className="form-alert medal-catalog-notice" role="alert">{error}</p>}
+      <p className="membership-hint">公开展示：已授予成员的勋章会显示在公开主页与成员身份中。</p>
       <div className="medal-catalog-columns" aria-hidden="true"><span>勋章</span><span>发放方式</span><span>自动授予条件</span><span>操作</span></div>
       <ul className="membership-medal-list" aria-label="勋章规则列表">
         {filtered.map(rule => <li className="membership-medal-row medal-catalog-row" key={rule.key}>
@@ -118,7 +119,7 @@ export function MedalsWorkspace({ rules, canWrite, csrfToken, onChange, onRefres
       <div className="admin-catalog-footer"><span>共 {rules.length} 枚勋章 · 显示 {filtered.length} 枚</span><span>删除目录项不会撤销成员已持有的勋章。</span></div>
     </div>
     {editor && <ModalDialog returnFocus={returnFocusRef.current} titleId={titleId} className="dialog-panel medal-editor admin-form" busy={busy} onClose={() => setEditor(null)} initialFocusSelector="input[name='medal-name']"><form className="medal-editor-form" onSubmit={save}>
-      <div className="admin-form__heading"><div><h3 id={titleId}>{editor.rule ? "编辑勋章" : "新增勋章"}</h3><p>设置名称、图标和发放方式。</p></div><button className="icon-button" type="button" title="关闭" aria-label="关闭勋章编辑" disabled={busy} onClick={() => setEditor(null)}><X size={18} /></button></div>
+      <div className="admin-form__heading"><div><h3 id={titleId}>{editor.rule ? "编辑勋章" : "新增勋章"}</h3><p>设置名称、图标和发放方式；授予后的勋章公开展示。</p></div><button className="icon-button" type="button" title="关闭" aria-label="关闭勋章编辑" disabled={busy} onClick={() => setEditor(null)}><X size={18} /></button></div>
       <fieldset disabled={busy} className="medal-editor-fields">
         <label><span>勋章名称</span><input name="medal-name" value={editor.draft.displayName} required maxLength={80} placeholder="例如：社区贡献者" onChange={event => setEditor({ ...editor, draft: { ...editor.draft, displayName: event.target.value } })} /></label>
         <div className="medal-upload">

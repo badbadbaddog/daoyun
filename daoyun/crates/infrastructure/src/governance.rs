@@ -172,18 +172,21 @@ pub enum CreateContentReportError {
 
 #[derive(Debug)]
 pub enum ListContentReportsError {
+    Forbidden,
     InvalidCursor,
     Database(DatabaseError),
 }
 
 #[derive(Debug)]
 pub enum GetContentReportDetailError {
+    Forbidden,
     NotFound,
     Database(DatabaseError),
 }
 
 #[derive(Debug)]
 pub enum UpdateContentReportError {
+    Forbidden,
     NotFound,
     InvalidAction,
     TargetUnavailable,
@@ -283,20 +286,31 @@ impl Database {
 
     pub async fn list_content_reports(
         &self,
+        reader_id: Uuid,
         status: Option<&str>,
         cursor: Option<Uuid>,
         limit: i64,
     ) -> Result<Vec<ContentReportRecord>, ListContentReportsError> {
+        let mut connection = self.pool.begin().await?;
+        let readable_boards = readable_report_boards(&mut connection, reader_id).await?;
+        if readable_boards.as_ref().is_some_and(Vec::is_empty) {
+            return Err(ListContentReportsError::Forbidden);
+        }
         if let Some(cursor) = cursor {
             let cursor_exists = sqlx::query_scalar::<_, bool>(
                 "SELECT EXISTS (
-                     SELECT 1 FROM content_reports
-                     WHERE id = $1 AND ($2::text IS NULL OR status = $2)
+                     SELECT 1 FROM content_reports AS report
+                     LEFT JOIN topics AS topic ON report.target_type = 'topic' AND topic.id = report.target_id
+                     LEFT JOIN posts AS post ON report.target_type = 'post' AND post.id = report.target_id
+                     LEFT JOIN topics AS post_topic ON post_topic.id = post.topic_id
+                     WHERE report.id = $1 AND ($2::text IS NULL OR report.status = $2)
+                       AND ($3::uuid[] IS NULL OR COALESCE(topic.board_id, post_topic.board_id) = ANY($3))
                  )",
             )
             .bind(cursor)
             .bind(status)
-            .fetch_one(&self.pool)
+            .bind(&readable_boards)
+            .fetch_one(&mut *connection)
             .await?;
             if !cursor_exists {
                 return Err(ListContentReportsError::InvalidCursor);
@@ -328,6 +342,7 @@ impl Database {
                ON target_author.id = COALESCE(topic_target.author_id, post_target.author_id)
              LEFT JOIN users AS reviewer ON reviewer.id = r.reviewer_id
              WHERE ($1::text IS NULL OR r.status = $1)
+                AND ($4::uuid[] IS NULL OR COALESCE(topic_target.board_id, post_topic.board_id) = ANY($4))
                AND ($2::uuid IS NULL OR (r.created_at, r.id) < (
                    SELECT created_at, id FROM content_reports WHERE id = $2
                ))
@@ -337,21 +352,44 @@ impl Database {
         .bind(status)
         .bind(cursor)
         .bind(limit)
-        .fetch_all(&self.pool)
+        .bind(&readable_boards)
+        .fetch_all(&mut *connection)
         .await?)
     }
 
     pub async fn get_content_report_detail(
         &self,
         report_id: Uuid,
+        reader_id: Uuid,
     ) -> Result<ContentReportDetailRecord, GetContentReportDetailError> {
-        let mut connection = self.pool.acquire().await?;
+        let mut connection = self.pool.begin().await?;
         let report = fetch_report(&mut connection, report_id)
             .await?
             .ok_or(GetContentReportDetailError::NotFound)?;
         let topic_id = report
             .target_topic_id
             .ok_or(GetContentReportDetailError::NotFound)?;
+        let board_id = report_target_board(
+            &mut connection,
+            &ReportTargetRow {
+                reporter_id: report.reporter_id,
+                target_type: report.target_type.clone(),
+                target_id: report.target_id,
+            },
+        )
+        .await?
+        .ok_or(GetContentReportDetailError::NotFound)?;
+        if !has_permission_with_executor(
+            &mut connection,
+            reader_id,
+            permission_keys::GOVERNANCE_REPORTS_READ,
+            Some(board_id),
+        )
+        .await?
+        {
+            return Err(GetContentReportDetailError::Forbidden);
+        }
+        let readable_boards = readable_report_boards(&mut connection, reader_id).await?;
         let title = report
             .target_title
             .clone()
@@ -404,11 +442,14 @@ impl Database {
                            ON history.target_type = 'topic' AND history_topic.id = history.target_id
                          LEFT JOIN posts AS history_post
                            ON history.target_type = 'post' AND history_post.id = history.target_id
-                         WHERE COALESCE(history_topic.author_id, history_post.author_id) = author.id
+                         LEFT JOIN topics AS history_post_topic ON history_post_topic.id = history_post.topic_id
+                          WHERE COALESCE(history_topic.author_id, history_post.author_id) = author.id
+                            AND ($2::uuid[] IS NULL OR COALESCE(history_topic.board_id, history_post_topic.board_id) = ANY($2))
                         ) AS report_count
                  FROM users AS author WHERE author.id = $1",
                 )
                 .bind(author_id)
+                .bind(&readable_boards)
                 .fetch_optional(&mut *connection)
                 .await?
             }
@@ -424,11 +465,14 @@ impl Database {
                    ON history.target_type = 'topic' AND history_topic.id = history.target_id
                  LEFT JOIN posts AS history_post
                    ON history.target_type = 'post' AND history_post.id = history.target_id
-                 WHERE COALESCE(history_topic.author_id, history_post.author_id) = $1
+                 LEFT JOIN topics AS history_post_topic ON history_post_topic.id = history_post.topic_id
+                  WHERE COALESCE(history_topic.author_id, history_post.author_id) = $1
+                    AND ($2::uuid[] IS NULL OR COALESCE(history_topic.board_id, history_post_topic.board_id) = ANY($2))
                  ORDER BY history.created_at DESC, history.id DESC
                  LIMIT 20",
                 )
                 .bind(author_id)
+                .bind(&readable_boards)
                 .fetch_all(&mut *connection)
                 .await?
             }
@@ -479,6 +523,19 @@ impl Database {
         .await?
         .ok_or(UpdateContentReportError::NotFound)?;
 
+        let board_id = report_target_board(&mut transaction, &report)
+            .await?
+            .ok_or(UpdateContentReportError::TargetUnavailable)?;
+        if !has_permission_with_executor(
+            &mut transaction,
+            input.reviewer_id,
+            permission_keys::GOVERNANCE_REPORTS_RESOLVE,
+            Some(board_id),
+        )
+        .await?
+        {
+            return Err(UpdateContentReportError::Forbidden);
+        }
         let current_revision =
             sqlx::query_scalar::<_, i64>("SELECT revision FROM content_reports WHERE id = $1")
                 .bind(input.report_id)
@@ -615,7 +672,8 @@ impl Database {
                     return Err(ModerateContentReportError::Database(error));
                 }
                 Err(
-                    UpdateContentReportError::NotFound
+                    UpdateContentReportError::Forbidden
+                    | UpdateContentReportError::NotFound
                     | UpdateContentReportError::InvalidAction
                     | UpdateContentReportError::Conflict,
                 ) => {
@@ -1423,6 +1481,7 @@ impl Error for CreateContentReportError {}
 impl fmt::Display for ListContentReportsError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Forbidden => formatter.write_str("content report scope is forbidden"),
             Self::InvalidCursor => formatter.write_str("content report cursor is invalid"),
             Self::Database(_) => {
                 formatter.write_str("content report list database operation failed")
@@ -1436,6 +1495,7 @@ impl Error for ListContentReportsError {}
 impl fmt::Display for UpdateContentReportError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Forbidden => formatter.write_str("content report scope is forbidden"),
             Self::NotFound => formatter.write_str("content report was not found"),
             Self::InvalidAction => formatter.write_str("content report action is invalid"),
             Self::TargetUnavailable => formatter.write_str("report target is unavailable"),
@@ -1448,3 +1508,65 @@ impl fmt::Display for UpdateContentReportError {
 }
 
 impl Error for UpdateContentReportError {}
+
+async fn readable_report_boards(
+    connection: &mut PgConnection,
+    reader_id: Uuid,
+) -> Result<Option<Vec<Uuid>>, sqlx::Error> {
+    if has_permission_with_executor(
+        connection,
+        reader_id,
+        permission_keys::GOVERNANCE_REPORTS_READ,
+        None,
+    )
+    .await?
+    {
+        return Ok(None);
+    }
+    let scopes = sqlx::query_as::<_, (Uuid, String)>(
+        "SELECT assignment.scope_id, assignment.scope_mode
+         FROM users AS account
+         JOIN role_assignments AS assignment ON assignment.user_id = account.id
+         JOIN roles AS role ON role.id = assignment.role_id
+         JOIN role_permissions AS role_permission ON role_permission.role_id = role.id
+         JOIN permissions AS permission ON permission.id = role_permission.permission_id
+         WHERE account.id = $1 AND account.status <> 'suspended'
+           AND permission.permission_key = $2 AND role.scope = 'board'
+           AND assignment.scope_id IS NOT NULL
+         FOR SHARE OF account, assignment, role, role_permission, permission",
+    )
+    .bind(reader_id)
+    .bind(permission_keys::GOVERNANCE_REPORTS_READ)
+    .fetch_all(&mut *connection)
+    .await?;
+    let (ids, modes): (Vec<_>, Vec<_>) = scopes.into_iter().unzip();
+    let boards = sqlx::query_scalar::<_, Uuid>(
+        "SELECT board.id FROM boards AS board
+         WHERE EXISTS (
+             SELECT 1 FROM UNNEST($1::uuid[], $2::text[]) AS scope(id, mode)
+             WHERE daoyun_board_scope_covers(scope.id, scope.mode, board.id)
+         )
+         ORDER BY board.id FOR SHARE OF board",
+    )
+    .bind(ids)
+    .bind(modes)
+    .fetch_all(&mut *connection)
+    .await?;
+    Ok(Some(boards))
+}
+
+async fn report_target_board(
+    connection: &mut PgConnection,
+    report: &ReportTargetRow,
+) -> Result<Option<Uuid>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT topic.board_id FROM topics AS topic
+         WHERE topic.id = CASE WHEN $1 = 'topic' THEN $2
+             ELSE (SELECT topic_id FROM posts WHERE id = $2) END
+         FOR SHARE OF topic",
+    )
+    .bind(&report.target_type)
+    .bind(report.target_id)
+    .fetch_optional(connection)
+    .await
+}

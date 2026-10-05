@@ -19,6 +19,7 @@ interface ModalDialogProps {
   element?: ModalDialogElement
   initialFocusSelector?: string
   onSubmit?: FormEventHandler<HTMLFormElement>
+  noValidate?: boolean
 }
 
 export function ModalDialog({
@@ -34,6 +35,7 @@ export function ModalDialog({
   element = "section",
   initialFocusSelector,
   onSubmit,
+  noValidate = false,
 }: ModalDialogProps) {
   const dialogRef = useRef<HTMLElement | null>(null)
   const capturedReturnFocusRef = useRef<HTMLElement | null>(null)
@@ -86,7 +88,7 @@ export function ModalDialog({
     const first = controls[0]
     const last = controls.at(-1) ?? first
     const activeInside = dialogRef.current?.contains(document.activeElement) ?? false
-    if (event.shiftKey && (document.activeElement === first || !activeInside)) {
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current || !activeInside)) {
       event.preventDefault()
       last.focus()
     } else if (!event.shiftKey && (document.activeElement === last || !activeInside)) {
@@ -115,7 +117,7 @@ export function ModalDialog({
 
   return <div className={backdropClassName} onMouseDown={closeFromBackdrop}>
     {element === "form"
-      ? <form ref={setDialogRef} {...sharedProps} onSubmit={onSubmit}>{children}</form>
+      ? <form ref={setDialogRef} {...sharedProps} onSubmit={onSubmit} noValidate={noValidate}>{children}</form>
       : element === "div"
         ? <div ref={setDialogRef} {...sharedProps}>{children}</div>
         : <section ref={setDialogRef} {...sharedProps}>{children}</section>}

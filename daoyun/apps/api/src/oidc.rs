@@ -1677,6 +1677,32 @@ impl OidcRuntime {
         Ok(runtime)
     }
 
+    #[cfg(test)]
+    pub(crate) fn for_callback_tests(
+        provider: &OidcProviderConfig,
+        address: std::net::SocketAddr,
+    ) -> Self {
+        assert!(address.ip().is_loopback());
+        let runtime = Self {
+            client: OidcDiscoveryClient::for_tests(),
+            discovery_cache: OidcDiscoveryCache::new(),
+            jwks_cache: OidcJwksCache::new(),
+            transactions: OidcAuthorizationTransactionStore::new(),
+            claims: OidcClaimStore::new(),
+        };
+        runtime.discovery_cache.insert_at(
+            provider.provider_key(),
+            OidcDiscoveryMetadata {
+                issuer: provider.issuer.clone(),
+                authorization_endpoint: provider.issuer.join("authorize").unwrap(),
+                token_endpoint: Url::parse(&format!("http://{address}/token")).unwrap(),
+                jwks_uri: Url::parse(&format!("http://{address}/jwks")).unwrap(),
+            },
+            Instant::now(),
+        );
+        runtime
+    }
+
     pub(crate) async fn start(
         &self,
         provider: &OidcProviderConfig,

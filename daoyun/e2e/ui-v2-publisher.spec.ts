@@ -108,7 +108,7 @@ for(const width of [320,390,768,1024,1440]) {
     expect(state.published).toHaveLength(1)
     expect(state.published[0].rich_content.content.slice(1).map(image=>image.attrs?.attachmentId)).toEqual([701,703,702].map(index=>"019fc700-0000-7000-8000-"+String(index).padStart(12,"0")))
     expect(state.published[0].draft).toBeTruthy()
-    await expect(page).toHaveURL(new RegExp("#topic/"+topicId+"$"))
+    await expect(page).toHaveURL(new RegExp("/t/"+topicId+"$"))
     expect(errors).toEqual([])
   })
 }

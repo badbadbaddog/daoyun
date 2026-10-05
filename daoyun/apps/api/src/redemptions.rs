@@ -209,6 +209,7 @@ pub(crate) async fn redeem(
             input.product_id,
             input.expected_revision,
             &input.idempotency_key,
+            Some(id.into()),
         )
         .await
         .map_err(|e| error(e, id))?;

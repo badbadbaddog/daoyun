@@ -1,11 +1,11 @@
 import CharacterCount from "@tiptap/extension-character-count"
-import { Extension, Node } from "@tiptap/core"
+import { Extension, Node, isAndroid, isiOS, isSafari } from "@tiptap/core"
 import Image from "@tiptap/extension-image"
 import Placeholder from "@tiptap/extension-placeholder"
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
-import { Plugin, PluginKey } from "@tiptap/pm/state"
+import { Plugin, PluginKey, Selection } from "@tiptap/pm/state"
 import { Decoration, DecorationSet } from "@tiptap/pm/view"
 import {
   Bold,
@@ -134,15 +134,27 @@ export function RichTextEditor({
     },
   })
 
+  const autoFocusedEditorRef = useRef<typeof editor>(null)
+
   useEffect(() => {
     if (!editor) return
     editor.setEditable(!disabled)
   }, [disabled, editor])
 
   useEffect(() => {
-    if (!editor || !autoFocus || disabled) return
+    if (!editor || !autoFocus || disabled || autoFocusedEditorRef.current === editor) return
     if (document.querySelector("[role='alertdialog'][aria-modal='true']")) return
-    editor.commands.focus("start")
+    editor.view.dispatch(editor.state.tr.setSelection(Selection.atStart(editor.state.doc)))
+    if (isiOS() || isAndroid()) { editor.view.dom.focus(); autoFocusedEditorRef.current = editor }
+    else if (isSafari()) { editor.view.dom.focus({ preventScroll: true }); autoFocusedEditorRef.current = editor }
+    // 自行持有延迟聚焦，避免会话失效或确认弹窗打开后旧回调抢走焦点。
+    const frame = requestAnimationFrame(() => {
+      if (editor.isDestroyed || !editor.isEditable || document.querySelector("[role='alertdialog'][aria-modal='true']")) return
+      autoFocusedEditorRef.current = editor
+      editor.view.focus()
+      editor.commands.scrollIntoView()
+    })
+    return () => cancelAnimationFrame(frame)
   }, [autoFocus, disabled, editor])
 
   useEffect(() => {

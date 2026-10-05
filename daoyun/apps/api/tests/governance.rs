@@ -591,6 +591,16 @@ async fn batch_report_triage_is_atomic_and_audited(pool: PgPool) {
     let config = daoyun_api::AuthConfig::default().with_secure_cookies(false);
     let app = daoyun_api::app_with_config(Database::from_pool(pool.clone()), config);
     let (member_cookies, member_csrf) = register_member(&app).await;
+    let other_board = Uuid::now_v7();
+    sqlx::query("INSERT INTO boards(id,slug,name) VALUES($1,'batch-other','另一批量版块')")
+        .bind(other_board)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let general_board: Uuid = sqlx::query_scalar("SELECT id FROM boards WHERE slug='general'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     let mut topic_ids = Vec::new();
     for index in 0..2 {
         let topic = app
@@ -598,7 +608,7 @@ async fn batch_report_triage_is_atomic_and_audited(pool: PgPool) {
             .oneshot(json_request_with_headers(
                 Method::POST,
                 "/api/v1/topics",
-                serde_json::json!({"title": format!("批量举报 {index}"), "content": "正文"}),
+                serde_json::json!({"title": format!("批量举报 {index}"), "content": "正文", "board_id": if index == 0 { general_board } else { other_board }}),
                 &member_cookies,
                 Some(&member_csrf),
             ))
@@ -675,7 +685,14 @@ async fn batch_report_triage_is_atomic_and_audited(pool: PgPool) {
         .await
         .expect("batch resolution must respond");
     assert_eq!(reviewed.status(), StatusCode::OK);
-    assert_eq!(response_json(reviewed).await["data"]["updated"], 2);
+    let result = response_json(reviewed).await;
+    assert_eq!(result["data"]["updated"], 2);
+    let mut expected_ids = report_ids.clone();
+    expected_ids.sort();
+    assert_eq!(
+        result["data"]["report_ids"],
+        serde_json::json!(expected_ids)
+    );
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
             "SELECT count(*) FROM admin_audit_log WHERE action = 'report.review'"
@@ -684,6 +701,39 @@ async fn batch_report_triage_is_atomic_and_audited(pool: PgPool) {
         .await
         .expect("batch audit count must be readable"),
         2
+    );
+
+    // The atomic batch has no idempotency key: a deliberate repeat advances both
+    // reports and writes another audit. Unknown outcomes require reading first.
+    let repeated = app.clone().oneshot(json_request_with_headers(
+        Method::POST, "/api/v1/admin/reports/batch",
+        serde_json::json!({"report_ids":report_ids,"status":"in_review","resolution":"none","note":"批量进入核查"}),
+        &owner_cookies, Some(&owner_csrf),
+    )).await.unwrap();
+    assert_eq!(repeated.status(), StatusCode::OK);
+    let result = response_json(repeated).await;
+    assert_eq!(result["data"]["updated"], 2);
+    assert_eq!(
+        result["data"]["report_ids"],
+        serde_json::json!(expected_ids)
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM content_reports WHERE revision=3 AND status='in_review'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        2
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM admin_audit_log WHERE action='report.review'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        4
     );
 }
 
@@ -1045,4 +1095,222 @@ fn unavailable_database() -> Database {
         .connect_lazy("postgresql://daoyun@127.0.0.1:1/daoyun")
         .expect("unavailable database URL must be valid");
     Database::from_pool(pool)
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn scoped_reports_bound_hidden_evidence_and_each_triage_result(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    let (cookies, csrf) = register_member(&app).await;
+    let member: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE username='member'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let owner: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE username='owner'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let board: Uuid = sqlx::query_scalar("SELECT id FROM boards WHERE slug='general'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let other = Uuid::now_v7();
+    sqlx::query("INSERT INTO boards(id,slug,name,visibility) VALUES($1,'report-private','Other evidence','hidden')")
+        .bind(other).execute(&pool).await.unwrap();
+    let role = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO roles(id,key,name,scope) VALUES($1,'scoped_reports','Scoped reports','board')",
+    )
+    .bind(role)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO role_permissions(role_id,permission_id) SELECT $1,id FROM permissions WHERE permission_key IN ('governance.reports.read','governance.reports.resolve')")
+        .bind(role).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO role_assignments(id,user_id,role_id,scope_id,scope_mode,assigned_by) VALUES(gen_random_uuid(),$1,$2,$3,'exact',$4)")
+        .bind(member).bind(role).bind(board).bind(owner).execute(&pool).await.unwrap();
+    let mut reports = Vec::new();
+    for index in 0..10 {
+        let topic = Uuid::now_v7();
+        let report = Uuid::now_v7();
+        sqlx::query("INSERT INTO topics(id,board_id,author_id,title,content,status) VALUES($1,$2,$3,$4,$5,'hidden')")
+            .bind(topic).bind(if index < 8 {board} else {other}).bind(owner)
+            .bind(format!("evidence-{index}")).bind(format!("hidden-evidence-{index}"))
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO posts(id,topic_id,author_id,kind,content,status) VALUES($1,$1,$2,'topic',$3,'hidden')")
+            .bind(topic).bind(owner).bind(format!("hidden-evidence-{index}")).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO content_reports(id,reporter_id,target_type,target_id,reason,details) VALUES($1,$2,'topic',$3,'spam',$4)")
+            .bind(report).bind(member).bind(topic).bind(format!("private-note-{index}")).execute(&pool).await.unwrap();
+        reports.push(report);
+    }
+    let response = app
+        .clone()
+        .oneshot(get_request_with_headers("/api/v1/admin/reports", &cookies))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let request_id = response.headers()["x-request-id"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let list = response_json(response).await;
+    assert_eq!(list["meta"]["request_id"], request_id);
+    assert_eq!(list["data"].as_array().unwrap().len(), 8);
+    assert!(!list.to_string().contains(&reports[8].to_string()));
+    let detail = app
+        .clone()
+        .oneshot(get_request_with_headers(
+            &format!("/api/v1/admin/reports/{}", reports[0]),
+            &cookies,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(detail.status(), StatusCode::OK);
+    let detail = response_json(detail).await;
+    assert_eq!(
+        detail["data"]["context"]["items"][0]["content"],
+        "hidden-evidence-0"
+    );
+    assert_eq!(detail["data"]["author"]["report_count"], 8);
+    assert_eq!(
+        detail["data"]["related_reports"].as_array().unwrap().len(),
+        8
+    );
+    assert!(!detail.to_string().contains(&reports[8].to_string()));
+    let forbidden = app
+        .clone()
+        .oneshot(get_request_with_headers(
+            &format!("/api/v1/admin/reports/{}", reports[8]),
+            &cookies,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+    assert!(
+        !response_json(forbidden)
+            .await
+            .to_string()
+            .contains("hidden-evidence-8")
+    );
+    let cursor = app
+        .clone()
+        .oneshot(get_request_with_headers(
+            &format!("/api/v1/admin/reports?cursor={}", reports[8]),
+            &cookies,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(cursor.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let mut successes = 0;
+    for (index, report) in reports.iter().enumerate() {
+        let response = app.clone().oneshot(json_request_with_headers(
+            Method::PATCH, &format!("/api/v1/admin/reports/{report}"),
+            serde_json::json!({"status":"in_review","resolution":"none","note":"逐项核实证据","expected_revision":1}),
+            &cookies, Some(&csrf),
+        )).await.unwrap();
+        assert_eq!(
+            response.status(),
+            if index < 8 {
+                StatusCode::OK
+            } else {
+                StatusCode::FORBIDDEN
+            }
+        );
+        let request_id = response.headers()["x-request-id"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(
+            response_json(response).await["meta"]["request_id"],
+            request_id
+        );
+        successes += usize::from(index < 8);
+    }
+    assert_eq!(successes, 8);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM content_reports WHERE status='in_review'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        8
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM admin_audit_log WHERE action='report.review'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        8
+    );
+    sqlx::query("INSERT INTO role_assignments(id,user_id,role_id,scope_id,scope_mode,assigned_by) VALUES(gen_random_uuid(),$1,$2,$3,'exact',$4)")
+        .bind(member).bind(role).bind(other).bind(owner).execute(&pool).await.unwrap();
+    let retry = app.clone().oneshot(json_request_with_headers(
+        Method::PATCH, &format!("/api/v1/admin/reports/{}",reports[8]),
+        serde_json::json!({"status":"in_review","resolution":"none","note":"逐项核实证据","expected_revision":1}),
+        &cookies, Some(&csrf),
+    )).await.unwrap();
+    assert_eq!(retry.status(), StatusCode::OK);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM content_reports WHERE revision=2")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        9
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM admin_audit_log WHERE action='report.review'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        9
+    );
+    // A scoped reviewer still cannot use global account moderation or the atomic batch endpoint.
+    let global_batch = app.clone().oneshot(json_request_with_headers(
+        Method::POST,"/api/v1/admin/reports/batch",
+        serde_json::json!({"report_ids":[reports[0],reports[9]],"status":"in_review","resolution":"none","note":"越权批处理"}),
+        &cookies,Some(&csrf),
+    )).await.unwrap();
+    assert_eq!(global_batch.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM content_reports WHERE revision=2")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        9
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM admin_audit_log WHERE action='report.review'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        9
+    );
+    let entry = app
+        .clone()
+        .oneshot(get_request_with_headers(
+            "/api/v1/admin/moderation/boards",
+            &cookies,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(entry.status(), StatusCode::OK);
+    let entry = response_json(entry).await;
+    let boards = entry["data"].as_array().unwrap();
+    assert_eq!(boards.len(), 2);
+    assert!(boards.iter().all(|board| {
+        board["capability_keys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|key| key == "governance.reports.read")
+    }));
 }

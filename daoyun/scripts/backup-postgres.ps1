@@ -12,13 +12,10 @@ function Resolve-PostgresTool([string]$Name) {
         return $command.Source
     }
 
-    $candidates = @(
-        (Join-Path $env:ProgramFiles "PostgreSQL\16\bin\$Name.exe"),
-        (Join-Path ${env:ProgramFiles(x86)} "PostgreSQL\16\bin\$Name.exe")
-    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) }
+    $candidates = @($env:ProgramFiles, ${env:ProgramFiles(x86)}) | Where-Object { $_ } | ForEach-Object { Join-Path $_ "PostgreSQL\16\bin\$Name.exe" } | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) }
 
     if ($candidates.Count -gt 0) {
-        return $candidates[0]
+        return @($candidates)[0]
     }
 
     throw "$Name was not found on PATH or in the default PostgreSQL 16 installation directory."
@@ -34,12 +31,20 @@ New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $timestamp = [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssZ")
 $backupPath = Join-Path $OutputDirectory "daoyun-$timestamp.dump"
 
+# PostgreSQL diagnostics can contain connection details; expose only the exit code.
+$previousErrorActionPreference = $ErrorActionPreference
+try {
+    $ErrorActionPreference = "Continue"
 & $pgDump `
     --dbname=$DatabaseUrl `
     --format=custom `
     --no-owner `
     --no-acl `
-    --file=$backupPath
+    --file=$backupPath `
+    *> $null
+} finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+}
 
 if ($LASTEXITCODE -ne 0) {
     Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue

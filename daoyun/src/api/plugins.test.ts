@@ -6,6 +6,7 @@ import {
   executePluginUiAction,
   executePluginUiSurfaceAction,
   installPlugin,
+  configureBuiltinPlugin,
   invokePlugin,
   listPluginUiContributions,
   listPluginUiSurfaceContributions,
@@ -261,3 +262,9 @@ describe("plugin API", () => {
 function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } })
 }
+
+it("configures a fixed native module with CSRF and validates component-free metadata",async()=>{
+ fetchMock.mockResolvedValueOnce(jsonResponse({data:{...plugin,key:"official_polls",execution:"native",capabilities:["topic.polls"],data_scopes:[],component_size:0},meta:{request_id:requestId}}));
+ await expect(configureBuiltinPlugin("official_polls","csrf")).resolves.toMatchObject({execution:"native",componentSize:0,status:"disabled"});
+ expect(fetchMock).toHaveBeenCalledWith("/api/v1/admin/plugins/builtins/official_polls",expect.objectContaining({method:"POST",credentials:"include",headers:expect.objectContaining({"x-csrf-token":"csrf"})}));
+});

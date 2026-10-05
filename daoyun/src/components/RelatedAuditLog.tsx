@@ -9,6 +9,11 @@ interface RelatedAuditLogProps {
 }
 
 const actionLabels: Record<string, string> = {
+  "community.group.create": "创建社区用户组",
+  "community.group.update": "更新社区用户组",
+  "community.group.default.update": "更新注册默认组",
+  "community.membership.grant": "授予社区用户组",
+  "community.membership.revoke": "撤销社区用户组",
   "user.status.update": "更新账号状态",
   "user.status.expire": "恢复到期限制",
   "report.review": "标记举报处理中",
@@ -17,6 +22,8 @@ const actionLabels: Record<string, string> = {
 }
 
 const resourceLabels: Record<string, string> = {
+  community_group: "社区用户组",
+  community_group_membership: "用户组成员关系",
   user: "用户账号",
   content_report: "内容举报",
   topic: "主题",

@@ -1,6 +1,7 @@
 use api_contract::{
     ApiResponse, ErrorBody, ErrorCode, ErrorResponse, Notification, NotificationKind,
-    NotificationTarget, NotificationUnreadCount, PageResponse, RequestId, UserSummary, error_codes,
+    NotificationPageQuery, NotificationTarget, NotificationUnreadCount, PageResponse, RequestId,
+    UserSummary, error_codes,
 };
 use axum::{
     Extension, Json, Router,
@@ -14,9 +15,7 @@ use axum::{
 use infrastructure::{
     Database, ListNotificationsError, NotificationMutationError, NotificationRecord,
 };
-use serde::Deserialize;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
-use utoipa::IntoParams;
 use uuid::Uuid;
 
 use crate::auth::{ApiError, AuthRuntime, authenticate_session, authenticate_state_change};
@@ -24,11 +23,10 @@ use crate::auth::{ApiError, AuthRuntime, authenticate_session, authenticate_stat
 const DEFAULT_LIMIT: u16 = 20;
 const MAX_LIMIT: u16 = 50;
 
-#[derive(Debug, Default, Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
-pub(crate) struct NotificationPageQuery {
+struct ValidatedNotificationPageQuery {
     cursor: Option<Uuid>,
-    limit: Option<u16>,
+    limit: u16,
+    unread: bool,
 }
 
 pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
@@ -50,10 +48,10 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
     tag = "notifications",
     params(NotificationPageQuery),
     responses(
-        (status = 200, description = "Notifications for the current user", body = PageResponse<Notification>),
-        (status = 401, description = "The request has no active session", body = ErrorResponse),
-        (status = 422, description = "The pagination parameters are invalid", body = ErrorResponse),
-        (status = 503, description = "The notification database is unavailable", body = ErrorResponse)
+        (status = 200, description = "Notifications visible to the current user under current content policies, filtered before pagination; cursors belong to the selected filter", body = PageResponse<Notification>, headers(("x-request-id" = String, description = "Request correlation ID"))),
+        (status = 401, description = "The request has no active session", body = ErrorResponse, headers(("x-request-id" = String, description = "Request correlation ID"))),
+        (status = 422, description = "The pagination parameters are invalid", body = ErrorResponse, headers(("x-request-id" = String, description = "Request correlation ID"))),
+        (status = 503, description = "The notification database is unavailable", body = ErrorResponse, headers(("x-request-id" = String, description = "Request correlation ID")))
     )
 )]
 pub(crate) async fn list(
@@ -64,10 +62,10 @@ pub(crate) async fn list(
     query: Result<Query<NotificationPageQuery>, QueryRejection>,
 ) -> Result<Json<PageResponse<Notification>>, ApiError> {
     let query = validate_query(query).map_err(|message| validation_error(request_id, message))?;
-    let limit = query.limit.expect("validated notification limit");
+    let limit = query.limit;
     let (session, _) = authenticate_session(&database, &runtime, &headers, request_id).await?;
     let mut records = database
-        .list_notifications(session.user.id, query.cursor, i64::from(limit) + 1)
+        .list_filtered_notifications(session.user.id, query.cursor, i64::from(limit) + 1, query.unread)
         .await
         .map_err(|error| match error {
             ListNotificationsError::InvalidCursor => validation_error(request_id, "cursor 必须属于当前通知列表"),
@@ -78,7 +76,13 @@ pub(crate) async fn list(
         })?;
     let next_cursor = if records.len() > usize::from(limit) {
         records.truncate(usize::from(limit));
-        records.last().map(|record| record.id.to_string())
+        records.last().map(|record| {
+            if query.unread {
+                format!("unread:{}", record.id)
+            } else {
+                record.id.to_string()
+            }
+        })
     } else {
         None
     };
@@ -100,9 +104,9 @@ pub(crate) async fn list(
     operation_id = "countUnreadNotifications",
     tag = "notifications",
     responses(
-        (status = 200, body = ApiResponse<NotificationUnreadCount>),
-        (status = 401, body = ErrorResponse),
-        (status = 503, body = ErrorResponse)
+        (status = 200, body = ApiResponse<NotificationUnreadCount>, headers(("x-request-id" = String, description = "Request correlation ID"))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String, description = "Request correlation ID"))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String, description = "Request correlation ID")))
     )
 )]
 pub(crate) async fn unread_count(
@@ -134,12 +138,12 @@ pub(crate) async fn unread_count(
     tag = "notifications",
     params(("notification_id" = Uuid, Path), ("x-csrf-token" = String, Header)),
     responses(
-        (status = 200, body = ApiResponse<Notification>),
-        (status = 400, body = ErrorResponse),
-        (status = 401, body = ErrorResponse),
-        (status = 403, body = ErrorResponse),
-        (status = 404, body = ErrorResponse),
-        (status = 503, body = ErrorResponse)
+        (status = 200, body = ApiResponse<Notification>, headers(("x-request-id" = String, description = "Request correlation ID"))),
+        (status = 400, body = ErrorResponse, headers(("x-request-id" = String, description = "Request correlation ID"))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String, description = "Request correlation ID"))),
+        (status = 403, body = ErrorResponse, headers(("x-request-id" = String, description = "Request correlation ID"))),
+        (status = 404, body = ErrorResponse, headers(("x-request-id" = String, description = "Request correlation ID"))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String, description = "Request correlation ID")))
     )
 )]
 pub(crate) async fn read_one(
@@ -166,13 +170,14 @@ pub(crate) async fn read_one(
     patch,
     path = "/api/v1/notifications/read-all",
     operation_id = "markAllNotificationsRead",
+    description = "Marks only the current user notifications permitted by current content policies and visible to the server UPDATE snapshot. Events committing after the snapshot stay unread. Returns the remaining count observed in the same transaction.",
     tag = "notifications",
     params(("x-csrf-token" = String, Header)),
     responses(
-        (status = 200, body = ApiResponse<NotificationUnreadCount>),
-        (status = 401, body = ErrorResponse),
-        (status = 403, body = ErrorResponse),
-        (status = 503, body = ErrorResponse)
+        (status = 200, body = ApiResponse<NotificationUnreadCount>, headers(("x-request-id" = String, description = "Request correlation ID"))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String, description = "Request correlation ID"))),
+        (status = 403, body = ErrorResponse, headers(("x-request-id" = String, description = "Request correlation ID"))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String, description = "Request correlation ID")))
     )
 )]
 pub(crate) async fn read_all(
@@ -199,15 +204,30 @@ pub(crate) async fn read_all(
 
 fn validate_query(
     query: Result<Query<NotificationPageQuery>, QueryRejection>,
-) -> Result<NotificationPageQuery, &'static str> {
+) -> Result<ValidatedNotificationPageQuery, &'static str> {
     let Query(query) = query.map_err(|_| "分页参数格式不正确")?;
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT);
     if !(1..=MAX_LIMIT).contains(&limit) {
         return Err("limit 必须在 1 到 50 之间");
     }
-    Ok(NotificationPageQuery {
-        cursor: query.cursor,
-        limit: Some(limit),
+    let unread = query.unread.unwrap_or(false);
+    let cursor = query
+        .cursor
+        .map(|cursor| {
+            let value = if unread {
+                cursor
+                    .strip_prefix("unread:")
+                    .ok_or("cursor 必须来自相同的通知筛选")?
+            } else {
+                cursor.as_str()
+            };
+            Uuid::parse_str(value).map_err(|_| "cursor 必须来自相同的通知筛选")
+        })
+        .transpose()?;
+    Ok(ValidatedNotificationPageQuery {
+        cursor,
+        limit,
+        unread,
     })
 }
 
@@ -218,6 +238,7 @@ fn notification(record: NotificationRecord) -> Result<Notification, ()> {
         "like" => NotificationKind::Like,
         "message" => NotificationKind::Message,
         "report" => NotificationKind::Report,
+        "topic_governance" => NotificationKind::TopicGovernance,
         _ => return Err(()),
     };
     let target = match record.target_type.as_str() {
@@ -233,6 +254,7 @@ fn notification(record: NotificationRecord) -> Result<Notification, ()> {
         actor: record.actor.map(user_summary),
         target,
         target_id: record.target_id,
+        topic_id: record.topic_id,
         read_at: record.read_at.map(format_time),
         created_at: format_time(record.created_at),
     })

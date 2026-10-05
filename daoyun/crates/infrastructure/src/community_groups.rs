@@ -482,10 +482,8 @@ impl Database {
         user_id: Uuid,
         effective_at: OffsetDateTime,
     ) -> Result<Vec<CommunityGroupMembershipRecord>, sqlx::Error> {
-        sqlx::query_as::<_, CommunityGroupMembershipRecord>(ACTIVE_MEMBERSHIPS_QUERY)
-            .bind(user_id)
-            .bind(effective_at)
-            .fetch_all(&self.pool)
+        let mut connection = self.pool.acquire().await?;
+        list_active_community_memberships_with_executor(&mut connection, user_id, effective_at)
             .await
     }
 
@@ -621,6 +619,9 @@ impl Database {
                 "group_key": group.internal_key,
                 "membership_kind": input.membership_kind,
                 "source": input.source,
+                "reason": input.reason,
+                "starts_at": input.starts_at.to_string(),
+                "revision": membership.revision,
                 "ends_at": input.ends_at.map(|value| value.to_string())
             }),
         )
@@ -1102,4 +1103,16 @@ impl Error for CommunityGroupMutationError {
             _ => None,
         }
     }
+}
+
+pub(crate) async fn list_active_community_memberships_with_executor(
+    connection: &mut sqlx::PgConnection,
+    user_id: Uuid,
+    effective_at: OffsetDateTime,
+) -> Result<Vec<CommunityGroupMembershipRecord>, sqlx::Error> {
+    sqlx::query_as::<_, CommunityGroupMembershipRecord>(ACTIVE_MEMBERSHIPS_QUERY)
+        .bind(user_id)
+        .bind(effective_at)
+        .fetch_all(&mut *connection)
+        .await
 }

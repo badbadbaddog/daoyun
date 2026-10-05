@@ -147,6 +147,7 @@ pub enum PluginOperation {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct Plugin {
     pub id: Uuid,
+    pub execution: PluginModuleExecution,
     pub key: String,
     pub name: String,
     pub version: String,
@@ -400,4 +401,42 @@ pub struct ExecutePluginUiActionRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct PluginUiActionResult {
     pub executed_commands: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginModuleExecution {
+    Native,
+    Wasm,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginModuleStatus {
+    Available,
+    Disabled,
+    NotConfigured,
+    RuntimeDisabled,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct PluginModuleSnapshot {
+    pub capability: PluginCapability,
+    pub name: String,
+    pub execution: PluginModuleExecution,
+    pub supported: bool,
+    pub runtime_ready: bool,
+    pub business_enabled: bool,
+    pub status: PluginModuleStatus,
+    /// The snapshot never authorizes a particular user, resource or action.
+    pub target_authorization_required: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct PluginCapabilitiesSnapshot {
+    pub wasm_supported: bool,
+    pub wasm_runtime_enabled: bool,
+    pub can_manage_lifecycle: bool,
+    pub modules: Vec<PluginModuleSnapshot>,
 }

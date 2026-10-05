@@ -15,12 +15,12 @@ use tokio::sync::Notify;
 const STORAGE_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum StorageProvider {
+pub(crate) enum StorageProvider {
     Local,
     S3,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 struct StorageSettings {
     provider: StorageProvider,
     local_root: PathBuf,
@@ -45,7 +45,7 @@ impl StorageSettings {
         {
             "local" => StorageProvider::Local,
             "s3" => StorageProvider::S3,
-            other => return Err(format!("unsupported attachment provider: {other}")),
+            _ => return Err("DAOYUN_ATTACHMENT_PROVIDER must be local or s3".to_owned()),
         };
         let local_root = std::env::var_os("DAOYUN_ATTACHMENT_ROOT")
             .map(PathBuf::from)
@@ -137,19 +137,16 @@ impl std::fmt::Debug for AttachmentStore {
                 .finish(),
             #[cfg(test)]
             Self::DelayedRead { .. } => formatter.write_str("DelayedRead"),
-            Self::Unavailable(message) => {
-                formatter.debug_tuple("Unavailable").field(message).finish()
-            }
+            Self::Unavailable(_) => formatter.write_str("Unavailable([redacted])"),
         }
     }
 }
 
 impl AttachmentStore {
-    pub(crate) fn from_environment() -> Self {
-        let settings = match StorageSettings::from_environment() {
-            Ok(settings) => settings,
-            Err(error) => return Self::Unavailable(error),
-        };
+    fn from_settings(settings: StorageSettings) -> Self {
+        if let Err(error) = settings.validate() {
+            return Self::Unavailable(error);
+        }
         match settings.provider {
             StorageProvider::Local => {
                 if let Err(error) = std::fs::create_dir_all(&settings.local_root) {
@@ -311,6 +308,119 @@ impl AttachmentStore {
     }
 }
 
+#[derive(Debug)]
+pub struct AttachmentStorageConfigurationRecord {
+    pub write_provider: &'static str,
+    pub legacy_provider: &'static str,
+    pub local_configured: bool,
+    pub s3_configured: bool,
+    pub s3_supported: bool,
+}
+
+impl crate::Database {
+    pub fn attachment_storage_configuration(&self) -> AttachmentStorageConfigurationRecord {
+        AttachmentStorageConfigurationRecord {
+            write_provider: self.attachment_store.writer_name(),
+            legacy_provider: self.attachment_store.legacy_name(),
+            local_configured: !matches!(
+                self.attachment_store.local,
+                AttachmentStore::Unavailable(_)
+            ),
+            s3_configured: !matches!(self.attachment_store.s3, AttachmentStore::Unavailable(_)),
+            s3_supported: cfg!(feature = "s3"),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct AttachmentStores {
+    pub(crate) writer_provider: StorageProvider,
+    pub(crate) legacy_provider: StorageProvider,
+    pub(crate) local: AttachmentStore,
+    pub(crate) s3: AttachmentStore,
+}
+
+impl AttachmentStores {
+    pub(crate) fn from_environment() -> Self {
+        let settings = StorageSettings::from_environment();
+        let legacy = optional_env("DAOYUN_ATTACHMENT_LEGACY_PROVIDER");
+        match settings.and_then(|settings| {
+            let legacy_provider = parse_provider(
+                legacy
+                    .as_deref()
+                    .unwrap_or(provider_name(&settings.provider)),
+            )?;
+            Ok((settings, legacy_provider))
+        }) {
+            Ok((settings, legacy_provider)) => {
+                let writer_provider = settings.provider.clone();
+                let mut local_settings = settings.clone();
+                local_settings.provider = StorageProvider::Local;
+                let mut s3_settings = settings;
+                s3_settings.provider = StorageProvider::S3;
+                Self {
+                    writer_provider,
+                    legacy_provider,
+                    local: AttachmentStore::from_settings(local_settings),
+                    s3: AttachmentStore::from_settings(s3_settings),
+                }
+            }
+            Err(error) => Self {
+                writer_provider: StorageProvider::Local,
+                legacy_provider: StorageProvider::Local,
+                local: AttachmentStore::Unavailable(error.clone()),
+                s3: AttachmentStore::Unavailable(error),
+            },
+        }
+    }
+
+    pub(crate) fn writer(&self) -> &AttachmentStore {
+        match self.writer_provider {
+            StorageProvider::Local => &self.local,
+            StorageProvider::S3 => &self.s3,
+        }
+    }
+
+    pub(crate) fn writer_name(&self) -> &'static str {
+        provider_name(&self.writer_provider)
+    }
+    pub(crate) fn legacy_name(&self) -> &'static str {
+        provider_name(&self.legacy_provider)
+    }
+
+    pub(crate) fn for_record(&self, provider: Option<&str>) -> Result<&AttachmentStore, String> {
+        let provider = match provider {
+            Some(value) => parse_provider(value)?,
+            None => self.legacy_provider.clone(),
+        };
+        let store = match provider {
+            StorageProvider::Local => &self.local,
+            StorageProvider::S3 => &self.s3,
+        };
+        match store {
+            AttachmentStore::Unavailable(_) => {
+                Err("attachment storage provider is unavailable".to_owned())
+            }
+            _ => Ok(store),
+        }
+    }
+}
+
+fn provider_name(provider: &StorageProvider) -> &'static str {
+    match provider {
+        StorageProvider::Local => "local",
+        StorageProvider::S3 => "s3",
+    }
+}
+
+fn parse_provider(value: &str) -> Result<StorageProvider, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "local" => Ok(StorageProvider::Local),
+        "s3" => Ok(StorageProvider::S3),
+        _ => Err("attachment storage provider must be local or s3".to_owned()),
+    }
+}
+
 async fn with_storage_timeout<T, F>(
     timeout: Duration,
     operation: &str,
@@ -454,6 +564,74 @@ mod tests {
         tokio::fs::remove_dir_all(root)
             .await
             .expect("test storage root must be removable");
+    }
+
+    #[cfg(feature = "s3")]
+    #[tokio::test]
+    async fn local_writes_preserve_historical_s3_reads_and_provider_scoped_deletes() {
+        use super::{AttachmentStore, AttachmentStores};
+        let root = std::env::temp_dir().join(format!("daoyun-switch-{}", uuid::Uuid::now_v7()));
+        let local = AttachmentStore::Local { root: root.clone() };
+        let s3 = AttachmentStore::S3 {
+            prefix: "old-site".into(),
+            store: std::sync::Arc::new(object_store::memory::InMemory::new()),
+        };
+        s3.put("topics/old.txt", b"old-s3").await.unwrap();
+        local
+            .put("topics/old.txt", b"local-same-key")
+            .await
+            .unwrap();
+        let stores = AttachmentStores {
+            writer_provider: StorageProvider::Local,
+            legacy_provider: StorageProvider::S3,
+            local,
+            s3,
+        };
+        stores
+            .writer()
+            .put("topics/new.txt", b"new-local")
+            .await
+            .unwrap();
+        assert_eq!(
+            stores
+                .for_record(None)
+                .unwrap()
+                .get("topics/old.txt")
+                .await
+                .unwrap(),
+            b"old-s3"
+        );
+        assert_eq!(
+            stores
+                .for_record(Some("s3"))
+                .unwrap()
+                .get("topics/old.txt")
+                .await
+                .unwrap(),
+            b"old-s3"
+        );
+        assert_eq!(
+            stores
+                .for_record(Some("local"))
+                .unwrap()
+                .get("topics/new.txt")
+                .await
+                .unwrap(),
+            b"new-local"
+        );
+        assert!(stores.for_record(Some("unknown")).is_err());
+        stores
+            .for_record(Some("s3"))
+            .unwrap()
+            .delete("topics/old.txt")
+            .await
+            .unwrap();
+        assert_eq!(
+            stores.local.get("topics/old.txt").await.unwrap(),
+            b"local-same-key"
+        );
+        assert!(stores.s3.get("topics/new.txt").await.is_err());
+        tokio::fs::remove_dir_all(root).await.unwrap();
     }
 
     #[tokio::test]

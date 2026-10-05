@@ -13,6 +13,7 @@
     "build": "tsc -b && vite build",
     "generate:api": "node scripts/generate-api-client.mjs",
     "verify:membership": "node scripts/verify-membership-assets.mjs",
+    "verify:wasm-builds": "node scripts/verify-wasm-builds.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -b --pretty false",

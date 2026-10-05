@@ -89,6 +89,10 @@ export function listEditReviews(boardId: string, status: EditReviewItem["status"
   return request(`/api/v1/admin/edit-reviews?board_id=${encodeURIComponent(boardId)}&status=${status}`, validItems, { signal })
 }
 
+export function getEditReview(id: string) {
+  return request("/api/v1/admin/edit-reviews/" + encodeURIComponent(id), validItem)
+}
+
 export function resolveEditReview(item: EditReviewItem, decision: "approve" | "reject", reason: string, csrfToken: string) {
   return request(`/api/v1/admin/edit-reviews/${encodeURIComponent(item.id)}`, validItem, {
     method: "PATCH",

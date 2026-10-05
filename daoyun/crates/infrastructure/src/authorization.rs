@@ -530,6 +530,21 @@ impl Database {
         .await?
         .ok_or(MutateAuthorizationAssignmentError::AssignmentNotFound)?;
         if assignment.2 {
+            insert_audit(
+                &mut transaction,
+                actor_id,
+                "authorization.assignment.delete.denied",
+                "authorization_assignment",
+                Some(assignment_id),
+                json!({
+                    "role_key": assignment.1,
+                    "target_username": assignment.0,
+                    "scope_id": assignment.3,
+                    "reason": "authorization.role_system_managed",
+                }),
+            )
+            .await?;
+            transaction.commit().await?;
             return Err(MutateAuthorizationAssignmentError::SystemManaged);
         }
         sqlx::query("DELETE FROM role_assignments WHERE id = $1")
@@ -852,6 +867,8 @@ pub(crate) async fn has_permission_with_executor(
     permission_key: &str,
     resource_scope_id: Option<Uuid>,
 ) -> Result<bool, sqlx::Error> {
+    // Structural board mutations take FOR UPDATE (admin.rs). Keep them blocked
+    // while allowing unrelated topic counters to acquire FOR NO KEY UPDATE.
     if let Some(resource_scope_id) = resource_scope_id {
         sqlx::query_scalar::<_, Uuid>(
             "WITH RECURSIVE ancestors AS (
@@ -870,7 +887,7 @@ pub(crate) async fn has_permission_with_executor(
              SELECT board.id
              FROM boards AS board
              JOIN ancestors ON ancestors.id = board.id
-             FOR SHARE OF board",
+             FOR KEY SHARE OF board",
         )
         .bind(resource_scope_id)
         .fetch_all(&mut *connection)

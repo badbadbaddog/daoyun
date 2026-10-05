@@ -33,6 +33,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/attachments/storage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getAttachmentStorageConfiguration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/audit": {
         parameters: {
             query?: never;
@@ -235,6 +251,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["rollbackAdminBoardMerge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/boards/{board_id}/permission-matrix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getBoardPermissionMatrix"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -865,6 +897,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/permission-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getPermissionCheck"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/plugins": {
         parameters: {
             query?: never;
@@ -875,6 +923,38 @@ export interface paths {
         get: operations["listPlugins"];
         put?: never;
         post: operations["installPlugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/plugins/builtins/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["configureBuiltinPlugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/plugins/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getPluginCapabilities"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2046,6 +2126,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        /** @description Marks only the current user notifications permitted by current content policies and visible to the server UPDATE snapshot. Events committing after the snapshot stay unread. Returns the remaining count observed in the same transaction. */
         patch: operations["markAllNotificationsRead"];
         trace?: never;
     };
@@ -3289,6 +3370,16 @@ export interface components {
             };
             meta: components["schemas"]["ResponseMeta"];
         };
+        ApiResponse_AttachmentStorageConfiguration: {
+            data: {
+                legacy_provider: components["schemas"]["AttachmentStorageProvider"];
+                local_configured: boolean;
+                s3_configured: boolean;
+                s3_supported: boolean;
+                write_provider: components["schemas"]["AttachmentStorageProvider"];
+            };
+            meta: components["schemas"]["ResponseMeta"];
+        };
         ApiResponse_AuthenticatedSession: {
             data: {
                 /** Format: password */
@@ -3364,6 +3455,20 @@ export interface components {
                 /** Format: int64 */
                 topic_count: number;
                 viewer: components["schemas"]["BoardViewerCapabilities"];
+            };
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        ApiResponse_BoardPermissionMatrix: {
+            /** @description Advisory snapshot only. Real operations recheck their resource and consume quotas atomically. */
+            data: {
+                /** Format: uuid */
+                board_id: string;
+                /** Format: date-time */
+                evaluated_at: string;
+                /** Format: int64 */
+                policy_revision?: number | null;
+                scenarios: components["schemas"]["PermissionMatrixScenario"][];
+                visibility: string;
             };
             meta: components["schemas"]["ResponseMeta"];
         };
@@ -3767,7 +3872,13 @@ export interface components {
                 account: components["schemas"]["MembershipAccount"];
                 /** Format: uuid */
                 audit_id?: string | null;
+                /** Format: int64 */
+                balance_after?: number | null;
+                /** Format: int64 */
+                balance_before?: number | null;
                 created: boolean;
+                /** Format: uuid */
+                ledger_entry_id?: string | null;
             };
             meta: components["schemas"]["ResponseMeta"];
         };
@@ -3836,6 +3947,11 @@ export interface components {
                 target: components["schemas"]["NotificationTarget"];
                 /** Format: uuid */
                 target_id: string;
+                /**
+                 * Format: uuid
+                 * @description Parent topic of a post target; floor content is still authorized by topic endpoints.
+                 */
+                topic_id?: string | null;
             };
             meta: components["schemas"]["ResponseMeta"];
         };
@@ -3915,6 +4031,7 @@ export interface components {
         };
         ApiResponse_OperationsSummary: {
             data: {
+                alert_evaluation_enabled: boolean;
                 alerts: components["schemas"]["OperationsAlertCounts"];
                 database: components["schemas"]["OperationsDatabaseSummary"];
                 http: components["schemas"]["OperationsHttpSummary"];
@@ -3980,6 +4097,23 @@ export interface components {
             };
             meta: components["schemas"]["ResponseMeta"];
         };
+        ApiResponse_PermissionCheck: {
+            /** @description A current, read-only user/resource snapshot. Never an authorization token. */
+            data: {
+                /** Format: uuid */
+                attachment_id?: string | null;
+                /** Format: uuid */
+                board_id: string;
+                /** Format: date-time */
+                evaluated_at: string;
+                /** Format: int64 */
+                file_bytes?: number | null;
+                scenario: components["schemas"]["PermissionMatrixScenario"];
+                /** Format: uuid */
+                topic_id?: string | null;
+            };
+            meta: components["schemas"]["ResponseMeta"];
+        };
         ApiResponse_Plugin: {
             data: {
                 business_api_version: null | components["schemas"]["PluginBusinessApiVersion"];
@@ -3992,6 +4126,7 @@ export interface components {
                 data_scopes: components["schemas"]["PluginDataScope"][];
                 description: string;
                 event_subscriptions: components["schemas"]["PluginEventSubscription"][];
+                execution: components["schemas"]["PluginModuleExecution"];
                 /** Format: uuid */
                 id: string;
                 /** Format: uuid */
@@ -4005,6 +4140,15 @@ export interface components {
                 /** Format: date-time */
                 updated_at: string;
                 version: string;
+            };
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        ApiResponse_PluginCapabilitiesSnapshot: {
+            data: {
+                can_manage_lifecycle: boolean;
+                modules: components["schemas"]["PluginModuleSnapshot"][];
+                wasm_runtime_enabled: boolean;
+                wasm_supported: boolean;
             };
             meta: components["schemas"]["ResponseMeta"];
         };
@@ -4790,6 +4934,7 @@ export interface components {
                 data_scopes: components["schemas"]["PluginDataScope"][];
                 description: string;
                 event_subscriptions: components["schemas"]["PluginEventSubscription"][];
+                execution: components["schemas"]["PluginModuleExecution"];
                 /** Format: uuid */
                 id: string;
                 /** Format: uuid */
@@ -4956,6 +5101,15 @@ export interface components {
         AttachmentScanStatus: "pending" | "clean" | "infected" | "error";
         /** @enum {string} */
         AttachmentStatus: "pending" | "ready" | "rejected";
+        AttachmentStorageConfiguration: {
+            legacy_provider: components["schemas"]["AttachmentStorageProvider"];
+            local_configured: boolean;
+            s3_configured: boolean;
+            s3_supported: boolean;
+            write_provider: components["schemas"]["AttachmentStorageProvider"];
+        };
+        /** @enum {string} */
+        AttachmentStorageProvider: "local" | "s3";
         AuthenticatedSession: {
             /** Format: password */
             csrf_token: string;
@@ -5056,6 +5210,17 @@ export interface components {
             /** Format: int64 */
             topic_count: number;
             viewer: components["schemas"]["BoardViewerCapabilities"];
+        };
+        /** @description Advisory snapshot only. Real operations recheck their resource and consume quotas atomically. */
+        BoardPermissionMatrix: {
+            /** Format: uuid */
+            board_id: string;
+            /** Format: date-time */
+            evaluated_at: string;
+            /** Format: int64 */
+            policy_revision?: number | null;
+            scenarios: components["schemas"]["PermissionMatrixScenario"][];
+            visibility: string;
         };
         /** @enum {string} */
         BoardPostingRestrictionAction: "topic_create" | "reply_create" | "attachment_upload";
@@ -5852,7 +6017,13 @@ export interface components {
             account: components["schemas"]["MembershipAccount"];
             /** Format: uuid */
             audit_id?: string | null;
+            /** Format: int64 */
+            balance_after?: number | null;
+            /** Format: int64 */
+            balance_before?: number | null;
             created: boolean;
+            /** Format: uuid */
+            ledger_entry_id?: string | null;
         };
         MergeAdminBoardRequest: {
             /** Format: int64 */
@@ -5961,9 +6132,14 @@ export interface components {
             target: components["schemas"]["NotificationTarget"];
             /** Format: uuid */
             target_id: string;
+            /**
+             * Format: uuid
+             * @description Parent topic of a post target; floor content is still authorized by topic endpoints.
+             */
+            topic_id?: string | null;
         };
         /** @enum {string} */
-        NotificationKind: "follow" | "reply" | "like" | "message" | "report";
+        NotificationKind: "follow" | "reply" | "like" | "message" | "report" | "topic_governance";
         /** @enum {string} */
         NotificationTarget: "user" | "topic" | "post" | "conversation";
         NotificationUnreadCount: {
@@ -6076,6 +6252,7 @@ export interface components {
             processing: number;
         };
         OperationsSummary: {
+            alert_evaluation_enabled: boolean;
             alerts: components["schemas"]["OperationsAlertCounts"];
             database: components["schemas"]["OperationsDatabaseSummary"];
             http: components["schemas"]["OperationsHttpSummary"];
@@ -6315,6 +6492,11 @@ export interface components {
                 target: components["schemas"]["NotificationTarget"];
                 /** Format: uuid */
                 target_id: string;
+                /**
+                 * Format: uuid
+                 * @description Parent topic of a post target; floor content is still authorized by topic endpoints.
+                 */
+                topic_id?: string | null;
             }[];
             meta: components["schemas"]["PageMeta"];
         };
@@ -6342,6 +6524,10 @@ export interface components {
         };
         PageResponse_PointsLedgerEntry: {
             data: {
+                actor_display_name?: string | null;
+                /** Format: uuid */
+                actor_id?: string | null;
+                actor_username?: string | null;
                 /** Format: int64 */
                 amount: number;
                 /** Format: int64 */
@@ -6350,6 +6536,8 @@ export interface components {
                 created_at: string;
                 /** Format: uuid */
                 id: string;
+                /** Format: uuid */
+                operation_request_id?: string | null;
                 reason: string;
             }[];
             meta: components["schemas"]["PageMeta"];
@@ -6548,6 +6736,70 @@ export interface components {
             id: string;
             name: string;
         };
+        /** @description A current, read-only user/resource snapshot. Never an authorization token. */
+        PermissionCheck: {
+            /** Format: uuid */
+            attachment_id?: string | null;
+            /** Format: uuid */
+            board_id: string;
+            /** Format: date-time */
+            evaluated_at: string;
+            /** Format: int64 */
+            file_bytes?: number | null;
+            scenario: components["schemas"]["PermissionMatrixScenario"];
+            /** Format: uuid */
+            topic_id?: string | null;
+        };
+        /** @enum {string} */
+        PermissionMatrixAction: "browse" | "topic_create" | "reply_create" | "attachment_upload" | "attachment_download";
+        PermissionMatrixActionResult: {
+            action: components["schemas"]["PermissionMatrixAction"];
+            decision: components["schemas"]["PermissionMatrixDecision"];
+            permission_provided: boolean;
+            reason: string;
+            source_ids: string[];
+        };
+        /** @enum {string} */
+        PermissionMatrixDecision: "allowed" | "denied" | "provided" | "not_provided" | "missing_context" | "not_applicable";
+        PermissionMatrixQuota: {
+            key: string;
+            /** Format: int64 */
+            limit: number;
+            source_ids: string[];
+            /** Format: int64 */
+            used?: number | null;
+        };
+        PermissionMatrixScenario: {
+            actions: components["schemas"]["PermissionMatrixActionResult"][];
+            complete: boolean;
+            display_name: string;
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["PermissionMatrixScenarioKind"];
+            quotas: components["schemas"]["PermissionMatrixQuota"][];
+            sources: components["schemas"]["PermissionMatrixSource"][];
+        };
+        /** @enum {string} */
+        PermissionMatrixScenarioKind: "group" | "user";
+        PermissionMatrixSource: {
+            display_name: string;
+            /** Format: date-time */
+            ends_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            key: string;
+            kind: components["schemas"]["PermissionMatrixSourceKind"];
+            permission_keys: string[];
+            quotas: {
+                [key: string]: number;
+            };
+            /** Format: date-time */
+            starts_at?: string | null;
+            /** Format: int32 */
+            type_version?: number | null;
+        };
+        /** @enum {string} */
+        PermissionMatrixSourceKind: "group" | "entitlement";
         Plugin: {
             business_api_version: null | components["schemas"]["PluginBusinessApiVersion"];
             capabilities: components["schemas"]["PluginCapability"][];
@@ -6559,6 +6811,7 @@ export interface components {
             data_scopes: components["schemas"]["PluginDataScope"][];
             description: string;
             event_subscriptions: components["schemas"]["PluginEventSubscription"][];
+            execution: components["schemas"]["PluginModuleExecution"];
             /** Format: uuid */
             id: string;
             /** Format: uuid */
@@ -6575,6 +6828,12 @@ export interface components {
         };
         /** @enum {string} */
         PluginBusinessApiVersion: "0.1.0";
+        PluginCapabilitiesSnapshot: {
+            can_manage_lifecycle: boolean;
+            modules: components["schemas"]["PluginModuleSnapshot"][];
+            wasm_runtime_enabled: boolean;
+            wasm_supported: boolean;
+        };
         /** @enum {string} */
         PluginCapability: "content.transform" | "ui.panel" | "events.subscribe" | "core.query" | "points.write" | "experience.write" | "entitlements.write" | "notifications.write" | "storage.read_write" | "tasks.schedule" | "topic.supplements" | "topic.edit_review" | "membership.redemption" | "community.analytics" | "topic.polls";
         /** @enum {string} */
@@ -6587,6 +6846,21 @@ export interface components {
             ui_schema?: null | components["schemas"]["PluginUiSchema"];
         };
         PluginManifestRequest: components["schemas"]["LegacyPluginManifestSchema"] | components["schemas"]["BusinessPluginManifestSchema"];
+        /** @enum {string} */
+        PluginModuleExecution: "native" | "wasm";
+        PluginModuleSnapshot: {
+            business_enabled: boolean;
+            capability: components["schemas"]["PluginCapability"];
+            execution: components["schemas"]["PluginModuleExecution"];
+            name: string;
+            runtime_ready: boolean;
+            status: components["schemas"]["PluginModuleStatus"];
+            supported: boolean;
+            /** @description The snapshot never authorizes a particular user, resource or action. */
+            target_authorization_required: boolean;
+        };
+        /** @enum {string} */
+        PluginModuleStatus: "available" | "disabled" | "not_configured" | "runtime_disabled" | "unsupported";
         /** @enum {string} */
         PluginOperation: "content_transform" | "ui_render";
         /** @enum {integer} */
@@ -6638,6 +6912,10 @@ export interface components {
         /** @enum {string} */
         PluginUiTone: "neutral" | "success" | "warning" | "danger";
         PointsLedgerEntry: {
+            actor_display_name?: string | null;
+            /** Format: uuid */
+            actor_id?: string | null;
+            actor_username?: string | null;
             /** Format: int64 */
             amount: number;
             /** Format: int64 */
@@ -6646,6 +6924,8 @@ export interface components {
             created_at: string;
             /** Format: uuid */
             id: string;
+            /** Format: uuid */
+            operation_request_id?: string | null;
             reason: string;
         };
         PollInput: {
@@ -7657,6 +7937,53 @@ export interface operations {
             };
             503: {
                 headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getAttachmentStorageConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_AttachmentStorageConfiguration"];
+                };
+            };
+            401: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8845,6 +9172,78 @@ export interface operations {
             /** @description Boards are unavailable */
             503: {
                 headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getBoardPermissionMatrix: {
+        parameters: {
+            query?: {
+                /** @description Up to four distinct group UUIDs separated by commas */
+                group_ids?: string;
+                /** @description One explicit user, requires membership, entitlement and assignment read capabilities */
+                user_id?: string;
+            };
+            header?: never;
+            path: {
+                board_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_BoardPermissionMatrix"];
+                };
+            };
+            401: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -12091,6 +12490,79 @@ export interface operations {
             };
         };
     };
+    getPermissionCheck: {
+        parameters: {
+            query: {
+                board_id: string;
+                user_id: string;
+                action: components["schemas"]["PermissionMatrixAction"];
+                topic_id?: string;
+                attachment_id?: string;
+                /** @description Positive upload size up to 50 MiB; checks size without sending file content */
+                file_bytes?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_PermissionCheck"];
+                };
+            };
+            401: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     listPlugins: {
         parameters: {
             query?: never;
@@ -12199,6 +12671,123 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    configureBuiltinPlugin: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-csrf-token": string;
+            };
+            path: {
+                /** @description Fixed official builtin key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Plugin"];
+                };
+            };
+            401: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            503: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getPluginCapabilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_PluginCapabilitiesSnapshot"];
+                };
+            };
+            401: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: {
                 headers: {
                     "x-request-id"?: string;
                     [name: string]: unknown;
@@ -17255,8 +17844,11 @@ export interface operations {
     listNotifications: {
         parameters: {
             query?: {
+                /** @description Cursor returned for the same filter; legacy UUID cursors select all notifications. */
                 cursor?: string;
                 limit?: number;
+                /** @description When true, filter unread notifications before applying pagination. */
+                unread?: boolean;
             };
             header?: never;
             path?: never;
@@ -17264,9 +17856,11 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Notifications for the current user */
+            /** @description Notifications visible to the current user under current content policies, filtered before pagination; cursors belong to the selected filter */
             200: {
                 headers: {
+                    /** @description Request correlation ID */
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17276,6 +17870,8 @@ export interface operations {
             /** @description The request has no active session */
             401: {
                 headers: {
+                    /** @description Request correlation ID */
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17285,6 +17881,8 @@ export interface operations {
             /** @description The pagination parameters are invalid */
             422: {
                 headers: {
+                    /** @description Request correlation ID */
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17294,6 +17892,8 @@ export interface operations {
             /** @description The notification database is unavailable */
             503: {
                 headers: {
+                    /** @description Request correlation ID */
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17315,6 +17915,8 @@ export interface operations {
         responses: {
             200: {
                 headers: {
+                    /** @description Request correlation ID */
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17323,6 +17925,8 @@ export interface operations {
             };
             401: {
                 headers: {
+                    /** @description Request correlation ID */
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17331,6 +17935,8 @@ export interface operations {
             };
             403: {
                 headers: {
+                    /** @description Request correlation ID */
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17339,6 +17945,8 @@ export interface operations {
             };
             503: {
                 headers: {
+                    /** @description Request correlation ID */
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17358,6 +17966,8 @@ export interface operations {
         responses: {
             200: {
                 headers: {
+                    /** @description Request correlation ID */
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17366,6 +17976,8 @@ export interface operations {
             };
             401: {
                 headers: {
+                    /** @description Request correlation ID */
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17374,6 +17986,8 @@ export interface operations {
             };
             503: {
                 headers: {
+                    /** @description Request correlation ID */
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17397,6 +18011,8 @@ export interface operations {
         responses: {
             200: {
                 headers: {
+                    /** @description Request correlation ID */
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17405,6 +18021,8 @@ export interface operations {
             };
             400: {
                 headers: {
+                    /** @description Request correlation ID */
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17413,6 +18031,8 @@ export interface operations {
             };
             401: {
                 headers: {
+                    /** @description Request correlation ID */
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17421,6 +18041,8 @@ export interface operations {
             };
             403: {
                 headers: {
+                    /** @description Request correlation ID */
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17429,6 +18051,8 @@ export interface operations {
             };
             404: {
                 headers: {
+                    /** @description Request correlation ID */
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17437,6 +18061,8 @@ export interface operations {
             };
             503: {
                 headers: {
+                    /** @description Request correlation ID */
+                    "x-request-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17808,7 +18434,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description The CSRF token is missing or invalid */
+            /** @description The CSRF token is invalid, the account is restricted, or community permission is missing */
             403: {
                 headers: {
                     "x-request-id"?: string;
@@ -17840,6 +18466,16 @@ export interface operations {
             };
             /** @description The post fields or request body are invalid */
             422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The current community action quota is exhausted */
+            429: {
                 headers: {
                     "x-request-id"?: string;
                     [name: string]: unknown;
@@ -18223,7 +18859,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description The CSRF token is missing or invalid */
+            /** @description The CSRF token is invalid, the account is restricted, or community permission is missing */
             403: {
                 headers: {
                     "x-request-id"?: string;
@@ -18255,6 +18891,16 @@ export interface operations {
             };
             /** @description The comment content or request body is invalid */
             422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The current community action quota is exhausted */
+            429: {
                 headers: {
                     "x-request-id"?: string;
                     [name: string]: unknown;
@@ -18732,7 +19378,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description The CSRF token is missing or invalid */
+            /** @description The CSRF token is invalid, the account is restricted, or community permission is missing */
             403: {
                 headers: {
                     "x-request-id"?: string;
@@ -18764,6 +19410,16 @@ export interface operations {
             };
             /** @description The topic fields or request body are invalid */
             422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The current community action quota is exhausted */
+            429: {
                 headers: {
                     "x-request-id"?: string;
                     [name: string]: unknown;
@@ -19845,7 +20501,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description The CSRF token is missing or invalid */
+            /** @description The CSRF token is invalid, the account is restricted, or community permission is missing */
             403: {
                 headers: {
                     "x-request-id"?: string;
@@ -19877,6 +20533,16 @@ export interface operations {
             };
             /** @description The reply content or request body is invalid */
             422: {
+                headers: {
+                    "x-request-id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The current community action quota is exhausted */
+            429: {
                 headers: {
                     "x-request-id"?: string;
                     [name: string]: unknown;

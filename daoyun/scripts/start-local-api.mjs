@@ -109,7 +109,7 @@ export async function startLocalApi(options) {
     const pathKey = Object.keys(childEnvironment).find((key) => key.toLowerCase() === "path") ?? "PATH"
     childEnvironment[pathKey] = `${cargo.mingwBin}${delimiter}${childEnvironment[pathKey] ?? ""}`
   }
-  const child = spawn(cargo.command, [...cargo.args, "run", "-p", "daoyun-api"], {
+  const child = spawn(cargo.command, [...cargo.args, "run", "-p", "daoyun-api", "--features", "wasm-plugins"], {
     cwd: projectDirectory,
     env: childEnvironment,
     stdio: "inherit",

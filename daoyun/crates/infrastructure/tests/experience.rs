@@ -20,6 +20,31 @@ async fn points_and_experience_are_independent(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn spending_points_preserves_experience_level_and_revision(pool: PgPool) {
+    let (database, user_id) = create_experience_fixture(&pool, "exp_spending").await;
+    let awarded = database
+        .append_experience(user_id, 120, "topic.featured", None, "earned-growth", None)
+        .await
+        .expect("growth award must succeed");
+    database
+        .append_points_ledger(user_id, 500, "admin.compensation", Some("points-credit"))
+        .await
+        .expect("points credit must succeed");
+    database
+        .append_points_ledger(user_id, -200, "redemption.purchase", Some("points-spend"))
+        .await
+        .expect("points debit must succeed");
+    let after = database
+        .get_experience_account(user_id)
+        .await
+        .expect("experience must load");
+    assert_eq!(after.experience, awarded.account.experience);
+    assert_eq!(after.current_level_id, awarded.account.current_level_id);
+    assert_eq!(after.revision, awarded.account.revision);
+    assert_eq!(after.level_order, 2);
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
 async fn experience_ledger_is_idempotent_and_uses_dynamic_level_thresholds(pool: PgPool) {
     let (database, user_id) = create_experience_fixture(&pool, "exp_upgrade").await;
     let source_id = Uuid::now_v7();

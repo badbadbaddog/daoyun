@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use infrastructure::{
     CommunityGroupMutationError, CommunityMembershipMutationError, CreateCommunityGroupRecord,
-    Database, GrantCommunityMembershipRecord, UpdateCommunityGroupRecord,
+    Database, GrantCommunityMembershipRecord, ListAdminAuditFilter, UpdateCommunityGroupRecord,
 };
 use sqlx::PgPool;
 use time::{Duration, OffsetDateTime};
@@ -179,6 +179,54 @@ async fn community_memberships_are_timed_idempotent_revocable_and_audited(pool: 
     assert!(revoke_replay.replayed);
     assert_eq!(revoke_replay.membership.revision, 2);
 
+    let grant_reason = sqlx::query_scalar::<_, String>(
+        "SELECT summary->>'reason' FROM admin_audit_log WHERE action = 'community.membership.grant' AND resource_id = $1",
+    )
+    .bind(granted.membership.id)
+    .fetch_one(&pool)
+    .await
+    .expect("grant reason must be auditable");
+    assert_eq!(grant_reason, "Verified community participation");
+
+    let page = database
+        .list_admin_audit(
+            ListAdminAuditFilter {
+                user_id: Some(user_id),
+                ..Default::default()
+            },
+            None,
+            1,
+        )
+        .await
+        .expect("user grant history must list");
+    assert_eq!(page.len(), 1);
+    assert_eq!(page[0].action, "community.membership.revoke");
+    let next = database
+        .list_admin_audit(
+            ListAdminAuditFilter {
+                user_id: Some(user_id),
+                ..Default::default()
+            },
+            Some(page[0].id),
+            1,
+        )
+        .await
+        .expect("user grant history cursor must stay valid");
+    assert_eq!(next.len(), 1);
+    assert_eq!(next[0].action, "community.membership.grant");
+    let other = database
+        .list_admin_audit(
+            ListAdminAuditFilter {
+                user_id: Some(actor_id),
+                ..Default::default()
+            },
+            None,
+            20,
+        )
+        .await
+        .expect("other user history must list");
+    assert!(other.is_empty());
+
     let actions = sqlx::query_scalar::<_, String>(
         "SELECT action FROM admin_audit_log
          WHERE resource_type = 'community_group_membership'
@@ -345,4 +393,44 @@ async fn insert_user(pool: &PgPool, username: &str) -> Uuid {
     .await
     .expect("user fixture must insert");
     user_id
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn same_display_names_keep_independent_group_ids_and_rules(pool: PgPool) {
+    let database = Database::from_pool(pool.clone());
+    let actor_id = insert_user(&pool, "same_name_group_actor").await;
+    grant_super_admin(&pool, actor_id).await;
+    let first = database
+        .create_community_group(
+            actor_id,
+            CreateCommunityGroupRecord {
+                internal_key: "same_name_first".to_owned(),
+                display_name: "同名身份".to_owned(),
+                description: String::new(),
+                is_base: false,
+                display_order: 70,
+                permission_keys: BTreeSet::from(["topic.lottery.join".to_owned()]),
+                quotas: BTreeMap::new(),
+            },
+        )
+        .await
+        .expect("first group must create");
+    let second = database
+        .create_community_group(
+            actor_id,
+            CreateCommunityGroupRecord {
+                internal_key: "same_name_second".to_owned(),
+                display_name: "同名身份".to_owned(),
+                description: String::new(),
+                is_base: false,
+                display_order: 80,
+                permission_keys: BTreeSet::new(),
+                quotas: BTreeMap::new(),
+            },
+        )
+        .await
+        .expect("same display name must be allowed");
+    assert_ne!(first.id, second.id);
+    assert_ne!(first.internal_key, second.internal_key);
+    assert_ne!(first.permission_keys, second.permission_keys);
 }

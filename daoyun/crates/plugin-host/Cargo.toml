@@ -6,8 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-serde.workspace = true
-serde_json.workspace = true
+api-contract.workspace = true
 wasmtime.workspace = true
 wasmtime-wasi.workspace = true
 

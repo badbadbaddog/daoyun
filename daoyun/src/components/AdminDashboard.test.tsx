@@ -102,3 +102,40 @@ it("opens a task from its title and offers the complete report queue", async () 
   await user.click(screen.getByRole("button", { name: "查看全部举报待办" }))
   expect(onNavigate).toHaveBeenLastCalledWith("reports", "")
 })
+
+it("links user and board tasks to their stable resource IDs", async () => {
+  const onNavigate = vi.fn()
+  render(<AdminDashboard capabilityKeys={["admin.users.read", "admin.configuration.read"]} boards={[{ id: reportId, parentId: null, slug: "hidden", name: "内部版块", description: "", icon: "folder", tone: "green", position: 0, visibility: "hidden", topicCount: 0, revision: 1, status: "open", mergedIntoBoardId: null }]} onNavigate={onNavigate} />)
+  await userEvent.setup().click(await screen.findByRole("button", { name: "查看账号：受限成员" }))
+  expect(onNavigate).toHaveBeenLastCalledWith("users", "status=restricted&user_id=" + userId)
+  await userEvent.setup().click(screen.getByRole("button", { name: "打开版块：内部版块" }))
+  expect(onNavigate).toHaveBeenLastCalledWith("boards", "board_id=" + reportId)
+})
+
+it("states the five-item status scope of truncated summaries", async () => {
+  vi.mocked(listAdminReports).mockResolvedValue({ reports: Array.from({ length: 5 }, (_, index) => ({ ...report, id: reportId.slice(0, -1) + index })), nextCursor: reportId })
+  render(<AdminDashboard capabilityKeys={["governance.reports.read"]} boards={[]} onNavigate={vi.fn()} />)
+  await screen.findByRole("button", { name: "查看待处理举报：5+" })
+  expect(screen.getByText("按状态汇总，每类最多展示 5 条；5+ 表示还有更多。" )).toBeInTheDocument()
+})
+
+it("waits for the board summary before restoring dashboard position", async () => {
+  const scroll = vi.spyOn(window, "scrollTo").mockImplementation(() => {})
+  const props = { requestedQuery: "scroll=420", capabilityKeys: ["admin.configuration.read"], boards: [], onNavigate: vi.fn() }
+  const view = render(<AdminDashboard {...props} boardsStatus="loading" />)
+  await new Promise(resolve => setTimeout(resolve, 40))
+  expect(scroll).not.toHaveBeenCalled()
+  view.rerender(<AdminDashboard {...props} boardsStatus="ready" />)
+  await waitFor(() => expect(scroll).toHaveBeenCalledWith({ top: 420, behavior: "instant" }))
+  scroll.mockRestore()
+})
+
+it("shows an unavailable board summary without claiming zero or hiding user tasks", async () => {
+  const retry = vi.fn()
+  render(<AdminDashboard capabilityKeys={["admin.configuration.read", "admin.users.read"]} boards={[]} boardsStatus="error" onRetryBoards={retry} onNavigate={vi.fn()} />)
+  await screen.findByRole("button", { name: "查看账号：受限成员" })
+  expect(screen.getByRole("button", { name: "查看隐藏版块：暂不可用" })).toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "查看隐藏版块：0" })).not.toBeInTheDocument()
+  await userEvent.setup().click(screen.getByRole("button", { name: "重试版块摘要" }))
+  expect(retry).toHaveBeenCalledOnce()
+})

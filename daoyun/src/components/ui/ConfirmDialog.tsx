@@ -9,6 +9,7 @@ interface ConfirmDialogProps {
   onConfirm: () => void
   onCancel: () => void
   busy?: boolean
+  confirmDisabled?: boolean
   danger?: boolean
   cancelLabel?: string
   returnFocus?: HTMLElement | null
@@ -21,6 +22,7 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   busy = false,
+  confirmDisabled = false,
   danger = true,
   cancelLabel = "取消",
   returnFocus = null,
@@ -30,6 +32,7 @@ export function ConfirmDialog({
   return (
     <ModalDialog
       titleId={titleId}
+      describedBy={`${titleId}-description`}
       className="dialog-panel confirm-dialog"
       role="alertdialog"
       busy={busy}
@@ -38,10 +41,10 @@ export function ConfirmDialog({
       onClose={onCancel}
     >
       <h3 id={titleId}>{title}</h3>
-      <div className="confirm-dialog__content">{children}</div>
+      <div id={`${titleId}-description`} className="confirm-dialog__content">{children}</div>
       <div className="confirm-dialog__actions">
         <button data-confirm-cancel className="secondary-button" type="button" disabled={busy} onClick={onCancel}>{cancelLabel}</button>
-        <button className={danger ? "danger-button" : "primary-button"} type="button" disabled={busy} onClick={onConfirm}>{confirmLabel}</button>
+        <button className={danger ? "danger-button" : "primary-button"} type="button" disabled={busy || confirmDisabled} onClick={onConfirm}>{confirmLabel}</button>
       </div>
     </ModalDialog>
   )

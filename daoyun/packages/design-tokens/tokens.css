@@ -2,13 +2,13 @@
   color-scheme: light;
   font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
   font-synthesis: none;
-  --background: #f7f9fc;
+  --background: #f5f7fb;
   --surface: #ffffff;
   --surface-raised: #ffffff;
-  --surface-soft: #f7f9fc;
+  --surface-soft: #f5f7fb;
   --surface-muted: var(--surface-soft);
   --surface-hover: #eef3f9;
-  --text: #111827;
+  --text: #18243b;
   --text-primary: var(--text);
   --text-soft: #626b78;
   --text-secondary: var(--text-soft);
@@ -31,6 +31,8 @@
   --amber-soft: #fbf0dc;
   --rose: #a6415a;
   --rose-soft: #faeaf0;
+  --success: #067650;
+  --success-soft: #e7f7f0;
   --orange: #c85516;
   --shadow: 0 8px 24px rgb(17 24 39 / 7%);
   --radius: 8px;
@@ -78,6 +80,8 @@
   --amber-soft: #3d2f1b;
   --rose: #e398a9;
   --rose-soft: #422633;
+  --success: #68dcb3;
+  --success-soft: #173c32;
   --orange: #ef965f;
   --shadow: 0 10px 28px rgb(0 0 0 / 24%);
 }

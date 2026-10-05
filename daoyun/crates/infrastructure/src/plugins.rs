@@ -12,6 +12,7 @@ const MAX_COMPONENT_BYTES: usize = 8 * 1024 * 1024;
 pub struct PluginRecord {
     pub id: Uuid,
     pub key: String,
+    pub execution: String,
     pub name: String,
     pub version: String,
     pub description: String,
@@ -33,6 +34,7 @@ pub struct PluginRecord {
 pub struct PluginExecutableRecord {
     pub id: Uuid,
     pub key: String,
+    pub execution: String,
     pub name: String,
     pub version: String,
     pub description: String,
@@ -99,6 +101,7 @@ pub enum PluginInvokeError {
 struct PluginRow {
     id: Uuid,
     key: String,
+    execution: String,
     name: String,
     version: String,
     description: String,
@@ -120,6 +123,7 @@ struct PluginRow {
 struct PluginExecutableRow {
     id: Uuid,
     key: String,
+    execution: String,
     name: String,
     version: String,
     description: String,
@@ -134,6 +138,50 @@ struct PluginExecutableRow {
 }
 
 impl Database {
+    /// Fixed host-owned modules; repeat configuration preserves the installed provider.
+    pub async fn configure_builtin_plugin(
+        &self,
+        actor_id: Uuid,
+        key: &str,
+    ) -> Result<PluginRecord, PluginMutationError> {
+        let (capability, name) = match key {
+            "official_polls" => ("topic.polls", "单选投票"),
+            "official_points_redemption" => ("membership.redemption", "积分兑换"),
+            "official_community_analytics" => ("community.analytics", "运营报表"),
+            "official_topic_supplements" => ("topic.supplements", "帖子补充"),
+            "official_topic_edit_review" => ("topic.edit_review", "编辑审核"),
+            _ => return Err(PluginMutationError::InvalidInput),
+        };
+        let mut transaction = self.pool.begin().await?;
+        authorize_plugin_mutation(&mut transaction, actor_id, permission_keys::PLUGINS_INSTALL)
+            .await?;
+        let inserted = sqlx::query_scalar::<_, Uuid>(
+            "INSERT INTO plugins(id,key,name,version,description,manifest_schema_version,business_api_version,capabilities,data_scopes,event_subscriptions,component_bytes,component_sha256,execution,installed_by)
+             VALUES($1,$2,$3,'0.1.0','',1,'0.1.0',$4,'[]','[]',$5,'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855','native',$6)
+             ON CONFLICT(key) DO NOTHING RETURNING id"
+        ).bind(Uuid::now_v7()).bind(key).bind(name).bind(Json(vec![capability])).bind(Vec::<u8>::new()).bind(actor_id)
+         .fetch_optional(&mut *transaction).await.map_err(map_plugin_write_error)?;
+        let row=sqlx::query_as::<_,PluginRow>(
+            "SELECT id,key,execution,name,version,description,manifest_schema_version,business_api_version,capabilities,data_scopes,event_subscriptions,component_sha256,octet_length(component_bytes)::bigint AS component_size,status,revision,installed_by,created_at,updated_at FROM plugins WHERE key=$1 FOR UPDATE"
+        ).bind(key).fetch_one(&mut *transaction).await?;
+        if row.execution != "native" {
+            return Err(PluginMutationError::Conflict);
+        }
+        if inserted.is_some() {
+            insert_audit(
+                &mut transaction,
+                actor_id,
+                "plugin.builtin.configure",
+                "plugin",
+                Some(row.id),
+                json!({"key":key,"capability":capability,"execution":"native","status":row.status}),
+            )
+            .await?;
+        }
+        transaction.commit().await?;
+        Ok(row.into())
+    }
+
     pub async fn list_plugins(
         &self,
         actor_id: Uuid,
@@ -150,7 +198,7 @@ impl Database {
             return Err(ListPluginsError::Forbidden);
         }
         let rows = sqlx::query_as::<_, PluginRow>(
-            "SELECT id, key, name, version, description, manifest_schema_version,
+            "SELECT id, key, execution, name, version, description, manifest_schema_version,
                     business_api_version, capabilities, data_scopes, event_subscriptions,
                     component_sha256, octet_length(component_bytes)::bigint AS component_size,
                     status, revision, installed_by, created_at, updated_at
@@ -179,7 +227,7 @@ impl Database {
               business_api_version, capabilities, data_scopes, event_subscriptions,
               component_bytes, component_sha256, installed_by)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-             RETURNING id, key, name, version, description, manifest_schema_version,
+             RETURNING id, key, execution, name, version, description, manifest_schema_version,
                        business_api_version, capabilities, data_scopes, event_subscriptions,
                        component_sha256, octet_length(component_bytes)::bigint AS component_size,
                        status, revision, installed_by, created_at, updated_at",
@@ -287,7 +335,7 @@ impl Database {
             "UPDATE plugins
              SET status = $2, revision = revision + 1, updated_at = CURRENT_TIMESTAMP
              WHERE id = $1
-             RETURNING id, key, name, version, description, manifest_schema_version,
+             RETURNING id, key, execution, name, version, description, manifest_schema_version,
                        business_api_version, capabilities, data_scopes, event_subscriptions,
                        component_sha256, octet_length(component_bytes)::bigint AS component_size,
                        status, revision, installed_by, created_at, updated_at",
@@ -326,13 +374,16 @@ impl Database {
             permission_keys::PLUGINS_LIFECYCLE,
         )
         .await?;
-        let plugin = sqlx::query_as::<_, (String, String)>(
-            "SELECT key, status FROM plugins WHERE id = $1 FOR UPDATE",
+        let plugin = sqlx::query_as::<_, (String, String, String)>(
+            "SELECT key, status, execution FROM plugins WHERE id = $1 FOR UPDATE",
         )
         .bind(plugin_id)
         .fetch_optional(&mut *transaction)
         .await?
         .ok_or(PluginMutationError::NotFound)?;
+        if plugin.2 == "native" {
+            return Err(PluginMutationError::Conflict);
+        }
         if plugin.1 != "disabled" {
             return Err(PluginMutationError::MustBeDisabled);
         }
@@ -423,7 +474,7 @@ async fn fetch_executable(
     plugin_id: Uuid,
 ) -> Result<Option<PluginExecutableRow>, sqlx::Error> {
     sqlx::query_as::<_, PluginExecutableRow>(
-        "SELECT id, key, name, version, description, manifest_schema_version,
+        "SELECT id, key, execution, name, version, description, manifest_schema_version,
                 business_api_version, capabilities, data_scopes, event_subscriptions, component_bytes,
                 component_sha256, revision
          FROM plugins
@@ -617,6 +668,7 @@ impl From<PluginRow> for PluginRecord {
         Self {
             id: row.id,
             key: row.key,
+            execution: row.execution,
             name: row.name,
             version: row.version,
             description: row.description,
@@ -641,6 +693,7 @@ impl From<PluginExecutableRow> for PluginExecutableRecord {
         Self {
             id: row.id,
             key: row.key,
+            execution: row.execution,
             name: row.name,
             version: row.version,
             description: row.description,

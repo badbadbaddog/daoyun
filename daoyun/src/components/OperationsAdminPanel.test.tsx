@@ -23,6 +23,7 @@ vi.mock("../api/admin", async (importOriginal) => ({
 }))
 
 const summary: OperationsSummary = {
+  alertEvaluationEnabled: true,
   observedAt: "2026-08-11T10:00:00Z",
   uptimeSeconds: 3723,
   http: { totalRequests: 1250, inFlightRequests: 2, errors5m: 3, p95Ms5m: 84 },
@@ -66,6 +67,18 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe("OperationsAdminPanel", () => {
+  it("reports disabled evaluation while retaining history and basic state", async () => {
+    vi.mocked(getOperationsSummary).mockResolvedValue({ ...summary, alertEvaluationEnabled: false } as OperationsSummary)
+    const user = userEvent.setup()
+    render(<OperationsAdminPanel csrfToken="csrf-token" />)
+    expect(await screen.findByText(/高级告警未启用/)).toBeInTheDocument()
+    expect(screen.getByText("数据库正常")).toBeInTheDocument()
+    expect(screen.getByText("4 待处理")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "待确认告警" }))
+    expect(screen.getByText("自动评估已关闭，历史告警仍可查看和确认。")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "确认 API 5xx 错误告警" })).toBeInTheDocument()
+    expect(screen.queryByText("恢复由后台评估器自动处理。")).not.toBeInTheDocument()
+  })
   it("separates overview, alerts and on-demand rule editing", async () => {
     const user = userEvent.setup()
     render(<OperationsAdminPanel csrfToken="csrf-token" />)

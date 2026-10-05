@@ -404,12 +404,14 @@ fn notification_contract_exposes_target_and_read_state() {
         actor: None,
         target: NotificationTarget::Topic,
         target_id,
+        topic_id: None,
         read_at: None,
         created_at: "2026-08-04T10:00:00Z".to_owned(),
     })
     .expect("notification must serialize");
     assert_eq!(value["kind"], "reply");
     assert_eq!(value["target"], "topic");
+    assert!(value["topic_id"].is_null());
     assert!(value["read_at"].is_null());
     assert_eq!(
         serde_json::to_value(NotificationUnreadCount { unread_count: 2 })

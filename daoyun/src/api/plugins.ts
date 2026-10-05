@@ -67,6 +67,7 @@ export interface PluginUiActionResult {
 }
 
 export interface Plugin {
+  execution?: "native" | "wasm"
   id: string
   key: string
   name: string
@@ -134,6 +135,23 @@ export class PluginApiError extends Error {
   }
 }
 
+export type PluginCapabilitiesSnapshot = components["schemas"]["PluginCapabilitiesSnapshot"]
+
+export async function listPluginCapabilities(signal?: AbortSignal): Promise<PluginCapabilitiesSnapshot> {
+  const response = await fetch("/api/v1/admin/plugins/capabilities", { headers: { Accept: "application/json" }, credentials: "include", signal })
+  return parseData(response, isPluginCapabilitiesSnapshot, value => value)
+}
+
+function isPluginCapabilitiesSnapshot(value: unknown): value is PluginCapabilitiesSnapshot {
+  return isRecord(value) && typeof value.wasm_supported === "boolean" && typeof value.wasm_runtime_enabled === "boolean"
+    && typeof value.can_manage_lifecycle === "boolean" && Array.isArray(value.modules) && value.modules.length <= 16
+    && value.modules.every(module => isRecord(module) && isPluginCapability(module.capability) && isBoundedText(module.name, 1, 80)
+      && (module.execution === "native" || module.execution === "wasm") && typeof module.supported === "boolean"
+      && typeof module.runtime_ready === "boolean" && typeof module.business_enabled === "boolean"
+      && ["available", "disabled", "not_configured", "runtime_disabled", "unsupported"].includes(String(module.status))
+      && module.target_authorization_required === true)
+}
+
 export async function listPlugins(signal?: AbortSignal): Promise<Plugin[]> {
   const response = await fetch("/api/v1/admin/plugins", {
     headers: { Accept: "application/json" },
@@ -170,89 +188,11 @@ export function parsePluginManifest(value: unknown): PluginManifestInput {
   return { ...base, capabilities: value.capabilities as LegacyPluginManifestInput["capabilities"] }
 }
 
-export async function loadOfficialSupplementPackage(signal?: AbortSignal): Promise<InstallPluginInput> {
-  const base = "/plugins/official-topic-supplements"
-  const [manifestResponse, componentResponse] = await Promise.all([
-    fetch(`${base}/plugin.json`, { signal }), fetch(`${base}/plugin.wasm`, { signal }),
-  ])
-  if (!manifestResponse.ok || !componentResponse.ok) throw new Error("官方插件文件未发布，请重新构建插件资源")
-  const manifest = parsePluginManifest(await manifestResponse.json())
-  if (manifest.key !== "official_topic_supplements") throw new Error("官方插件清单不匹配")
-  const bytes = new Uint8Array(await componentResponse.arrayBuffer())
-  if (bytes.length > 8 * 1024 * 1024 || bytes[0] !== 0 || bytes[1] !== 97 || bytes[2] !== 115 || bytes[3] !== 109) {
-    throw new Error("官方插件组件无效")
-  }
-  let binary = ""
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
-  return { manifest, componentBase64: btoa(binary) }
-}
-
-export async function loadOfficialEditReviewPackage(signal?: AbortSignal): Promise<InstallPluginInput> {
-  const base = "/plugins/official-topic-edit-review"
-  const [manifestResponse, componentResponse] = await Promise.all([
-    fetch(`${base}/plugin.json`, { signal }), fetch(`${base}/plugin.wasm`, { signal }),
-  ])
-  if (!manifestResponse.ok || !componentResponse.ok) throw new Error("官方插件文件未发布，请重新构建插件资源")
-  const manifest = parsePluginManifest(await manifestResponse.json())
-  if (manifest.key !== "official_topic_edit_review") throw new Error("官方插件清单不匹配")
-  const bytes = new Uint8Array(await componentResponse.arrayBuffer())
-  if (bytes.length > 8 * 1024 * 1024 || bytes[0] !== 0 || bytes[1] !== 97 || bytes[2] !== 115 || bytes[3] !== 109) {
-    throw new Error("官方插件组件无效")
-  }
-  let binary = ""
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
-  return { manifest, componentBase64: btoa(binary) }
-}
-
-export async function loadOfficialRedemptionPackage(signal?: AbortSignal): Promise<InstallPluginInput> {
-  const base = "/plugins/official-points-redemption"
-  const [manifestResponse, componentResponse] = await Promise.all([
-    fetch(`${base}/plugin.json`, { signal }), fetch(`${base}/plugin.wasm`, { signal }),
-  ])
-  if (!manifestResponse.ok || !componentResponse.ok) throw new Error("官方插件文件未发布，请重新构建插件资源")
-  const manifest = parsePluginManifest(await manifestResponse.json())
-  if (manifest.key !== "official_points_redemption") throw new Error("官方插件清单不匹配")
-  const bytes = new Uint8Array(await componentResponse.arrayBuffer())
-  if (bytes.length > 8 * 1024 * 1024 || bytes[0] !== 0 || bytes[1] !== 97 || bytes[2] !== 115 || bytes[3] !== 109) {
-    throw new Error("官方插件组件无效")
-  }
-  let binary = ""
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
-  return { manifest, componentBase64: btoa(binary) }
-}
-
-export async function loadOfficialAnalyticsPackage(signal?: AbortSignal): Promise<InstallPluginInput> {
-  const base = "/plugins/official-community-analytics"
-  const [manifestResponse, componentResponse] = await Promise.all([
-    fetch(`${base}/plugin.json`, { signal }), fetch(`${base}/plugin.wasm`, { signal }),
-  ])
-  if (!manifestResponse.ok || !componentResponse.ok) throw new Error("官方插件文件未发布，请重新构建插件资源")
-  const manifest = parsePluginManifest(await manifestResponse.json())
-  if (manifest.key !== "official_community_analytics") throw new Error("官方插件清单不匹配")
-  const bytes = new Uint8Array(await componentResponse.arrayBuffer())
-  if (bytes.length > 8 * 1024 * 1024 || bytes[0] !== 0 || bytes[1] !== 97 || bytes[2] !== 115 || bytes[3] !== 109) {
-    throw new Error("官方插件组件无效")
-  }
-  let binary = ""
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
-  return { manifest, componentBase64: btoa(binary) }
-}
-
-export async function loadOfficialPollsPackage(signal?: AbortSignal): Promise<InstallPluginInput> {
-  const base = "/plugins/official-polls"
-  const [manifestResponse, componentResponse] = await Promise.all([
-    fetch(`${base}/plugin.json`, { signal }), fetch(`${base}/plugin.wasm`, { signal }),
-  ])
-  if (!manifestResponse.ok || !componentResponse.ok) throw new Error("官方插件文件未发布，请重新构建插件资源")
-  const manifest = parsePluginManifest(await manifestResponse.json())
-  if (manifest.key !== "official_polls") throw new Error("官方插件清单不匹配")
-  const bytes = new Uint8Array(await componentResponse.arrayBuffer())
-  if (bytes.length > 8 * 1024 * 1024 || bytes[0] !== 0 || bytes[1] !== 97 || bytes[2] !== 115 || bytes[3] !== 109) {
-    throw new Error("官方插件组件无效")
-  }
-  let binary = ""
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
-  return { manifest, componentBase64: btoa(binary) }
+export async function configureBuiltinPlugin(key: string, csrfToken: string, signal?: AbortSignal): Promise<Plugin> {
+  const response = await fetch("/api/v1/admin/plugins/builtins/" + encodeURIComponent(key), {
+    method: "POST", headers: jsonHeaders(csrfToken), credentials: "include", signal,
+  })
+  return parseData(response, isPluginDto, mapPlugin)
 }
 
 export async function installPlugin(input: InstallPluginInput, csrfToken: string, signal?: AbortSignal): Promise<Plugin> {
@@ -479,6 +419,7 @@ function jsonHeaders(csrfToken: string): Record<string, string> {
 function mapPlugin(value: PluginDto): Plugin {
   return {
     id: value.id,
+    execution: value.execution ?? "wasm",
     key: value.key,
     name: value.name,
     version: value.version,
@@ -515,12 +456,13 @@ function isPluginDtoList(value: unknown): value is PluginDto[] {
 }
 
 function isPluginDto(value: unknown): value is PluginDto {
-  if (!isRecord(value) || !hasExactKeys(value, [
+  if (!isRecord(value) || !hasExactKeys(Object.fromEntries(Object.entries(value).filter(([key]) => key !== "execution")), [
     "id", "key", "name", "version", "description", "manifest_schema_version",
     "business_api_version", "capabilities", "data_scopes", "event_subscriptions", "component_sha256",
     "component_size", "status", "revision", "installed_by", "created_at", "updated_at",
   ])) return false
-  return isUuid(value.id)
+  return (value.execution === undefined || value.execution === "native" || value.execution === "wasm")
+    && isUuid(value.id)
     && typeof value.key === "string"
     && /^[a-z][a-z0-9_]{2,63}$/.test(value.key)
     && isBoundedText(value.name, 1, 80)
@@ -546,7 +488,7 @@ function isPluginDto(value: unknown): value is PluginDto {
     && typeof value.component_sha256 === "string"
     && /^[0-9a-f]{64}$/.test(value.component_sha256)
     && isSafeCount(value.component_size)
-    && value.component_size >= 1
+    && value.component_size >= (value.execution === "native" ? 0 : 1)
     && value.component_size <= 8 * 1024 * 1024
     && isPluginStatus(value.status)
     && isPositiveCount(value.revision)

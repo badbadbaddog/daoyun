@@ -70,6 +70,53 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
 describe("ReportAdminPanel", () => {
+  it("reports eight successes and two failures and retries only one failed report", async () => {
+    const rows = Array.from({ length: 10 }, (_, i) => ({ ...report, id: "019fc900-0000-7000-8000-" + String(300 + i).padStart(12, "0"), targetTitle: "批处理主题" + i }))
+    vi.mocked(listAdminReports).mockResolvedValue({ reports: rows, nextCursor: null })
+    let retryAllowed = false
+    vi.mocked(updateAdminReport).mockImplementation(async (id) => {
+      const row = rows.find((item) => item.id === id)!
+      if (rows.indexOf(row) >= 8 && !retryAllowed) throw new ReportApiError(403, "admin.forbidden", "无权处理此版块")
+      return { ...row, status: "in_review", revision: 2 }
+    })
+    vi.mocked(getAdminReport).mockResolvedValue({ ...detail, report: rows[8] })
+    const user = userEvent.setup()
+    render(<ReportAdminPanel requestedStatus="all" onStatusChange={vi.fn()} csrfToken="csrf" canResolve />)
+    await user.click(await screen.findByRole("checkbox", { name: "选择当前举报" }))
+    await user.click(screen.getByRole("button", { name: "批量标为处理中" }))
+    const dialog = screen.getByRole("dialog", { name: "批量标为处理中" })
+    expect(within(dialog).getByText(/影响 10 条举报/)).toBeVisible()
+    await user.type(within(dialog).getByLabelText("批处理原因"), "统一核实广告证据")
+    await user.click(within(dialog).getByRole("button", { name: "确认逐项处理" }))
+    expect(await within(dialog).findByText("成功 8 条，失败 2 条")).toBeVisible()
+    expect(updateAdminReport).toHaveBeenCalledTimes(10)
+    expect(updateAdminReport).toHaveBeenNthCalledWith(1, rows[0].id, { status: "in_review", resolution: "none", note: "统一核实广告证据", expectedRevision: 1 }, "csrf")
+    retryAllowed = true
+    await user.click(within(dialog).getByRole("button", { name: "重试举报 " + rows[8].id }))
+    expect(await within(dialog).findByText("成功 9 条，失败 1 条")).toBeVisible()
+    expect(getAdminReport).toHaveBeenCalledWith(rows[8].id)
+    expect(updateAdminReport).toHaveBeenCalledTimes(11)
+    expect(updateAdminReport).toHaveBeenLastCalledWith(rows[8].id, expect.objectContaining({ expectedRevision: 1 }), "csrf")
+    expect(within(dialog).queryByRole("button", { name: "重试举报 " + rows[0].id })).not.toBeInTheDocument()
+  })
+
+  it("keeps an uncertain batch item from overwriting a changed revision", async () => {
+    vi.mocked(updateAdminReport).mockRejectedValue(new Error("网络中断，结果待核实"))
+    vi.mocked(getAdminReport).mockResolvedValue({ ...detail, report: { ...report, revision: 2 } })
+    const user = userEvent.setup()
+    render(<ReportAdminPanel requestedStatus="all" onStatusChange={vi.fn()} csrfToken="csrf" canResolve />)
+    await user.click(await screen.findByRole("checkbox", { name: "选择当前举报" }))
+    await user.click(screen.getByRole("button", { name: "批量标为处理中" }))
+    const dialog = screen.getByRole("dialog", { name: "批量标为处理中" })
+    await user.type(within(dialog).getByLabelText("批处理原因"), "核实证据")
+    await user.click(within(dialog).getByRole("button", { name: "确认逐项处理" }))
+    await within(dialog).findByText("成功 0 条，失败 1 条")
+    await user.click(within(dialog).getByRole("button", { name: "重试举报 " + report.id }))
+    expect(await within(dialog).findByText("版本已变化，请返回举报详情核实后重新选择。")).toBeVisible()
+    expect(updateAdminReport).toHaveBeenCalledTimes(1)
+    expect(within(dialog).getByLabelText("批处理原因")).toHaveValue("核实证据")
+  })
+
   it("keeps the queue visible and opens moderation within the detail drawer", async () => {
     const user = userEvent.setup()
     render(<ReportAdminPanel requestedStatus="all" onStatusChange={vi.fn()} csrfToken="csrf" canResolve />)
@@ -91,7 +138,7 @@ describe("ReportAdminPanel", () => {
     expect(listAdminReports).toHaveBeenCalledWith(expect.objectContaining({ status: "open", limit: 20 }))
     await user.click(screen.getByRole("button", { name: /查看举报：待审核主题/ }))
     expect(await screen.findByText("这是广告内容")).toBeInTheDocument()
-    expect(screen.getByText("该作者共有 3 条举报记录")).toBeInTheDocument()
+    expect(screen.getByText("当前权限范围内共有 3 条举报记录")).toBeInTheDocument()
   })
 
   it("restores a report detail URL even when the report is not on the first list page", async () => {
@@ -350,4 +397,27 @@ it("applies keyword and inclusive date filters to loaded reports and resets them
   expect(screen.getByRole("button", { name: "导出选中 1 条" })).toBeEnabled()
   await user.selectOptions(screen.getByLabelText("每次加载举报条数"), "50")
   expect(listAdminReports).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 50 }))
+})
+
+it("returns from a report link without reloading or losing the loaded queue", async () => {
+  const onQueryChange = vi.fn()
+  const base = "status=open&return_to=dashboard&return_scroll=320"
+  const view = render(<ReportAdminPanel requestedStatus="open" requestedReportId={report.id} requestedQuery={base + "&report_id=" + report.id} onQueryChange={onQueryChange} onStatusChange={vi.fn()} csrfToken="csrf" canResolve={false} />)
+  await screen.findByText("这是广告内容")
+  expect(getAdminReport).toHaveBeenCalledTimes(1)
+  await userEvent.setup().click(screen.getByRole("button", { name: "返回举报队列" }))
+  expect(onQueryChange).toHaveBeenLastCalledWith(base)
+  view.rerender(<ReportAdminPanel requestedStatus="open" requestedQuery={base} onQueryChange={onQueryChange} onStatusChange={vi.fn()} csrfToken="csrf" canResolve={false} />)
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  expect(listAdminReports).toHaveBeenCalledTimes(1)
+})
+
+it("does not fetch the same report twice when its click updates the URL", async () => {
+  const onQueryChange = vi.fn()
+  const view = render(<ReportAdminPanel requestedStatus="open" onStatusChange={vi.fn()} csrfToken="csrf" canResolve={false} onQueryChange={onQueryChange} requestedQuery="status=open" />)
+  await userEvent.setup().click(await screen.findByRole("button", { name: /查看举报：待审核主题/ }))
+  await screen.findByText("这是广告内容")
+  view.rerender(<ReportAdminPanel requestedStatus="open" requestedReportId={report.id} requestedQuery={"status=open&report_id=" + report.id} onQueryChange={onQueryChange} onStatusChange={vi.fn()} csrfToken="csrf" canResolve={false} />)
+  await act(async () => {})
+  expect(getAdminReport).toHaveBeenCalledTimes(1)
 })

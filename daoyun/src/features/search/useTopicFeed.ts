@@ -9,6 +9,7 @@ type FeedOptions = Omit<ListTopicsOptions, "cursor" | "signal"> & {
   enabled?: boolean
   mode?: FeedMode
   requestVersion?: number
+  viewerKey?: string
 }
 
 export interface TopicFeedState {
@@ -30,6 +31,7 @@ export function useTopicFeed(options: FeedOptions): TopicFeedState {
     enabled = true,
     mode,
     requestVersion = 0,
+    viewerKey = "guest",
     board,
     query,
     tag,
@@ -53,11 +55,14 @@ export function useTopicFeed(options: FeedOptions): TopicFeedState {
   const [retryVersion, setRetryVersion] = useState(0)
   const requestKeyRef = useRef(0)
   const sourceKeyRef = useRef("")
+  const pageControllerRef = useRef<AbortController | null>(null)
   const optionsRef = useRef<Omit<ListTopicsOptions, "cursor" | "signal">>({})
   optionsRef.current = { board, query, tag, author, from, through, scope, featured, sort, limit }
 
   useEffect(() => {
-    const sourceKey = JSON.stringify({ author, board, enabled, featured, from, through, limit, mode, query, scope, sort, tag })
+    pageControllerRef.current?.abort()
+    pageControllerRef.current = null
+    const sourceKey = JSON.stringify({ author, board, enabled, featured, from, through, limit, mode, query, scope, sort, tag, viewerKey })
     const refreshingCurrentSource = sourceKeyRef.current === sourceKey && topicsRef.current.length > 0
     sourceKeyRef.current = sourceKey
     const requestKey = requestKeyRef.current + 1
@@ -73,7 +78,7 @@ export function useTopicFeed(options: FeedOptions): TopicFeedState {
       return
     }
     const controller = new AbortController()
-    if (!refreshingCurrentSource) setPendingPage(null)
+    if (!refreshingCurrentSource) { setPendingPage(null); setTopics([]) }
     setLoadingInitial(!refreshingCurrentSource)
     loadTopicPage(mode, optionsRef.current, undefined, controller.signal).then((page) => {
       if (controller.signal.aborted || requestKeyRef.current !== requestKey) return
@@ -99,8 +104,8 @@ export function useTopicFeed(options: FeedOptions): TopicFeedState {
       }
       setLoadingInitial(false)
     })
-    return () => controller.abort()
-  }, [author, board, enabled, featured, from, through, limit, mode, query, requestVersion, retryVersion, scope, sort, tag])
+    return () => { controller.abort(); pageControllerRef.current?.abort(); requestKeyRef.current += 1 }
+  }, [author, board, enabled, featured, from, through, limit, mode, query, requestVersion, retryVersion, scope, sort, tag, viewerKey])
 
   const revealNewTopics = useCallback(() => {
     if (!pendingPage) return
@@ -113,19 +118,22 @@ export function useTopicFeed(options: FeedOptions): TopicFeedState {
   const newTopicCount = pendingPage?.topics.filter((topic) => !currentIds.has(topic.id)).length ?? 0
 
   const loadMore = useCallback(async () => {
-    if (!enabled || !nextCursor || loadingMore) return
+    if (!enabled || !nextCursor || loadingMore || pageControllerRef.current) return
+    const controller = new AbortController()
+    pageControllerRef.current = controller
     const requestKey = requestKeyRef.current
     setLoadingMore(true)
     setErrorMore(null)
     try {
-      const page = await loadTopicPage(mode, optionsRef.current, nextCursor)
-      if (requestKeyRef.current !== requestKey) return
+      const page = await loadTopicPage(mode, optionsRef.current, nextCursor, controller.signal)
+      if (controller.signal.aborted || requestKeyRef.current !== requestKey) return
       setTopics((current) => deduplicateTopics(current, page.topics))
       setNextCursor(page.nextCursor)
     } catch {
-      if (requestKeyRef.current === requestKey) setErrorMore("更多主题加载失败，已保留当前内容。")
+      if (!controller.signal.aborted && requestKeyRef.current === requestKey) setErrorMore("更多主题加载失败，已保留当前内容。")
     } finally {
-      if (requestKeyRef.current === requestKey) setLoadingMore(false)
+      if (pageControllerRef.current === controller) pageControllerRef.current = null
+      if (!controller.signal.aborted && requestKeyRef.current === requestKey) setLoadingMore(false)
     }
   }, [enabled, loadingMore, mode, nextCursor])
 

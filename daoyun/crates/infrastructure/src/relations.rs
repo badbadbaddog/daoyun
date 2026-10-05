@@ -56,9 +56,11 @@ impl Database {
                AND t.status = 'published' AND t.deleted_at IS NULL \
                AND b.visibility = 'public' AND b.deleted_at IS NULL \
                AND author.status = 'active' \
+               AND daoyun_can_access_content('topic', t.id, $2, CURRENT_TIMESTAMP) \
              FOR UPDATE OF t",
         )
         .bind(topic_id)
+        .bind(user_id)
         .fetch_optional(&mut *transaction)
         .await?;
         if visible_topic.is_none() {
@@ -125,7 +127,8 @@ impl Database {
                      WHERE bookmark.user_id = $1 AND bookmark.topic_id = $2 \
                        AND topic.status = 'published' AND topic.deleted_at IS NULL \
                        AND board.visibility = 'public' AND board.deleted_at IS NULL \
-                       AND author.status = 'active'\
+                       AND author.status = 'active' \
+                       AND daoyun_can_access_content('topic', topic.id, $1, CURRENT_TIMESTAMP)\
                  )",
             )
             .bind(user_id)
@@ -160,6 +163,7 @@ impl Database {
                AND topic.status = 'published' AND topic.deleted_at IS NULL \
                AND board.visibility = 'public' AND board.deleted_at IS NULL \
                AND author.status = 'active' \
+               AND daoyun_can_access_content('topic', topic.id, $1, CURRENT_TIMESTAMP) \
                AND (\
                    $2::uuid IS NULL \
                    OR (bookmark.created_at, bookmark.topic_id) < (\

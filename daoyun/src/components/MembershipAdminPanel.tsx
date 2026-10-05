@@ -27,7 +27,8 @@ import type { AdminUserCandidate } from "./admin/AdminUserPicker"
 import { RedemptionWorkspace } from "../features/admin-membership/RedemptionWorkspace"
 import { PointsWorkspace } from "../features/admin-membership/PointsWorkspace"
 import { EntitlementsWorkspace } from "../features/admin-membership/EntitlementsWorkspace"
-import { GrowthLevelFormDialog, type GrowthLevelDraft } from "./GrowthLevelFormDialog"
+import { GrowthRewardsPolicy } from "../features/admin-membership/GrowthRewardsPolicy"
+import { GrowthLevelFormDialog, growthLevelStatusLabels, type GrowthLevelDraft } from "./GrowthLevelFormDialog"
 import { MedalsWorkspace } from "../features/admin-membership/MedalsWorkspace"
 import { AdminActionDialog } from "./admin/AdminActionDialog"
 import { CommunityGroupAdminPanel } from "./CommunityGroupAdminPanel"
@@ -45,6 +46,8 @@ interface MembershipAdminPanelProps {
   canReadGroupMemberships: boolean
   canWriteGroupMemberships: boolean
   canReadUsers: boolean
+  canReadAudit?: boolean
+  canReadPlugins?: boolean
   canReadEntitlementTypes: boolean
   canWriteEntitlementTypes: boolean
   canReadEntitlementGrants: boolean
@@ -78,6 +81,8 @@ export function MembershipAdminPanel({
   canReadGroupMemberships,
   canWriteGroupMemberships,
   canReadUsers,
+  canReadAudit = false,
+  canReadPlugins = false,
   canReadEntitlementTypes,
   canWriteEntitlementTypes,
   canReadEntitlementGrants,
@@ -100,6 +105,9 @@ export function MembershipAdminPanel({
   const [growthDeleteTarget, setGrowthDeleteTarget] = useState<AdminGrowthLevel | null>(null)
   const growthFormTriggerRef = useRef<HTMLButtonElement | null>(null)
   const growthMutationRef = useRef(false)
+  const growthRefreshController = useRef<AbortController | null>(null)
+
+  useEffect(() => () => growthRefreshController.current?.abort(), [])
   const growthDeleteDialogRef = useRef<HTMLDivElement | null>(null)
   const growthDeleteTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [growthDraft, setGrowthDraft] = useState<GrowthLevelDraft>(newGrowthLevelDraft)
@@ -176,6 +184,7 @@ export function MembershipAdminPanel({
 
   useEffect(() => {
     if (!canReadLevelRules) {
+      growthRefreshController.current?.abort()
       setGrowthLevels([])
       setGrowthLoading(false)
       return
@@ -283,7 +292,7 @@ export function MembershipAdminPanel({
         iconAssetId: level.iconAssetId,
         color: level.color,
         description: level.description,
-        status: "published",
+        status: level.status,
       }, csrfToken)
       setGrowthLevels((current) => sortGrowthLevels(current.map((item) => item.id === saved.id ? saved : item)))
       completeGrowthLevelForm()
@@ -323,6 +332,7 @@ export function MembershipAdminPanel({
   }
 
   function openGrowthCreate(trigger: HTMLButtonElement) {
+    growthRefreshController.current?.abort()
     growthFormTriggerRef.current = trigger
     setGrowthDraft(newGrowthLevelDraft())
     setEditingGrowth(null)
@@ -334,6 +344,7 @@ export function MembershipAdminPanel({
   }
 
   function openGrowthEdit(level: AdminGrowthLevel, trigger: HTMLButtonElement) {
+    growthRefreshController.current?.abort()
     growthFormTriggerRef.current = trigger
     setEditingGrowth({ ...level })
     setGrowthCreateOpen(false)
@@ -345,8 +356,12 @@ export function MembershipAdminPanel({
 
   async function refreshGrowthConflictBaseline() {
     if (!editingGrowth || !canReadLevelRules) return
+    growthRefreshController.current?.abort()
+    const controller = new AbortController()
+    growthRefreshController.current = controller
     try {
-      const latestLevels = sortGrowthLevels(await getAdminGrowthLevels())
+      const latestLevels = sortGrowthLevels(await getAdminGrowthLevels(controller.signal))
+      if (controller.signal.aborted) return
       setGrowthLevels(latestLevels)
       const latest = latestLevels.find((level) => level.id === editingGrowth.id)
       if (!latest) {
@@ -357,12 +372,13 @@ export function MembershipAdminPanel({
       setGrowthConflict(false)
       setGrowthError("")
     } catch (reason) {
-      setGrowthError(reason instanceof AdminApiError ? reason.message : "最新成长等级暂时无法加载，请稍后重试。")
+      if (!controller.signal.aborted) setGrowthError(reason instanceof AdminApiError ? reason.message : "最新成长等级暂时无法加载，请稍后重试。")
     }
   }
 
   function closeGrowthLevelForm() {
     if (growthMutationRef.current) return
+    growthRefreshController.current?.abort()
     const trigger = growthFormTriggerRef.current
     setGrowthCreateOpen(false)
     setEditingGrowth(null)
@@ -386,7 +402,7 @@ export function MembershipAdminPanel({
   }
 
   async function confirmDeleteGrowthLevel() {
-    if (!canWriteLevelRules || !growthDeleteTarget) return
+    if (!canWriteLevelRules || !growthDeleteTarget || growthDeleteTarget.status === "archived") return
     const target = growthDeleteTarget
     setDeletingGrowth(true)
     setGrowthError("")
@@ -452,7 +468,7 @@ export function MembershipAdminPanel({
     ++pointsAccountRequest.current
     const result = await grantMembershipPoints({ userId: input.userId, amount: input.amount, reason: input.reason, details: input.details, idempotencyKey: input.idempotencyKey }, csrfToken)
     if (pointsUserRef.current === input.userId) setSelectedPointsBalance(result.account.pointsBalance)
-    return { balance: result.account.pointsBalance, auditId: result.auditId ?? undefined, replayed: !result.created }
+    return { balance: result.account.pointsBalance, auditId: result.auditId ?? undefined, replayed: !result.created, balanceBefore: result.balanceBefore, balanceAfter: result.balanceAfter, ledgerEntryId: result.ledgerEntryId, requestId: result.requestId }
   }
 
   async function awardMedal(event: FormEvent) {
@@ -546,10 +562,11 @@ export function MembershipAdminPanel({
       </div>
       <div className="membership-admin-grid membership-admin-grid--workspace">
         {workspace === "growth" && (canReadLevelRules || canWriteLevelRules) && <section id="membership-growth-workspace" role="tabpanel" className="membership-rule-section" aria-labelledby="membership-growth-tab">
-          <div className="admin-form__heading membership-section-heading"><div><h3 id="membership-growth-heading">成长等级（EXP）</h3><span className="admin-badge">共 {growthLevels.length} 个等级</span><p>保存后立即生效；积分变更不会增加 EXP，也不会改变成长等级。</p></div>{canWriteLevelRules && <button className="secondary-button membership-growth-create-trigger" type="button" aria-haspopup="dialog" onClick={(event) => openGrowthCreate(event.currentTarget)}><Plus size={14} aria-hidden="true" />新增等级</button>}</div>
+          <div className="admin-form__heading membership-section-heading"><div><h2 id="membership-growth-heading">成长等级（EXP）</h2><span className="admin-badge">共 {growthLevels.length} 个等级</span><p>只有已发布规则参与等级计算；积分收支不会改变 EXP 或成长等级。</p></div>{canWriteLevelRules && <button className="secondary-button membership-growth-create-trigger" type="button" aria-haspopup="dialog" onClick={(event) => openGrowthCreate(event.currentTarget)}><Plus size={14} aria-hidden="true" />新增等级</button>}</div>
           {!canReadLevelRules ? <div className="admin-empty" role="status"><Sparkles size={20} aria-hidden="true" /><span>当前账号可创建成长等级，但不具备等级目录读取权限。</span></div> : growthLoading ? <div className="admin-state" role="status"><LoaderCircle className="topic-loading__spinner" size={20} aria-hidden="true" /><span>正在读取成长等级</span></div> : growthLevels.length === 0 ? <div className="admin-empty" role="status"><Sparkles size={20} aria-hidden="true" /><span>尚未创建成长等级</span></div> : <ul className="membership-growth-list" aria-label="成长等级列表">
             {growthLevels.map((level) => <GrowthLevelRow key={level.id} level={level} canWrite={canWriteLevelRules} pending={deletingGrowth || savingGrowthId === level.id} onEdit={(trigger) => openGrowthEdit(level, trigger)} onDelete={(trigger) => { growthDeleteTriggerRef.current = trigger; setGrowthDeleteTarget(level); setGrowthError(""); setGrowthMessage("") }} />)}
           </ul>}
+          <GrowthRewardsPolicy canReadPlugins={canReadPlugins} />
           {!growthCreateOpen && !editingGrowth && (growthError || growthMessage) && <p className={growthError ? "form-alert" : "admin-success"} role={growthError ? "alert" : "status"}>{growthError || growthMessage}</p>}
         </section>}
 
@@ -559,12 +576,12 @@ export function MembershipAdminPanel({
         </section>}
 
         {workspace === "redemptions" && canReadRedemptions && <section id="membership-redemptions-workspace" role="tabpanel" aria-labelledby="membership-redemptions-tab"><RedemptionWorkspace csrfToken={csrfToken} canWrite={canWriteRedemptions} canReadTypes={canReadEntitlementTypes}/></section>}
-        {workspace === "groups" && canReadGroups && <section id="membership-groups-workspace" role="tabpanel" className="membership-rule-section" aria-labelledby="membership-groups-tab"><CommunityGroupAdminPanel csrfToken={csrfToken} canWrite={canWriteGroups} canReadMemberships={canReadGroupMemberships} canWriteMemberships={canWriteGroupMemberships} canReadUsers={canReadUsers} /></section>}
+        {workspace === "groups" && canReadGroups && <section id="membership-groups-workspace" role="tabpanel" className="membership-rule-section" aria-labelledby="membership-groups-tab"><CommunityGroupAdminPanel csrfToken={csrfToken} canWrite={canWriteGroups} canReadMemberships={canReadGroupMemberships} canWriteMemberships={canWriteGroupMemberships} canReadUsers={canReadUsers} canReadAudit={canReadAudit} /></section>}
 
 {workspace === "entitlements" && <section id="membership-entitlements-workspace" role="tabpanel" aria-labelledby="membership-entitlements-tab"><EntitlementsWorkspace csrfToken={csrfToken} canReadTypes={canReadEntitlementTypes} canWriteTypes={canWriteEntitlementTypes} canReadGrants={canReadEntitlementGrants} canWriteGrants={canWriteEntitlementGrants} canReadUsers={canReadUsers} /></section>}
 
         {workspace === "medals" && (canReadMedalRules || canWriteMedalRules || canGrantMedals) && <section id="membership-medals-workspace" role="tabpanel" className="membership-grant-section" aria-labelledby="membership-medals-tab">
-          <h3 className="sr-only">勋章</h3><div className="membership-medal-toolbar">
+          <h2 className="sr-only">勋章</h2><div className="membership-medal-toolbar">
             <div className="membership-medal-switch" role="group" aria-label="勋章视图"><button type="button" aria-pressed={medalView === "catalog"} onClick={() => setMedalView("catalog")}>勋章目录</button>{canReadMedalRules && <button type="button" aria-pressed={medalView === "operations"} onClick={() => setMedalView("operations")}>操作记录</button>}</div>
             {canGrantMedals && canReadMedalRules && <button className="secondary-button" type="button" disabled={!medalRules.length} onClick={() => { setMedalError(""); setRecipient(null); setRecipientQuery(""); setRecipientUsers([]); setGrantOpen(true); setMedalDraft(current => ({ userId: "", reason: "operator.award", medalKey: medalRules.some(rule => rule.key === current.medalKey) ? current.medalKey : medalRules[0]?.key ?? "" })) }}><Award size={15} aria-hidden="true" />发放勋章</button>}
           </div>
@@ -578,7 +595,7 @@ export function MembershipAdminPanel({
           </form></AdminActionDialog> : <p className="admin-empty" role="status">当前账号无法读取勋章目录，不能安全地手动发放勋章。</p>)}
           {medalResult && <div className="membership-grant-result" role="status"><Award size={18} aria-hidden="true" /><div><strong>{medalResult.created ? `${medalResult.medal.displayName} 已发放` : "幂等重放：勋章已持有"}</strong><span>资源键 {medalResult.medal.key}</span></div></div>}
           {medalView === "operations" && canReadMedalRules && <div className="membership-medal-operations">
-            <div className="admin-form__heading membership-section-heading"><div><h4>操作记录</h4><p>发放、自动授予和撤销均保留审计记录。</p></div><History size={17} aria-hidden="true" /></div>
+            <div className="admin-form__heading membership-section-heading"><div><h3>操作记录</h3><p>发放、自动授予和撤销均保留审计记录。</p></div><History size={17} aria-hidden="true" /></div>
             <form className="membership-operation-filters" onSubmit={filterMedalOperations}>
               <label htmlFor="medal-operation-user"><span>用户 UUID</span><input id="medal-operation-user" value={medalOperationUserFilter} onChange={(event) => setMedalOperationUserFilter(event.target.value)} placeholder="全部用户" /></label>
               <label htmlFor="medal-operation-key"><span>勋章</span><select id="medal-operation-key" value={medalOperationKeyFilter} onChange={(event) => setMedalOperationKeyFilter(event.target.value)}><option value="">全部勋章</option>{medalRules.map((rule) => <option value={rule.key} key={rule.key}>{rule.displayName}</option>)}</select></label>
@@ -605,7 +622,7 @@ export function MembershipAdminPanel({
       </div>
     </div>
     {growthCreateOpen && <GrowthLevelFormDialog mode="create" value={growthDraft} pending={creatingGrowth} error={growthError} onChange={(patch) => { setGrowthDraft((current) => ({ ...current, ...patch })); setGrowthError("") }} onSubmit={(event) => void createGrowthLevel(event)} onClose={closeGrowthLevelForm} />}
-    {editingGrowth && <GrowthLevelFormDialog mode="edit" value={editingGrowth} pending={savingGrowthId === editingGrowth.id} error={growthError} conflict={growthConflict} onRefresh={() => void refreshGrowthConflictBaseline()} onChange={(patch) => changeGrowthLevel(editingGrowth.id, patch)} onSubmit={submitGrowthEdit} onClose={closeGrowthLevelForm} />}
+    {editingGrowth && <GrowthLevelFormDialog mode="edit" value={editingGrowth} persistedStatus={growthLevels.find(level => level.id === editingGrowth.id)?.status} pending={savingGrowthId === editingGrowth.id} error={growthError} conflict={growthConflict} onRefresh={() => void refreshGrowthConflictBaseline()} onChange={(patch) => changeGrowthLevel(editingGrowth.id, patch)} onSubmit={submitGrowthEdit} onClose={closeGrowthLevelForm} />}
     {growthDeleteTarget && <div className="dialog-backdrop membership-growth-dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target && !deletingGrowth) cancelGrowthLevelDelete() }}><div ref={growthDeleteDialogRef} className="membership-growth-delete" role="dialog" aria-modal="true" aria-labelledby="membership-growth-delete-heading" aria-describedby="membership-growth-delete-description" onKeyDown={handleGrowthDeleteDialogKeyDown}>
       <div><strong id="membership-growth-delete-heading">删除成长等级</strong><p id="membership-growth-delete-description">确定删除“{growthDeleteTarget.displayName}（{growthDeleteTarget.internalKey}）”吗？正在被会员使用或会破坏等级起点时无法删除。</p></div>
       <div className="membership-growth-form-actions"><button className="secondary-button" type="button" disabled={deletingGrowth} autoFocus onClick={cancelGrowthLevelDelete}>取消</button><button className="danger-button" type="button" disabled={deletingGrowth} onClick={() => void confirmDeleteGrowthLevel()}>{deletingGrowth ? <LoaderCircle className="topic-loading__spinner" size={14} aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}确认删除</button></div>
@@ -636,10 +653,11 @@ function GrowthLevelRow({
         </header>
         <dl>
           <div><dt>EXP 阈值</dt><dd>{level.requiredExperience.toLocaleString("zh-CN")}</dd></div>
+          <div><dt>状态</dt><dd>{growthLevelStatusLabels[level.status]}</dd></div>
           <div><dt>主题颜色</dt><dd>{level.color ?? "未设置"}</dd></div>
         </dl>
         <p>{level.description || "未填写等级说明"}</p>
-        {canWrite && <div className="membership-growth-row__actions"><button className="secondary-button" type="button" aria-haspopup="dialog" disabled={pending} onClick={(event) => onEdit(event.currentTarget)}><Pencil size={13} aria-hidden="true" />编辑 {level.internalKey}</button><button className="danger-button" type="button" aria-haspopup="dialog" disabled={pending} onClick={(event) => onDelete(event.currentTarget)}><Trash2 size={13} aria-hidden="true" />删除 {level.internalKey}</button></div>}
+        {canWrite && <div className="membership-growth-row__actions"><button className="secondary-button" type="button" aria-label={`${level.status === "archived" ? "查看" : "编辑"} ${level.internalKey}`} aria-haspopup="dialog" disabled={pending} onClick={(event) => onEdit(event.currentTarget)}><Pencil size={13} aria-hidden="true" />{level.status === "archived" ? "查看" : "编辑"}</button>{level.status !== "archived" && <button className="danger-button" type="button" aria-label={`删除 ${level.internalKey}`} aria-haspopup="dialog" disabled={pending} onClick={(event) => onDelete(event.currentTarget)}><Trash2 size={13} aria-hidden="true" />删除</button>}</div>}
       </div>
       {!canWrite && <small className="membership-growth-readonly">仅具有成长等级读取权限</small>}
     </li>

@@ -464,7 +464,8 @@ impl Database {
                  INNER JOIN permissions AS permission ON permission.id = role_permission.permission_id
                  INNER JOIN users AS account ON account.id = assignment.user_id
                  WHERE account.status IN ('active', 'restricted')
-                   AND permission.permission_key LIKE 'moderation.%'
+                   AND (permission.permission_key LIKE 'moderation.%'
+                         OR permission.permission_key IN ('governance.reports.read', 'governance.reports.resolve'))
                    AND (
                        (role.scope IN ('instance', 'site') AND assignment.scope_id IS NULL)
                        OR (
@@ -486,7 +487,7 @@ impl Database {
              WHERE board.deleted_at IS NULL
                AND EXISTS (
                    SELECT 1 FROM granted
-                   WHERE granted.id = board.id AND granted.permission_key = 'moderation.topic'
+                   WHERE granted.id = board.id AND granted.permission_key IN ('moderation.topic', 'governance.reports.read', 'governance.reports.resolve')
                )
              ORDER BY board.position, board.id",
         )
@@ -1052,11 +1053,12 @@ impl Database {
         poll: Option<crate::NewPollRecord>,
     ) -> Result<CreateTopicResult, CreateTopicError> {
         let mut transaction = self.pool.begin().await?;
-        let active_author =
-            sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE id = $1 FOR UPDATE")
-                .bind(input.author_id)
-                .fetch_optional(&mut *transaction)
-                .await?;
+        let active_author = sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR UPDATE",
+        )
+        .bind(input.author_id)
+        .fetch_optional(&mut *transaction)
+        .await?;
         if active_author.is_none() {
             return Err(CreateTopicError::AuthorRestricted);
         }
@@ -1135,6 +1137,7 @@ impl Database {
         .await
         .map_err(map_topic_community_action_error)?;
 
+        // The later counter update needs this lock; acquire it before inserts to avoid shared-lock upgrades.
         let board_id = sqlx::query_scalar::<_, Uuid>(
             "SELECT id FROM boards \
              WHERE visibility = 'public' AND deleted_at IS NULL \
@@ -1142,7 +1145,7 @@ impl Database {
                AND daoyun_can_access_content('board', id, $2, CURRENT_TIMESTAMP) \
              ORDER BY position, id \
              LIMIT 1 \
-             FOR SHARE",
+             FOR NO KEY UPDATE",
         )
         .bind(input.board_id)
         .bind(input.author_id)
@@ -1727,11 +1730,12 @@ impl Database {
         idempotency: Option<IdempotencyInput>,
     ) -> Result<CreateReplyResult, CreateReplyError> {
         let mut transaction = self.pool.begin().await?;
-        let active_author =
-            sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE id = $1 FOR UPDATE")
-                .bind(input.author_id)
-                .fetch_optional(&mut *transaction)
-                .await?;
+        let active_author = sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR UPDATE",
+        )
+        .bind(input.author_id)
+        .fetch_optional(&mut *transaction)
+        .await?;
         if active_author.is_none() {
             return Err(CreateReplyError::AuthorRestricted);
         }
@@ -1938,8 +1942,8 @@ impl Database {
                 topic_author_id,
                 Some(input.author_id),
                 "reply",
-                "topic",
-                input.topic_id,
+                "post",
+                input.id,
                 &format!("reply:{}", input.id),
             )
             .await?;
@@ -3027,8 +3031,8 @@ async fn bind_rich_content_attachments(
         return Ok(true);
     }
     let attachment_ids = attachment_ids.into_iter().collect::<Vec<_>>();
-    let available = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM topic_attachments
+    let available = sqlx::query_as::<_, (Uuid, Option<Uuid>)>(
+        "SELECT id, topic_id FROM topic_attachments
          WHERE id = ANY($1) AND uploader_id = $2
            AND (topic_id IS NULL OR topic_id = $3)
            AND status = 'ready' AND scan_status = 'clean'
@@ -3043,6 +3047,39 @@ async fn bind_rich_content_attachments(
     .await?;
     if available.len() != attachment_ids.len() {
         return Ok(false);
+    }
+    if available
+        .iter()
+        .any(|(_, bound_topic_id)| bound_topic_id.is_none())
+    {
+        let board_id = sqlx::query_scalar::<_, Uuid>("SELECT board_id FROM topics WHERE id = $1")
+            .bind(topic_id)
+            .fetch_one(&mut **transaction)
+            .await?;
+        let effective_at = OffsetDateTime::now_utc();
+        if is_board_user_action_restricted_with_executor(
+            transaction,
+            uploader_id,
+            board_id,
+            "attachment.upload",
+            effective_at,
+        )
+        .await?
+        {
+            return Ok(false);
+        }
+        match verify_community_action_with_executor(
+            transaction,
+            uploader_id,
+            "attachment.upload",
+            effective_at,
+        )
+        .await
+        {
+            Ok(()) => {}
+            Err(CommunityActionError::Database(error)) => return Err(error),
+            Err(_) => return Ok(false),
+        }
     }
     sqlx::query(
         "UPDATE topic_attachments

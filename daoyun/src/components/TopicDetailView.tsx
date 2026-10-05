@@ -75,11 +75,18 @@ export function TopicDetailView({
   onTopicDeleted = () => undefined,
   onTopicLoaded = ignoreLoadedTopic,
 }: TopicDetailViewProps) {
-  const idempotencyKeyRef = useRef<string | null>(null)
+  const replyRequestRef = useRef<{ key: string; content: string; richContent: RichTextDocument; replyToId?: string; uncertain: boolean } | null>(null)
+  const replyBusyRef = useRef(false)
+  const replyLifetimeRef = useRef<AbortController | null>(null)
+  const replyScopeRef = useRef("")
+  replyScopeRef.current = `${topicId}:${session?.user.id ?? ""}`
+  const [replyPending, setReplyPending] = useState(false)
   const replyLoadGenerationRef = useRef(0)
   const topicStateRef = useRef<TopicDetail | null>(null)
   const [topic, setTopic] = useState<TopicDetail | null>(null)
   const [replies, setReplies] = useState<TopicReply[]>([])
+  const repliesRef = useRef(replies)
+  repliesRef.current = replies
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [loadStatus, setLoadStatus] = useState<LoadStatus>("loading")
   const [requestVersion, setRequestVersion] = useState(0)
@@ -130,6 +137,47 @@ export function TopicDetailView({
   const onTopicLoadedRef = useRef(onTopicLoaded)
   onTopicLoadedRef.current = onTopicLoaded
 
+
+  useEffect(() => {
+    const lifetime = new AbortController()
+    replyLifetimeRef.current = lifetime
+    replyRequestRef.current = null
+    replyBusyRef.current = false
+    setReplyPending(false)
+    setSubmitting(false)
+    setContent("")
+    setRichContent(plainTextDocument(""))
+    setReplyTarget(null)
+    setMobileReplyOpen(false)
+    setFieldError("")
+    setFormError("")
+    return () => lifetime.abort()
+  }, [topicId, session?.user.id])
+
+  useEffect(() => {
+    if (!mobileReplyOpen) return
+    const viewport = window.visualViewport
+    const update = () => {
+      const height = viewport?.height ?? window.innerHeight
+      const inset = Math.max(0, window.innerHeight - height - (viewport?.offsetTop ?? 0))
+      replyFormRef.current?.style.setProperty("--reply-bottom-gap", inset > 0 ? "0px" : "64px")
+      replyFormRef.current?.style.setProperty("--reply-keyboard-inset", `${inset}px`)
+      replyFormRef.current?.style.setProperty("--reply-viewport-height", `${height}px`)
+    }
+    update()
+    viewport?.addEventListener("resize", update)
+    viewport?.addEventListener("scroll", update)
+    window.addEventListener("resize", update)
+    return () => {
+      viewport?.removeEventListener("resize", update)
+      viewport?.removeEventListener("scroll", update)
+      window.removeEventListener("resize", update)
+      replyFormRef.current?.style.removeProperty("--reply-bottom-gap")
+      replyFormRef.current?.style.removeProperty("--reply-keyboard-inset")
+      replyFormRef.current?.style.removeProperty("--reply-viewport-height")
+    }
+  }, [mobileReplyOpen])
+
   useEffect(() => {
     if (confirmingDelete) deleteConfirmRef.current?.focus()
   }, [confirmingDelete])
@@ -147,10 +195,10 @@ export function TopicDetailView({
   }, [replies, replyFocusId])
 
   useEffect(() => {
-    if (!replyFocusId || loadingMore || !nextCursor) return
+    if (!replyFocusId || loadingMore || replyListError || !nextCursor) return
     if (replies.some((reply) => reply.id === replyFocusId)) return
     void loadMoreReplies()
-  }, [loadingMore, nextCursor, replies, replyFocusId])
+  }, [loadingMore, nextCursor, replies, replyFocusId, replyListError])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -325,50 +373,55 @@ export function TopicDetailView({
   }
 
   async function submitReply() {
-    if (submitting) return
+    if (submitting || replyBusyRef.current) return
     const normalizedContent = content.trim()
     setFieldError("")
     setFormError("")
     setReplyStatus("")
-    if ([...normalizedContent].length < 1) {
-      setFieldError("请输入回复内容")
-      return
+    if (!normalizedContent) { setFieldError("请输入回复内容"); return }
+    if ([...normalizedContent].length > 100_000) { setFieldError("回复不能超过 100,000 个字符"); return }
+    if (!session) { onLogin(); return }
+    const lifetime = replyLifetimeRef.current
+    const scope = replyScopeRef.current
+    const active = () => Boolean(lifetime && !lifetime.signal.aborted && scope === replyScopeRef.current)
+    const request = replyRequestRef.current ?? {
+      key: createIdempotencyKey(), content: normalizedContent,
+      richContent: structuredClone(richContent), replyToId: replyTarget?.id, uncertain: false,
     }
-    if ([...normalizedContent].length > 100_000) {
-      setFieldError("回复不能超过 100,000 个字符")
-      return
-    }
-    if (!session) {
-      onLogin()
-      return
-    }
-
+    replyRequestRef.current = request
+    replyBusyRef.current = true
     setSubmitting(true)
     try {
-      const idempotencyKey = idempotencyKeyRef.current ?? createIdempotencyKey()
-      idempotencyKeyRef.current = idempotencyKey
-      const reply = await createReply(topicId, normalizedContent, {
-        csrfToken: session.csrfToken,
-        idempotencyKey,
-        replyToId: replyTarget?.id,
-      }, richContent)
-      setReplies((current) => current.some((item) => item.id === reply.id)
-        ? current
-        : [...current, reply])
-      setTopic((current) => {
-        const updated = current ? { ...current, replies: current.replies + 1 } : current
-        topicStateRef.current = updated
-        return updated
-      })
+      const reply = await createReply(topicId, request.content, {
+        csrfToken: session.csrfToken, idempotencyKey: request.key,
+        replyToId: request.replyToId, signal: lifetime?.signal,
+      }, request.richContent)
+      if (!active()) return
+      const alreadyListed = repliesRef.current.some(item => item.id === reply.id)
+      setReplies(current => current.some(item => item.id === reply.id) ? current : [...current, reply])
       setContent("")
       setRichContent(plainTextDocument(""))
       setReplyTarget(null)
       setMobileReplyOpen(false)
       setReplyStatus(`回复已发布至 #${reply.floorNumber} 楼`)
       setReplyFocusId(reply.id)
-      idempotencyKeyRef.current = null
-      onReplyPublished(topicId)
+      replyRequestRef.current = null
+      setReplyPending(false)
+      if (!alreadyListed) onReplyPublished(topicId)
+      // 创建已确认；计数从服务端读取，避免未知结果重试或分页刷新后重复累加。
+      try {
+        const latest = await getTopic(topicId, lifetime?.signal)
+        if (active()) { topicStateRef.current = latest; setTopic(latest); onTopicLoadedRef.current(latest) }
+      } catch { /* 已发布的回复保留；下次加载主题时恢复计数。 */ }
     } catch (error) {
+      if (!active()) return
+      if (error instanceof TopicApiError && error.status < 500 && !request.uncertain) {
+        replyRequestRef.current = null
+        setReplyPending(false)
+      } else {
+        request.uncertain = true
+        setReplyPending(true)
+      }
       if (error instanceof TopicApiError) {
         setFieldError(error.fields.content?.[0] ?? error.fields.rich_content?.[0] ?? "")
         setFormError(error.fields.body?.[0] ?? error.message)
@@ -376,7 +429,7 @@ export function TopicDetailView({
         setFormError("回复服务暂时不可用，请稍后重试")
       }
     } finally {
-      setSubmitting(false)
+      if (active()) { replyBusyRef.current = false; setSubmitting(false) }
     }
   }
 
@@ -458,8 +511,8 @@ export function TopicDetailView({
   }
 
   function clearReplyTarget() {
+    if (replyRequestRef.current) return
     setReplyTarget(null)
-    idempotencyKeyRef.current = null
   }
 
   function beginReplyTo(reply: TopicReply) {
@@ -467,9 +520,8 @@ export function TopicDetailView({
       onLogin()
       return
     }
-    setReplyTarget(reply)
+    if (!replyRequestRef.current) setReplyTarget(reply)
     setMobileReplyOpen(true)
-    idempotencyKeyRef.current = null
     queueMicrotask(() => replyFormRef.current?.querySelector<HTMLElement>("[role='textbox']")?.focus())
   }
 
@@ -478,8 +530,7 @@ export function TopicDetailView({
       onLogin()
       return
     }
-    setReplyTarget(null)
-    idempotencyKeyRef.current = null
+    if (!replyRequestRef.current) setReplyTarget(null)
     setMobileReplyOpen(true)
     queueMicrotask(() => replyFormRef.current?.querySelector<HTMLElement>("[role='textbox']")?.focus())
   }
@@ -900,6 +951,7 @@ export function TopicDetailView({
           </button>
         </div>
 
+        {replyFocusId && !nextCursor && !loadingMore && !replies.some(reply => reply.id === replyFocusId) && <p className="reply-section__notice" role="status">目标楼层不存在或当前无法查看；可继续浏览已加载的讨论。</p>}
         {replyStatus && <p className="reply-section__notice" role="status">{replyStatus}</p>}
         {replyListError && <p className="reply-section__notice reply-section__notice--error" role="alert">{replyListError}</p>}
 
@@ -949,7 +1001,7 @@ export function TopicDetailView({
             {replyTarget && (
               <div className="reply-target" role="status">
                 <div><span>回复 #{replyTarget.floorNumber} @{replyTarget.author.username}</span><p>{replyTarget.content.slice(0, 160)}</p></div>
-                <button className="icon-button" type="button" aria-label="取消回复指定楼层" title="取消回复指定楼层" onClick={clearReplyTarget}><X size={15} aria-hidden="true" /></button>
+                <button className="icon-button" type="button" aria-label="取消回复指定楼层" title="取消回复指定楼层" onClick={clearReplyTarget} disabled={submitting || replyPending}><X size={15} aria-hidden="true" /></button>
               </div>
             )}
             <RichTextEditor
@@ -958,18 +1010,17 @@ export function TopicDetailView({
               placeholder="写下你的回复"
               maxCharacters={100_000}
               onImageUpload={(file, onProgress, signal) => uploadDraftImage(file, session.csrfToken, onProgress, signal)}
-              disabled={submitting}
+              disabled={submitting || replyPending}
               invalid={Boolean(fieldError)}
               errorMessageId={fieldError ? "reply-content-error" : undefined}
               onChange={(document, plainText) => {
-                if (plainText !== content || JSON.stringify(document) !== JSON.stringify(richContent)) {
-                  idempotencyKeyRef.current = null
-                }
+                if (replyRequestRef.current) return
                 setRichContent(document)
                 setContent(plainText)
               }}
             />
             {fieldError && <p id="reply-content-error" className="composer-field-error">{fieldError}</p>}
+            {replyPending && <p role="status">回复结果尚未确认，正文和回复对象已保留。再次发布将确认原回复。</p>}
             {formError && <p className="composer-form-error" role="alert">{formError}</p>}
             <div className="reply-form__actions">
               <span>请友善交流，聚焦主题</span>

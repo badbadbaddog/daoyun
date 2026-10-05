@@ -76,3 +76,13 @@ function Harness({ open, busy = false, onClose, returnFocus = null }: { open: bo
     </ModalDialog>}
   </>
 }
+
+it("wraps reverse Tab from the dialog container after a focused control disappears", async () => {
+  const user = userEvent.setup()
+  render(<Harness open onClose={vi.fn()} />)
+  const dialog = screen.getByRole("dialog", { name: "测试弹窗" })
+  await screen.findByLabelText("名称")
+  dialog.focus()
+  await user.tab({ shift: true })
+  expect(screen.getByRole("button", { name: "取消" })).toHaveFocus()
+})

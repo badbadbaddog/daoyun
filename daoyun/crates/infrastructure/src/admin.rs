@@ -36,6 +36,7 @@ pub struct BrandLinkRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
 pub struct BrandAssetRecord {
+    pub storage_provider: Option<String>,
     pub kind: String,
     pub storage_key: String,
     pub mime_type: String,
@@ -329,7 +330,8 @@ impl Database {
                        AND ($3::text IS NULL OR action = $3)
                        AND ($4::text IS NULL OR resource_type = $4)
                        AND ($5::uuid IS NULL OR resource_id = $5)
-                       AND ($6::uuid IS NULL OR (resource_type = 'user' AND resource_id = $6))
+                       AND ($6::uuid IS NULL OR (resource_type = 'user' AND resource_id = $6) OR
+                            (resource_type = 'community_group_membership' AND summary ->> 'user_id' = $6::text))
                        AND ($7::uuid IS NULL OR
                            (resource_type = 'content_report' AND resource_id = $7) OR
                            summary ->> 'report_id' = $7::text)
@@ -361,7 +363,8 @@ impl Database {
                AND ($3::text IS NULL OR audit.resource_type = $3)
                AND ($4::uuid IS NULL OR audit.resource_id = $4)
                AND ($5::uuid IS NULL OR
-                   (audit.resource_type = 'user' AND audit.resource_id = $5))
+                   (audit.resource_type = 'user' AND audit.resource_id = $5) OR
+                    (audit.resource_type = 'community_group_membership' AND audit.summary ->> 'user_id' = $5::text))
                AND ($6::uuid IS NULL OR
                    (audit.resource_type = 'content_report' AND audit.resource_id = $6) OR
                    audit.summary ->> 'report_id' = $6::text)
@@ -477,6 +480,7 @@ impl Database {
         .await?
         .unwrap_or_default();
         self.attachment_store
+            .writer()
             .put(&storage_key, &bytes)
             .await
             .map_err(BrandAssetError::Storage)?;
@@ -495,15 +499,16 @@ impl Database {
             Ok(result) => result,
             Err(error) => {
                 if existing_key != storage_key {
-                    let _ = self.attachment_store.delete(&storage_key).await;
+                    let _ = self.attachment_store.writer().delete(&storage_key).await;
                 }
                 return Err(error);
             }
         };
-        if let Some(previous_key) = previous_key
+        if let Some((previous_key, provider)) = previous_key
             && previous_key != storage_key
+            && let Ok(store) = self.attachment_store.for_record(provider.as_deref())
         {
-            let _ = self.attachment_store.delete(&previous_key).await;
+            let _ = store.delete(&previous_key).await;
         }
         Ok(branding)
     }
@@ -516,20 +521,20 @@ impl Database {
         digest: Vec<u8>,
         size_bytes: i64,
         storage_key: &str,
-    ) -> Result<(SiteBrandingRecord, Option<String>), BrandAssetError> {
+    ) -> Result<(SiteBrandingRecord, Option<(String, Option<String>)>), BrandAssetError> {
         let mut transaction = self.pool.begin().await?;
-        let previous_key = sqlx::query_scalar::<_, String>(
-            "SELECT storage_key FROM site_branding_assets WHERE kind = $1 FOR UPDATE",
+        let previous_key = sqlx::query_as::<_, (String, Option<String>)>(
+            "SELECT storage_key, storage_provider FROM site_branding_assets WHERE kind = $1 FOR UPDATE",
         )
         .bind(kind)
         .fetch_optional(&mut *transaction)
         .await?;
         sqlx::query(
             "INSERT INTO site_branding_assets
-                 (kind, storage_key, mime_type, sha256, size_bytes, updated_by, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+                 (kind, storage_key, mime_type, sha256, size_bytes, updated_by, updated_at, storage_provider)
+             VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, $7)
              ON CONFLICT (kind) DO UPDATE
-             SET storage_key = EXCLUDED.storage_key, mime_type = EXCLUDED.mime_type,
+             SET storage_key = EXCLUDED.storage_key, storage_provider = EXCLUDED.storage_provider, mime_type = EXCLUDED.mime_type,
                  sha256 = EXCLUDED.sha256, size_bytes = EXCLUDED.size_bytes,
                  updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP",
         )
@@ -539,6 +544,7 @@ impl Database {
         .bind(&digest)
         .bind(size_bytes)
         .bind(actor_id)
+        .bind(self.attachment_store.writer_name())
         .execute(&mut *transaction)
         .await?;
         let public_url = format!("/api/v1/site-branding/assets/{kind}");
@@ -584,7 +590,7 @@ impl Database {
             return Err(BrandAssetError::Invalid);
         }
         let record = sqlx::query_as::<_, BrandAssetRecord>(
-            "SELECT kind, storage_key, mime_type, sha256, size_bytes
+            "SELECT kind, storage_key, storage_provider, mime_type, sha256, size_bytes
              FROM site_branding_assets WHERE kind = $1",
         )
         .bind(kind)
@@ -593,6 +599,8 @@ impl Database {
         .ok_or(BrandAssetError::NotFound)?;
         let bytes = self
             .attachment_store
+            .for_record(record.storage_provider.as_deref())
+            .map_err(BrandAssetError::Storage)?
             .get(&record.storage_key)
             .await
             .map_err(BrandAssetError::Storage)?;
@@ -608,8 +616,8 @@ impl Database {
             return Err(BrandAssetError::Invalid);
         }
         let mut transaction = self.pool.begin().await?;
-        let storage_key = sqlx::query_scalar::<_, String>(
-            "DELETE FROM site_branding_assets WHERE kind = $1 RETURNING storage_key",
+        let storage_key = sqlx::query_as::<_, (String, Option<String>)>(
+            "DELETE FROM site_branding_assets WHERE kind = $1 RETURNING storage_key, storage_provider",
         )
         .bind(kind)
         .fetch_optional(&mut *transaction)
@@ -643,10 +651,10 @@ impl Database {
         .await?;
         enqueue_branding_invalidation(self, &mut transaction).await?;
         transaction.commit().await?;
-        let _ = self
-            .attachment_store
-            .delete(storage_key.as_deref().expect("checked brand asset key"))
-            .await;
+        let (key, provider) = storage_key.expect("checked brand asset key");
+        if let Ok(store) = self.attachment_store.for_record(provider.as_deref()) {
+            let _ = store.delete(&key).await;
+        }
         Ok(record)
     }
 

@@ -403,6 +403,7 @@ pub struct UpdateRiskAlertRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct OperationsSummary {
+    pub alert_evaluation_enabled: bool,
     #[schema(value_type = String, format = DateTime)]
     pub observed_at: String,
     pub uptime_seconds: u64,

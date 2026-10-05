@@ -43,6 +43,7 @@ async fn operations_api_returns_real_summary_and_manages_alert_lifecycle(pool: P
     let summary = response_json(summary).await;
     assert_eq!(summary["meta"]["request_id"], request_id);
     assert_eq!(summary["data"]["database"]["ready"], true);
+    assert_eq!(summary["data"]["alert_evaluation_enabled"], false);
     assert!(summary["data"]["http"]["total_requests"].as_u64().is_some());
     assert_eq!(summary["data"]["outbox"]["dead"], 0);
 
@@ -154,6 +155,11 @@ async fn operations_api_returns_real_summary_and_manages_alert_lifecycle(pool: P
         .expect("OpenAPI document must respond");
     let document = response_json(openapi).await;
     assert!(document["paths"]["/api/v1/admin/operations/summary"]["get"].is_object());
+    assert_eq!(
+        document["components"]["schemas"]["OperationsSummary"]["properties"]["alert_evaluation_enabled"]
+            ["type"],
+        "boolean"
+    );
     assert!(
         document["paths"]["/api/v1/admin/operations/alert-rules/{rule_id}"]["patch"].is_object()
     );
@@ -243,6 +249,12 @@ async fn operations_api_separates_read_and_write_capabilities(pool: PgPool) {
         .await
         .expect("reader summary must respond");
     assert_eq!(readable.status(), StatusCode::OK);
+    let storage_denied = app
+        .clone()
+        .oneshot(get_request("/api/v1/admin/attachments/storage", &cookies))
+        .await
+        .unwrap();
+    assert_eq!(storage_denied.status(), StatusCode::FORBIDDEN);
 
     let rules = app
         .clone()
@@ -372,4 +384,42 @@ async fn response_json(response: axum::response::Response) -> Value {
         .await
         .expect("response body must be readable");
     serde_json::from_slice(&body).expect("response must be JSON")
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn attachment_storage_configuration_is_private_and_has_an_openapi_contract(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool),
+        AuthConfig::default().with_secure_cookies(false),
+    );
+    let denied = app
+        .clone()
+        .oneshot(get_request("/api/v1/admin/attachments/storage", ""))
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+    initialize(&app).await;
+    let (cookies, _) = login(&app, "owner").await;
+    let response = app
+        .clone()
+        .oneshot(get_request("/api/v1/admin/attachments/storage", &cookies))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let request_id = response.headers()["x-request-id"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let body = response_json(response).await;
+    assert_eq!(body["meta"]["request_id"], request_id);
+    assert_eq!(body["data"]["write_provider"], "local");
+    assert_eq!(body["data"]["local_configured"], true);
+    assert!(body["data"].get("endpoint").is_none());
+    let document = response_json(
+        app.oneshot(get_request("/api/v1/openapi.json", ""))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(document["paths"]["/api/v1/admin/attachments/storage"]["get"].is_object());
 }

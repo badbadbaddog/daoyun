@@ -1,10 +1,11 @@
 use daoyun_api::{
-    AuthConfig, CacheConfig, EmailRuntime, MfaRuntime, ObservabilityConfig, OperationsAlertWorker,
-    OperationsAlertWorkerConfig, OutboxHandler, OutboxWorker, OutboxWorkerConfig,
-    PluginBusinessWorker, PluginBusinessWorkerConfig, PluginRuntime, RegistrationEmailHandler,
-    SiteBrandingCacheInvalidationHandler, UserRestrictionWorker, UserRestrictionWorkerConfig,
-    app_with_all_runtimes_and_email,
+    AuthConfig, CacheConfig, EmailRuntime, MfaRuntime, ObservabilityConfig,
+    OperationsAlertWorkerConfig, OutboxHandler, OutboxWorker, OutboxWorkerConfig, PluginRuntime,
+    RegistrationEmailHandler, SiteBrandingCacheInvalidationHandler, UserRestrictionWorker,
+    UserRestrictionWorkerConfig, app_with_all_runtimes_and_email,
 };
+#[cfg(feature = "wasm-plugins")]
+use daoyun_api::{PluginBusinessWorker, PluginBusinessWorkerConfig};
 use infrastructure::Database;
 use std::{net::SocketAddr, sync::Arc};
 use tracing_subscriber::EnvFilter;
@@ -16,6 +17,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Source: https://docs.rs/tracing-subscriber/0.3.23/tracing_subscriber/filter/struct.EnvFilter.html#method.try_from_default_env
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt().with_env_filter(filter).init();
+
+    // Reject an unsupported or mixed reward writer before database migrations or workers.
+    let plugins = PluginRuntime::from_environment()?;
+    let operations_config = OperationsAlertWorkerConfig::from_environment()?;
 
     let database_url = std::env::var("DATABASE_URL").map_err(|_| {
         std::io::Error::new(std::io::ErrorKind::InvalidInput, "DATABASE_URL is required")
@@ -30,7 +35,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mfa = MfaRuntime::from_environment()?;
     let email = EmailRuntime::from_environment()?;
     let observability = ObservabilityConfig::from_environment()?.build()?;
-    let plugins = PluginRuntime::from_environment()?;
     tracing::info!(
         redis_cache_enabled = cache_enabled,
         mfa_enabled = mfa.is_enabled(),
@@ -38,6 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         metrics_enabled = observability.metrics_enabled(),
         traces_enabled = observability.traces_enabled(),
         plugins_enabled = plugins.is_enabled(),
+        operations_alerts_enabled = operations_config.enabled,
         "Application runtimes configured"
     );
 
@@ -49,13 +54,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )),
     ];
     let worker = OutboxWorker::new(database.clone(), handlers, OutboxWorkerConfig::default())?;
-    let operations_worker = OperationsAlertWorker::new(
-        database.clone(),
-        observability.clone(),
-        OperationsAlertWorkerConfig::default(),
-    )?;
     let restriction_worker =
         UserRestrictionWorker::new(database.clone(), UserRestrictionWorkerConfig::default())?;
+    #[cfg(feature = "wasm-plugins")]
     let plugin_business_worker = plugins
         .is_enabled()
         .then(|| {
@@ -69,12 +70,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let operations_shutdown_rx = shutdown_rx.clone();
     let restriction_shutdown_rx = shutdown_rx.clone();
+    #[cfg(feature = "wasm-plugins")]
     let plugin_business_shutdown_rx = shutdown_rx.clone();
     let worker_task = tokio::spawn(async move { worker.run(shutdown_rx).await });
-    let operations_worker_task =
-        tokio::spawn(async move { operations_worker.run(operations_shutdown_rx).await });
+    let operations_worker_task = operations_config.start(
+        database.clone(),
+        observability.clone(),
+        operations_shutdown_rx,
+    )?;
     let restriction_worker_task =
         tokio::spawn(async move { restriction_worker.run(restriction_shutdown_rx).await });
+    #[cfg(feature = "wasm-plugins")]
     let plugin_business_worker_task = plugin_business_worker
         .map(|worker| tokio::spawn(async move { worker.run(plugin_business_shutdown_rx).await }));
 
@@ -96,6 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             plugins,
             email,
         )
+        .layer(axum::Extension(operations_config))
         .into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(async move {
@@ -106,16 +113,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })
     .await;
     let worker_result = worker_task.await;
-    let operations_worker_result = operations_worker_task.await;
+    let operations_worker_result = match operations_worker_task {
+        Some(task) => Some(task.await),
+        None => None,
+    };
     let restriction_worker_result = restriction_worker_task.await;
+    #[cfg(feature = "wasm-plugins")]
     let plugin_business_worker_result = match plugin_business_worker_task {
         Some(task) => Some(task.await),
         None => None,
     };
     let tracing_shutdown_result = observability.shutdown_traces().await;
     worker_result?;
-    operations_worker_result?;
+    if let Some(result) = operations_worker_result {
+        result?;
+    }
     restriction_worker_result?;
+    #[cfg(feature = "wasm-plugins")]
     if let Some(result) = plugin_business_worker_result {
         result?;
     }

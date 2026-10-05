@@ -36,18 +36,18 @@ for (const width of [320, 1440]) {
       await expect(row).toHaveAttribute("data-layout", "discussion")
       await expect(row).toHaveCSS("cursor", "pointer")
       await row.click({ position: { x: 4, y: 4 } })
-      await expect(page).toHaveURL(new RegExp("#topic/" + topicId))
+      await expect(page).toHaveURL(new RegExp("/t/" + topicId))
       await expect(page.getByText("无图帖正文", { exact: true })).toBeVisible()
 
       await page.goto(listing)
       if (listing === "/") {
         await row.locator(".topic-excerpt").click()
-        await expect(page).toHaveURL(new RegExp("#topic/" + topicId))
+        await expect(page).toHaveURL(new RegExp("/t/" + topicId))
         await expect(page.getByText("无图帖正文", { exact: true })).toBeVisible()
         await page.goto(listing)
       }
       await row.getByRole("link", { name: "质量作者", exact: true }).click()
-      await expect(page).toHaveURL(/#user\/quality_author$/)
+      await expect(page).toHaveURL(/\/u\/quality_author$/)
     })
   }
 }

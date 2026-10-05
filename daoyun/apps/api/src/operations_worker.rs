@@ -7,25 +7,69 @@ use crate::ObservabilityRuntime;
 
 #[derive(Clone, Copy, Debug)]
 pub struct OperationsAlertWorkerConfig {
+    pub enabled: bool,
     pub poll_interval: Duration,
 }
 
 impl Default for OperationsAlertWorkerConfig {
     fn default() -> Self {
         Self {
+            enabled: true,
             poll_interval: Duration::from_secs(30),
         }
+    }
+}
+
+impl OperationsAlertWorkerConfig {
+    pub fn from_environment() -> Result<Self, OperationsAlertWorkerConfigError> {
+        let value = match std::env::var("DAOYUN_OPERATIONS_ALERTS_ENABLED") {
+            Ok(value) => Some(value),
+            Err(std::env::VarError::NotPresent) => None,
+            Err(_) => return Err(OperationsAlertWorkerConfigError::InvalidEnablement),
+        };
+        Ok(Self {
+            enabled: parse_enabled(value.as_deref())?,
+            ..Self::default()
+        })
+    }
+
+    pub fn start(
+        self,
+        database: Database,
+        observability: ObservabilityRuntime,
+        shutdown: watch::Receiver<bool>,
+    ) -> Result<Option<tokio::task::JoinHandle<()>>, OperationsAlertWorkerConfigError> {
+        if !self.enabled {
+            return Ok(None);
+        }
+        let worker = OperationsAlertWorker::new(database, observability, self)?;
+        Ok(Some(tokio::spawn(
+            async move { worker.run(shutdown).await },
+        )))
+    }
+}
+
+fn parse_enabled(value: Option<&str>) -> Result<bool, OperationsAlertWorkerConfigError> {
+    match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+        None => Ok(true),
+        Some("true" | "1" | "yes") => Ok(true),
+        Some("false" | "0" | "no") => Ok(false),
+        _ => Err(OperationsAlertWorkerConfigError::InvalidEnablement),
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OperationsAlertWorkerConfigError {
     InvalidSchedule,
+    InvalidEnablement,
 }
 
 impl fmt::Display for OperationsAlertWorkerConfigError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("operations alert worker schedule is invalid")
+        formatter.write_str(match self {
+            Self::InvalidSchedule => "operations alert worker schedule is invalid",
+            Self::InvalidEnablement => "DAOYUN_OPERATIONS_ALERTS_ENABLED must be a boolean",
+        })
     }
 }
 
@@ -62,6 +106,9 @@ impl OperationsAlertWorker {
     }
 
     pub async fn run_once(&self) -> Result<OperationsAlertWorkerRun, DatabaseError> {
+        if !self.config.enabled {
+            return Ok(OperationsAlertWorkerRun::default());
+        }
         let rules = self.database.list_operations_alert_rules().await?;
         let http_5xx_window_seconds = rules
             .iter()
@@ -139,5 +186,19 @@ impl OperationsAlertWorker {
             }
         }
         tracing::info!("Operations alert worker stopped");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn enablement_preserves_default_and_validates_without_exposing_values() {
+        assert_eq!(super::parse_enabled(None), Ok(true));
+        for value in ["false", "0", " NO "] {
+            assert_eq!(super::parse_enabled(Some(value)), Ok(false));
+        }
+        assert_eq!(super::parse_enabled(Some("1")), Ok(true));
+        let error = super::parse_enabled(Some("secret-invalid-value")).unwrap_err();
+        assert!(!error.to_string().contains("secret-invalid-value"));
     }
 }

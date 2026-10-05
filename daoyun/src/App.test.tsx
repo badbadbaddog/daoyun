@@ -1,9 +1,17 @@
-import {saveDraft} from "./api/drafts"
+import {DraftApiError,saveDraft} from "./api/drafts"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { App } from "./App"
+import { loadMembershipCenterData } from "./api/membership"
+import type { MembershipSectionData } from "./features/membership/membershipTypes"
+
+vi.mock("./api/membership", async () => ({ ...await vi.importActual<typeof import("./api/membership")>("./api/membership"), loadMembershipCenterData: vi.fn() }))
+
+import { getUnreadNotificationCount, listNotifications, markAllNotificationsRead, markNotificationRead } from "./api/notifications"
+
+vi.mock("./api/notifications", async () => ({...await vi.importActual<typeof import("./api/notifications")>("./api/notifications"), getUnreadNotificationCount:vi.fn(),listNotifications:vi.fn(),markNotificationRead:vi.fn(),markAllNotificationsRead:vi.fn()}))
 import {
   getCurrentSession,
   getOidcClaim,
@@ -13,6 +21,7 @@ import {
   bindOidcClaim,
   createOidcClaimAccount,
   createRecentAuthentication,
+  changePassword,
   logout,
 } from "./api/auth"
 import { getBoard, listBoards } from "./api/boards"
@@ -22,7 +31,7 @@ import { getAdminAccess } from "./api/admin"
 import { listModerationBoards } from "./api/moderation"
 import { createReply, createTopic, getTopic, listReplies, listTags, listTopicSupplements, listTopics } from "./api/topics"
 import type { ListTopicsOptions } from "./api/topics"
-import { getUserProfile, listUserRelations } from "./api/users"
+import { getUserProfile, listUserRelations, listUsers } from "./api/users"
 import { listBookmarks, setPostLike, setTopicBookmark } from "./api/relations"
 import { createConversation, listConversations, listMessages, markConversationRead } from "./api/messages"
 import {
@@ -112,6 +121,7 @@ vi.mock("./api/users", async () => {
     ...actual,
     getUserProfile: vi.fn(),
     listUserRelations: vi.fn(),
+    listUsers: vi.fn(),
     setUserFollowing: vi.fn(),
     updateUserProfile: vi.fn(),
   }
@@ -135,6 +145,7 @@ vi.mock("./api/auth", async () => {
     bindOidcClaim: vi.fn(),
     createOidcClaimAccount: vi.fn(),
     createRecentAuthentication: vi.fn(),
+    changePassword: vi.fn(),
     listExternalIdentities: vi.fn(),
     listOidcProviders: vi.fn(),
     login: vi.fn(),
@@ -237,10 +248,18 @@ const brandingFixture = {
 }
 
 beforeEach(() => {
+  vi.mocked(getUnreadNotificationCount).mockReset().mockResolvedValue(0)
+  vi.mocked(listNotifications).mockReset().mockResolvedValue({notifications:[],nextCursor:null})
+  vi.mocked(markNotificationRead).mockReset()
+  vi.mocked(markAllNotificationsRead).mockReset()
   vi.mocked(saveDraft).mockReset().mockImplementation(async(id,revision,content)=>({id,revision:revision+1,content,updated_at:new Date().toISOString()}))
+  vi.mocked(loadMembershipCenterData).mockReset().mockRejectedValue(new Error("Membership unavailable"))
   vi.mocked(listBoards).mockReset()
   vi.mocked(listBoards).mockReturnValue(new Promise(() => {}))
-  vi.mocked(getBoard).mockReset()
+  vi.mocked(getBoard).mockReset().mockImplementation(async slug => ({
+    ...(boardFixtures.find(board => board.slug === slug) ?? boardFixtures[0]), children: [], breadcrumb: [],
+    viewer: { canRead: true, canCreateTopic: true, canReply: true, canUploadAttachment: true },
+  }))
   vi.mocked(getPublicSiteBranding).mockReset().mockResolvedValue(brandingFixture)
   vi.mocked(getAdminAccess).mockReset().mockResolvedValue({ capabilityKeys: [] })
   vi.mocked(listModerationBoards).mockReset().mockResolvedValue([])
@@ -287,10 +306,12 @@ beforeEach(() => {
   vi.mocked(bindOidcClaim).mockReset()
   vi.mocked(createOidcClaimAccount).mockReset()
   vi.mocked(createRecentAuthentication).mockReset()
+  vi.mocked(changePassword).mockReset()
   vi.mocked(listExternalIdentities).mockReset().mockResolvedValue([])
   vi.mocked(listOidcProviders).mockReset().mockResolvedValue([])
   vi.mocked(login).mockReset()
   vi.mocked(logout).mockReset()
+  vi.mocked(listUsers).mockReset().mockResolvedValue({ users: [], nextCursor: null })
   vi.mocked(getUserProfile).mockReset().mockResolvedValue({
     id: topicFixtures[0].authorId,
     username: topicFixtures[0].authorUsername,
@@ -337,7 +358,7 @@ afterEach(() => {
   document.documentElement.removeAttribute("style")
   document.title = "刀云社区"
   document.querySelector('link[data-daoyun-favicon="true"]')?.remove()
-  window.location.hash = ""
+  window.history.replaceState(null, "", "/")
 })
 
 describe("DaoYun community home", () => {
@@ -441,7 +462,7 @@ describe("DaoYun community home", () => {
     render(<App />)
 
     expect(await screen.findByRole("heading", { name: "登录方式" })).toBeInTheDocument()
-    expect(window.location.hash).toBe("#user/member")
+    expect(window.location.pathname + window.location.search).toBe("/u/member")
     expect(sessionStorage.getItem("daoyun-oidc-settings-return")).toBeNull()
   })
 
@@ -520,7 +541,7 @@ describe("DaoYun community home", () => {
     const bookmark = await screen.findByRole("button", { name: `收藏主题：${topicFixtures[0].title}` })
     await user.click(bookmark)
 
-    expect(setTopicBookmark).toHaveBeenCalledWith(topicFixtures[0].id, true, "a".repeat(64))
+    expect(setTopicBookmark).toHaveBeenCalledWith(topicFixtures[0].id, true, "a".repeat(64), expect.any(AbortSignal))
     expect(await screen.findByRole("button", { name: `取消收藏主题：${topicFixtures[0].title}` }))
       .toHaveAttribute("aria-pressed", "true")
   })
@@ -662,7 +683,7 @@ describe("DaoYun community home", () => {
     await user.click(await screen.findByRole("heading", { name: topicFixtures[0].title }))
 
     expect(await screen.findByText("完整主题正文")).toBeInTheDocument()
-    expect(window.location.hash).toBe(`#topic/${topicFixtures[0].id}`)
+    expect(window.location.pathname + window.location.search).toBe(`/t/${topicFixtures[0].id}`)
     expect(getTopic).toHaveBeenCalledWith(topicFixtures[0].id, expect.any(AbortSignal))
     await user.click(screen.getByRole("button", { name: "返回主题列表" }))
     expect(await screen.findByRole("heading", { name: "社区发现" })).toBeInTheDocument()
@@ -720,7 +741,7 @@ describe("DaoYun community home", () => {
     await user.click(screen.getByRole("button", { name: "返回主题列表" }))
 
     expect(await screen.findByRole("heading", { name: boardFixtures[0].name, level: 1 })).toBeInTheDocument()
-    expect(window.location.hash).toBe("#board/engineering")
+    expect(window.location.pathname + window.location.search).toBe("/b/engineering")
   })
 
   it("uses the discovery recommendation feed as the default home ordering", async () => {
@@ -881,7 +902,7 @@ describe("DaoYun community home", () => {
     await user.click(await screen.findByRole("link", { name: `查看 ${topicFixtures[0].author} 的主页` }))
 
     expect(await screen.findByRole("heading", { name: topicFixtures[0].author })).toBeInTheDocument()
-    expect(window.location.hash).toBe(`#user/${topicFixtures[0].authorUsername}`)
+    expect(window.location.pathname + window.location.search).toBe(`/u/${topicFixtures[0].authorUsername}`)
     expect(getUserProfile).toHaveBeenCalledWith(
       topicFixtures[0].authorUsername,
       expect.any(AbortSignal),
@@ -993,7 +1014,7 @@ describe("DaoYun community home", () => {
     await user.click(composer.getByRole("button", { name: "发布" }))
 
     const publishedTopicId = "019fc800-0000-7000-8000-000000000109"
-    await waitFor(() => expect(window.location.hash).toBe(`#topic/${publishedTopicId}`))
+    await waitFor(() => expect(window.location.pathname + window.location.search).toBe(`/t/${publishedTopicId}`))
     expect(getTopic).toHaveBeenCalledWith(publishedTopicId, expect.any(AbortSignal))
     expect(screen.queryByRole("dialog", { name: "发布内容" })).not.toBeInTheDocument()
     expect(await within(screen.getByRole("navigation", { name: "常用社区" })).findByText("13"))
@@ -1068,6 +1089,38 @@ describe("DaoYun community home", () => {
     expect(listBoards).toHaveBeenCalledTimes(2)
   })
 
+  it("returns to the same editor after cancelling and completing session recovery login", async () => {
+    const user = userEvent.setup()
+    const original = { user: { id: "019fc700-0000-7000-8000-000000000004", username: "member", email: "member@example.com", displayName: "社区成员" }, csrfToken: "a".repeat(64) }
+    vi.mocked(listBoards).mockResolvedValue(boardFixtures)
+    vi.mocked(getCurrentSession).mockResolvedValue(original)
+    vi.mocked(login).mockResolvedValue({ ...original, csrfToken: "b".repeat(64) })
+    vi.mocked(saveDraft).mockRejectedValueOnce(new DraftApiError(401, "auth.unauthenticated", "登录失效"))
+      .mockImplementation(async (id, revision, content) => ({ id, revision: revision + 1, content, updated_at: new Date().toISOString() }))
+    render(<App />)
+    await screen.findByRole("button", { name: "打开个人菜单" })
+    await user.click(screen.getByRole("button", { name: "分享此刻的想法" }))
+    await user.type(await screen.findByRole("textbox", { name: "正文" }), "重新登录后继续发布的正文")
+    await waitFor(() => expect(within(screen.getByRole("dialog", { name: "发布内容" })).getByRole("button", { name: "发布" })).toBeEnabled())
+    await user.click(within(screen.getByRole("dialog", { name: "发布内容" })).getByRole("button", { name: "发布" }))
+    await screen.findByRole("button", { name: "重新登录" })
+    expect(within(screen.getByRole("banner")).getByRole("button", { name: "登录" })).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "重新登录" }))
+    expect(await screen.findByRole("dialog", { name: "登录刀云" })).toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: "发布内容" })).not.toBeInTheDocument()
+    expect(screen.getAllByRole("dialog")).toHaveLength(1)
+    await user.click(within(screen.getByRole("dialog", { name: "登录刀云" })).getByRole("button", { name: "关闭身份窗口" }))
+    expect(await screen.findByRole("textbox", { name: "正文" })).toHaveTextContent("重新登录后继续发布的正文")
+    await user.click(screen.getByRole("button", { name: "重新登录" }))
+    await user.type(screen.getByRole("textbox", { name: "用户名或邮箱" }), "member")
+    await user.type(screen.getByLabelText("密码"), "correct horse battery staple")
+    await user.click(within(screen.getByRole("dialog", { name: "登录刀云" })).getByRole("button", { name: "登录" }))
+    expect(await screen.findByRole("textbox", { name: "正文" })).toHaveTextContent("重新登录后继续发布的正文")
+    await waitFor(() => expect(within(screen.getByRole("dialog", { name: "发布内容" })).getByRole("button", { name: "发布" })).toBeEnabled())
+    expect(screen.queryByRole("button", { name: "重新登录" })).not.toBeInTheDocument()
+    expect(window.location.hash).not.toMatch(/重新登录后/)
+  })
+
   it("opens login for a signed-out visitor and updates the account after login", async () => {
     const user = userEvent.setup()
     const session = {
@@ -1091,6 +1144,31 @@ describe("DaoYun community home", () => {
 
     expect(await screen.findByRole("button", { name: "打开个人菜单" })).toBeInTheDocument()
     expect(screen.queryByRole("dialog", { name: "登录刀云" })).not.toBeInTheDocument()
+  })
+
+  it("clears the old account editor and ignores a superseded cross-tab session probe", async () => {
+    const user = userEvent.setup()
+    const first = { user: { id: "019fc700-0000-7000-8000-000000000004", username: "member", email: "member@example.com", displayName: "社区成员" }, csrfToken: "a".repeat(64) }
+    let stale!: (session: typeof first) => void
+    vi.mocked(listBoards).mockResolvedValue(boardFixtures)
+    vi.mocked(getCurrentSession).mockResolvedValueOnce(first)
+      .mockImplementationOnce(() => new Promise(resolve => { stale = resolve }))
+      .mockResolvedValueOnce(null)
+    render(<App />)
+    await screen.findByRole("button", { name: "打开个人菜单" })
+    await user.click(screen.getByRole("button", { name: "分享此刻的想法" }))
+    await user.type(await screen.findByRole("textbox", { name: "正文" }), "账号 A 的私有正文")
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key: "daoyun:session-change", newValue: "first-change" })))
+    await waitFor(() => expect(getCurrentSession).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole("textbox", { name: "正文" })).not.toHaveTextContent("账号 A 的私有正文")
+    const signal = vi.mocked(getCurrentSession).mock.calls[1][0]
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key: "daoyun:session-change", newValue: "second-change" })))
+    await waitFor(() => expect(getCurrentSession).toHaveBeenCalledTimes(3))
+    await act(async () => stale(first))
+
+    expect(signal?.aborted).toBe(true)
+    expect(screen.queryByRole("button", { name: "打开个人菜单" })).not.toBeInTheDocument()
+    expect(screen.getByRole("textbox", { name: "正文" })).not.toHaveTextContent("账号 A 的私有正文")
   })
 
   it("revokes the current session from the account menu", async () => {
@@ -1131,7 +1209,7 @@ describe("DaoYun community home", () => {
     await user.click(screen.getByRole("menuitem", { name: "个人主页" }))
 
     expect(await screen.findByRole("heading", { name: topicFixtures[0].author })).toBeInTheDocument()
-    expect(window.location.hash).toBe(`#user/${topicFixtures[0].authorUsername}`)
+    expect(window.location.pathname + window.location.search).toBe(`/u/${topicFixtures[0].authorUsername}`)
   })
 
   it("shows a governance operator the single site administration entry", async () => {
@@ -1513,3 +1591,224 @@ it("does not append a late page from the previous board after navigation", async
   await act(async () => { resolveOldPage({ topics: [{ ...topicFixtures[0], id: "019fc700-0000-7000-8000-000000000097", title: "旧版块迟到的帖子" }], nextCursor: null }); });
   expect(within(main).queryByText("旧版块迟到的帖子")).not.toBeInTheDocument();
 });
+
+
+it.each(["getItem", "setItem"] as const)("keeps the community usable when the environment prevents browser storage %s", async method => {
+  const storage = vi.spyOn(Storage.prototype, method).mockImplementation(() => { throw new DOMException("存储不可用", "SecurityError") })
+  try {
+    render(<App />)
+    expect((await screen.findAllByRole("button", { name: "登录" })).length).toBeGreaterThan(0)
+    await userEvent.click(screen.getByRole("button", { name: "切换深色模式" }))
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark")
+  } finally { storage.mockRestore() }
+})
+
+it("keeps the notification badge newer than an old initial count", async () => {
+ const session={user:{id:"019fc700-0000-7000-8000-000000000004",username:"member",email:"member@example.com",displayName:"社区成员"},csrfToken:"a".repeat(64)}
+ const item={id:"019fc700-0000-7000-8000-000000000101",kind:"reply" as const,actor:null,target:"topic" as const,targetId:topicFixtures[0].id,readAt:null,createdAt:"2026-10-02T10:00:00Z"}
+ let finish!: (count:number)=>void
+ vi.mocked(getCurrentSession).mockResolvedValue(session)
+ vi.mocked(getUnreadNotificationCount).mockReturnValueOnce(new Promise(resolve=>{finish=resolve})).mockResolvedValueOnce(55).mockResolvedValue(54)
+ vi.mocked(listNotifications).mockResolvedValue({notifications:[item],nextCursor:null})
+ vi.mocked(markNotificationRead).mockResolvedValue({...item,readAt:"2026-10-02T10:01:00Z"})
+ render(<App/>)
+ await waitFor(()=>expect(getUnreadNotificationCount).toHaveBeenCalledTimes(1))
+ await userEvent.click(screen.getByRole("button",{name:"查看通知"}))
+ await screen.findByRole("button",{name:"查看通知，55 条未读"})
+ await userEvent.click(screen.getByRole("button",{name:"标记通知为已读"}))
+ await screen.findByRole("button",{name:"查看通知，54 条未读"})
+ await act(async()=>finish(99))
+ expect(screen.getByRole("button",{name:"查看通知，54 条未读"})).toBeInTheDocument()
+})
+
+it("refreshes the notification badge when another tab returns to focus", async () => {
+ vi.mocked(getCurrentSession).mockResolvedValue({user:{id:"019fc700-0000-7000-8000-000000000004",username:"member",email:"member@example.com",displayName:"社区成员"},csrfToken:"a".repeat(64)})
+ vi.mocked(getUnreadNotificationCount).mockResolvedValueOnce(55).mockResolvedValue(54)
+ render(<App/>)
+ await screen.findByRole("button",{name:"查看通知，55 条未读"})
+ fireEvent(window,new Event("focus"))
+ expect(await screen.findByRole("button",{name:"查看通知，54 条未读"})).toBeInTheDocument()
+})
+
+it("updates the notification badge from read-all even if the following refresh fails", async () => {
+ window.location.hash="#notifications"
+ vi.mocked(getCurrentSession).mockResolvedValue({user:{id:"019fc700-0000-7000-8000-000000000004",username:"member",email:"member@example.com",displayName:"社区成员"},csrfToken:"a".repeat(64)})
+ const item={id:"019fc700-0000-7000-8000-000000000101",kind:"reply" as const,actor:null,target:"topic" as const,targetId:topicFixtures[0].id,readAt:null,createdAt:"2026-10-02T10:00:00Z"}
+ vi.mocked(listNotifications).mockResolvedValue({notifications:[item],nextCursor:null})
+ vi.mocked(getUnreadNotificationCount).mockResolvedValue(55)
+ vi.mocked(markAllNotificationsRead).mockResolvedValue(0)
+ render(<App/>)
+ await screen.findByRole("button",{name:"查看通知，55 条未读"})
+ await screen.findByText("有人 回复了你的主题")
+ vi.mocked(listNotifications).mockRejectedValue(new Error("offline"))
+ vi.mocked(getUnreadNotificationCount).mockRejectedValue(new Error("offline"))
+ await userEvent.click(screen.getByRole("button",{name:"全部标记为已读"}))
+ await screen.findByRole("heading",{name:"通知暂时无法加载"})
+ expect(screen.getByRole("button",{name:"查看通知"})).toBeInTheDocument()
+ expect(screen.queryByRole("button",{name:"查看通知，55 条未读"})).not.toBeInTheDocument()
+})
+
+it("opens a notification target immediately while its read request is pending", async () => {
+ window.location.hash="#notifications"
+ vi.mocked(getCurrentSession).mockResolvedValue({user:{id:"019fc700-0000-7000-8000-000000000004",username:"member",email:"member@example.com",displayName:"社区成员"},csrfToken:"a".repeat(64)})
+ const item={id:"019fc700-0000-7000-8000-000000000101",kind:"reply" as const,actor:null,target:"topic" as const,targetId:topicFixtures[0].id,readAt:null,createdAt:"2026-10-02T10:00:00Z"}
+ vi.mocked(listNotifications).mockResolvedValue({notifications:[item],nextCursor:null})
+ vi.mocked(getUnreadNotificationCount).mockResolvedValue(1)
+ let finish!:(value:typeof item)=>void
+ vi.mocked(markNotificationRead).mockReturnValue(new Promise(resolve=>{finish=resolve}))
+ render(<App/>)
+ await userEvent.click(await screen.findByRole("button",{name:/有人 回复了你的主题/}))
+ await waitFor(()=>expect(window.location.pathname + window.location.search).toBe("/t/"+item.targetId))
+ expect(markNotificationRead).toHaveBeenCalledTimes(1)
+ vi.mocked(getUnreadNotificationCount).mockResolvedValue(0)
+ await act(async()=>finish({...item,readAt:null}))
+ await screen.findByRole("button",{name:"查看通知"})
+})
+
+it("discards an opened notification read response after an account switch", async () => {
+ window.location.hash="#notifications"
+ const original={user:{id:"019fc700-0000-7000-8000-000000000004",username:"member",email:"member@example.com",displayName:"社区成员"},csrfToken:"a".repeat(64)}
+ const replacement={...original,user:{...original.user,id:"019fc700-0000-7000-8000-000000000006",username:"other",displayName:"另一成员"},csrfToken:"b".repeat(64)}
+ const item={id:"019fc700-0000-7000-8000-000000000101",kind:"reply" as const,actor:null,target:"topic" as const,targetId:topicFixtures[0].id,readAt:null,createdAt:"2026-10-02T10:00:00Z"}
+ vi.mocked(getCurrentSession).mockResolvedValueOnce(original).mockResolvedValue(replacement)
+ vi.mocked(listNotifications).mockResolvedValue({notifications:[item],nextCursor:null})
+ vi.mocked(getUnreadNotificationCount).mockResolvedValue(1)
+ let finish!:(value:typeof item)=>void
+ vi.mocked(markNotificationRead).mockReturnValue(new Promise(resolve=>{finish=resolve}))
+ render(<App/>)
+ await userEvent.click(await screen.findByRole("button",{name:/有人 回复了你的主题/}))
+ await waitFor(()=>expect(window.location.pathname + window.location.search).toBe("/t/"+item.targetId))
+ const signal=vi.mocked(markNotificationRead).mock.calls[0][2]
+ vi.mocked(getUnreadNotificationCount).mockResolvedValue(7)
+ act(()=>window.dispatchEvent(new StorageEvent("storage",{key:"daoyun:session-change",newValue:"v3-notification-switch"})))
+ await screen.findByRole("button",{name:"查看通知，7 条未读"})
+ expect(signal?.aborted).toBe(true)
+ const requests=vi.mocked(getUnreadNotificationCount).mock.calls.length
+ await act(async()=>finish(item))
+ expect(getUnreadNotificationCount).toHaveBeenCalledTimes(requests)
+ expect(screen.getByRole("button",{name:"查看通知，7 条未读"})).toBeInTheDocument()
+})
+
+it("opens a board directly without requesting an unused global feed", async () => {
+  window.location.hash = `#board/${boardFixtures[0].slug}`
+  render(<App />)
+  await screen.findByRole("heading", { name: boardFixtures[0].name, level: 1 })
+  expect(getBoard).toHaveBeenCalled()
+  expect(listFeed).not.toHaveBeenCalled()
+  expect(vi.mocked(listTopics).mock.calls.every(([options]) => options?.board === boardFixtures[0].slug)).toBe(true)
+})
+
+it("keeps search results separate from sidebar hot topics", async () => {
+  window.location.hash = "#search?q=Rust"
+  render(<App />)
+  await screen.findByRole("heading", { name: "搜索：Rust" })
+  expect(screen.queryByRole("heading", { name: "今日热帖" })).not.toBeInTheDocument()
+  expect(listFeed).not.toHaveBeenCalled()
+})
+
+it("cancels a previous member tab and ignores its late private response", async () => {
+  const session = { user: { id: "019fc700-0000-7000-8000-000000000004", username: "member", email: "member@example.com", displayName: "社区成员" }, csrfToken: "a".repeat(64) }
+  let finish!: (data: MembershipSectionData) => void
+  vi.mocked(getCurrentSession).mockResolvedValue(session)
+  vi.mocked(loadMembershipCenterData).mockImplementationOnce(() => new Promise(resolve => { finish = resolve })).mockResolvedValueOnce({ pointsBalance: 42, pointsLedger: [] })
+  window.location.hash = "#member/growth"
+  render(<App />)
+  await waitFor(() => expect(loadMembershipCenterData).toHaveBeenCalledWith("member", expect.any(AbortSignal), "growth"))
+  const signal = vi.mocked(loadMembershipCenterData).mock.calls[0][1]
+  await userEvent.setup().click(await screen.findByRole("button", { name: "积分" }))
+  await screen.findByLabelText("积分概览")
+  expect(signal?.aborted).toBe(true)
+  await act(async () => finish({ experience: { experience: 700, level: { id: "old", internalKey: "old", levelOrder: 1, displayName: "过期成长数据", requiredExperience: 0, iconAssetUrl: null, color: null, description: "" }, nextLevel: null } }))
+  expect(screen.queryByText("过期成长数据")).not.toBeInTheDocument()
+  expect(screen.getByLabelText("积分概览")).toHaveTextContent("42")
+  expect(loadMembershipCenterData).toHaveBeenLastCalledWith("member", expect.any(AbortSignal), "points")
+})
+
+it("shows a retryable member state when the session probe fails", async () => {
+  vi.mocked(getCurrentSession).mockRejectedValue(new Error("Session offline"))
+  window.location.hash = "#member/growth"
+  render(<App />)
+  expect(await screen.findByRole("heading", { name: "会员信息暂时不可用" })).toBeInTheDocument()
+  expect(screen.queryByText("正在加载会员信息")).not.toBeInTheDocument()
+  expect(loadMembershipCenterData).not.toHaveBeenCalled()
+})
+
+it("opens a post notification at its parent topic and floor", async () => {
+  window.location.hash = "#notifications"
+  vi.mocked(getCurrentSession).mockResolvedValue({ user: { id: "019fc700-0000-7000-8000-000000000004", username: "member", email: "member@example.com", displayName: "社区成员" }, csrfToken: "a".repeat(64) })
+  const item = { id: "019fc700-0000-7000-8000-000000000101", kind: "reply" as const, actor: null, target: "post" as const, targetId: "019fc800-0000-7000-8000-000000000299", topicId: topicFixtures[0].id, readAt: null, createdAt: "2026-10-03T10:00:00Z" }
+  vi.mocked(listNotifications).mockResolvedValue({ notifications: [item], nextCursor: null })
+  vi.mocked(markNotificationRead).mockResolvedValue(item)
+  render(<App />)
+  await userEvent.click(await screen.findByRole("button", { name: /有人 回复了你的主题/ }))
+  await waitFor(() => expect(window.location.pathname + window.location.search).toBe("/t/" + item.topicId + "?reply=" + item.targetId))
+})
+
+it.each(["another account", "a refreshed same-account session"])("ignores an old security callback after %s becomes current", async mode => {
+  const initial = { user: { id: topicFixtures[0].authorId, username: "member", email: "member@example.com", displayName: "原成员" }, csrfToken: "a".repeat(64) }
+  const next = { user: mode === "another account" ? { ...initial.user, id: "019fc700-0000-7000-8000-000000000005", username: "next" } : initial.user, csrfToken: "b".repeat(64) }
+  vi.mocked(getCurrentSession).mockResolvedValue(initial)
+  const baseProfile = await getUserProfile("member")
+  vi.mocked(getUserProfile).mockImplementation(async username => ({ ...baseProfile, id: username === "next" ? next.user.id : initial.user.id, username, viewer: { isSelf: true, isFollowing: false, isBlockedByViewer: false, canMessage: false } }))
+  vi.mocked(createRecentAuthentication).mockResolvedValue({ authenticated: true, expiresAt: "2026-10-03T23:00:00Z" })
+  let finish!: (token: string) => void
+  vi.mocked(changePassword).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  window.location.hash = "#user/member"
+  render(<App />)
+  await userEvent.click(await screen.findByRole("button", { name: "修改密码" }))
+  await userEvent.type(screen.getByLabelText("当前密码", { exact: true }), "old password")
+  await userEvent.type(screen.getByLabelText("新密码", { exact: true }), "new password")
+  await userEvent.type(screen.getByLabelText("确认新密码", { exact: true }), "new password")
+  await userEvent.click(screen.getByRole("button", { name: "更新密码" }))
+  await waitFor(() => expect(changePassword).toHaveBeenCalledOnce())
+  vi.mocked(getCurrentSession).mockResolvedValue(next)
+  await act(async () => window.dispatchEvent(new StorageEvent("storage", { key: "daoyun:session-change", newValue: "changed" })))
+  await waitFor(() => expect(getCurrentSession).toHaveBeenCalledTimes(2))
+  await act(async () => finish("c".repeat(64)))
+  await act(async () => { window.location.hash = "#user/" + next.user.username })
+  await userEvent.click(await screen.findByRole("button", { name: "修改密码" }))
+  vi.mocked(changePassword).mockResolvedValue("d".repeat(64))
+  await userEvent.type(screen.getByLabelText("当前密码", { exact: true }), "current password")
+  await userEvent.type(screen.getByLabelText("新密码", { exact: true }), "next password")
+  await userEvent.type(screen.getByLabelText("确认新密码", { exact: true }), "next password")
+  await userEvent.click(screen.getByRole("button", { name: "更新密码" }))
+  await waitFor(() => expect(createRecentAuthentication).toHaveBeenLastCalledWith("current password", next.csrfToken))
+})
+
+it("isolates user-search retry and keeps content visible while users wait", async () => {
+  window.location.hash = "#search?q=Rust&author=member"
+  let rejectUsers!: (reason: Error) => void
+  vi.mocked(listUsers).mockImplementationOnce(() => new Promise((_, reject) => { rejectUsers = reject }))
+    .mockResolvedValueOnce({ users: [], nextCursor: null })
+  render(<App />)
+  const panel = await screen.findByRole("tabpanel")
+  expect(await within(panel).findByText(topicFixtures[0].title)).toBeInTheDocument()
+  expect(within(panel).getByText("正在搜索用户")).toBeInTheDocument()
+  const contentCalls = vi.mocked(listTopics).mock.calls.length
+  await act(async () => rejectUsers(new Error("users 500")))
+  await userEvent.click(await screen.findByRole("button", { name: "重试用户搜索" }))
+  await waitFor(() => expect(listUsers).toHaveBeenCalledTimes(2))
+  expect(listTopics).toHaveBeenCalledTimes(contentCalls)
+  expect(window.location.hash).toBe("#search?q=Rust&author=member")
+  expect(within(panel).getByText(topicFixtures[0].title)).toBeInTheDocument()
+})
+
+it("ignores a previous account bookmark mutation after the feed changes account", async () => {
+  const first = { user: { id: topicFixtures[0].authorId, username: "member", email: "member@example.test", displayName: "First owner" }, csrfToken: "a".repeat(64) }
+  const second = { user: { ...first.user, id: topicFixtures[1].authorId, username: "second", displayName: "Second owner" }, csrfToken: "b".repeat(64) }
+  window.location.hash = "#hot"
+  vi.mocked(getCurrentSession).mockResolvedValue(first)
+  vi.mocked(listTopics).mockResolvedValue({ topics: [{ ...topicFixtures[0], bookmarked: true }], nextCursor: null })
+  let finish!: (value: { topicId: string; bookmarked: boolean }) => void
+  vi.mocked(setTopicBookmark).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  render(<App />)
+  await screen.findAllByText("First owner")
+  const main = within(screen.getByRole("main"))
+  await userEvent.click(await main.findByRole("button", { name: "取消收藏主题：" + topicFixtures[0].title }))
+  vi.mocked(getCurrentSession).mockResolvedValue(second)
+  const { AUTH_SESSION_CHANGE_KEY } = await import("./api/auth")
+  act(() => window.dispatchEvent(new StorageEvent("storage", { key: AUTH_SESSION_CHANGE_KEY, newValue: "changed" })))
+  await screen.findAllByText("Second owner")
+  await act(async () => finish({ topicId: topicFixtures[0].id, bookmarked: false }))
+  expect(main.getByRole("button", { name: "取消收藏主题：" + topicFixtures[0].title })).toBeInTheDocument()
+})

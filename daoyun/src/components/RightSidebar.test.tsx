@@ -210,3 +210,12 @@ describe("RightSidebar board detail", () => {
     expect(screen.queryByRole("heading", { name: "版块信息" })).not.toBeInTheDocument()
   })
 })
+
+it("does not present two loaded own topics as global personal totals", () => {
+  const topics = Array.from({ length: 2 }, (_, index) => ({ id: "019fc700-0000-7000-8000-00000000002" + index, title: "已加载主题", excerpt: "内容", board: "社区广场", boardSlug: "general", boardTone: "blue" as const, authorId: "019fc700-0000-7000-8000-000000000004", authorUsername: "member", author: "北岛", avatarUrl: null, publishedAt: "刚刚", replies: 8, likes: 12, bookmarked: false, liked: false, views: 64, tags: [] }))
+  render(<RightSidebar variant="home" topics={topics} session={{ user: { id: topics[0].authorId, username: "member", email: "member@example.com", displayName: "北岛" }, csrfToken: "a".repeat(64) }} onCompose={vi.fn()} onLogin={vi.fn()} onOpenTopic={vi.fn()} />)
+  expect(screen.queryByText("我的发布")).not.toBeInTheDocument()
+  expect(screen.queryByText("收到回复")).not.toBeInTheDocument()
+  expect(screen.queryByText("获得喜欢")).not.toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "发布主题" })).toBeInTheDocument()
+})

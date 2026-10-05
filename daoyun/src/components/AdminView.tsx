@@ -1,5 +1,8 @@
+import { RelatedAuditLog } from "./RelatedAuditLog"
+import { Drawer } from "./ui/Drawer"
 import {
   Activity,
+  Database,
   AlertCircle,
   ArrowLeft,
   ChartNoAxesCombined,
@@ -30,7 +33,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { lazy, Suspense, useEffect, useRef, useState } from "react"
 
 import {
   type AuthSession,
@@ -54,22 +57,27 @@ import {
 import type { AdminBoard, BrandAssetKind, BrandLink, GovernancePolicy, RiskAlert, SiteBranding, SiteBrandingInput, SmtpSettings, SmtpSettingsInput } from "../api/admin"
 import { listModerationBoards } from "../api/moderation"
 import type { ModerationBoard } from "../api/moderation"
-import { CommunityAnalyticsPanel } from "./CommunityAnalyticsPanel"
-import { MembershipAdminPanel } from "./MembershipAdminPanel"
 import { MembershipAdminPage } from "../features/admin-membership/MembershipAdminPage"
-import { AuthorizationAdminPanel } from "./AuthorizationAdminPanel"
-import { OperationsAdminPanel } from "./OperationsAdminPanel"
-import { PluginAdminPanel } from "./PluginAdminPanel"
-import { UserAdminPanel } from "./UserAdminPanel"
-import { BoardAdminPanel } from "./BoardAdminPanel"
-import { ReportAdminPanel, type ReportStatusFilter } from "./ReportAdminPanel"
-import { AdminDashboard } from "./AdminDashboard"
-import { CommentAdminPanel } from "./CommentAdminPanel"
-import { ContentReviewAdminPanel } from "./ContentReviewAdminPanel"
-import { ModerationAdminPanel } from "./ModerationAdminPanel"
+import type { ReportStatusFilter } from "./ReportAdminPanel"
 import { AdminActionDialog } from "./admin/AdminActionDialog"
+import { adminObjectQuery, adminScroll } from "./admin/adminQuery"
 
-export type AdminTab = "comments" | "reviews" | "dashboard" | "users" | "branding" | "email" | "boards" | "reports" | "moderation" | "risk" | "membership" | "authorization" | "operations" | "analytics" | "plugins"
+const PermissionCheckPanel = lazy(() => import("./PermissionCheckPanel").then((module) => ({ default: module.PermissionCheckPanel })))
+const CommunityAnalyticsPanel = lazy(() => import("./CommunityAnalyticsPanel").then((module) => ({ default: module.CommunityAnalyticsPanel })))
+const MembershipAdminPanel = lazy(() => import("./MembershipAdminPanel").then((module) => ({ default: module.MembershipAdminPanel })))
+const AuthorizationAdminPanel = lazy(() => import("./AuthorizationAdminPanel").then((module) => ({ default: module.AuthorizationAdminPanel })))
+const StorageAdminPanel = lazy(() => import("./StorageAdminPanel").then((module) => ({ default: module.StorageAdminPanel })))
+const OperationsAdminPanel = lazy(() => import("./OperationsAdminPanel").then((module) => ({ default: module.OperationsAdminPanel })))
+const PluginAdminPanel = lazy(() => import("./PluginAdminPanel").then((module) => ({ default: module.PluginAdminPanel })))
+const UserAdminPanel = lazy(() => import("./UserAdminPanel").then((module) => ({ default: module.UserAdminPanel })))
+const BoardAdminPanel = lazy(() => import("./BoardAdminPanel").then((module) => ({ default: module.BoardAdminPanel })))
+const ReportAdminPanel = lazy(() => import("./ReportAdminPanel").then((module) => ({ default: module.ReportAdminPanel })))
+const AdminDashboard = lazy(() => import("./AdminDashboard").then((module) => ({ default: module.AdminDashboard })))
+const CommentAdminPanel = lazy(() => import("./CommentAdminPanel").then((module) => ({ default: module.CommentAdminPanel })))
+const ContentReviewAdminPanel = lazy(() => import("./ContentReviewAdminPanel").then((module) => ({ default: module.ContentReviewAdminPanel })))
+const ModerationAdminPanel = lazy(() => import("./ModerationAdminPanel").then((module) => ({ default: module.ModerationAdminPanel })))
+
+export type AdminTab = "comments" | "reviews" | "dashboard" | "users" | "branding" | "email" | "boards" | "reports" | "moderation" | "risk" | "membership" | "authorization" | "inspect" | "operations" | "storage" | "analytics" | "plugins"
 type LoadState = "loading" | "ready" | "forbidden" | "error"
 
 interface AdminModuleDefinition {
@@ -94,17 +102,21 @@ const adminModules: AdminModuleDefinition[] = [
   { tab: "branding", label: "品牌配置", description: "统一站点品牌、主题与导航展示。", icon: Palette, requirements: ["admin.configuration.read"] },
   { tab: "email", label: "邮件服务", description: "配置 SMTP 发信与注册邮箱验证。", icon: MailCheck, requirements: ["admin.configuration.read"] },
   { tab: "authorization", label: "角色与权限", description: "管理角色能力与人员授权范围。", icon: KeyRound, requirements: ["authorization.roles.read", "authorization.assignments.read"] },
+  { tab: "inspect", label: "权限检查", description: "只读核对当前用户、资源和动作的有效权限条件。", icon: Search, requirements: ["content.access_policies.read", "community.groups.read", "admin.users.read", "community.memberships.read", "entitlements.grants.read", "entitlements.types.read", "authorization.assignments.read"] },
   { tab: "analytics", label: "数据总览", description: "查看社区增长、参与和积分收支。", icon: ChartNoAxesCombined, requirements: ["community.analytics.read"] },
+  { tab: "storage", label: "附件存储", description: "核对新写入位置、历史读取与备份要求。", icon: Database, requirements: ["admin.configuration.read"] },
   { tab: "operations", label: "运维监控", description: "观察服务状态、告警与运行规则。", icon: Activity, requirements: ["operations.read"] },
   { tab: "plugins", label: "插件管理", description: "管理插件安装、启停与能力边界。", icon: Plug, requirements: ["plugins.read"] },
 ]
 const tabOrder = adminModules.map(({ tab }) => tab)
 const adminGroups: { label: string; tabs: AdminTab[] }[] = [
-  { label: "", tabs: ["dashboard"] },
-  { label: "内容管理", tabs: ["moderation", "comments", "reports", "reviews", "risk"] },
-  { label: "社区运营", tabs: ["boards", "users", "membership", "authorization"] },
-  { label: "数据分析", tabs: ["analytics"] },
-  { label: "系统设置", tabs: ["branding", "plugins", "email", "operations"] },
+  { label: "工作台", tabs: ["dashboard"] },
+  { label: "内容治理", tabs: ["moderation", "comments", "reports", "reviews", "risk"] },
+  { label: "版块管理", tabs: ["boards"] },
+  { label: "用户与会员", tabs: ["users", "membership"] },
+  { label: "管理团队", tabs: ["authorization", "inspect"] },
+  { label: "扩展与数据", tabs: ["plugins", "analytics"] },
+  { label: "站点设置", tabs: ["branding", "email", "storage", "operations"] },
 ]
 
 interface AdminViewProps {
@@ -125,9 +137,16 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
   const [boards, setBoards] = useState<AdminBoard[]>([])
   const [moderationBoards, setModerationBoards] = useState<ModerationBoard[]>([])
   const [availableTabs, setAvailableTabs] = useState<AdminTab[]>([])
+  const [canTriageReports, setCanTriageReports] = useState(false)
   const [capabilityKeys, setCapabilityKeys] = useState<string[]>([])
   const [error, setError] = useState("")
   const [reload, setReload] = useState(0)
+  const [boardsStatus, setBoardsStatus] = useState<"loading" | "ready" | "error">("loading")
+  const [brandingStatus, setBrandingStatus] = useState<"loading" | "ready" | "error">("loading")
+  const [smtpStatus, setSmtpStatus] = useState<"loading" | "ready" | "error">("loading")
+  const [boardsReload, setBoardsReload] = useState(0)
+  const [brandingReload, setBrandingReload] = useState(0)
+  const [smtpReload, setSmtpReload] = useState(0)
 
   useEffect(() => {
     if (session === undefined) { setStatus("loading"); return }
@@ -136,17 +155,22 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
     setStatus("loading")
     setError("")
     setAvailableTabs([])
-    setCapabilityKeys([])
+    setCapabilityKeys([]); setCanTriageReports(false)
+    setBoards([]); setBranding(null); setSmtpSettings(null)
+    setBoardsStatus("loading"); setBrandingStatus("loading"); setSmtpStatus("loading")
     Promise.all([
       getAdminAccess(controller.signal),
       listModerationBoards(controller.signal).catch(() => []),
     ])
-      .then(async ([{ capabilityKeys }, scopedModerationBoards]) => {
+      .then(([{ capabilityKeys }, scopedModerationBoards]) => {
         const capabilities = new Set(capabilityKeys)
+        const topicBoards = scopedModerationBoards.filter((board) => board.capabilityKeys.includes("moderation.topic"))
+        const scopedReportsReadable = scopedModerationBoards.some((board) => board.capabilityKeys.includes("governance.reports.read"))
         const allowedTaskTabs = adminModules
           .filter(({ tab: candidate, requirements, requirementMode }) => candidate !== "dashboard" && (
             ["moderation", "comments", "reviews"].includes(candidate)
-              ? scopedModerationBoards.length > 0
+              ? topicBoards.length > 0
+              : candidate === "reports" ? capabilities.has("governance.reports.read") || scopedReportsReadable
               : (
             requirementMode === "any"
               ? requirements.some((key) => capabilities.has(key))
@@ -163,20 +187,12 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
         }
         const allowedTabs: AdminTab[] = ["dashboard", ...allowedTaskTabs]
 
-        const canReadConfiguration = capabilities.has("admin.configuration.read")
-        const configuration = await (
-          canReadConfiguration
-            ? Promise.all([getAdminSiteBranding(controller.signal), listAdminBoards(controller.signal), getSmtpSettings(controller.signal)])
-            : Promise.resolve(null)
-        )
         if (controller.signal.aborted) return
         setAvailableTabs(allowedTabs)
         setCapabilityKeys(capabilityKeys)
-        setModerationBoards(scopedModerationBoards)
+        setModerationBoards(topicBoards)
+        setCanTriageReports(capabilities.has("governance.reports.resolve") || scopedModerationBoards.some((board) => board.capabilityKeys.includes("governance.reports.resolve")))
         setTab((current) => allowedTabs.includes(current) ? current : allowedTabs[0])
-        setBranding(configuration?.[0] ?? null)
-        setBoards(configuration?.[1] ?? [])
-        setSmtpSettings(configuration?.[2] ?? null)
         setStatus("ready")
         onAccessChange?.("allowed")
       })
@@ -201,6 +217,41 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
     setTab(nextTab)
     if (requestedTab !== nextTab) onTabChange?.(nextTab)
   }, [availableTabs, onTabChange, requestedTab])
+
+  const needsBoards = ["dashboard", "users", "boards", "authorization", "inspect"].includes(tab)
+    && capabilityKeys.includes("admin.configuration.read")
+  useEffect(() => {
+    if (status !== "ready" || !needsBoards) return
+    const controller = new AbortController()
+    setBoardsStatus("loading")
+    listAdminBoards(controller.signal).then((items) => {
+      if (controller.signal.aborted) return
+      setBoards(items); setBoardsStatus("ready")
+    }).catch(() => { if (!controller.signal.aborted) setBoardsStatus("error") })
+    return () => controller.abort()
+  }, [needsBoards, status, session, boardsReload])
+
+  useEffect(() => {
+    if (status !== "ready" || tab !== "branding") return
+    const controller = new AbortController()
+    setBrandingStatus("loading")
+    getAdminSiteBranding(controller.signal).then((item) => {
+      if (controller.signal.aborted) return
+      setBranding(item); setBrandingStatus("ready")
+    }).catch(() => { if (!controller.signal.aborted) setBrandingStatus("error") })
+    return () => controller.abort()
+  }, [tab, status, session, brandingReload])
+
+  useEffect(() => {
+    if (status !== "ready" || tab !== "email") return
+    const controller = new AbortController()
+    setSmtpStatus("loading")
+    getSmtpSettings(controller.signal).then((item) => {
+      if (controller.signal.aborted) return
+      setSmtpSettings(item); setSmtpStatus("ready")
+    }).catch(() => { if (!controller.signal.aborted) setSmtpStatus("error") })
+    return () => controller.abort()
+  }, [tab, status, session, smtpReload])
 
   if (status === "forbidden") {
     return <AdminShell session={session} onBack={onBack}><AdminState kind="forbidden" onRetry={session ? () => setReload((value) => value + 1) : undefined} /></AdminShell>
@@ -263,18 +314,30 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
       pageDescription={activeModule.description}
       variant={tab === "moderation" ? "moderation" : tab === "dashboard" ? "dashboard" : tab === "users" ? "users" : "default"}
     >
+      {new URLSearchParams(requestedQuery).get("return_to") === "dashboard" && tab !== "dashboard" && <a className="secondary-button" href={`#admin/dashboard?scroll=${adminScroll(new URLSearchParams(requestedQuery).get("return_scroll")) ?? 0}`}><ArrowLeft size={15} aria-hidden="true" />返回工作台</a>}
+      {needsBoards && boardsStatus === "error" && (tab === "users" || tab === "authorization" || tab === "inspect") && <p className="form-alert" role="alert">版块选项暂时无法加载。<button className="secondary-button" type="button" onClick={() => setBoardsReload((value) => value + 1)}>重试版块选项</button></p>}
+      <Suspense fallback={<AdminState kind="loading" />}>
       {tab === "dashboard" ? (
         <AdminDashboard
+          requestedQuery={requestedQuery}
           capabilityKeys={capabilityKeys}
           boards={boards}
+          boardsStatus={boardsStatus}
+          onRetryBoards={() => setBoardsReload((value) => value + 1)}
           shortcuts={availableModules.filter(({ tab }) => ["users", "boards", "moderation", "branding", "plugins", "operations"].includes(tab))}
           onNavigate={(nextTab, query) => {
             navigateTo(nextTab)
-            onQueryChange?.(query)
+            const params = new URLSearchParams(query)
+            if (["user_id", "board_id", "report_id"].some((key) => params.has(key))) {
+              params.set("return_to", "dashboard")
+              params.set("return_scroll", String(Math.round(window.scrollY)))
+            }
+            onQueryChange?.(params.toString())
           }}
         />
       ) : tab === "users" ? (
         <UserAdminPanel
+          capabilityKeys={capabilityKeys}
           requestedQuery={requestedQuery}
           onQueryChange={onQueryChange}
           csrfToken={session?.csrfToken ?? ""}
@@ -287,25 +350,35 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
             "authorization.assignments.write",
           ].every((key) => capabilityKeys.includes(key))}
           canReadAudit={capabilityKeys.includes("audit.read")}
+          canReadGroups={capabilityKeys.includes("community.groups.read")}
+          canReadGroupMemberships={capabilityKeys.includes("community.memberships.read")}
+          canWriteGroupMemberships={capabilityKeys.includes("community.memberships.write")}
           boards={boards}
         />
       ) : tab === "branding" ? (
-        branding
+        brandingStatus === "loading" ? <AdminState kind="loading" /> : brandingStatus === "ready" && branding
           ? <BrandingPanel branding={branding} csrfToken={session?.csrfToken ?? ""} onSaved={setBranding} />
-          : <AdminState kind="error" message="品牌配置暂时无法加载。" onRetry={() => setReload((value) => value + 1)} />
+          : <AdminState kind="error" message="品牌配置暂时无法加载。" onRetry={() => setBrandingReload((value) => value + 1)} />
       ) : tab === "boards" ? (
-        <BoardAdminPanel boards={boards} csrfToken={session?.csrfToken ?? ""} canWrite={capabilityKeys.includes("admin.configuration.write")} onChange={setBoards} />
+        boardsStatus === "loading" ? <AdminState kind="loading" /> : boardsStatus === "error" ? <AdminState kind="error" message="版块配置暂时无法加载。" onRetry={() => setBoardsReload((value) => value + 1)} /> : <BoardAdminPanel capabilityKeys={capabilityKeys} requestedQuery={requestedQuery} onQueryChange={onQueryChange} boards={boards} csrfToken={session?.csrfToken ?? ""} canWrite={capabilityKeys.includes("admin.configuration.write")} onChange={setBoards} />
       ) : tab === "email" ? (
-        smtpSettings
+        smtpStatus === "loading" ? <AdminState kind="loading" /> : smtpStatus === "ready" && smtpSettings
           ? <SmtpSettingsPanel settings={smtpSettings} csrfToken={session?.csrfToken ?? ""} canWrite={capabilityKeys.includes("admin.configuration.write")} onSaved={setSmtpSettings} />
-          : <AdminState kind="error" message="邮件配置暂时无法加载。" onRetry={() => setReload((value) => value + 1)} />
+          : <AdminState kind="error" message="邮件配置暂时无法加载。" onRetry={() => setSmtpReload((value) => value + 1)} />
       ) : tab === "reports" ? (
         <ReportAdminPanel
           csrfToken={session?.csrfToken ?? ""}
           requestedStatus={reportStatusFilterFromQuery(requestedQuery)}
           requestedReportId={reportIdFromQuery(requestedQuery)}
-          onStatusChange={(statusFilter) => onQueryChange?.(statusFilter === "all" ? "" : `status=${statusFilter}`)}
+          requestedQuery={requestedQuery}
+          onQueryChange={onQueryChange}
+          onStatusChange={(statusFilter) => {
+            const params = new URLSearchParams(adminObjectQuery(requestedQuery ?? "", "report_id", null))
+            if (statusFilter === "all") params.delete("status"); else params.set("status", statusFilter)
+            onQueryChange?.(params.toString())
+          }}
           canResolve={capabilityKeys.includes("governance.reports.resolve")}
+          canTriage={canTriageReports}
           canReadAudit={capabilityKeys.includes("audit.read")}
         />
       ) : tab === "comments" ? (
@@ -320,11 +393,15 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
           canReadAudit={capabilityKeys.includes("audit.read")}
         />
       ) : tab === "risk" ? (
-        <RiskPanel csrfToken={session?.csrfToken ?? ""} />
+        <RiskPanel csrfToken={session?.csrfToken ?? ""} canReadReports={availableTabs.includes("reports")} canReadAudit={capabilityKeys.includes("audit.read")} />
       ) : tab === "authorization" ? (
-        <AuthorizationAdminPanel csrfToken={session?.csrfToken ?? ""} boards={boards} />
+        <AuthorizationAdminPanel csrfToken={session?.csrfToken ?? ""} boards={boards} capabilityKeys={capabilityKeys} query={requestedQuery} onQueryChange={onQueryChange} />
+      ) : tab === "inspect" ? (
+        <PermissionCheckPanel boards={boards} capabilityKeys={capabilityKeys} query={requestedQuery} />
       ) : tab === "analytics" ? (
         <CommunityAnalyticsPanel />
+      ) : tab === "storage" ? (
+        <StorageAdminPanel />
       ) : tab === "operations" ? (
         <OperationsAdminPanel csrfToken={session?.csrfToken ?? ""} canWrite={capabilityKeys.includes("operations.alerts.write")} />
       ) : tab === "plugins" ? (
@@ -350,6 +427,8 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
             canReadGroupMemberships={capabilityKeys.includes("community.memberships.read")}
             canWriteGroupMemberships={capabilityKeys.includes("community.memberships.write")}
             canReadUsers={capabilityKeys.includes("admin.users.read")}
+            canReadAudit={capabilityKeys.includes("audit.read")}
+            canReadPlugins={capabilityKeys.includes("plugins.read")}
             canReadEntitlementTypes={capabilityKeys.includes("entitlements.types.read")}
             canWriteEntitlementTypes={capabilityKeys.includes("entitlements.types.write")}
             canReadEntitlementGrants={capabilityKeys.includes("entitlements.grants.read")}
@@ -359,6 +438,7 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
           />
         </MembershipAdminPage>
       )}
+      </Suspense>
     </AdminShell>
   )
 }
@@ -375,14 +455,17 @@ function AdminShell({ session, children, onBack, navigation, modules = [], onNav
   const [search, setSearch] = useState("")
   const [searchMessage, setSearchMessage] = useState("")
   const [theme, setTheme] = useState<"light" | "dark">(() => {
-    const storedTheme = window.localStorage.getItem("daoyun-theme")
-    if (storedTheme === "light" || storedTheme === "dark") return storedTheme
+    try {
+      const storedTheme = window.localStorage.getItem("daoyun-theme")
+      if (storedTheme === "light" || storedTheme === "dark") return storedTheme
+    } catch { /* 本机偏好不可读时使用当前主题。 */ }
     return document.documentElement.dataset.theme === "dark" ? "dark" : "light"
   })
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
-    window.localStorage.setItem("daoyun-theme", theme)
+    try { window.localStorage.setItem("daoyun-theme", theme) }
+    catch { /* 本机偏好不可写时主题切换仍有效。 */ }
   }, [theme])
 
   return (
@@ -683,7 +766,8 @@ function reportIdFromQuery(query = ""): string | null {
   return reportId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(reportId) ? reportId : null
 }
 
-function RiskPanel({ csrfToken }: { csrfToken: string }) {
+function RiskPanel({ csrfToken, canReadReports, canReadAudit }: { csrfToken: string; canReadReports: boolean; canReadAudit: boolean }) {
+  const [auditId, setAuditId] = useState<string | null>(null)
   const [policyOpen, setPolicyOpen] = useState(false)
   const [policy, setPolicy] = useState<GovernancePolicy | null>(null)
   const [alerts, setAlerts] = useState<RiskAlert[]>([])
@@ -737,10 +821,13 @@ function RiskPanel({ csrfToken }: { csrfToken: string }) {
     {alerts.length === 0 ? <div className="admin-empty" role="status"><ShieldAlert size={22} aria-hidden="true" /><span>暂无风险告警</span></div> : <div className="admin-report-list">
       {alerts.map((alert) => <article className="admin-report-row" key={alert.id}>
         <header><span><ShieldAlert size={14} aria-hidden="true" />{alert.kind === "reporter_spike" ? "举报频次" : "高风险举报"}</span><strong>{alert.severity} · {alert.score} 分</strong><time>{alert.createdAt}</time></header>
+        <p className="content-admin-hint">告警 {alert.id}</p>
         <p>状态：{alert.status === "open" ? "待处理" : alert.status === "acknowledged" ? "已确认" : "已驳回"}</p>
+        <div className="admin-report-row__actions">{canReadReports && alert.reportId && <a className="secondary-button" href={"#admin/reports?report_id=" + encodeURIComponent(alert.reportId)}>查看关联举报</a>}{alert.targetType === "topic" && alert.targetId && <a className="secondary-button" href={"#topic/" + encodeURIComponent(alert.targetId)}>查看原帖</a>}{canReadAudit && <button className="secondary-button" type="button" onClick={() => setAuditId(alert.id)}>查看告警审计</button>}</div>
         {alert.status === "open" && <div className="admin-report-row__actions"><button className="secondary-button" type="button" onClick={() => void changeAlert(alert, "acknowledged")}><Check size={14} aria-hidden="true" />确认告警</button><button className="secondary-button" type="button" onClick={() => void changeAlert(alert, "dismissed")}><X size={14} aria-hidden="true" />驳回告警</button></div>}
       </article>)}
     </div>}
+    {canReadAudit && auditId && <Drawer title="告警操作记录" onClose={() => setAuditId(null)}><RelatedAuditLog filter={{ resourceId: auditId }} title="该告警的审计记录" /></Drawer>}
   </div>
 }
 

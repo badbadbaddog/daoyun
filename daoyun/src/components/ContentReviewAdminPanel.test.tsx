@@ -1,13 +1,15 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
-import { listEditReviewPage, resolveEditReview } from "../api/editReviews"
+import { getEditReview, listEditReviewPage, resolveEditReview } from "../api/editReviews"
+import { PluginApiError } from "../api/plugins"
 import { ContentReviewAdminPanel } from "./ContentReviewAdminPanel"
-vi.mock("../api/editReviews", () => ({ listEditReviewPage: vi.fn(), resolveEditReview: vi.fn() }))
+vi.mock("../api/editReviews", () => ({ getEditReview: vi.fn(), listEditReviewPage: vi.fn(), resolveEditReview: vi.fn() }))
 const id = "019fc800-0000-7000-8000-000000000001"
 const boards = [{ id, slug: "general", name: "交流", tone: "blue" as const, capabilityKeys: ["moderation.topic"] }]
 const item = { id, board_id: id, board_name: "交流", topic_id: id, post_id: id, target_type: "reply" as const, editor: { id, username: "member", display_name: "成员", avatar_url: null }, base_revision: 1, current_title: null, current_content: "公开版本", proposed_title: null, proposed_content: "待审版本", proposed_rich_content: null, proposed_excerpt: null, proposed_tags: null, status: "pending" as const, revision: 2, review_reason: null, created_at: "2026-09-22T00:00:00Z", reviewed_at: null }
 beforeEach(() => {
+  vi.mocked(getEditReview).mockResolvedValue({ ...item, status: "approved", revision: 3, current_content: "待审版本", review_reason: "另一位审核者已核实" })
   vi.mocked(listEditReviewPage).mockResolvedValue({ items: [item], nextCursor: null })
   vi.mocked(resolveEditReview).mockResolvedValue({ ...item, status: "approved" })
 })
@@ -48,4 +50,24 @@ it("shows the proposed topic excerpt, tags and rich links before approving", asy
   expect(await screen.findByText("待审摘要")).toBeInTheDocument()
   expect(screen.getByText("待审标签")).toBeInTheDocument()
   expect(screen.getByRole("link", { name: "查阅来源" })).toHaveAttribute("href", "https://example.com/review")
+})
+
+it("blocks a stale decision after conflict and retains its reason while refreshing", async () => {
+  vi.mocked(resolveEditReview).mockRejectedValue(new PluginApiError(409, "edit_review.conflict", "审核版本已变化"))
+  const user = userEvent.setup()
+  render(<ContentReviewAdminPanel boards={boards} csrfToken="csrf" />)
+  await user.click(await screen.findByRole("button", { name: "通过并发布" }))
+  await user.type(screen.getByRole("textbox", { name: "审核说明" }), "已核对当前版本")
+  await user.click(screen.getByRole("button", { name: "确认通过" }))
+  expect(await screen.findByText(/其他审核者已处理或公开版本已变化/)).toBeVisible()
+  expect(screen.getByRole("button", { name: "确认通过" })).toBeDisabled()
+  vi.mocked(listEditReviewPage).mockResolvedValue({ items: [], nextCursor: null })
+  await user.click(screen.getByRole("button", { name: "刷新队列并保留说明" }))
+  await screen.findByText("当前筛选下暂无审核记录")
+  expect(getEditReview).toHaveBeenCalledWith(item.id)
+  expect(screen.getByText("最新审核结论：已通过 · 版本 3")).toBeInTheDocument()
+  expect(screen.getByText("审核说明：另一位审核者已核实")).toBeInTheDocument()
+  expect(screen.getByRole("textbox", { name: "审核说明" })).toHaveValue("已核对当前版本")
+  expect(screen.getByRole("button", { name: "确认通过" })).toBeDisabled()
+  expect(resolveEditReview).toHaveBeenCalledTimes(1)
 })

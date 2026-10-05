@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react"
 
 import { BoardApiError, getBoard, listBoards } from "../api/boards"
 import type { BoardDetail } from "../api/boards"
-import { AuthApiError, getCurrentSession, logout } from "../api/auth"
+import { AUTH_SESSION_CHANGE_KEY, AuthApiError, getCurrentSession, isSessionExpiredError, logout } from "../api/auth"
 import type { AuthSession } from "../api/auth"
 import { getPublicSiteBranding } from "../api/branding"
 import type { FeedMode } from "../api/feed"
@@ -10,7 +10,7 @@ import { getAdminAccess } from "../api/admin"
 import type { SiteBranding } from "../api/admin"
 import { listModerationBoards } from "../api/moderation"
 import type { ConversationSummary } from "../api/messages"
-import { getUnreadNotificationCount } from "../api/notifications"
+import { getUnreadNotificationCount, markNotificationRead } from "../api/notifications"
 import type { Notification } from "../api/notifications"
 import { getCurrentExperience, listGrowthLevels, loadMembershipCenterData } from "../api/membership"
 import { setPostLike, setTopicBookmark } from "../api/relations"
@@ -26,7 +26,7 @@ import { SiteHeader } from "../components/SiteHeader"
 import { TopicFeed } from "../components/TopicFeed"
 import type { BoardPageState } from "../features/boards/BoardPage"
 import type { BoardTopicSort } from "../features/boards/BoardTopicFeed"
-import type { MembershipCenterData, MembershipExperience } from "../features/membership/membershipTypes"
+import type { MembershipSectionData, MembershipExperience } from "../features/membership/membershipTypes"
 import { useFeedScrollRestoration } from "../features/feed/useFeedScrollRestoration"
 import { useSearchParams } from "../features/search/useSearchParams"
 import { useTopicFeed } from "../features/search/useTopicFeed"
@@ -102,6 +102,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   const [topicDetailSidebarTopic, setTopicDetailSidebarTopic] = useState<Topic | null>(null)
   const [availableTags, setAvailableTags] = useState<TopicTag[]>([])
   const [selectedTag, setSelectedTag] = useState("")
+  const authControllerRef = useRef<AbortController | null>(null)
   const [authSession, setAuthSession] = useState<AuthSession | null>(null)
   const [branding, setBranding] = useState<SiteBranding | null>(null)
   const [authLoadStatus, setAuthLoadStatus] = useState<AuthLoadStatus>("loading")
@@ -109,8 +110,13 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   const [authPanelOpen, setAuthPanelOpen] = useState(false)
   const [systemAdminAccess, setSystemAdminAccess] = useState<AdminAccess>("unknown")
   const [managementAccess, setManagementAccess] = useState<AdminAccess>("unknown")
-  const [notificationsUnread, setNotificationsUnread] = useState(0)
-  const [initialConversation, setInitialConversation] = useState<ConversationSummary | null>(null)
+  const [notificationsUnread, setNotificationsUnread] = useState<number | null>(null)
+  const notificationCountVersion = useRef(0)
+  const notificationSession = useRef(authSession); notificationSession.current = authSession
+  const notificationLifetime = useRef<AbortController | null>(null)
+  const notificationRefresh = useRef<() => void>(() => {})
+  const [initialConversation, setInitialConversation] = useState<{ conversation: ConversationSummary; ownerId: string } | null>(null)
+  const bookmarkControllersRef = useRef(new Map<string, AbortController>())
   const [bookmarkPendingIds, setBookmarkPendingIds] = useState<ReadonlySet<string>>(() => new Set())
   const [likePendingIds, setLikePendingIds] = useState<ReadonlySet<string>>(() => new Set())
   const [interactionError, setInteractionError] = useState("")
@@ -119,9 +125,13 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   const [searchUsersLoading, setSearchUsersLoading] = useState(false)
   const [searchUsersError, setSearchUsersError] = useState<string | null>(null)
   const [searchUsersRequestVersion, setSearchUsersRequestVersion] = useState(0)
-  const [membershipData, setMembershipData] = useState<MembershipCenterData | null>(null)
+  const [membershipData, setMembershipData] = useState<MembershipSectionData | null>(null)
+  const [membershipError, setMembershipError] = useState<string | null>(null)
   const [membershipStatus, setMembershipStatus] = useState<"loading" | "ready" | "error">("loading")
   const [membershipRequestVersion, setMembershipRequestVersion] = useState(0)
+  const [membershipLoadedKey, setMembershipLoadedKey] = useState("")
+  const memberTab = route.kind === "member" ? route.tab : null
+  const membershipKey = `${authSession?.user.id ?? "guest"}:${memberTab}`
   const [homeMembershipExperience, setHomeMembershipExperience] = useState<MembershipExperience | null>(null)
   const searchParams = useSearchParams(route, navigate)
   const searchingTopics = route.kind === "search"
@@ -134,19 +144,20 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
           : undefined
     : undefined
   const topicFeed = useTopicFeed({
-    enabled: searchingTopics || (route.kind !== "search"
-      && !(activeFeed === "following" && (authLoadStatus !== "ready" || !authSession))),
-    mode: feedMode,
+    enabled: searchingTopics || route.kind === "boardIndex" || route.kind === "topic"
+      || (route.kind === "feed" && !(activeFeed === "following" && (authLoadStatus !== "ready" || !authSession))),
+    mode: route.kind === "boardIndex" || route.kind === "topic" ? "recommended" : feedMode,
     query: searchingTopics ? route.query : undefined,
     board: searchingTopics ? route.filters?.board : undefined,
     author: searchingTopics ? route.filters?.author : undefined,
     from: searchingTopics ? route.filters?.from : undefined,
     through: searchingTopics ? route.filters?.through : undefined,
-    tag: searchingTopics ? route.filters?.tag : selectedTag || undefined,
+    tag: searchingTopics ? route.filters?.tag : route.kind === "feed" ? selectedTag || undefined : undefined,
     sort: feedMode ? undefined : searchingTopics ? route.filters?.sort ?? "latest" : activeFeed === "hot" ? "popular" : activeFeed === "active" ? "active" : "latest",
     scope: feedMode ? undefined : searchingTopics ? undefined : activeFeed === "following" ? "following" : undefined,
     featured: feedMode ? false : searchingTopics ? false : activeFeed === "featured",
     requestVersion: topicRequestVersion,
+    viewerKey: authSession?.csrfToken ?? "guest",
   })
   const topics = topicFeed.topics
   const topicLoadStatus: TopicLoadStatus = topicFeed.loadingInitial
@@ -187,26 +198,36 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   useEffect(() => {
     if (route.kind !== "member") return
     if (authLoadStatus !== "ready") {
-      setMembershipStatus("loading")
+      setMembershipData(null)
+      setMembershipStatus(authLoadStatus === "error" ? "error" : "loading")
       return
     }
     if (!authSession) {
+      setMembershipLoadedKey(membershipKey)
       setMembershipData(null)
+      setMembershipError("请登录后查看自己的会员信息。")
       setMembershipStatus("error")
       return
     }
     const controller = new AbortController()
+    setMembershipLoadedKey(membershipKey)
+    setMembershipData(null)
     setMembershipStatus("loading")
-    loadMembershipCenterData(authSession.user.username, controller.signal).then((data) => {
+    setMembershipError(null)
+    loadMembershipCenterData(authSession.user.username, controller.signal, route.tab).then((data) => {
       if (!controller.signal.aborted) {
         setMembershipData(data)
         setMembershipStatus("ready")
       }
-    }).catch(() => {
-      if (!controller.signal.aborted) setMembershipStatus("error")
+    }).catch((error: unknown) => {
+      if (!controller.signal.aborted) {
+        setMembershipError(error instanceof Error ? error.message : "会员信息暂时不可用")
+        setMembershipStatus("error")
+        if (isSessionExpiredError(error)) handleComposerSessionExpired()
+      }
     })
     return () => controller.abort()
-  }, [authLoadStatus, authSession, membershipRequestVersion, route.kind])
+  }, [authLoadStatus, authSession, membershipRequestVersion, route.kind, memberTab, membershipKey])
 
   useEffect(() => {
     if (route.kind !== "feed" || authLoadStatus !== "ready" || !authSession) {
@@ -255,9 +276,18 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
 
   useEffect(() => {
     setInitialConversation((current) => (
-      current?.id === selectedConversationId ? current : null
+      current?.conversation.id === selectedConversationId ? current : null
     ))
   }, [selectedConversationId])
+
+  useEffect(() => {
+    const controllers = bookmarkControllersRef.current
+    controllers.forEach(controller => controller.abort())
+    controllers.clear()
+    setBookmarkPendingIds(new Set())
+    setInitialConversation(null)
+    return () => { controllers.forEach(controller => controller.abort()); controllers.clear() }
+  }, [authSession])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -270,12 +300,26 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   }, [])
 
   useEffect(() => {
-    if (!authSession) { setNotificationsUnread(0); return }
-    const controller = new AbortController()
-    getUnreadNotificationCount(controller.signal).then((count) => {
-      if (!controller.signal.aborted) setNotificationsUnread(count)
-    }).catch(() => undefined)
-    return () => controller.abort()
+    let controller: AbortController | null = null
+    if (!authSession) { ++notificationCountVersion.current; setNotificationsUnread(0); return }
+    const lifetime = new AbortController()
+    notificationLifetime.current = lifetime
+    setNotificationsUnread(null)
+    const refresh = () => {
+      controller?.abort()
+      controller = new AbortController()
+      const signal = controller.signal
+      const version = ++notificationCountVersion.current
+      void getUnreadNotificationCount(signal).then(count => {
+        if (!signal.aborted && version === notificationCountVersion.current) setNotificationsUnread(count)
+      }).catch(() => { if (!signal.aborted && version === notificationCountVersion.current) setNotificationsUnread(null) })
+    }
+    notificationRefresh.current = refresh
+    const visible = () => { if (document.visibilityState === "visible") refresh() }
+    refresh()
+    window.addEventListener("focus", refresh)
+    document.addEventListener("visibilitychange", visible)
+    return () => { lifetime.abort(); controller?.abort(); notificationRefresh.current = () => {}; window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", visible) }
   }, [authSession])
 
   useEffect(() => {
@@ -318,12 +362,12 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
-    localStorage.setItem("daoyun-theme", theme)
+    try { localStorage.setItem("daoyun-theme", theme) } catch { /* Keep the active theme in memory when storage is unavailable. */ }
   }, [theme])
 
   useEffect(() => {
     applyBrandingToDocument(branding)
-    if (branding?.themePreset === "dark" && localStorage.getItem("daoyun-theme") === null) {
+    if (branding?.themePreset === "dark" && getSavedTheme() === null) {
       setTheme("dark")
     }
   }, [branding, navigate])
@@ -406,7 +450,21 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   }, [boardPageState, boardSearchQuery, boardTopicRequestVersion, boardTopicSort, selectedBoardSlug])
 
   useEffect(() => {
+    const onSessionChange = (event: StorageEvent) => {
+      if (event.key !== AUTH_SESSION_CHANGE_KEY) return
+      authControllerRef.current?.abort()
+      setAuthSession(null)
+      setInitialConversation(null)
+      setAuthLoadStatus("loading")
+      setAuthRequestVersion(version => version + 1)
+    }
+    window.addEventListener("storage", onSessionChange)
+    return () => window.removeEventListener("storage", onSessionChange)
+  }, [])
+
+  useEffect(() => {
     const controller = new AbortController()
+    authControllerRef.current = controller
     setAuthLoadStatus("loading")
 
     getCurrentSession(controller.signal).then((session) => {
@@ -453,7 +511,19 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
     navigate({ kind: "feed", feed })
   }
 
+  function handleComposerSessionExpired() {
+    authControllerRef.current?.abort()
+    setAuthSession(null)
+    setAuthLoadStatus("ready")
+    setInitialConversation(null)
+  }
+
+  function handleSecuritySessionChange(updated: AuthSession) {
+    setAuthSession(current => current === authSession && current?.user.id === updated.user.id ? updated : current)
+  }
+
   function handleAuthenticated(session: AuthSession) {
+    authControllerRef.current?.abort()
     setAuthSession(session)
     setAuthLoadStatus("ready")
     setAuthPanelOpen(false)
@@ -516,19 +586,20 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
     setAvailableTags((current) => mergeTags(current, updatedTopic.tags))
   }
 
-  function openTopic(topicId: string) {
+  function openTopic(topicId: string, replyId?: string) {
     setInitialConversation(null)
     setTopicDetailSidebarTopic(null)
-    navigate({ kind: "topic", topicId })
+    navigate({ kind: "topic", topicId, replyId })
   }
 
   function openConversation(
     conversationId: string | null,
     conversation: ConversationSummary | null = null,
   ) {
+    if (notificationSession.current !== authSession) return
     setInitialConversation((current) => {
-      if (conversation?.id === conversationId) return conversation
-      return current?.id === conversationId ? current : null
+      if (conversation?.id === conversationId && authSession) return { conversation, ownerId: authSession.user.id }
+      return current?.conversation.id === conversationId ? current : null
     })
     navigate({ kind: "messages", conversationId })
   }
@@ -539,7 +610,17 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   }
 
   function openNotificationTarget(notification: Notification) {
-    if (notification.target === "topic") openTopic(notification.targetId)
+    const session = authSession
+    const signal = notificationLifetime.current?.signal
+    if (session && signal && !signal.aborted && !notification.readAt) {
+      ++notificationCountVersion.current
+      // The application owns this request so immediate navigation does not cancel it.
+      void markNotificationRead(notification.id, session.csrfToken, signal).catch(() => undefined).then(() => {
+        if (!signal.aborted && notificationSession.current === session) notificationRefresh.current()
+      })
+    }
+    if (notification.target === "post" && notification.topicId) openTopic(notification.topicId, notification.targetId)
+    else if (notification.target === "topic") openTopic(notification.targetId)
     else if (notification.target === "conversation") openConversation(notification.targetId)
     else if (notification.target === "user" && notification.actor) {
       navigate({ kind: "user", username: notification.actor.username })
@@ -568,19 +649,24 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
       setAuthPanelOpen(true)
       return
     }
-    if (bookmarkPendingIds.has(topicId)) return
+    if (bookmarkControllersRef.current.has(topicId)) return
     const topic = topics.find((item) => item.id === topicId)
       ?? boardTopics.find((item) => item.id === topicId)
     if (!topic) return
     const bookmarked = topic.bookmarked !== true
+    const controller = new AbortController()
+    bookmarkControllersRef.current.set(topicId, controller)
+    const current = () => !controller.signal.aborted && notificationSession.current === authSession
     setBookmarkPendingIds((current) => new Set(current).add(topicId))
     setInteractionError("")
     try {
-      const state = await setTopicBookmark(topicId, bookmarked, authSession.csrfToken)
-      applyTopicBookmark(state.topicId, state.bookmarked)
+      const state = await setTopicBookmark(topicId, bookmarked, authSession.csrfToken, controller.signal)
+      if (current()) applyTopicBookmark(state.topicId, state.bookmarked)
     } catch {
-      setInteractionError("收藏状态暂时无法更新。")
+      if (current()) setInteractionError("收藏状态暂时无法更新。")
     } finally {
+      if (!current() || bookmarkControllersRef.current.get(topicId) !== controller) return
+      bookmarkControllersRef.current.delete(topicId)
       setBookmarkPendingIds((current) => {
         const next = new Set(current)
         next.delete(topicId)
@@ -652,6 +738,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
     if (!authSession) return
     try {
       await logout(authSession.csrfToken)
+      authControllerRef.current?.abort()
       setAuthSession(null)
       setAuthLoadStatus("ready")
       setInitialConversation(null)
@@ -710,7 +797,8 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
       onOpenTopic={openTopic}
       onOpenConversation={(conversation) => openConversation(conversation.id, conversation)}
       onBookmarkChanged={applyTopicBookmark}
-      onSessionChange={setAuthSession}
+      onSessionChange={handleSecuritySessionChange}
+      onSessionExpired={handleComposerSessionExpired}
       openExternalIdentities={openIdentitySettingsFor === selectedUsername}
     />
   ) : route.kind === "bookmarks" ? (
@@ -727,13 +815,16 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
       onBack={closeMainView}
       onLogin={() => setAuthPanelOpen(true)}
       onOpenTarget={openNotificationTarget}
-      onUnreadChange={setNotificationsUnread}
+      globalUnreadCount={notificationsUnread}
+      onUnreadRequest={() => ++notificationCountVersion.current}
+      onUnreadChange={(count, version) => { if (version === notificationCountVersion.current) setNotificationsUnread(count) }}
     />
   ) : route.kind === "messages" ? (
     <MessagesView
       session={authSession}
       conversationId={selectedConversationId}
-      initialConversation={initialConversation}
+      initialConversation={initialConversation?.conversation ?? null}
+      initialConversationOwnerId={initialConversation?.ownerId ?? null}
       onSelectConversation={openConversation}
       onBack={closeMainView}
       onLogin={() => setAuthPanelOpen(true)}
@@ -753,17 +844,13 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
         const normalizedQuery = route.query.trim().toLocaleLowerCase("zh-CN")
         return !normalizedQuery || `${tag.name} ${tag.slug}`.toLocaleLowerCase("zh-CN").includes(normalizedQuery)
       })}
-      loading={(searchingTopics && topicFeed.loadingInitial) || searchUsersLoading}
-      error={route.scope === "topics"
-        ? topicFeed.errorInitial
-        : route.scope === "users" ? searchUsersError : null}
-      contentError={route.scope === "all" ? topicFeed.errorInitial : null}
-      userError={route.scope === "all" ? searchUsersError : null}
+      contentLoading={searchingTopics && topicFeed.loadingInitial}
+      userLoading={searchUsersLoading}
+      contentError={topicFeed.errorInitial}
+      userError={searchUsersError}
       onScopeChange={searchParams.setScope}
-      onRetry={() => {
-        topicFeed.retry()
-        setSearchUsersRequestVersion((version) => version + 1)
-      }}
+      onContentRetry={topicFeed.retry}
+      onUserRetry={() => setSearchUsersRequestVersion((version) => version + 1)}
       onLoadMore={() => void topicFeed.loadMore()}
       nextCursor={topicFeed.nextCursor}
       loadingMore={topicFeed.loadingMore}
@@ -772,10 +859,11 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   ) : route.kind === "member" ? (
     <MemberCenterPage
       activeTab={route.tab}
+      error={membershipLoadedKey === membershipKey ? membershipError : null}
       csrfToken={authSession?.csrfToken}
       onChanged={() => setMembershipRequestVersion(version => version + 1)}
-      data={membershipData}
-      status={membershipStatus}
+      data={membershipLoadedKey === membershipKey && authLoadStatus === "ready" ? membershipData : null}
+      status={authLoadStatus === "error" ? "error" : membershipLoadedKey === membershipKey && authLoadStatus === "ready" ? membershipStatus : "loading"}
       onTabChange={(tab) => navigate({ kind: "member", tab })}
       onRetry={() => {
         if (!authSession) setAuthPanelOpen(true)
@@ -878,7 +966,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
           authPending={authLoadStatus === "loading"}
           onOpenAuth={() => setAuthPanelOpen(true)}
           onLogout={handleLogout}
-          notificationsUnread={notificationsUnread}
+          notificationsUnread={notificationsUnread ?? 0}
           onOpenNotifications={openNotifications}
           systemAdminAccess={systemAdminAccess}
           managementAccess={managementAccess}
@@ -906,6 +994,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
       rightSidebar={(
         <RightSidebar
           variant={route.kind === "feed" ? "home" : route.kind === "boardIndex" ? "boardDirectory" : route.kind === "board" ? "boardDetail" : route.kind === "topic" ? "topicDetail" : "default"}
+          showDiscovery={route.kind === "feed" || route.kind === "boardIndex" || route.kind === "topic"}
           topics={route.kind === "board" ? boardTopics : topics}
           boards={boards}
           currentBoard={boardPageState.kind === "ready" ? boardPageState.board : undefined}
@@ -940,6 +1029,9 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
               open
               boards={boards}
               session={authSession}
+              suspended={authPanelOpen}
+              onSessionExpired={handleComposerSessionExpired}
+              onLogin={() => setAuthPanelOpen(true)}
               availableTags={availableTags}
               defaultBoardId={composerBoardId}
               onClose={() => { setComposerOpen(false); setComposerBoardId(null) }}
@@ -996,8 +1088,12 @@ function mobileNavigationActive(route: CommunityPageRoute) {
   return "none" as const
 }
 
+function getSavedTheme(): string | null {
+  try { return localStorage.getItem("daoyun-theme") } catch { return null }
+}
+
 function getInitialTheme(): Theme {
-  return localStorage.getItem("daoyun-theme") === "dark" ? "dark" : "light"
+  return getSavedTheme() === "dark" ? "dark" : "light"
 }
 
 function applyBrandingToDocument(branding: SiteBranding | null) {

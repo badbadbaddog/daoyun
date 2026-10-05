@@ -61,6 +61,7 @@ async fn operations_worker_shutdown_is_prompt_and_schedule_is_bounded(pool: PgPo
             .expect("observability runtime must build"),
         OperationsAlertWorkerConfig {
             poll_interval: Duration::ZERO,
+            ..Default::default()
         },
     );
     assert!(matches!(
@@ -75,6 +76,7 @@ async fn operations_worker_shutdown_is_prompt_and_schedule_is_bounded(pool: PgPo
             .expect("observability runtime must build"),
         OperationsAlertWorkerConfig {
             poll_interval: Duration::from_secs(60),
+            ..Default::default()
         },
     )
     .expect("long polling interval must be valid");
@@ -87,4 +89,33 @@ async fn operations_worker_shutdown_is_prompt_and_schedule_is_bounded(pool: PgPo
         .await
         .expect("worker must stop without waiting for poll interval")
         .expect("worker task must not panic");
+}
+
+#[tokio::test]
+async fn disabled_alert_evaluation_never_starts_or_queries_an_unavailable_database() {
+    let database = Database::from_pool(
+        sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://postgres@127.0.0.1:1/unavailable")
+            .unwrap(),
+    );
+    let runtime = ObservabilityConfig::default().build().unwrap();
+    let config = OperationsAlertWorkerConfig {
+        enabled: false,
+        ..Default::default()
+    };
+    let (_, shutdown) = tokio::sync::watch::channel(false);
+    assert!(
+        config
+            .start(database.clone(), runtime.clone(), shutdown)
+            .unwrap()
+            .is_none()
+    );
+    let worker = OperationsAlertWorker::new(database, runtime, config).unwrap();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_millis(100), worker.run_once())
+            .await
+            .unwrap()
+            .unwrap(),
+        Default::default()
+    );
 }
