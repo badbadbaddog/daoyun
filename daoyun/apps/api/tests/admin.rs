@@ -2512,12 +2512,17 @@ async fn permission_check_is_read_only_and_never_authorizes_a_later_upload(pool:
             payload["data"]["scenario"]["actions"][0]["decision"],
             "allowed"
         );
-        assert_eq!(
-            payload["data"]["scenario"]["sources"]
-                .as_array()
-                .unwrap()
-                .len(),
-            2
+        let sources = payload["data"]["scenario"]["sources"].as_array().unwrap();
+        assert_eq!(sources.iter().filter(|s| s["kind"] == "group").count(), 2);
+        assert_eq!(sources.iter().filter(|s| s["kind"] == "role").count(), 1);
+        let action_sources = payload["data"]["scenario"]["actions"][0]["source_ids"]
+            .as_array()
+            .unwrap();
+        assert!(
+            sources
+                .iter()
+                .filter(|s| s["kind"] == "role")
+                .all(|s| !action_sources.contains(&s["id"]))
         );
         assert_eq!(payload["data"]["file_bytes"], 68);
     }
@@ -3015,4 +3020,174 @@ async fn response_json(response: axum::response::Response) -> Value {
         .await
         .expect("response body must be readable");
     serde_json::from_slice(&body).expect("response must be JSON")
+}
+
+#[sqlx::test(migrator = "infrastructure::MIGRATOR")]
+async fn governance_permission_check_requires_role_read_and_matches_move_resources(pool: PgPool) {
+    let app = daoyun_api::app_with_config(
+        Database::from_pool(pool.clone()),
+        daoyun_api::AuthConfig::default().with_secure_cookies(false),
+    );
+    initialize(&app).await;
+    let (cookies, _) = login_owner(&app).await;
+    let owner: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE username='owner'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let root: Uuid = sqlx::query_scalar("SELECT id FROM boards WHERE slug='general'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let target = Uuid::now_v7();
+    let topic = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO boards(id,slug,name) VALUES ($1,'move-destination','Move destination')",
+    )
+    .bind(target)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO topics(id,board_id,author_id,title,content,status,published_at,governance_revision) VALUES ($1,$2,$3,'Governance check','Body','published',CURRENT_TIMESTAMP,1)")
+        .bind(topic).bind(root).bind(owner).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO community_quota_usage(user_id,quota_key,window_start,used,revision) VALUES ($1,'attachment.upload.daily',(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date,0,1)").bind(owner).execute(&pool).await.unwrap();
+    let before = check_side_effect_counts(&pool, owner).await;
+    let revision: i64 = sqlx::query_scalar("SELECT governance_revision FROM topics WHERE id=$1")
+        .bind(topic)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    for (action, context, decision, reason) in [
+        (
+            "topic_pin",
+            String::new(),
+            "missing_context",
+            "resource.context_required",
+        ),
+        (
+            "topic_pin",
+            format!("&topic_id={topic}"),
+            "allowed",
+            "governance.conditions_matched",
+        ),
+        (
+            "topic_feature",
+            format!("&topic_id={topic}"),
+            "allowed",
+            "governance.conditions_matched",
+        ),
+        (
+            "topic_lock",
+            format!("&topic_id={topic}"),
+            "allowed",
+            "governance.conditions_matched",
+        ),
+        (
+            "topic_move",
+            format!("&topic_id={topic}"),
+            "missing_context",
+            "resource.context_required",
+        ),
+        (
+            "topic_move",
+            format!("&topic_id={topic}&target_board_id={target}"),
+            "allowed",
+            "governance.conditions_matched",
+        ),
+        (
+            "topic_move",
+            format!("&topic_id={topic}&target_board_id={root}"),
+            "not_applicable",
+            "governance.same_board",
+        ),
+        (
+            "moderation_browse",
+            format!("&topic_id={topic}"),
+            "allowed",
+            "governance.conditions_matched",
+        ),
+    ] {
+        let response = app.clone().oneshot(get_request(&format!("/api/v1/admin/permission-check?board_id={root}&user_id={owner}&action={action}{context}"), &cookies)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{action} {context}");
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        let request_id = response.headers()["x-request-id"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let payload = response_json(response).await;
+        assert_eq!(payload["meta"]["request_id"], request_id);
+        assert_eq!(payload["data"]["scenario"]["account_status"], "active");
+        let result = &payload["data"]["scenario"]["actions"][0];
+        assert_eq!(result["decision"], decision);
+        assert_eq!(result["reason"], reason);
+        assert!(
+            payload["data"]["scenario"]["sources"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|s| s["kind"] == "role" && s["role"]["scope"] == "instance")
+        );
+        if action == "topic_move" && context.contains("target_board_id") {
+            assert_eq!(
+                payload["data"]["target_board_id"],
+                if context.ends_with(&target.to_string()) {
+                    target.to_string()
+                } else {
+                    root.to_string()
+                }
+            );
+        }
+    }
+    assert_eq!(check_side_effect_counts(&pool, owner).await, before);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT governance_revision FROM topics WHERE id=$1")
+            .bind(topic)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        revision
+    );
+    // Removing role-read permission must hide all user/assignment capability details.
+    sqlx::query("DELETE FROM role_permissions WHERE permission_id=(SELECT id FROM permissions WHERE permission_key='authorization.roles.read')").execute(&pool).await.unwrap();
+    for uri in [
+        format!("/api/v1/admin/permission-check?board_id={root}&user_id={owner}&action=browse"),
+        format!("/api/v1/admin/boards/{root}/permission-matrix?user_id={owner}"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(get_request(&uri, &cookies))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let request_id = response.headers()["x-request-id"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let payload = response_json(response).await;
+        assert_eq!(payload["meta"]["request_id"], request_id);
+        assert!(payload.get("data").is_none());
+        assert!(!payload.to_string().contains("source_ids"));
+    }
+    let group: Uuid = sqlx::query_scalar("SELECT id FROM community_groups LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        app.clone()
+            .oneshot(get_request(
+                &format!("/api/v1/admin/boards/{root}/permission-matrix?group_ids={group}"),
+                &cookies
+            ))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let schema = serde_json::to_value(daoyun_api::openapi_document()).unwrap();
+    assert!(
+        schema["paths"]["/api/v1/admin/permission-check"]["get"]["parameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["name"] == "target_board_id")
+    );
 }

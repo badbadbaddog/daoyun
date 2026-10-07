@@ -69,6 +69,40 @@ pub struct PublicUserSummaryRecord {
     pub avatar_url: Option<String>,
 }
 
+#[derive(Debug, Default)]
+pub struct ListAdminUsersFilter<'a> {
+    pub query: Option<&'a str>,
+    pub status: Option<&'a str>,
+    pub role_id: Option<Uuid>,
+    pub registered_after: Option<OffsetDateTime>,
+    pub registered_before: Option<OffsetDateTime>,
+    pub last_active_after: Option<OffsetDateTime>,
+    pub last_active_before: Option<OffsetDateTime>,
+    pub base_group_id: Option<Uuid>,
+    pub additional_group_id: Option<Uuid>,
+    pub growth_level_id: Option<Uuid>,
+    pub entitlement_type_id: Option<Uuid>,
+}
+
+// The identical predicate constrains both page rows and cursor validation.
+macro_rules! admin_user_filter { () => { "
+    ($1::text IS NULL OR u.id::text = $1 OR u.username ILIKE '%' || $1 || '%' OR u.display_name ILIKE '%' || $1 || '%')
+    AND ($2::text IS NULL OR u.status = $2)
+    AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM role_assignments ra WHERE ra.user_id = u.id AND ra.role_id = $3))
+    AND ($4::timestamptz IS NULL OR u.created_at >= $4)
+    AND ($5::timestamptz IS NULL OR u.created_at < $5)
+    AND ($6::timestamptz IS NULL OR (SELECT MAX(s.last_seen_at) FROM sessions s WHERE s.user_id = u.id) >= $6)
+    AND ($7::timestamptz IS NULL OR (SELECT MAX(s.last_seen_at) FROM sessions s WHERE s.user_id = u.id) < $7)
+    AND ($8::uuid IS NULL OR EXISTS (SELECT 1 FROM community_group_memberships m JOIN community_groups g ON g.id = m.group_id
+        WHERE m.user_id = u.id AND m.group_id = $8 AND m.membership_kind = 'base' AND g.status = 'active'
+            AND m.revoked_at IS NULL AND m.starts_at <= $13 AND (m.ends_at IS NULL OR m.ends_at > $13)))
+    AND ($9::uuid IS NULL OR EXISTS (SELECT 1 FROM community_group_memberships m JOIN community_groups g ON g.id = m.group_id
+        WHERE m.user_id = u.id AND m.group_id = $9 AND m.membership_kind = 'additional' AND g.status = 'active'
+            AND m.revoked_at IS NULL AND m.starts_at <= $13 AND (m.ends_at IS NULL OR m.ends_at > $13)))
+    AND ($10::uuid IS NULL OR EXISTS (SELECT 1 FROM experience_accounts ea WHERE ea.user_id = u.id AND ea.current_level_id = $10))
+    AND ($11::uuid IS NULL OR EXISTS (SELECT 1 FROM user_standard_entitlements e WHERE e.user_id = u.id AND e.entitlement_type_id = $11
+        AND e.revoked_at IS NULL AND e.starts_at <= $13 AND (e.ends_at IS NULL OR e.ends_at > $13)))" }; }
+
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct AdminUserSummaryRecord {
     pub id: Uuid,
@@ -247,44 +281,40 @@ impl Database {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn list_admin_users(
         &self,
-        query: Option<&str>,
-        status: Option<&str>,
-        role_id: Option<Uuid>,
-        registered_after: Option<OffsetDateTime>,
-        registered_before: Option<OffsetDateTime>,
+        filter: &ListAdminUsersFilter<'_>,
         cursor: Option<Uuid>,
         limit: i64,
     ) -> Result<Vec<AdminUserSummaryRecord>, AdminUserReadError> {
-        if let Some(cursor) = cursor {
-            let valid = sqlx::query_scalar::<_, bool>(
-                "SELECT EXISTS (
-                    SELECT 1 FROM users AS u
-                    WHERE u.id = $6
-                      AND ($1::text IS NULL OR u.id::text = $1 OR u.username ILIKE '%' || $1 || '%' OR u.display_name ILIKE '%' || $1 || '%')
-                      AND ($2::text IS NULL OR u.status = $2)
-                      AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM role_assignments AS ra WHERE ra.user_id = u.id AND ra.role_id = $3))
-                      AND ($4::timestamptz IS NULL OR u.created_at >= $4)
-                      AND ($5::timestamptz IS NULL OR u.created_at < $5)
-                )",
-            )
-            .bind(query)
-            .bind(status)
-            .bind(role_id)
-            .bind(registered_after)
-            .bind(registered_before)
-            .bind(cursor)
-            .fetch_one(&self.pool)
-            .await?;
+        let effective_at = OffsetDateTime::now_utc();
+        if cursor.is_some() {
+            let sql = concat!(
+                "SELECT EXISTS(SELECT 1 FROM users u WHERE u.id = $12 AND ",
+                admin_user_filter!(),
+                ")"
+            );
+            let valid = sqlx::query_scalar::<_, bool>(sql)
+                .bind(filter.query)
+                .bind(filter.status)
+                .bind(filter.role_id)
+                .bind(filter.registered_after)
+                .bind(filter.registered_before)
+                .bind(filter.last_active_after)
+                .bind(filter.last_active_before)
+                .bind(filter.base_group_id)
+                .bind(filter.additional_group_id)
+                .bind(filter.growth_level_id)
+                .bind(filter.entitlement_type_id)
+                .bind(cursor)
+                .bind(effective_at)
+                .fetch_one(&self.pool)
+                .await?;
             if !valid {
                 return Err(AdminUserReadError::InvalidCursor);
             }
         }
-
-        Ok(sqlx::query_as::<_, AdminUserSummaryRecord>(
-            "SELECT u.id, u.username, u.display_name, u.avatar_url, u.status,
+        let sql = concat!("SELECT u.id, u.username, u.display_name, u.avatar_url, u.status,
                     (SELECT r.name FROM role_assignments AS ra INNER JOIN roles AS r ON r.id = ra.role_id
                      WHERE ra.user_id = u.id ORDER BY r.is_system DESC, ra.created_at ASC, ra.id ASC LIMIT 1) AS primary_role,
                     (SELECT COUNT(*) FROM topics AS t WHERE t.author_id = u.id AND t.deleted_at IS NULL) AS topic_count,
@@ -296,24 +326,26 @@ impl Database {
                     u.created_at,
                     (SELECT MAX(s.last_seen_at) FROM sessions AS s WHERE s.user_id = u.id) AS last_seen_at
              FROM users AS u
-             WHERE ($1::text IS NULL OR u.id::text = $1 OR u.username ILIKE '%' || $1 || '%' OR u.display_name ILIKE '%' || $1 || '%')
-               AND ($2::text IS NULL OR u.status = $2)
-               AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM role_assignments AS ra WHERE ra.user_id = u.id AND ra.role_id = $3))
-               AND ($4::timestamptz IS NULL OR u.created_at >= $4)
-               AND ($5::timestamptz IS NULL OR u.created_at < $5)
-               AND ($6::uuid IS NULL OR (u.created_at, u.id) < (SELECT created_at, id FROM users WHERE id = $6))
-             ORDER BY u.created_at DESC, u.id DESC
-             LIMIT $7",
-        )
-        .bind(query)
-        .bind(status)
-        .bind(role_id)
-        .bind(registered_after)
-        .bind(registered_before)
-        .bind(cursor)
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await?)
+ WHERE ", admin_user_filter!(), "
+            AND ($12::uuid IS NULL OR (u.created_at, u.id) < (SELECT created_at, id FROM users WHERE id = $12))
+            ORDER BY u.created_at DESC, u.id DESC LIMIT $14");
+        Ok(sqlx::query_as::<_, AdminUserSummaryRecord>(sql)
+            .bind(filter.query)
+            .bind(filter.status)
+            .bind(filter.role_id)
+            .bind(filter.registered_after)
+            .bind(filter.registered_before)
+            .bind(filter.last_active_after)
+            .bind(filter.last_active_before)
+            .bind(filter.base_group_id)
+            .bind(filter.additional_group_id)
+            .bind(filter.growth_level_id)
+            .bind(filter.entitlement_type_id)
+            .bind(cursor)
+            .bind(effective_at)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?)
     }
 
     pub async fn admin_user_detail(

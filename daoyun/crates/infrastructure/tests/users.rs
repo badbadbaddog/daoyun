@@ -384,11 +384,12 @@ async fn admin_user_read_model_searches_and_pages_without_exposing_credentials(p
 
     let users = database
         .list_admin_users(
-            Some("目标"),
-            Some("restricted"),
-            Some(role),
-            None,
-            None,
+            &infrastructure::ListAdminUsersFilter {
+                query: Some("目标"),
+                status: Some("restricted"),
+                role_id: Some(role),
+                ..Default::default()
+            },
             None,
             20,
         )

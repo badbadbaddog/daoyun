@@ -72,7 +72,7 @@ async fn snapshot(pool: &PgPool) -> BTreeMap<String, Value> {
         ),
         (
             "user_standard_entitlements",
-            "SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY to_jsonb(row)::text), '[]'::jsonb) FROM user_standard_entitlements AS row",
+            "SELECT COALESCE(jsonb_agg(to_jsonb(row) - 'granted_ends_at' ORDER BY (to_jsonb(row) - 'granted_ends_at')::text), '[]'::jsonb) FROM user_standard_entitlements AS row",
         ),
     ] {
         rows.insert(
@@ -154,7 +154,7 @@ async fn v2_to_current_upgrade_preserves_nonempty_accounts_grants_ledgers_and_au
     sqlx::query("INSERT INTO standard_entitlement_versions (id, entitlement_type_id, version, permission_keys, quotas, created_by) VALUES ($1, $2, 1, ARRAY['topic.poll.create'], '{\"topic.create.daily\":42}', $3)")
         .bind(Uuid::now_v7()).bind(kind).bind(users[0]).execute(&pool).await.unwrap();
     for user in users {
-        sqlx::query("INSERT INTO user_standard_entitlements (id, user_id, entitlement_type_id, entitlement_key, type_version, permission_snapshot, quota_snapshot, source, reason, starts_at, idempotency_key, granted_by) VALUES ($1, $2, $3, 'upgrade_vip', 1, ARRAY['topic.poll.create'], '{\"topic.create.daily\":42}', 'upgrade_fixture', 'Upgrade fixture grant', '2026-01-01', 'upgrade-vip', $4)")
+        sqlx::query("INSERT INTO user_standard_entitlements (id, user_id, entitlement_type_id, entitlement_key, type_version, permission_snapshot, quota_snapshot, source, reason, starts_at, ends_at, idempotency_key, granted_by) VALUES ($1, $2, $3, 'upgrade_vip', 1, ARRAY['topic.poll.create'], '{\"topic.create.daily\":42}', 'upgrade_fixture', 'Upgrade fixture grant', '2026-01-01', CASE WHEN $2=$4 THEN NULL ELSE '2090-01-01'::timestamptz END, 'upgrade-vip', $4)")
             .bind(Uuid::now_v7()).bind(user).bind(kind).bind(users[0]).execute(&pool).await.unwrap();
     }
     let nonempty_groups: i64 =
@@ -203,6 +203,22 @@ async fn v2_to_current_upgrade_preserves_nonempty_accounts_grants_ledgers_and_au
     assert!(!community_before[1].permission_keys.contains("topic.create"));
 
     MIGRATOR.run(&pool).await.unwrap();
+    // Added command metadata has its own invariant; every original business field stays exact.
+    let correctly_backfilled: i64 = sqlx::query_scalar("SELECT count(*) FROM user_standard_entitlements WHERE granted_ends_at IS NOT DISTINCT FROM ends_at").fetch_one(&pool).await.unwrap();
+    assert_eq!(correctly_backfilled, 2);
+    let finite: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM user_standard_entitlements WHERE granted_ends_at IS NOT NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(finite, 1);
+    let fabricated_receipts: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM standard_entitlement_renewal_receipts")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(fabricated_receipts, 0);
     assert_eq!(
         snapshot(&pool).await,
         before,

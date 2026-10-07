@@ -287,15 +287,36 @@ async fn medals_are_idempotent_and_auto_awarded_by_points_rule(pool: PgPool) {
         ["medal_01"]
     );
     let first = database
-        .grant_membership_medal(actor_id, user_id, "medal_02", "operator.award")
+        .grant_membership_medal(
+            actor_id,
+            user_id,
+            "medal_02",
+            "operator.award",
+            infrastructure::MedalCommandContext {
+                expected_revision: 1,
+                idempotency_key: "manual-medal",
+                request_id: Uuid::now_v7(),
+            },
+        )
         .await
         .expect("manual award must succeed");
     assert!(first.created);
     let replay = database
-        .grant_membership_medal(actor_id, user_id, "medal_02", "operator.award")
+        .grant_membership_medal(
+            actor_id,
+            user_id,
+            "medal_02",
+            "operator.award",
+            infrastructure::MedalCommandContext {
+                expected_revision: 1,
+                idempotency_key: "manual-medal",
+                request_id: Uuid::now_v7(),
+            },
+        )
         .await
         .expect("duplicate award must be idempotent");
-    assert!(!replay.created);
+    assert!(replay.created);
+    assert!(replay.receipt.replayed);
     assert_eq!(
         database
             .list_membership_medals(user_id)
@@ -305,7 +326,17 @@ async fn medals_are_idempotent_and_auto_awarded_by_points_rule(pool: PgPool) {
         2
     );
     let invalid = database
-        .grant_membership_medal(actor_id, user_id, "medal_18", "operator.award")
+        .grant_membership_medal(
+            actor_id,
+            user_id,
+            "medal_18",
+            "operator.award",
+            infrastructure::MedalCommandContext {
+                expected_revision: 2,
+                idempotency_key: "invalid-medal",
+                request_id: Uuid::now_v7(),
+            },
+        )
         .await
         .expect_err("unknown medal keys must be rejected");
     assert!(matches!(
@@ -352,7 +383,17 @@ async fn medal_catalog_crud_preserves_ownership_and_checks_revisions(pool: PgPoo
         Err(infrastructure::UpdateMembershipMedalRuleError::RevisionConflict)
     ));
     database
-        .grant_membership_medal(admin, member, &created.medal_key, "operator.award")
+        .grant_membership_medal(
+            admin,
+            member,
+            &created.medal_key,
+            "operator.award",
+            infrastructure::MedalCommandContext {
+                expected_revision: 0,
+                idempotency_key: "catalog-grant",
+                request_id: Uuid::now_v7(),
+            },
+        )
         .await
         .unwrap();
     assert!(matches!(
@@ -378,7 +419,17 @@ async fn medal_catalog_crud_preserves_ownership_and_checks_revisions(pool: PgPoo
     assert_eq!(owned[0].asset_key, "medal_02");
     assert!(matches!(
         database
-            .grant_membership_medal(admin, member, &created.medal_key, "operator.award")
+            .grant_membership_medal(
+                admin,
+                member,
+                &created.medal_key,
+                "operator.award",
+                infrastructure::MedalCommandContext {
+                    expected_revision: 1,
+                    idempotency_key: "deleted-new",
+                    request_id: Uuid::now_v7()
+                }
+            )
             .await,
         Err(infrastructure::GrantMembershipMedalError::InvalidMedal)
     ));

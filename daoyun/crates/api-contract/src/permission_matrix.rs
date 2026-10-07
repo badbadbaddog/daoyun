@@ -1,3 +1,4 @@
+use crate::{AdminUserStatus, AuthorizationRoleScope, AuthorizationScopeMode};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use utoipa::ToSchema;
@@ -11,6 +12,11 @@ pub enum PermissionMatrixAction {
     ReplyCreate,
     AttachmentUpload,
     AttachmentDownload,
+    ModerationBrowse,
+    TopicPin,
+    TopicFeature,
+    TopicLock,
+    TopicMove,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -36,6 +42,20 @@ pub enum PermissionMatrixScenarioKind {
 pub enum PermissionMatrixSourceKind {
     Group,
     Entitlement,
+    Role,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct PermissionMatrixRole {
+    pub id: Uuid,
+    pub revision: i64,
+    pub scope: AuthorizationRoleScope,
+    pub scope_id: Option<Uuid>,
+    pub scope_mode: AuthorizationScopeMode,
+    pub scope_matches: bool,
+    pub target_scope_matches: Option<bool>,
+    pub is_system: bool,
+    pub assigned_by: Uuid,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -47,6 +67,8 @@ pub struct PermissionMatrixSource {
     pub permission_keys: Vec<String>,
     pub quotas: BTreeMap<String, i64>,
     pub type_version: Option<i32>,
+    pub membership_kind: Option<String>,
+    pub role: Option<PermissionMatrixRole>,
     #[schema(value_type = Option<String>, format = DateTime)]
     pub starts_at: Option<String>,
     #[schema(value_type = Option<String>, format = DateTime)]
@@ -76,6 +98,7 @@ pub struct PermissionMatrixScenario {
     pub kind: PermissionMatrixScenarioKind,
     pub display_name: String,
     pub complete: bool,
+    pub account_status: Option<AdminUserStatus>,
     pub actions: Vec<PermissionMatrixActionResult>,
     pub sources: Vec<PermissionMatrixSource>,
     pub quotas: Vec<PermissionMatrixQuota>,
@@ -99,6 +122,9 @@ pub struct PermissionCheck {
     pub topic_id: Option<Uuid>,
     pub attachment_id: Option<Uuid>,
     pub file_bytes: Option<i64>,
+    pub target_board_id: Option<Uuid>,
+    pub policy_revision: Option<i64>,
+    pub topic_revision: Option<i64>,
     #[schema(value_type = String, format = DateTime)]
     pub evaluated_at: String,
     pub scenario: PermissionMatrixScenario,

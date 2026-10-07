@@ -1073,7 +1073,7 @@ fn membership_account(record: MembershipAccountRecord) -> Result<MembershipAccou
     })
 }
 
-fn experience_account(record: ExperienceAccountRecord) -> Result<ExperienceAccount, ()> {
+pub(crate) fn experience_account(record: ExperienceAccountRecord) -> Result<ExperienceAccount, ()> {
     if record.internal_key.is_empty()
         || record.level_order < 1
         || record.display_name.is_empty()

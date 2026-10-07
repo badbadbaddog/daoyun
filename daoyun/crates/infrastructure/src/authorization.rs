@@ -893,7 +893,19 @@ pub(crate) async fn has_permission_with_executor(
         .fetch_all(&mut *connection)
         .await?;
     }
-    sqlx::query_scalar::<_, bool>(
+    query_permission_with_executor(connection, user_id, permission_key, resource_scope_id, true)
+        .await
+}
+
+// Diagnostics use this same predicate without taking mutation locks.
+pub(crate) async fn query_permission_with_executor(
+    connection: &mut PgConnection,
+    user_id: Uuid,
+    permission_key: &str,
+    resource_scope_id: Option<Uuid>,
+    lock_for_mutation: bool,
+) -> Result<bool, sqlx::Error> {
+    let mut query = sqlx::QueryBuilder::<sqlx::Postgres>::new(
         "SELECT EXISTS (
              SELECT 1
              FROM users AS account
@@ -917,12 +929,17 @@ pub(crate) async fn has_permission_with_executor(
                        )
                    )
                 )
-             FOR SHARE OF account, assignment, role, role_permission, permission
-          )",
-    )
-    .bind(user_id)
-    .bind(permission_key)
-    .bind(resource_scope_id)
-    .fetch_one(&mut *connection)
-    .await
+             ",
+    );
+    if lock_for_mutation {
+        query.push("FOR SHARE OF account, assignment, role, role_permission, permission");
+    }
+    query.push(")");
+    query
+        .build_query_scalar::<bool>()
+        .bind(user_id)
+        .bind(permission_key)
+        .bind(resource_scope_id)
+        .fetch_one(&mut *connection)
+        .await
 }

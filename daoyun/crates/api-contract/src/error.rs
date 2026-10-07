@@ -119,6 +119,10 @@ pub mod error_codes {
     pub const USER_NOT_FOUND: &str = "user.not_found";
     pub const USER_ACTION_RESTRICTED: &str = "user.action_restricted";
     pub const PROFILE_REVISION_CONFLICT: &str = "profile.revision_conflict";
+    pub const MEMBERSHIP_EXPERIENCE_CONFLICT: &str = "membership.experience_conflict";
+    pub const MEMBERSHIP_EXPERIENCE_REVISION_CONFLICT: &str =
+        "membership.experience_revision_conflict";
+    pub const MEMBERSHIP_EXPERIENCE_NOT_FOUND: &str = "membership.experience_not_found";
     pub const MEMBERSHIP_LEVEL_CONFLICT: &str = "membership.level_conflict";
     pub const MEMBERSHIP_LEVEL_NOT_FOUND: &str = "membership.level_not_found";
     pub const MEMBERSHIP_LEVEL_REVISION_CONFLICT: &str = "membership.level_revision_conflict";

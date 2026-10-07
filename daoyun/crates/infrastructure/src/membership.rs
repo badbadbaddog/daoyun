@@ -94,6 +94,42 @@ pub struct UpdateMembershipMedalRuleRecord {
 pub struct GrantMembershipMedalResult {
     pub medal: MembershipMedalRecord,
     pub created: bool,
+    pub receipt: MembershipMedalReceiptRecord,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MedalCommandContext<'a> {
+    pub expected_revision: i64,
+    pub idempotency_key: &'a str,
+    pub request_id: Uuid,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
+pub struct MembershipMedalReceiptRecord {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub idempotency_key: String,
+    pub operation: String,
+    pub medal_key: String,
+    pub medal_display_name: String,
+    pub medal_asset_key: String,
+    pub medal_granted_at: Option<OffsetDateTime>,
+    pub reason: String,
+    pub actor_id: Uuid,
+    pub expected_revision: i64,
+    pub revision: i64,
+    pub affected: bool,
+    pub owned_after: bool,
+    pub audit_id: Option<Uuid>,
+    pub operation_request_id: Uuid,
+    pub created_at: OffsetDateTime,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MembershipMedalStateRecord {
+    pub revision: i64,
+    pub medals: Vec<MembershipMedalRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
@@ -117,6 +153,7 @@ pub struct RevokeMembershipMedalResult {
     pub user_id: Uuid,
     pub medal_key: String,
     pub revoked: bool,
+    pub receipt: MembershipMedalReceiptRecord,
 }
 
 #[derive(Debug)]
@@ -151,6 +188,9 @@ pub enum UpdateMembershipLevelRuleError {
 
 #[derive(Debug)]
 pub enum GrantMembershipMedalError {
+    InvalidCommand,
+    RevisionConflict,
+    IdempotencyConflict,
     Forbidden,
     UserNotFound,
     InvalidMedal,
@@ -164,14 +204,7 @@ pub enum ListMembershipMedalOperationsError {
     Database(DatabaseError),
 }
 
-#[derive(Debug)]
-pub enum RevokeMembershipMedalError {
-    Forbidden,
-    UserNotFound,
-    InvalidMedal,
-    InvalidReason,
-    Database(DatabaseError),
-}
+pub type RevokeMembershipMedalError = GrantMembershipMedalError;
 
 #[derive(Debug)]
 pub enum UpdateMembershipMedalRuleError {
@@ -184,6 +217,20 @@ pub enum UpdateMembershipMedalRuleError {
 }
 
 impl Database {
+    pub async fn points_ledger_cursor_exists(
+        &self,
+        user_id: Uuid,
+        cursor: Uuid,
+    ) -> Result<bool, DatabaseError> {
+        Ok(sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM point_ledger_entries WHERE user_id = $1 AND id = $2)",
+        )
+        .bind(user_id)
+        .bind(cursor)
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
     pub async fn list_points_ledger(
         &self,
         user_id: Uuid,
@@ -543,84 +590,62 @@ impl Database {
         Ok(record)
     }
 
+    pub async fn membership_medal_state(
+        &self,
+        user_id: Uuid,
+    ) -> Result<MembershipMedalStateRecord, DatabaseError> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *tx)
+            .await?;
+        let revision =
+            sqlx::query_scalar("SELECT revision FROM membership_medal_states WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .unwrap_or(0);
+        let medals = sqlx::query_as::<_, MembershipMedalRecord>(
+            "SELECT m.user_id, m.medal_key, m.granted_at, r.display_name, r.asset_key FROM membership_medals m
+             JOIN membership_medal_rules r ON r.medal_key = m.medal_key WHERE m.user_id = $1 ORDER BY m.granted_at DESC, m.medal_key")
+            .bind(user_id).fetch_all(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(MembershipMedalStateRecord { revision, medals })
+    }
+
+    pub async fn membership_medal_receipt(
+        &self,
+        user_id: Uuid,
+        key: &str,
+    ) -> Result<Option<MembershipMedalReceiptRecord>, DatabaseError> {
+        Ok(sqlx::query_as("SELECT *, false AS replayed FROM membership_medal_command_receipts WHERE user_id = $1 AND idempotency_key = $2")
+            .bind(user_id).bind(key).fetch_optional(&self.pool).await?)
+    }
+
     pub async fn grant_membership_medal(
         &self,
         actor_id: Uuid,
         user_id: Uuid,
         medal_key: &str,
         reason: &str,
+        context: MedalCommandContext<'_>,
     ) -> Result<GrantMembershipMedalResult, GrantMembershipMedalError> {
-        if !medal_key_valid(medal_key) {
-            return Err(GrantMembershipMedalError::InvalidMedal);
-        }
-        if !valid_reason(reason) {
-            return Err(GrantMembershipMedalError::InvalidReason);
-        }
-        let mut transaction = self.pool.begin().await?;
-        if !has_permission_with_executor(
-            &mut transaction,
-            actor_id,
-            permission_keys::MEMBERSHIP_MEDALS_GRANT,
-            None,
-        )
-        .await?
-        {
-            return Err(GrantMembershipMedalError::Forbidden);
-        }
-        let exists = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND status = 'active')",
-        )
-        .bind(user_id)
-        .fetch_one(&mut *transaction)
-        .await?;
-        if !exists {
-            return Err(GrantMembershipMedalError::UserNotFound);
-        }
-        let available = sqlx::query_scalar::<_, String>(
-            "SELECT medal_key FROM membership_medal_rules WHERE medal_key = $1 AND deleted_at IS NULL FOR SHARE",
-        ).bind(medal_key).fetch_optional(&mut *transaction).await?;
-        if available.is_none() {
-            return Err(GrantMembershipMedalError::InvalidMedal);
-        }
-        let inserted = sqlx::query_as::<_, MembershipMedalRecord>(
-            "INSERT INTO membership_medals (user_id, medal_key, granted_by, reason)
-             VALUES ($1, $2, $3, $4)
-             ON CONFLICT (user_id, medal_key) DO NOTHING
-             RETURNING user_id, medal_key, granted_at, (SELECT display_name FROM membership_medal_rules r WHERE r.medal_key = membership_medals.medal_key) AS display_name, (SELECT asset_key FROM membership_medal_rules r WHERE r.medal_key = membership_medals.medal_key) AS asset_key",
-        )
-        .bind(user_id)
-        .bind(medal_key)
-        .bind(actor_id)
-        .bind(reason)
-        .fetch_optional(&mut *transaction)
-        .await?;
-        let (medal, created) = match inserted {
-            Some(record) => (record, true),
-            None => (
-                sqlx::query_as::<_, MembershipMedalRecord>(
-                    "SELECT user_id, medal_key, granted_at, (SELECT display_name FROM membership_medal_rules r WHERE r.medal_key = membership_medals.medal_key) AS display_name, (SELECT asset_key FROM membership_medal_rules r WHERE r.medal_key = membership_medals.medal_key) AS asset_key
-                     FROM membership_medals WHERE user_id = $1 AND medal_key = $2",
-                )
-                .bind(user_id)
-                .bind(medal_key)
-                .fetch_one(&mut *transaction)
-                .await?,
-                false,
-            ),
-        };
-        if created {
-            insert_audit(
-                &mut transaction,
-                actor_id,
-                "membership.medal.grant",
-                "membership_medal",
-                Some(user_id),
-                serde_json::json!({ "user_id": user_id, "medal_key": medal_key, "reason": reason }),
-            )
+        let receipt = self
+            .apply_membership_medal_command(actor_id, user_id, medal_key, reason, true, context)
             .await?;
-        }
-        transaction.commit().await?;
-        Ok(GrantMembershipMedalResult { medal, created })
+        let medal = MembershipMedalRecord {
+            user_id,
+            medal_key: receipt.medal_key.clone(),
+            display_name: receipt.medal_display_name.clone(),
+            asset_key: receipt.medal_asset_key.clone(),
+            granted_at: receipt
+                .medal_granted_at
+                .expect("grant receipt always contains original holding time"),
+        };
+        Ok(GrantMembershipMedalResult {
+            medal,
+            created: receipt.affected,
+            receipt,
+        })
     }
 
     pub async fn revoke_membership_medal(
@@ -629,57 +654,154 @@ impl Database {
         user_id: Uuid,
         medal_key: &str,
         reason: &str,
+        context: MedalCommandContext<'_>,
     ) -> Result<RevokeMembershipMedalResult, RevokeMembershipMedalError> {
+        let receipt = self
+            .apply_membership_medal_command(actor_id, user_id, medal_key, reason, false, context)
+            .await?;
+        Ok(RevokeMembershipMedalResult {
+            user_id,
+            medal_key: receipt.medal_key.clone(),
+            revoked: receipt.affected,
+            receipt,
+        })
+    }
+
+    async fn apply_membership_medal_command(
+        &self,
+        actor_id: Uuid,
+        user_id: Uuid,
+        medal_key: &str,
+        reason: &str,
+        grant: bool,
+        context: MedalCommandContext<'_>,
+    ) -> Result<MembershipMedalReceiptRecord, GrantMembershipMedalError> {
         if !medal_key_valid(medal_key) {
-            return Err(RevokeMembershipMedalError::InvalidMedal);
+            return Err(GrantMembershipMedalError::InvalidMedal);
         }
-        if !valid_medal_operation_reason(reason) {
-            return Err(RevokeMembershipMedalError::InvalidReason);
+        if !(if grant {
+            valid_reason(reason)
+        } else {
+            valid_medal_operation_reason(reason)
+        }) {
+            return Err(GrantMembershipMedalError::InvalidReason);
         }
-        let mut transaction = self.pool.begin().await?;
+        if context.expected_revision < 0
+            || !(1..=64).contains(&context.idempotency_key.len())
+            || !context
+                .idempotency_key
+                .bytes()
+                .all(|b| b.is_ascii_graphic())
+        {
+            return Err(GrantMembershipMedalError::InvalidCommand);
+        }
+        let mut tx = self.pool.begin().await?;
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)")
+            .bind(user_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        if !exists {
+            return Err(GrantMembershipMedalError::UserNotFound);
+        }
+        sqlx::query(
+            "INSERT INTO membership_medal_states(user_id) VALUES ($1) ON CONFLICT DO NOTHING",
+        )
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+        let revision: i64 = sqlx::query_scalar(
+            "SELECT revision FROM membership_medal_states WHERE user_id = $1 FOR UPDATE",
+        )
+        .bind(user_id)
+        .fetch_one(&mut *tx)
+        .await?;
         if !has_permission_with_executor(
-            &mut transaction,
+            &mut tx,
             actor_id,
             permission_keys::MEMBERSHIP_MEDALS_GRANT,
             None,
         )
         .await?
         {
-            return Err(RevokeMembershipMedalError::Forbidden);
+            return Err(GrantMembershipMedalError::Forbidden);
         }
-        let user_exists =
-            sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)")
-                .bind(user_id)
-                .fetch_one(&mut *transaction)
-                .await?;
-        if !user_exists {
-            return Err(RevokeMembershipMedalError::UserNotFound);
+        let operation = if grant { "grant" } else { "revoke" };
+        // A receipt precedes current-state checks: replay reports the original fact and never repeats its write.
+        if let Some(mut receipt) = sqlx::query_as::<_, MembershipMedalReceiptRecord>(
+            "SELECT *, false AS replayed FROM membership_medal_command_receipts WHERE user_id = $1 AND idempotency_key = $2")
+            .bind(user_id).bind(context.idempotency_key).fetch_optional(&mut *tx).await? {
+            if receipt.actor_id != actor_id || receipt.operation != operation || receipt.medal_key != medal_key || receipt.reason != reason || receipt.expected_revision != context.expected_revision {
+                return Err(GrantMembershipMedalError::IdempotencyConflict);
+            }
+            receipt.replayed = true;
+            tx.commit().await?;
+            return Ok(receipt);
         }
-        let revoked =
+        if revision != context.expected_revision {
+            return Err(GrantMembershipMedalError::RevisionConflict);
+        }
+        if grant {
+            let active: bool =
+                sqlx::query_scalar("SELECT status = 'active' FROM users WHERE id = $1")
+                    .bind(user_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            if !active {
+                return Err(GrantMembershipMedalError::UserNotFound);
+            }
+        }
+        let catalog = sqlx::query_as::<_, (String, String, bool)>(
+            "SELECT display_name, asset_key, deleted_at IS NULL FROM membership_medal_rules WHERE medal_key = $1 FOR SHARE")
+            .bind(medal_key).fetch_optional(&mut *tx).await?.ok_or(GrantMembershipMedalError::InvalidMedal)?;
+        if grant && !catalog.2 {
+            return Err(GrantMembershipMedalError::InvalidMedal);
+        }
+        let granted_at: Option<OffsetDateTime> = sqlx::query_scalar(
+            "SELECT granted_at FROM membership_medals WHERE user_id = $1 AND medal_key = $2",
+        )
+        .bind(user_id)
+        .bind(medal_key)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let affected = if grant {
+            sqlx::query("INSERT INTO membership_medals(user_id, medal_key, granted_by, reason) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING")
+                .bind(user_id).bind(medal_key).bind(actor_id).bind(reason).execute(&mut *tx).await?.rows_affected() == 1
+        } else {
             sqlx::query("DELETE FROM membership_medals WHERE user_id = $1 AND medal_key = $2")
                 .bind(user_id)
                 .bind(medal_key)
-                .execute(&mut *transaction)
+                .execute(&mut *tx)
                 .await?
                 .rows_affected()
-                == 1;
-        if revoked {
-            insert_audit(
-                &mut transaction,
-                actor_id,
-                "membership.medal.revoke",
-                "membership_medal",
-                Some(user_id),
-                serde_json::json!({ "user_id": user_id, "medal_key": medal_key, "reason": reason }),
-            )
-            .await?;
-        }
-        transaction.commit().await?;
-        Ok(RevokeMembershipMedalResult {
-            user_id,
-            medal_key: medal_key.to_owned(),
-            revoked,
-        })
+                == 1
+        };
+        let granted_at = if grant {
+            Some(sqlx::query_scalar("SELECT granted_at FROM membership_medals WHERE user_id = $1 AND medal_key = $2").bind(user_id).bind(medal_key).fetch_one(&mut *tx).await?)
+        } else {
+            granted_at
+        };
+        let next_revision = revision + i64::from(affected);
+        let audit_id = if affected {
+            sqlx::query("UPDATE membership_medal_states SET revision = $2 WHERE user_id = $1")
+                .bind(user_id)
+                .bind(next_revision)
+                .execute(&mut *tx)
+                .await?;
+            Some(insert_audit(&mut tx, actor_id, if grant { "membership.medal.grant" } else { "membership.medal.revoke" }, "membership_medal", Some(user_id),
+                serde_json::json!({ "user_id": user_id, "medal_key": medal_key, "reason": reason, "idempotency_key": context.idempotency_key,
+                    "request_id": context.request_id, "revision_before": revision, "revision_after": next_revision })).await?)
+        } else {
+            None
+        };
+        let receipt = sqlx::query_as::<_, MembershipMedalReceiptRecord>(
+            "INSERT INTO membership_medal_command_receipts(id, user_id, idempotency_key, operation, medal_key, medal_display_name, medal_asset_key,
+             medal_granted_at, reason, actor_id, expected_revision, revision, affected, owned_after, audit_id, operation_request_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *, false AS replayed")
+            .bind(Uuid::now_v7()).bind(user_id).bind(context.idempotency_key).bind(operation).bind(medal_key).bind(catalog.0).bind(catalog.1)
+            .bind(granted_at).bind(reason).bind(actor_id).bind(context.expected_revision).bind(next_revision).bind(affected).bind(grant).bind(audit_id).bind(context.request_id)
+            .fetch_one(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(receipt)
     }
 
     pub async fn update_membership_level_rule(
@@ -984,6 +1106,16 @@ impl Database {
         } else {
             None
         };
+        sqlx::query(
+            "INSERT INTO membership_medal_states(user_id) VALUES ($1) ON CONFLICT DO NOTHING",
+        )
+        .bind(user_id)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query("SELECT revision FROM membership_medal_states WHERE user_id = $1 FOR UPDATE")
+            .bind(user_id)
+            .fetch_one(&mut *transaction)
+            .await?;
         let automatic_medals = sqlx::query_as::<_, MembershipMedalRecord>(
             "INSERT INTO membership_medals (user_id, medal_key, reason)
              SELECT $1, medal_key, 'rule.points'
@@ -998,6 +1130,14 @@ impl Database {
         .bind(lifetime_points)
         .fetch_all(&mut *transaction)
         .await?;
+        if !automatic_medals.is_empty() {
+            sqlx::query(
+                "UPDATE membership_medal_states SET revision = revision + 1 WHERE user_id = $1",
+            )
+            .bind(user_id)
+            .execute(&mut *transaction)
+            .await?;
+        }
         for medal in automatic_medals {
             insert_audit(
                 &mut transaction,
@@ -1157,12 +1297,6 @@ impl From<sqlx::Error> for ListMembershipMedalOperationsError {
     }
 }
 
-impl From<sqlx::Error> for RevokeMembershipMedalError {
-    fn from(error: sqlx::Error) -> Self {
-        Self::Database(DatabaseError::from(error))
-    }
-}
-
 impl From<sqlx::Error> for UpdateMembershipMedalRuleError {
     fn from(error: sqlx::Error) -> Self {
         Self::Database(DatabaseError::from(error))
@@ -1210,6 +1344,9 @@ impl Error for UpdateMembershipLevelRuleError {}
 impl fmt::Display for GrantMembershipMedalError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidCommand => formatter.write_str("invalid medal command"),
+            Self::RevisionConflict => formatter.write_str("medal ownership revision conflict"),
+            Self::IdempotencyConflict => formatter.write_str("medal command idempotency conflict"),
             Self::Forbidden => formatter.write_str("membership medal grant is forbidden"),
             Self::UserNotFound => formatter.write_str("medal target user was not found"),
             Self::InvalidMedal => formatter.write_str("medal key is invalid"),
@@ -1233,20 +1370,6 @@ impl fmt::Display for ListMembershipMedalOperationsError {
 }
 
 impl Error for ListMembershipMedalOperationsError {}
-
-impl fmt::Display for RevokeMembershipMedalError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Forbidden => formatter.write_str("membership medal revocation is forbidden"),
-            Self::UserNotFound => formatter.write_str("medal target user was not found"),
-            Self::InvalidMedal => formatter.write_str("medal key is invalid"),
-            Self::InvalidReason => formatter.write_str("medal revocation reason is invalid"),
-            Self::Database(_) => formatter.write_str("membership medal revocation failed"),
-        }
-    }
-}
-
-impl Error for RevokeMembershipMedalError {}
 
 impl fmt::Display for UpdateMembershipMedalRuleError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
 mod admin;
+mod admin_user_membership_read;
+pub use admin_user_membership_read::AdminUserMembershipOverviewRecord;
 mod admin_comments;
 pub use admin_comments::{AdminCommentError, AdminCommentFilters, AdminCommentRecord};
 mod analytics;
@@ -113,9 +115,9 @@ pub use email::{
     UpdateSmtpConfigurationRecord,
 };
 pub use experience::{
-    AdminGrowthLevelRecord, AppendExperienceError, CreateGrowthLevelRecord,
-    ExperienceAccountRecord, ExperienceLedgerResult, GrowthLevelRecord, MutateGrowthLevelError,
-    UpdateGrowthLevelRecord,
+    AdminExperienceContext, AdminGrowthLevelRecord, AppendExperienceError, CreateGrowthLevelRecord,
+    ExperienceAccountRecord, ExperienceLedgerEntryRecord, ExperienceLedgerResult,
+    GrowthLevelRecord, MutateGrowthLevelError, UpdateGrowthLevelRecord,
 };
 pub use governance::{
     ContentReportCreationRecord, ContentReportDetailRecord, ContentReportRecord,
@@ -132,9 +134,10 @@ pub use medal_assets::{
 };
 pub use membership::{
     AppendPointsLedgerError, GrantMembershipMedalError, GrantMembershipMedalResult,
-    ListMembershipMedalOperationsError, MembershipAccountRecord, MembershipLedgerResult,
-    MembershipLevelRuleRecord, MembershipMedalOperationRecord, MembershipMedalRecord,
-    MembershipMedalRuleRecord, PointsGrantContext, PointsLedgerEntryRecord,
+    ListMembershipMedalOperationsError, MedalCommandContext, MembershipAccountRecord,
+    MembershipLedgerResult, MembershipLevelRuleRecord, MembershipMedalOperationRecord,
+    MembershipMedalReceiptRecord, MembershipMedalRecord, MembershipMedalRuleRecord,
+    MembershipMedalStateRecord, PointsGrantContext, PointsLedgerEntryRecord,
     RevokeMembershipMedalError, RevokeMembershipMedalResult, UpdateMembershipLevelRuleError,
     UpdateMembershipLevelRuleRecord, UpdateMembershipMedalRuleError,
     UpdateMembershipMedalRuleRecord,
@@ -182,9 +185,10 @@ pub use relations::{
 };
 pub use standard_entitlements::{
     GrantStandardEntitlementRecord, PutStandardEntitlementTypeRecord,
-    RevokeStandardEntitlementRecord, StandardEntitlementGrantResult,
-    StandardEntitlementMutationError, StandardEntitlementRecord, StandardEntitlementTypeRecord,
-    StandardEntitlementVersionRecord,
+    RenewStandardEntitlementRecord, RevokeStandardEntitlementRecord,
+    StandardEntitlementGrantResult, StandardEntitlementMutationError, StandardEntitlementRecord,
+    StandardEntitlementRenewalReceiptRecord, StandardEntitlementRenewalResult,
+    StandardEntitlementTypeRecord, StandardEntitlementVersionRecord,
 };
 pub use topics::{
     CreateReplyError, CreateReplyResult, CreateTopicError, CreateTopicResult, IdempotencyInput,
@@ -201,9 +205,10 @@ pub use topics::{
 pub use users::{
     AdminUserContentRecord, AdminUserDetailRecord, AdminUserReadError, AdminUserRoleRecord,
     AdminUserStatusUpdateRecord, AdminUserSummaryRecord, BlockMutationError, BlockStateRecord,
-    FollowMutationError, FollowStateRecord, ListUserRelationsError, PublicUserProfileRecord,
-    PublicUserSummaryRecord, UpdateAdminUserStatusError, UpdateAdminUserStatusRecord,
-    UpdateUserProfileError, UpdateUserProfileRecord, UserProfileViewerRecord, UserRelationKind,
+    FollowMutationError, FollowStateRecord, ListAdminUsersFilter, ListUserRelationsError,
+    PublicUserProfileRecord, PublicUserSummaryRecord, UpdateAdminUserStatusError,
+    UpdateAdminUserStatusRecord, UpdateUserProfileError, UpdateUserProfileRecord,
+    UserProfileViewerRecord, UserRelationKind,
 };
 
 pub use storage::AttachmentStorageConfigurationRecord;

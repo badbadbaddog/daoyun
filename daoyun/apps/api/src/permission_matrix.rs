@@ -1,10 +1,12 @@
 use crate::admin::authorize_capability_read;
 use crate::auth::{ApiError, AuthRuntime};
 use api_contract::{
-    ApiResponse, BoardPermissionMatrix, ErrorBody, ErrorCode, ErrorResponse, PermissionCheck,
+    AdminUserStatus, ApiResponse, AuthorizationRoleScope, AuthorizationScopeMode,
+    BoardPermissionMatrix, ErrorBody, ErrorCode, ErrorResponse, PermissionCheck,
     PermissionMatrixAction, PermissionMatrixActionResult, PermissionMatrixDecision,
-    PermissionMatrixQuota, PermissionMatrixScenario, PermissionMatrixScenarioKind,
-    PermissionMatrixSource, PermissionMatrixSourceKind, RequestId, error_codes,
+    PermissionMatrixQuota, PermissionMatrixRole, PermissionMatrixScenario,
+    PermissionMatrixScenarioKind, PermissionMatrixSource, PermissionMatrixSourceKind, RequestId,
+    error_codes,
 };
 use axum::{
     Extension, Json, Router,
@@ -40,7 +42,7 @@ pub(crate) fn router() -> Router<Database> {
 
 #[utoipa::path(get, path = "/api/v1/admin/boards/{board_id}/permission-matrix", operation_id = "getBoardPermissionMatrix", tag = "admin",
     params(("board_id" = Uuid, Path), ("group_ids" = Option<String>, Query, description = "Up to four distinct group UUIDs separated by commas"),
-        ("user_id" = Option<Uuid>, Query, description = "One explicit user, requires membership, entitlement and assignment read capabilities")),
+        ("user_id" = Option<Uuid>, Query, description = "One explicit user, requires membership, entitlement, role and assignment read capabilities")),
     responses(
         (status = 200, body = ApiResponse<BoardPermissionMatrix>, headers(("x-request-id" = String))),
         (status = 401, body = ErrorResponse, headers(("x-request-id" = String))),
@@ -118,6 +120,7 @@ pub(crate) async fn get_matrix(
             permission_keys::ENTITLEMENT_GRANTS_READ,
             permission_keys::ENTITLEMENT_TYPES_READ,
             permission_keys::AUTHORIZATION_ASSIGNMENTS_READ,
+            permission_keys::AUTHORIZATION_ROLES_READ,
         ] {
             authorize_capability_read(&database, &runtime, &headers, request_id, capability)
                 .await?;
@@ -158,16 +161,36 @@ fn map_record(
         for source in scenario.sources {
             sources.push(PermissionMatrixSource {
                 id: source.id,
-                kind: if source.kind == "group" {
-                    PermissionMatrixSourceKind::Group
-                } else {
-                    PermissionMatrixSourceKind::Entitlement
+                kind: match source.kind {
+                    "group" => PermissionMatrixSourceKind::Group,
+                    "role" => PermissionMatrixSourceKind::Role,
+                    _ => PermissionMatrixSourceKind::Entitlement,
                 },
                 key: source.key,
                 display_name: source.display_name,
                 permission_keys: source.permission_keys.into_iter().collect(),
                 quotas: source.quotas,
                 type_version: source.type_version,
+                membership_kind: source.membership_kind,
+                role: source.role.map(|r| PermissionMatrixRole {
+                    id: r.id,
+                    revision: r.revision,
+                    scope: match r.scope.as_str() {
+                        "instance" => AuthorizationRoleScope::Instance,
+                        "site" => AuthorizationRoleScope::Site,
+                        _ => AuthorizationRoleScope::Board,
+                    },
+                    scope_id: r.scope_id,
+                    scope_mode: if r.scope_mode == "subtree" {
+                        AuthorizationScopeMode::Subtree
+                    } else {
+                        AuthorizationScopeMode::Exact
+                    },
+                    scope_matches: r.scope_matches,
+                    target_scope_matches: r.target_scope_matches,
+                    is_system: r.is_system,
+                    assigned_by: r.assigned_by,
+                }),
                 starts_at: source.starts_at.map(timestamp).transpose()?,
                 ends_at: source.ends_at.map(timestamp).transpose()?,
             });
@@ -181,6 +204,11 @@ fn map_record(
             },
             display_name: scenario.display_name,
             complete: scenario.complete,
+            account_status: scenario.account_status.map(|status| match status.as_str() {
+                "active" => AdminUserStatus::Active,
+                "restricted" => AdminUserStatus::Restricted,
+                _ => AdminUserStatus::Suspended,
+            }),
             sources,
             quotas: scenario
                 .quotas
@@ -201,7 +229,13 @@ fn map_record(
                         "topic_create" => PermissionMatrixAction::TopicCreate,
                         "reply_create" => PermissionMatrixAction::ReplyCreate,
                         "attachment_upload" => PermissionMatrixAction::AttachmentUpload,
-                        _ => PermissionMatrixAction::AttachmentDownload,
+                        "attachment_download" => PermissionMatrixAction::AttachmentDownload,
+                        "moderation_browse" => PermissionMatrixAction::ModerationBrowse,
+                        "topic_pin" => PermissionMatrixAction::TopicPin,
+                        "topic_feature" => PermissionMatrixAction::TopicFeature,
+                        "topic_lock" => PermissionMatrixAction::TopicLock,
+                        "topic_move" => PermissionMatrixAction::TopicMove,
+                        _ => unreachable!("unknown internal diagnostic action"),
                     },
                     decision: match a.decision {
                         "allowed" => PermissionMatrixDecision::Allowed,
@@ -252,11 +286,13 @@ pub(crate) struct CheckQuery {
     topic_id: Option<Uuid>,
     attachment_id: Option<Uuid>,
     file_bytes: Option<i64>,
+    target_board_id: Option<Uuid>,
 }
 
 #[utoipa::path(get, path = "/api/v1/admin/permission-check", operation_id = "getPermissionCheck", tag = "admin",
     params(("board_id" = Uuid, Query), ("user_id" = Uuid, Query), ("action" = PermissionMatrixAction, Query),
         ("topic_id" = Option<Uuid>, Query), ("attachment_id" = Option<Uuid>, Query),
+        ("target_board_id" = Option<Uuid>, Query, description = "Destination board for topic_move only; both board scopes are checked"),
         ("file_bytes" = Option<i64>, Query, description = "Positive upload size up to 50 MiB; checks size without sending file content")),
     responses(
         (status = 200, body = ApiResponse<PermissionCheck>, headers(("x-request-id" = String))),
@@ -282,6 +318,7 @@ pub(crate) async fn get_permission_check(
         permission_keys::ENTITLEMENT_GRANTS_READ,
         permission_keys::ENTITLEMENT_TYPES_READ,
         permission_keys::AUTHORIZATION_ASSIGNMENTS_READ,
+        permission_keys::AUTHORIZATION_ROLES_READ,
     ] {
         authorize_capability_read(&database, &runtime, &headers, request_id, capability).await?;
     }
@@ -299,8 +336,13 @@ pub(crate) async fn get_permission_check(
         PermissionMatrixAction::ReplyCreate => "reply_create",
         PermissionMatrixAction::AttachmentUpload => "attachment_upload",
         PermissionMatrixAction::AttachmentDownload => "attachment_download",
+        PermissionMatrixAction::ModerationBrowse => "moderation_browse",
+        PermissionMatrixAction::TopicPin => "topic_pin",
+        PermissionMatrixAction::TopicFeature => "topic_feature",
+        PermissionMatrixAction::TopicLock => "topic_lock",
+        PermissionMatrixAction::TopicMove => "topic_move",
     };
-    let record = database.permission_check(query.board_id, query.user_id, action, query.topic_id, query.attachment_id, query.file_bytes).await.map_err(|error| match error {
+    let record = database.permission_check(query.board_id, query.user_id, action, query.topic_id, query.attachment_id, query.file_bytes, query.target_board_id).await.map_err(|error| match error {
         PermissionMatrixError::BoardNotFound => failure(StatusCode::NOT_FOUND, error_codes::ADMIN_BOARD_NOT_FOUND, "版块不存在", request_id),
         PermissionMatrixError::SubjectNotFound => failure(StatusCode::NOT_FOUND, "permission_check.subject_not_found", "所选用户不存在", request_id),
         PermissionMatrixError::InvalidScenario => failure(StatusCode::UNPROCESSABLE_ENTITY, error_codes::VALIDATION_FAILED, "检查条件不匹配或文件大小超出服务上限", request_id),
@@ -310,6 +352,7 @@ pub(crate) async fn get_permission_check(
             failure(StatusCode::SERVICE_UNAVAILABLE, error_codes::DATABASE_UNAVAILABLE, "权限检查暂时不可用", request_id)
         }
     })?;
+    let topic_revision = record.topic_revision;
     let mut matrix = map_record(record).map_err(|_| {
         failure(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -331,6 +374,9 @@ pub(crate) async fn get_permission_check(
         topic_id: query.topic_id,
         attachment_id: query.attachment_id,
         file_bytes: query.file_bytes,
+        target_board_id: query.target_board_id,
+        policy_revision: matrix.policy_revision,
+        topic_revision,
         evaluated_at: matrix.evaluated_at,
         scenario,
     };

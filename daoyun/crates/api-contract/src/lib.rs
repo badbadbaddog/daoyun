@@ -20,8 +20,9 @@ mod pagination;
 mod permission_matrix;
 pub use permission_matrix::{
     BoardPermissionMatrix, PermissionCheck, PermissionMatrixAction, PermissionMatrixActionResult,
-    PermissionMatrixDecision, PermissionMatrixQuota, PermissionMatrixScenario,
-    PermissionMatrixScenarioKind, PermissionMatrixSource, PermissionMatrixSourceKind,
+    PermissionMatrixDecision, PermissionMatrixQuota, PermissionMatrixRole,
+    PermissionMatrixScenario, PermissionMatrixScenarioKind, PermissionMatrixSource,
+    PermissionMatrixSourceKind,
 };
 pub mod plugin_validation;
 mod plugins;
@@ -108,15 +109,17 @@ pub use installation::{
     InstallationStatus,
 };
 pub use membership::{
-    AdminGrowthLevel, CreateGrowthLevelRequest, CreateMembershipMedalRuleRequest,
-    DeleteMembershipMedalRuleRequest, ExperienceAccount, GrantMembershipMedalRequest,
+    AdjustAdminExperienceRequest, AdminExperienceAdjustment, AdminGrowthLevel,
+    CreateGrowthLevelRequest, CreateMembershipMedalRuleRequest, DeleteMembershipMedalRuleRequest,
+    ExperienceAccount, ExperienceLedgerEntry, GrantMembershipMedalRequest,
     GrantMembershipPointsRequest, GrowthLevel, GrowthLevelStatus, Medal, MembershipAccount,
     MembershipCatalog, MembershipGroup, MembershipLevel, MembershipLevelRule, MembershipMedal,
     MembershipMedalAsset, MembershipMedalGrant, MembershipMedalOperation,
-    MembershipMedalOperationKind, MembershipMedalRevocation, MembershipMedalRule,
-    MembershipPointsGrant, PointsLedgerEntry, PublicMembershipGroup, RevokeMembershipMedalRequest,
-    StandardEntitlement, UpdateGrowthLevelRequest, UpdateMembershipLevelRuleRequest,
-    UpdateMembershipMedalRuleRequest, UserMembershipSummary,
+    MembershipMedalOperationKind, MembershipMedalReceipt, MembershipMedalRevocation,
+    MembershipMedalRule, MembershipMedalState, MembershipPointsGrant, PointsLedgerEntry,
+    PublicMembershipGroup, RevokeMembershipMedalRequest, StandardEntitlement,
+    UpdateGrowthLevelRequest, UpdateMembershipLevelRuleRequest, UpdateMembershipMedalRuleRequest,
+    UserMembershipSummary,
 };
 pub use messages::{
     ConversationLastMessage, ConversationReadState, ConversationSummary, CreateConversationRequest,
@@ -154,7 +157,8 @@ pub use reports::{
 pub use request_id::RequestId;
 pub use standard_entitlements::{
     AdminStandardEntitlement, GrantStandardEntitlementRequest, PutStandardEntitlementTypeRequest,
-    RevokeStandardEntitlementRequest, StandardEntitlementMutation, StandardEntitlementType,
+    RenewStandardEntitlementRequest, RevokeStandardEntitlementRequest, StandardEntitlementMutation,
+    StandardEntitlementRenewal, StandardEntitlementRenewalReceipt, StandardEntitlementType,
     StandardEntitlementVersion,
 };
 pub use topic::{
@@ -163,7 +167,9 @@ pub use topic::{
     TopicSort, TopicSummary, TopicTag, TopicTagInput, UpdateReplyRequest, UpdateTopicRequest,
 };
 pub use user::{
-    AdminUserContentItem, AdminUserContentKind, AdminUserDetail, AdminUserStatus,
+    AdminUserContentItem, AdminUserContentKind, AdminUserDetail, AdminUserEntitlementIdentity,
+    AdminUserGroupIdentity, AdminUserLevelIdentity, AdminUserMembershipOverview,
+    AdminUserMembershipSection, AdminUserMembershipSummary, AdminUserPoints, AdminUserStatus,
     AdminUserStatusUpdate, AdminUserSummary, BlockState, FollowState, UpdateAdminUserStatusRequest,
     UpdateUserProfileRequest, UserProfile, UserProfileViewer, UserSummary,
 };

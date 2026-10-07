@@ -94,3 +94,47 @@ pub struct StandardEntitlementMutation {
     pub entitlement: AdminStandardEntitlement,
     pub replayed: bool,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RenewStandardEntitlementRequest {
+    pub user_id: Uuid,
+    #[schema(minimum = 1)]
+    pub expected_revision: i64,
+    #[schema(value_type = String, format = DateTime)]
+    pub ends_at: String,
+    pub reason: String,
+    pub idempotency_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct StandardEntitlementRenewalReceipt {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub entitlement_id: Uuid,
+    pub actor_id: Uuid,
+    pub expected_revision: i64,
+    #[schema(value_type = String, format = DateTime)]
+    pub previous_ends_at: String,
+    #[schema(value_type = String, format = DateTime)]
+    pub ends_at: String,
+    pub reason: String,
+    pub idempotency_key: String,
+    pub revision: i64,
+    pub audit_id: Uuid,
+    pub request_id: Uuid,
+    pub type_version: i32,
+    #[schema(value_type = String, format = DateTime)]
+    pub starts_at: String,
+    pub permission_snapshot: Vec<String>,
+    pub quota_snapshot: BTreeMap<String, i64>,
+    #[schema(value_type = String, format = DateTime)]
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct StandardEntitlementRenewal {
+    pub receipt: StandardEntitlementRenewalReceipt,
+    pub entitlement: AdminStandardEntitlement,
+    pub replayed: bool,
+}

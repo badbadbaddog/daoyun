@@ -23,6 +23,43 @@ pub struct ExperienceAccount {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
+pub struct AdjustAdminExperienceRequest {
+    pub user_id: uuid::Uuid,
+    pub amount: i64,
+    pub reason: String,
+    pub expected_revision: i64,
+    pub idempotency_key: String,
+    pub reversal_of: Option<uuid::Uuid>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ExperienceLedgerEntry {
+    pub id: uuid::Uuid,
+    pub user_id: uuid::Uuid,
+    pub amount: i64,
+    pub reason: String,
+    pub details: Option<String>,
+    pub source_resource_id: Option<uuid::Uuid>,
+    pub reversal_of: Option<uuid::Uuid>,
+    pub balance_after: i64,
+    pub revision_after: Option<i64>,
+    pub actor_id: Option<uuid::Uuid>,
+    pub actor_username: Option<String>,
+    pub actor_display_name: Option<String>,
+    pub operation_request_id: Option<uuid::Uuid>,
+    pub audit_id: Option<uuid::Uuid>,
+    #[schema(value_type = String, format = DateTime)]
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct AdminExperienceAdjustment {
+    pub account: ExperienceAccount,
+    pub entry: ExperienceLedgerEntry,
+    pub replayed: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum GrowthLevelStatus {
@@ -163,6 +200,8 @@ pub struct DeleteMembershipMedalRuleRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
 pub struct GrantMembershipMedalRequest {
+    pub expected_revision: i64,
+    pub idempotency_key: String,
     pub user_id: uuid::Uuid,
     pub medal_key: String,
     pub reason: String,
@@ -170,6 +209,7 @@ pub struct GrantMembershipMedalRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct MembershipMedalGrant {
+    pub receipt: MembershipMedalReceipt,
     pub medal: MembershipMedal,
     pub created: bool,
 }
@@ -201,6 +241,8 @@ pub struct MembershipMedalOperation {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
 pub struct RevokeMembershipMedalRequest {
+    pub expected_revision: i64,
+    pub idempotency_key: String,
     pub user_id: uuid::Uuid,
     pub medal_key: String,
     pub reason: String,
@@ -208,6 +250,7 @@ pub struct RevokeMembershipMedalRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct MembershipMedalRevocation {
+    pub receipt: MembershipMedalReceipt,
     pub user_id: uuid::Uuid,
     pub medal_key: String,
     pub revoked: bool,
@@ -250,6 +293,8 @@ pub struct UpdateMembershipLevelRuleRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
 pub struct GrantMembershipPointsRequest {
     pub user_id: uuid::Uuid,
+    /// 积分变更量：-1000000 到 1000000 之间的非零整数；负数扣减可消费余额。
+    #[schema(minimum = -1_000_000, maximum = 1_000_000)]
     pub amount: i64,
     pub reason: String,
     pub details: Option<String>,
@@ -304,4 +349,32 @@ pub struct UserMembershipSummary {
     pub current_level: GrowthLevel,
     pub medals: Vec<MembershipMedal>,
     pub public_groups: Vec<PublicMembershipGroup>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct MembershipMedalState {
+    pub user_id: uuid::Uuid,
+    pub revision: i64,
+    pub medals: Vec<MembershipMedal>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct MembershipMedalReceipt {
+    pub id: uuid::Uuid,
+    pub user_id: uuid::Uuid,
+    pub medal_key: String,
+    pub medal_display_name: String,
+    pub operation: MembershipMedalOperationKind,
+    pub reason: String,
+    pub actor_id: uuid::Uuid,
+    pub idempotency_key: String,
+    pub expected_revision: i64,
+    pub revision: i64,
+    pub affected: bool,
+    pub owned_after: bool,
+    pub audit_id: Option<uuid::Uuid>,
+    pub operation_request_id: uuid::Uuid,
+    #[schema(value_type = String, format = DateTime)]
+    pub created_at: String,
+    pub replayed: bool,
 }

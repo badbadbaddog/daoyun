@@ -1,25 +1,37 @@
-use api_contract::{CreateMembershipMedalRuleRequest, DeleteMembershipMedalRuleRequest};
+use api_contract::{
+    CreateMembershipMedalRuleRequest, DeleteMembershipMedalRuleRequest, MembershipMedalReceipt,
+    MembershipMedalState,
+};
+use api_contract::{
+    RenewStandardEntitlementRequest, StandardEntitlementRenewal, StandardEntitlementRenewalReceipt,
+};
+use infrastructure::{MedalCommandContext, MembershipMedalReceiptRecord};
+use infrastructure::{RenewStandardEntitlementRecord, StandardEntitlementRenewalReceiptRecord};
 use std::collections::BTreeSet;
 
 use api_contract::{
-    AdminAuditEntry, AdminBoard, AdminBoardDeletionImpact, AdminBoardMergeBlockedReason,
-    AdminBoardMergeImpact, AdminBoardMergeMutation, AdminBoardStatus, AdminBoardVisibility,
-    AdminCapabilityAccess, AdminCommunityGroup, AdminCommunityGroupMembership, AdminGrowthLevel,
+    AdjustAdminExperienceRequest, AdminAuditEntry, AdminBoard, AdminBoardDeletionImpact,
+    AdminBoardMergeBlockedReason, AdminBoardMergeImpact, AdminBoardMergeMutation, AdminBoardStatus,
+    AdminBoardVisibility, AdminCapabilityAccess, AdminCommunityGroup,
+    AdminCommunityGroupMembership, AdminExperienceAdjustment, AdminGrowthLevel,
     AdminStandardEntitlement, AdminUserContentItem, AdminUserContentKind, AdminUserDetail,
-    AdminUserStatus, AdminUserStatusUpdate, AdminUserSummary, ApiResponse, AttachmentCleanupResult,
-    AuthorizationAssignedRole, AuthorizationPermission, AuthorizationRole,
+    AdminUserEntitlementIdentity, AdminUserGroupIdentity, AdminUserLevelIdentity,
+    AdminUserMembershipOverview, AdminUserMembershipSection, AdminUserMembershipSummary,
+    AdminUserPoints, AdminUserStatus, AdminUserStatusUpdate, AdminUserSummary, ApiResponse,
+    AttachmentCleanupResult, AuthorizationAssignedRole, AuthorizationPermission, AuthorizationRole,
     AuthorizationRoleAssignment, AuthorizationRoleScope, AuthorizationScopeMode, BoardTone,
     BrandHomeMode, BrandLink, BrandListDensity, BrandThemePreset, CommunityGroupMembershipMutation,
     CommunityGroupStatus, ContentAccessOperator, ContentAccessPolicy, ContentAccessSubject,
     ContentAccessSubjectType, ContentAccessTargetType, CreateAdminBoardRequest,
     CreateAuthorizationAssignmentRequest, CreateAuthorizationRoleRequest,
     CreateCommunityGroupRequest, CreateGrowthLevelRequest, ErrorBody, ErrorCode, ErrorResponse,
-    FieldErrors, GovernancePolicy, GrantCommunityGroupMembershipRequest,
-    GrantMembershipMedalRequest, GrantMembershipPointsRequest, GrantStandardEntitlementRequest,
-    GrowthLevelStatus, MembershipAccount, MembershipLevelRule, MembershipMedal,
-    MembershipMedalGrant, MembershipMedalOperation, MembershipMedalOperationKind,
-    MembershipMedalRevocation, MembershipMedalRule, MembershipPointsGrant, MergeAdminBoardRequest,
-    PageResponse, PutContentAccessPolicyRequest, PutStandardEntitlementTypeRequest, RequestId,
+    ExperienceAccount, ExperienceLedgerEntry, FieldErrors, GovernancePolicy,
+    GrantCommunityGroupMembershipRequest, GrantMembershipMedalRequest,
+    GrantMembershipPointsRequest, GrantStandardEntitlementRequest, GrowthLevelStatus,
+    MembershipAccount, MembershipLevelRule, MembershipMedal, MembershipMedalGrant,
+    MembershipMedalOperation, MembershipMedalOperationKind, MembershipMedalRevocation,
+    MembershipMedalRule, MembershipPointsGrant, MergeAdminBoardRequest, PageResponse,
+    PointsLedgerEntry, PutContentAccessPolicyRequest, PutStandardEntitlementTypeRequest, RequestId,
     RevokeCommunityGroupMembershipRequest, RevokeMembershipMedalRequest,
     RevokeStandardEntitlementRequest, RiskAlert, RiskAlertKind, RiskAlertSeverity, RiskAlertStatus,
     RollbackAdminBoardMergeRequest, SetDefaultCommunityGroupRequest, SiteBranding, SmtpSettings,
@@ -44,26 +56,27 @@ use email_address::EmailAddress;
 use infrastructure::{
     AdminAuditRecord, AdminBoardDeletionImpactRecord, AdminBoardMergeBlockedReasonRecord,
     AdminBoardMergeImpactRecord, AdminBoardMergeMutationRecord, AdminBoardRecord, AdminConfigError,
-    AdminGrowthLevelRecord, AdminUserContentRecord, AdminUserDetailRecord, AdminUserReadError,
-    AdminUserStatusUpdateRecord, AdminUserSummaryRecord, AppendPointsLedgerError,
-    AttachmentCleanupError, AuthorizationPermissionRecord, AuthorizationRoleAssignmentRecord,
-    AuthorizationRoleRecord, BrandAssetError, BrandLinkRecord, CommunityGroupConfigurationRecord,
-    CommunityGroupMembershipRecord, CommunityGroupMutationError, CommunityMembershipMutationError,
-    ContentAccessPolicyMutationError, ContentAccessPolicyRecord, ContentAccessPolicySubjectRecord,
-    CreateAdminBoardRecord, CreateAuthorizationAssignmentRecord, CreateAuthorizationRoleRecord,
-    CreateCommunityGroupRecord, CreateGrowthLevelRecord, Database, GovernancePolicyRecord,
-    GrantCommunityMembershipRecord, GrantMembershipMedalError, GrantStandardEntitlementRecord,
-    ListAdminAuditError, ListAdminAuditFilter, ListAuthorizationAssignmentsError,
+    AdminExperienceContext, AdminGrowthLevelRecord, AdminUserContentRecord, AdminUserDetailRecord,
+    AdminUserReadError, AdminUserStatusUpdateRecord, AdminUserSummaryRecord, AppendExperienceError,
+    AppendPointsLedgerError, AttachmentCleanupError, AuthorizationPermissionRecord,
+    AuthorizationRoleAssignmentRecord, AuthorizationRoleRecord, BrandAssetError, BrandLinkRecord,
+    CommunityGroupConfigurationRecord, CommunityGroupMembershipRecord, CommunityGroupMutationError,
+    CommunityMembershipMutationError, ContentAccessPolicyMutationError, ContentAccessPolicyRecord,
+    ContentAccessPolicySubjectRecord, CreateAdminBoardRecord, CreateAuthorizationAssignmentRecord,
+    CreateAuthorizationRoleRecord, CreateCommunityGroupRecord, CreateGrowthLevelRecord, Database,
+    ExperienceLedgerEntryRecord, GovernancePolicyRecord, GrantCommunityMembershipRecord,
+    GrantMembershipMedalError, GrantStandardEntitlementRecord, ListAdminAuditError,
+    ListAdminAuditFilter, ListAdminUsersFilter, ListAuthorizationAssignmentsError,
     ListMembershipMedalOperationsError, ListRiskAlertsError, MembershipAccountRecord,
     MembershipLevelRuleRecord, MembershipMedalOperationRecord, MembershipMedalRecord,
     MembershipMedalRuleRecord, MergeAdminBoardRecord, MutateAuthorizationAssignmentError,
     MutateAuthorizationRoleError, MutateGrowthLevelError, PutContentAccessPolicyRecord,
-    PutStandardEntitlementTypeRecord, RevokeMembershipMedalError, RevokeStandardEntitlementRecord,
-    RiskAlertRecord, RollbackAdminBoardMergeRecord, SiteBrandingRecord,
-    StandardEntitlementMutationError, StandardEntitlementRecord, StandardEntitlementTypeRecord,
-    StandardEntitlementVersionRecord, UpdateAdminBoardRecord, UpdateAdminUserStatusError,
-    UpdateAdminUserStatusRecord, UpdateAuthorizationRoleRecord, UpdateCommunityGroupRecord,
-    UpdateGrowthLevelRecord, UpdateMembershipLevelRuleError, UpdateMembershipLevelRuleRecord,
+    PutStandardEntitlementTypeRecord, RevokeStandardEntitlementRecord, RiskAlertRecord,
+    RollbackAdminBoardMergeRecord, SiteBrandingRecord, StandardEntitlementMutationError,
+    StandardEntitlementRecord, StandardEntitlementTypeRecord, StandardEntitlementVersionRecord,
+    UpdateAdminBoardRecord, UpdateAdminUserStatusError, UpdateAdminUserStatusRecord,
+    UpdateAuthorizationRoleRecord, UpdateCommunityGroupRecord, UpdateGrowthLevelRecord,
+    UpdateMembershipLevelRuleError, UpdateMembershipLevelRuleRecord,
     UpdateMembershipMedalRuleError, UpdateMembershipMedalRuleRecord, UpdateRiskAlertError,
     UpdateSiteBrandingRecord, UpdateSmtpConfigurationRecord, permission_keys,
 };
@@ -96,6 +109,12 @@ pub(crate) struct ListAdminUsersQuery {
     role_id: Option<Uuid>,
     registered_after: Option<String>,
     registered_before: Option<String>,
+    last_active_after: Option<String>,
+    last_active_before: Option<String>,
+    base_group_id: Option<Uuid>,
+    additional_group_id: Option<Uuid>,
+    growth_level_id: Option<Uuid>,
+    entitlement_type_id: Option<Uuid>,
     cursor: Option<Uuid>,
     limit: Option<u16>,
 }
@@ -197,6 +216,10 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
         .route("/api/v1/admin/access", get(get_admin_access))
         .route("/api/v1/admin/users", get(list_admin_users))
         .route("/api/v1/admin/users/{user_id}", get(get_admin_user))
+        .route(
+            "/api/v1/admin/users/{user_id}/membership-summary",
+            get(get_admin_user_membership_summary),
+        )
         .route(
             "/api/v1/admin/users/{user_id}/status",
             patch(update_admin_user_status),
@@ -318,8 +341,36 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
             post(revoke_standard_entitlement),
         )
         .route(
+            "/api/v1/admin/entitlements/{entitlement_id}/renew",
+            post(renew_standard_entitlement),
+        )
+        .route(
+            "/api/v1/admin/entitlements/users/{user_id}/renewal-requests/{key}",
+            get(get_standard_entitlement_renewal_receipt),
+        )
+        .route(
             "/api/v1/admin/content-access-policies/{target_type}/{target_id}",
             get(get_content_access_policy).put(put_content_access_policy),
+        )
+        .route(
+            "/api/v1/admin/membership/users/{user_id}/medals",
+            get(get_admin_medal_state),
+        )
+        .route(
+            "/api/v1/admin/membership/users/{user_id}/medal-requests/{key}",
+            get(get_admin_medal_receipt),
+        )
+        .route(
+            "/api/v1/admin/membership/experience",
+            post(adjust_admin_experience),
+        )
+        .route(
+            "/api/v1/admin/membership/users/{user_id}/experience",
+            get(get_admin_experience),
+        )
+        .route(
+            "/api/v1/admin/membership/users/{user_id}/experience/ledger",
+            get(list_admin_experience_ledger),
         )
         .route(
             "/api/v1/admin/membership/points",
@@ -328,6 +379,10 @@ pub(crate) fn router(runtime: AuthRuntime) -> Router<Database> {
         .route(
             "/api/v1/admin/membership/users/{user_id}",
             get(get_admin_membership_account),
+        )
+        .route(
+            "/api/v1/admin/membership/users/{user_id}/points/ledger",
+            get(list_admin_points_ledger),
         )
         .route(
             "/api/v1/admin/membership/medal-rules",
@@ -416,7 +471,7 @@ pub(crate) async fn list_admin_users(
     headers: HeaderMap,
     query: Result<Query<ListAdminUsersQuery>, QueryRejection>,
 ) -> Result<Json<PageResponse<AdminUserSummary>>, ApiError> {
-    authorize_capability_read(
+    let session = authorize_capability_read(
         &database,
         &runtime,
         &headers,
@@ -426,40 +481,65 @@ pub(crate) async fn list_admin_users(
     .await?;
     let query = validate_admin_users_query(query)
         .map_err(|(field, message)| validation_error(request_id, field, message))?;
+    let permissions = database
+        .list_global_permission_keys(session.user.id)
+        .await
+        .map_err(|error| database_error(request_id, error, "会员字段权限查询失败"))?;
+    let can_read = |key: &str| permissions.iter().any(|permission| permission == key);
+    let groups_read = can_read(permission_keys::COMMUNITY_GROUPS_READ)
+        && can_read(permission_keys::COMMUNITY_MEMBERSHIPS_READ);
+    let experience_read = can_read(permission_keys::MEMBERSHIP_RULES_READ);
+    let points_read = can_read(permission_keys::MEMBERSHIP_POINTS_GRANT);
+    let medals_read = can_read(permission_keys::MEMBERSHIP_MEDALS_READ);
+    let entitlements_read = can_read(permission_keys::ENTITLEMENT_GRANTS_READ)
+        && can_read(permission_keys::ENTITLEMENT_TYPES_READ);
+    if ((query.base_group_id.is_some() || query.additional_group_id.is_some()) && !groups_read)
+        || (query.growth_level_id.is_some() && !experience_read)
+        || (query.entitlement_type_id.is_some() && !entitlements_read)
+    {
+        return Err(admin_error(
+            StatusCode::FORBIDDEN,
+            error_codes::ADMIN_FORBIDDEN,
+            "当前账号没有读取此会员筛选字段的权限",
+            request_id,
+        ));
+    }
+    let filter = ListAdminUsersFilter {
+        query: query.q.as_deref(),
+        status: query.status.map(admin_user_status_value),
+        role_id: query.role_id,
+        registered_after: query
+            .registered_after
+            .as_deref()
+            .map(parse_admin_time)
+            .transpose()
+            .map_err(|_| invalid_record(request_id))?,
+        registered_before: query
+            .registered_before
+            .as_deref()
+            .map(parse_admin_time)
+            .transpose()
+            .map_err(|_| invalid_record(request_id))?,
+        last_active_after: query
+            .last_active_after
+            .as_deref()
+            .map(parse_admin_time)
+            .transpose()
+            .map_err(|_| invalid_record(request_id))?,
+        last_active_before: query
+            .last_active_before
+            .as_deref()
+            .map(parse_admin_time)
+            .transpose()
+            .map_err(|_| invalid_record(request_id))?,
+        base_group_id: query.base_group_id,
+        additional_group_id: query.additional_group_id,
+        growth_level_id: query.growth_level_id,
+        entitlement_type_id: query.entitlement_type_id,
+    };
     let limit = query.limit.expect("validated user limit");
-    let status = query.status.map(admin_user_status_value);
     let mut records = database
-        .list_admin_users(
-            query.q.as_deref(),
-            status,
-            query.role_id,
-            query
-                .registered_after
-                .as_deref()
-                .map(parse_admin_time)
-                .transpose()
-                .map_err(|_| {
-                    validation_error(
-                        request_id,
-                        "registered_after",
-                        "registered_after 必须是 RFC 3339 时间",
-                    )
-                })?,
-            query
-                .registered_before
-                .as_deref()
-                .map(parse_admin_time)
-                .transpose()
-                .map_err(|_| {
-                    validation_error(
-                        request_id,
-                        "registered_before",
-                        "registered_before 必须是 RFC 3339 时间",
-                    )
-                })?,
-            query.cursor,
-            i64::from(limit) + 1,
-        )
+        .list_admin_users(&filter, query.cursor, i64::from(limit) + 1)
         .await
         .map_err(|error| admin_user_read_error(request_id, error))?;
     let next_cursor = if records.len() > usize::from(limit) {
@@ -468,10 +548,81 @@ pub(crate) async fn list_admin_users(
     } else {
         None
     };
+    let ids = records.iter().map(|record| record.id).collect::<Vec<_>>();
+    let mut overviews = database
+        .admin_user_membership_overviews(&ids, OffsetDateTime::now_utc())
+        .await
+        .map_err(|error| database_error(request_id, error, "会员列表读取失败"))?
+        .into_iter()
+        .map(|record| (record.user_id, record))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut readable_sections = Vec::new();
+    for (allowed, section) in [
+        (groups_read, AdminUserMembershipSection::Groups),
+        (experience_read, AdminUserMembershipSection::Experience),
+        (points_read, AdminUserMembershipSection::Points),
+        (medals_read, AdminUserMembershipSection::Medals),
+        (entitlements_read, AdminUserMembershipSection::Entitlements),
+    ] {
+        if allowed {
+            readable_sections.push(section);
+        }
+    }
     let users = records
         .into_iter()
-        .map(map_admin_user_summary)
-        .collect::<Result<Vec<_>, _>>()
+        .map(|record| {
+            let overview = overviews.remove(&record.id).ok_or(())?;
+            let mut user = map_admin_user_summary(record)?;
+            user.membership = Some(AdminUserMembershipOverview {
+                groups: groups_read.then(|| {
+                    overview
+                        .groups
+                        .0
+                        .into_iter()
+                        .map(|group| AdminUserGroupIdentity {
+                            id: group.id,
+                            display_name: group.display_name,
+                            membership_kind: group.membership_kind,
+                        })
+                        .collect()
+                }),
+                experience: if experience_read {
+                    overview.experience
+                } else {
+                    None
+                },
+                level: if experience_read {
+                    overview.level.map(|level| AdminUserLevelIdentity {
+                        id: level.id,
+                        display_name: level.display_name.clone(),
+                        level_order: level.level_order,
+                    })
+                } else {
+                    None
+                },
+                points_balance: if points_read {
+                    overview.points_balance
+                } else {
+                    None
+                },
+                entitlements: entitlements_read.then(|| {
+                    overview
+                        .entitlements
+                        .0
+                        .into_iter()
+                        .map(|entitlement| AdminUserEntitlementIdentity {
+                            type_id: entitlement.type_id,
+                            internal_key: entitlement.internal_key,
+                            display_name: entitlement.display_name,
+                        })
+                        .collect()
+                }),
+                medal_count: medals_read.then_some(overview.medal_count),
+                readable_sections: readable_sections.clone(),
+            });
+            Ok(user)
+        })
+        .collect::<Result<Vec<_>, ()>>()
         .map_err(|()| invalid_record(request_id))?;
     Ok(Json(PageResponse::new(users, request_id, next_cursor)))
 }
@@ -514,6 +665,161 @@ pub(crate) async fn get_admin_user(
         .ok_or_else(|| admin_user_not_found(request_id))?;
     let user = map_admin_user_detail(record).map_err(|()| invalid_record(request_id))?;
     Ok(Json(ApiResponse::new(user, request_id)))
+}
+
+/// Read one user's membership domains without broadening their individual read capabilities.
+/// Source: https://docs.rs/axum/0.8.9/axum/extract/index.html#handling-extractor-rejections
+#[utoipa::path(
+    get, path = "/api/v1/admin/users/{user_id}/membership-summary",
+    operation_id = "getAdminUserMembershipSummary", tag = "admin",
+    params(("user_id" = Uuid, Path)),
+    responses(
+        (status = 200, body = ApiResponse<AdminUserMembershipSummary>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 404, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 422, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn get_admin_user_membership_summary(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    path: Result<Path<Uuid>, axum::extract::rejection::PathRejection>,
+) -> Result<Json<ApiResponse<AdminUserMembershipSummary>>, ApiError> {
+    let session = authorize_capability_read(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::ADMIN_USERS_READ,
+    )
+    .await?;
+    let Path(user_id) = path.map_err(|_| path_invalid(request_id))?;
+    let permissions = database
+        .list_global_permission_keys(session.user.id)
+        .await
+        .map_err(|error| database_error(request_id, error, "会员档案权限查询失败"))?;
+    let can_read = |key: &str| permissions.iter().any(|permission| permission == key);
+    let record = database
+        .admin_user_detail(user_id)
+        .await
+        .map_err(|error| database_error(request_id, error, "用户详情查询失败"))?
+        .ok_or_else(|| admin_user_not_found(request_id))?;
+    let account = map_admin_user_detail(record).map_err(|()| invalid_record(request_id))?;
+    let mut readable_sections = Vec::new();
+    let groups = if can_read(permission_keys::COMMUNITY_GROUPS_READ)
+        && can_read(permission_keys::COMMUNITY_MEMBERSHIPS_READ)
+    {
+        readable_sections.push(AdminUserMembershipSection::Groups);
+        Some(
+            database
+                .list_active_community_memberships(user_id, OffsetDateTime::now_utc())
+                .await
+                .map_err(|error| database_error(request_id, error.into(), "用户组读取失败"))?
+                .into_iter()
+                .map(map_admin_community_membership)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|()| invalid_record(request_id))?,
+        )
+    } else {
+        None
+    };
+    let experience = if can_read(permission_keys::MEMBERSHIP_RULES_READ) {
+        readable_sections.push(AdminUserMembershipSection::Experience);
+        database
+            .find_experience_account(user_id)
+            .await
+            .map_err(|error| database_error(request_id, error.into(), "成长账户读取失败"))?
+            .map(crate::users::experience_account)
+            .transpose()
+            .map_err(|()| invalid_record(request_id))?
+    } else {
+        None
+    };
+    let next_level = if let Some(experience) = &experience {
+        database
+            .list_published_growth_levels()
+            .await
+            .map_err(|error| database_error(request_id, error.into(), "成长等级读取失败"))?
+            .into_iter()
+            .find(|level| {
+                level.level_order > experience.current_level.level_order
+                    && level.required_experience > experience.experience
+            })
+            .map(|level| api_contract::GrowthLevel {
+                id: level.id,
+                internal_key: level.internal_key,
+                level_order: level.level_order,
+                display_name: level.display_name,
+                required_experience: level.required_experience,
+                icon_asset_id: level.icon_asset_id,
+                color: level.color,
+                description: level.description,
+            })
+    } else {
+        None
+    };
+    let points = if can_read(permission_keys::MEMBERSHIP_POINTS_GRANT) {
+        readable_sections.push(AdminUserMembershipSection::Points);
+        database
+            .get_membership_account(user_id)
+            .await
+            .map_err(|error| database_error(request_id, error, "积分账户读取失败"))?
+            .map(|account| AdminUserPoints {
+                user_id: account.user_id,
+                points_balance: account.points_balance,
+                lifetime_points: account.lifetime_points,
+                revision: account.revision,
+                updated_at: format_time(account.updated_at),
+            })
+    } else {
+        None
+    };
+    let medals = if can_read(permission_keys::MEMBERSHIP_MEDALS_READ) {
+        readable_sections.push(AdminUserMembershipSection::Medals);
+        Some(
+            database
+                .list_membership_medals(user_id)
+                .await
+                .map_err(|error| database_error(request_id, error, "用户勋章读取失败"))?
+                .into_iter()
+                .map(map_membership_medal)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|()| invalid_record(request_id))?,
+        )
+    } else {
+        None
+    };
+    let entitlements = if can_read(permission_keys::ENTITLEMENT_GRANTS_READ) {
+        readable_sections.push(AdminUserMembershipSection::Entitlements);
+        Some(
+            database
+                .list_standard_entitlements_for_admin(user_id)
+                .await
+                .map_err(|error| database_error(request_id, error, "用户权益读取失败"))?
+                .into_iter()
+                .map(map_standard_entitlement)
+                .collect(),
+        )
+    } else {
+        None
+    };
+    Ok(Json(ApiResponse::new(
+        AdminUserMembershipSummary {
+            account,
+            groups,
+            experience,
+            next_level,
+            points,
+            medals,
+            entitlements,
+            readable_sections,
+        },
+        request_id,
+    )))
 }
 
 #[utoipa::path(
@@ -2205,6 +2511,319 @@ pub(crate) async fn grant_membership_points(
 }
 
 #[utoipa::path(
+    get, path = "/api/v1/admin/membership/users/{user_id}/experience", operation_id = "getAdminExperience", tag = "admin",
+    params(("user_id" = Uuid, Path)), responses(
+        (status = 200, body = ApiResponse<Option<ExperienceAccount>>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 404, body = ErrorResponse, headers(("x-request-id" = String))),
+    (status = 422, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn get_admin_experience(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    path: Result<Path<Uuid>, axum::extract::rejection::PathRejection>,
+) -> Result<(HeaderMap, Json<ApiResponse<Option<ExperienceAccount>>>), ApiError> {
+    authorize_capability_read(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::MEMBERSHIP_RULES_READ,
+    )
+    .await?;
+    let Path(user_id) =
+        path.map_err(|_| validation_error(request_id, "user_id", "用户 UID 格式无效"))?;
+    ensure_admin_user_exists(&database, user_id, request_id).await?;
+    let account = database
+        .find_experience_account(user_id)
+        .await
+        .map_err(|e| database_error(request_id, e.into(), "EXP 账户读取失败"))?
+        .map(crate::users::experience_account)
+        .transpose()
+        .map_err(|()| invalid_record(request_id))?;
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok((headers, Json(ApiResponse::new(account, request_id))))
+}
+
+#[utoipa::path(
+    get, path = "/api/v1/admin/membership/users/{user_id}/experience/ledger", operation_id = "listAdminExperienceLedger", tag = "admin",
+    params(("user_id" = Uuid, Path),ListAdminUserItemsQuery), responses(
+        (status = 200, body = PageResponse<ExperienceLedgerEntry>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 404, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 422, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn list_admin_experience_ledger(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    path: Result<Path<Uuid>, axum::extract::rejection::PathRejection>,
+    query: Result<Query<ListAdminUserItemsQuery>, QueryRejection>,
+) -> Result<(HeaderMap, Json<PageResponse<ExperienceLedgerEntry>>), ApiError> {
+    authorize_capability_read(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::MEMBERSHIP_RULES_READ,
+    )
+    .await?;
+    let Path(user_id) =
+        path.map_err(|_| validation_error(request_id, "user_id", "用户 UID 格式无效"))?;
+    ensure_admin_user_exists(&database, user_id, request_id).await?;
+    let Query(query) =
+        query.map_err(|_| validation_error(request_id, "query", "EXP 流水参数格式不正确"))?;
+    let limit = query.limit.unwrap_or(20);
+    if !(1..=50).contains(&limit) {
+        return Err(validation_error(
+            request_id,
+            "limit",
+            "limit 必须在 1 到 50 之间",
+        ));
+    }
+    if let Some(cursor) = query.cursor
+        && !database
+            .experience_ledger_cursor_exists(user_id, cursor)
+            .await
+            .map_err(|e| database_error(request_id, e.into(), "EXP 游标查询失败"))?
+    {
+        return Err(validation_error(
+            request_id,
+            "cursor",
+            "游标不存在或不属于此用户",
+        ));
+    }
+    let mut records = database
+        .list_experience_ledger(user_id, query.cursor, i64::from(limit) + 1)
+        .await
+        .map_err(|e| database_error(request_id, e.into(), "EXP 流水读取失败"))?;
+    let more = records.len() > usize::from(limit);
+    records.truncate(usize::from(limit));
+    let next_cursor = more.then(|| records.last().expect("full EXP ledger page").id.to_string());
+    let entries = records
+        .into_iter()
+        .map(map_experience_ledger_entry)
+        .collect();
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok((
+        headers,
+        Json(PageResponse::new(entries, request_id, next_cursor)),
+    ))
+}
+
+#[utoipa::path(
+    post, path = "/api/v1/admin/membership/experience", operation_id = "adjustAdminExperience", tag = "admin",
+    params(("x-csrf-token" = String, Header)),
+    request_body = AdjustAdminExperienceRequest, responses(
+        (status = 200, body = ApiResponse<AdminExperienceAdjustment>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 404, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 409, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 422, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn adjust_admin_experience(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    body: Result<Json<AdjustAdminExperienceRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<AdminExperienceAdjustment>>, ApiError> {
+    let session = authorize_capability_write(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::MEMBERSHIP_RULES_WRITE,
+    )
+    .await?;
+    let Json(input) =
+        body.map_err(|_| validation_error(request_id, "body", "EXP 调整参数格式不正确"))?;
+    let result = database
+        .adjust_admin_experience(
+            input.user_id,
+            input.amount,
+            &input.idempotency_key,
+            input.reversal_of,
+            AdminExperienceContext {
+                actor_id: session.user.id,
+                expected_revision: input.expected_revision,
+                details: &input.reason,
+                request_id: request_id.into(),
+            },
+        )
+        .await
+        .map_err(|e| experience_error(request_id, e))?;
+    Ok(Json(ApiResponse::new(
+        AdminExperienceAdjustment {
+            account: crate::users::experience_account(result.account)
+                .map_err(|()| invalid_record(request_id))?,
+            entry: map_experience_ledger_entry(result.entry),
+            replayed: result.replayed,
+        },
+        request_id,
+    )))
+}
+
+fn map_experience_ledger_entry(r: ExperienceLedgerEntryRecord) -> ExperienceLedgerEntry {
+    ExperienceLedgerEntry {
+        id: r.id,
+        user_id: r.user_id,
+        amount: r.amount,
+        reason: r.reason,
+        details: r.details,
+        source_resource_id: r.source_resource_id,
+        reversal_of: r.reversal_of,
+        balance_after: r.balance_after,
+        revision_after: r.revision_after,
+        actor_id: r.actor_id,
+        actor_username: r.actor_username,
+        actor_display_name: r.actor_display_name,
+        operation_request_id: r.operation_request_id,
+        audit_id: r.audit_id,
+        created_at: format_time(r.created_at),
+    }
+}
+
+fn experience_error(request_id: RequestId, error: AppendExperienceError) -> ApiError {
+    match error {
+        AppendExperienceError::Forbidden => admin_error(
+            StatusCode::FORBIDDEN,
+            error_codes::ADMIN_FORBIDDEN,
+            "当前账号已失去 EXP 写入权限",
+            request_id,
+        ),
+        AppendExperienceError::RevisionConflict => admin_error(
+            StatusCode::CONFLICT,
+            error_codes::MEMBERSHIP_EXPERIENCE_REVISION_CONFLICT,
+            "EXP 账户已变化，请重新读取后确认",
+            request_id,
+        ),
+        AppendExperienceError::IdempotencyConflict | AppendExperienceError::ReversalConflict => {
+            admin_error(
+                StatusCode::CONFLICT,
+                error_codes::MEMBERSHIP_EXPERIENCE_CONFLICT,
+                "请求编号已使用或原流水已冲正",
+                request_id,
+            )
+        }
+        AppendExperienceError::AccountNotFound | AppendExperienceError::ReversalNotFound => {
+            admin_error(
+                StatusCode::NOT_FOUND,
+                error_codes::MEMBERSHIP_EXPERIENCE_NOT_FOUND,
+                "EXP 账户或待冲正原流水不存在",
+                request_id,
+            )
+        }
+        AppendExperienceError::Sqlx(e) => database_error(request_id, e.into(), "EXP 调整失败"),
+        _ => validation_error(
+            request_id,
+            "experience",
+            "EXP 数量、原因、版本或冲正参数无效",
+        ),
+    }
+}
+
+#[utoipa::path(
+    get, path = "/api/v1/admin/membership/users/{user_id}/points/ledger",
+    operation_id = "listAdminPointsLedger", tag = "admin",
+    params(("user_id" = Uuid, Path), ListAdminUserItemsQuery),
+    responses(
+        (status = 200, body = PageResponse<PointsLedgerEntry>, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 404, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 422, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn list_admin_points_ledger(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    path: Result<Path<Uuid>, axum::extract::rejection::PathRejection>,
+    query: Result<Query<ListAdminUserItemsQuery>, QueryRejection>,
+) -> Result<(HeaderMap, Json<PageResponse<PointsLedgerEntry>>), ApiError> {
+    authorize_capability_read(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::MEMBERSHIP_POINTS_GRANT,
+    )
+    .await?;
+    let Path(user_id) =
+        path.map_err(|_| validation_error(request_id, "user_id", "用户 UID 格式无效"))?;
+    ensure_admin_user_exists(&database, user_id, request_id).await?;
+    let Query(query) =
+        query.map_err(|_| validation_error(request_id, "query", "积分流水参数格式不正确"))?;
+    let limit = query.limit.unwrap_or(20);
+    if !(1..=50).contains(&limit) {
+        return Err(validation_error(
+            request_id,
+            "limit",
+            "limit 必须在 1 到 50 之间",
+        ));
+    }
+    if let Some(cursor) = query.cursor
+        && !database
+            .points_ledger_cursor_exists(user_id, cursor)
+            .await
+            .map_err(|e| database_error(request_id, e, "积分游标读取失败"))?
+    {
+        return Err(validation_error(
+            request_id,
+            "cursor",
+            "游标不存在或不属于此用户",
+        ));
+    }
+    let mut records = database
+        .list_points_ledger(user_id, query.cursor, i64::from(limit) + 1)
+        .await
+        .map_err(|e| database_error(request_id, e, "积分流水读取失败"))?;
+    let more = records.len() > usize::from(limit);
+    records.truncate(usize::from(limit));
+    let next_cursor = more.then(|| records.last().expect("full ledger page").id.to_string());
+    let entries = records
+        .into_iter()
+        .map(|r| PointsLedgerEntry {
+            id: r.id,
+            amount: r.amount,
+            reason: r.reason,
+            balance_after: r.balance_after,
+            actor_id: r.actor_id,
+            actor_username: r.actor_username,
+            actor_display_name: r.actor_display_name,
+            operation_request_id: r
+                .operation_request_id
+                .as_deref()
+                .and_then(|s| Uuid::parse_str(s).ok()),
+            created_at: format_time(r.created_at),
+        })
+        .collect();
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok((
+        response_headers,
+        Json(PageResponse::new(entries, request_id, next_cursor)),
+    ))
+}
+
+#[utoipa::path(
     get,
     path = "/api/v1/admin/membership/users/{user_id}",
     operation_id = "getAdminMembershipAccount",
@@ -2606,8 +3225,9 @@ pub(crate) async fn update_membership_medal_rule(
     request_body = GrantMembershipMedalRequest,
     responses(
         (status = 200, body = ApiResponse<MembershipMedalGrant>, headers(("x-request-id" = String))),
-        (status = 401, body = ErrorResponse), (status = 403, body = ErrorResponse),
-        (status = 404, body = ErrorResponse), (status = 422, body = ErrorResponse), (status = 503, body = ErrorResponse)
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String))), (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 404, body = ErrorResponse, headers(("x-request-id" = String))), (status = 409, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 422, body = ErrorResponse, headers(("x-request-id" = String))), (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
     )
 )]
 pub(crate) async fn grant_membership_medal(
@@ -2635,31 +3255,18 @@ pub(crate) async fn grant_membership_medal(
             request.user_id,
             &request.medal_key,
             &request.reason,
+            MedalCommandContext {
+                expected_revision: request.expected_revision,
+                idempotency_key: &request.idempotency_key,
+                request_id: request_id.into(),
+            },
         )
         .await
-        .map_err(|error| match error {
-            GrantMembershipMedalError::Forbidden => admin_error(
-                StatusCode::FORBIDDEN,
-                error_codes::ADMIN_FORBIDDEN,
-                "当前账号已失去勋章授予权限",
-                request_id,
-            ),
-            GrantMembershipMedalError::UserNotFound => admin_error(
-                StatusCode::NOT_FOUND,
-                error_codes::USER_NOT_FOUND,
-                "目标用户不存在",
-                request_id,
-            ),
-            GrantMembershipMedalError::InvalidMedal | GrantMembershipMedalError::InvalidReason => {
-                validation_error(request_id, "request", "勋章授予请求无效")
-            }
-            GrantMembershipMedalError::Database(error) => {
-                database_error(request_id, error, "勋章授予失败")
-            }
-        })?;
+        .map_err(|error| medal_command_error(request_id, error))?;
     let medal = map_membership_medal(result.medal).map_err(|()| invalid_record(request_id))?;
     Ok(Json(ApiResponse::new(
         MembershipMedalGrant {
+            receipt: map_medal_receipt(result.receipt).map_err(|()| invalid_record(request_id))?,
             medal,
             created: result.created,
         },
@@ -2741,6 +3348,7 @@ pub(crate) async fn list_membership_medal_operations(
         (status = 401, body = ErrorResponse, headers(("x-request-id" = String))),
         (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
         (status = 404, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 409, body = ErrorResponse, headers(("x-request-id" = String))),
         (status = 422, body = ErrorResponse, headers(("x-request-id" = String))),
         (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
     )
@@ -2770,31 +3378,17 @@ pub(crate) async fn revoke_membership_medal(
             request.user_id,
             &request.medal_key,
             &request.reason,
+            MedalCommandContext {
+                expected_revision: request.expected_revision,
+                idempotency_key: &request.idempotency_key,
+                request_id: request_id.into(),
+            },
         )
         .await
-        .map_err(|error| match error {
-            RevokeMembershipMedalError::Forbidden => admin_error(
-                StatusCode::FORBIDDEN,
-                error_codes::ADMIN_FORBIDDEN,
-                "当前账号已失去勋章撤销权限",
-                request_id,
-            ),
-            RevokeMembershipMedalError::UserNotFound => admin_error(
-                StatusCode::NOT_FOUND,
-                error_codes::USER_NOT_FOUND,
-                "目标用户不存在",
-                request_id,
-            ),
-            RevokeMembershipMedalError::InvalidMedal
-            | RevokeMembershipMedalError::InvalidReason => {
-                validation_error(request_id, "request", "勋章撤销请求无效")
-            }
-            RevokeMembershipMedalError::Database(error) => {
-                database_error(request_id, error, "勋章撤销失败")
-            }
-        })?;
+        .map_err(|error| medal_command_error(request_id, error))?;
     Ok(Json(ApiResponse::new(
         MembershipMedalRevocation {
+            receipt: map_medal_receipt(result.receipt).map_err(|()| invalid_record(request_id))?,
             user_id: result.user_id,
             medal_key: result.medal_key,
             revoked: result.revoked,
@@ -4649,6 +5243,7 @@ fn map_admin_user_summary(record: AdminUserSummaryRecord) -> Result<AdminUserSum
         avatar_url: record.avatar_url,
         status: parse_admin_user_status(&record.status).ok_or(())?,
         primary_role: record.primary_role,
+        membership: None,
         topic_count: u64::try_from(record.topic_count).map_err(|_| ())?,
         post_count: u64::try_from(record.post_count).map_err(|_| ())?,
         report_count: u64::try_from(record.report_count).map_err(|_| ())?,
@@ -5179,7 +5774,7 @@ fn validate_membership_medal_grant(
             "理由必须是 2 到 64 位小写字母、数字、点、下划线或连字符",
         ));
     }
-    Ok(())
+    validate_medal_command(request.expected_revision, &request.idempotency_key)
 }
 
 fn validate_membership_medal_revocation(
@@ -5194,7 +5789,7 @@ fn validate_membership_medal_revocation(
     {
         return Err(("reason", "撤销原因必须是 1 到 64 个有效字符"));
     }
-    Ok(())
+    validate_medal_command(request.expected_revision, &request.idempotency_key)
 }
 
 fn validate_membership_medal_operations_query(
@@ -5304,8 +5899,11 @@ fn validate_membership_level_rule(
 fn validate_points_grant(
     request: &GrantMembershipPointsRequest,
 ) -> Result<(), (&'static str, &'static str)> {
-    if !(1..=1_000_000).contains(&request.amount) {
-        return Err(("amount", "授予积分必须在 1 到 1000000 之间"));
+    if request.amount == 0 || !(-1_000_000..=1_000_000).contains(&request.amount) {
+        return Err((
+            "amount",
+            "积分变更必须为 -1000000 到 1000000 之间的非零整数",
+        ));
     }
     if !(2..=64).contains(&request.reason.len())
         || request
@@ -5631,12 +6229,46 @@ fn validate_admin_users_query(
             "registered_before 必须晚于 registered_after",
         ));
     }
+    let active_after = query
+        .last_active_after
+        .as_deref()
+        .map(parse_admin_time)
+        .transpose()
+        .map_err(|_| {
+            (
+                "last_active_after",
+                "last_active_after 必须是 RFC 3339 时间",
+            )
+        })?;
+    let active_before = query
+        .last_active_before
+        .as_deref()
+        .map(parse_admin_time)
+        .transpose()
+        .map_err(|_| {
+            (
+                "last_active_before",
+                "last_active_before 必须是 RFC 3339 时间",
+            )
+        })?;
+    if matches!((active_after, active_before), (Some(after), Some(before)) if after >= before) {
+        return Err((
+            "last_active_before",
+            "last_active_before 必须晚于 last_active_after",
+        ));
+    }
     Ok(ListAdminUsersQuery {
         q,
         status: query.status,
         role_id: query.role_id,
         registered_after,
         registered_before,
+        last_active_after: query.last_active_after,
+        last_active_before: query.last_active_before,
+        base_group_id: query.base_group_id,
+        additional_group_id: query.additional_group_id,
+        growth_level_id: query.growth_level_id,
+        entitlement_type_id: query.entitlement_type_id,
         cursor: query.cursor,
         limit: Some(limit),
     })
@@ -6538,4 +7170,349 @@ fn admin_error(
             request_id,
         )),
     )
+}
+
+fn validate_medal_command(revision: i64, key: &str) -> Result<(), (&'static str, &'static str)> {
+    if revision < 0 {
+        return Err(("expected_revision", "请刷新用户勋章状态后重试"));
+    }
+    if !(1..=64).contains(&key.len()) || !key.bytes().all(|b| b.is_ascii_graphic()) {
+        return Err((
+            "idempotency_key",
+            "操作标识必须是 1 到 64 位 ASCII 可见字符",
+        ));
+    }
+    Ok(())
+}
+
+fn medal_command_error(request_id: RequestId, error: GrantMembershipMedalError) -> ApiError {
+    match error {
+        GrantMembershipMedalError::Forbidden => admin_error(
+            StatusCode::FORBIDDEN,
+            error_codes::ADMIN_FORBIDDEN,
+            "当前账号已失去勋章操作权限",
+            request_id,
+        ),
+        GrantMembershipMedalError::UserNotFound => admin_error(
+            StatusCode::NOT_FOUND,
+            error_codes::USER_NOT_FOUND,
+            "目标用户不存在或无法授予",
+            request_id,
+        ),
+        GrantMembershipMedalError::RevisionConflict => admin_error(
+            StatusCode::CONFLICT,
+            "membership.medal_revision_conflict",
+            "勋章状态已变化，请刷新后重试",
+            request_id,
+        ),
+        GrantMembershipMedalError::IdempotencyConflict => admin_error(
+            StatusCode::CONFLICT,
+            "membership.medal_conflict",
+            "操作标识已用于不同请求，请保留原请求核验",
+            request_id,
+        ),
+        GrantMembershipMedalError::Database(error) => {
+            database_error(request_id, error, "勋章操作失败")
+        }
+        _ => validation_error(request_id, "request", "勋章操作请求无效"),
+    }
+}
+
+fn map_medal_receipt(record: MembershipMedalReceiptRecord) -> Result<MembershipMedalReceipt, ()> {
+    let operation = match record.operation.as_str() {
+        "grant" => MembershipMedalOperationKind::Grant,
+        "revoke" => MembershipMedalOperationKind::Revoke,
+        _ => return Err(()),
+    };
+    Ok(MembershipMedalReceipt {
+        id: record.id,
+        user_id: record.user_id,
+        medal_key: record.medal_key,
+        medal_display_name: record.medal_display_name,
+        operation,
+        reason: record.reason,
+        actor_id: record.actor_id,
+        idempotency_key: record.idempotency_key,
+        expected_revision: record.expected_revision,
+        revision: record.revision,
+        affected: record.affected,
+        owned_after: record.owned_after,
+        audit_id: record.audit_id,
+        operation_request_id: record.operation_request_id,
+        created_at: format_time(record.created_at),
+        replayed: record.replayed,
+    })
+}
+
+#[utoipa::path(get, path = "/api/v1/admin/membership/users/{user_id}/medals", operation_id = "getAdminMedalState", tag = "admin",
+    params(("user_id" = Uuid, Path)), responses(
+    (status = 200, body = ApiResponse<MembershipMedalState>, headers(("x-request-id" = String))),
+    (status = 401, body = ErrorResponse, headers(("x-request-id" = String))), (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+    (status = 404, body = ErrorResponse, headers(("x-request-id" = String))),
+    (status = 422, body = ErrorResponse, headers(("x-request-id" = String))), (status = 503, body = ErrorResponse, headers(("x-request-id" = String))) ))]
+pub(crate) async fn get_admin_medal_state(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    path: Result<Path<Uuid>, axum::extract::rejection::PathRejection>,
+) -> Result<(HeaderMap, Json<ApiResponse<MembershipMedalState>>), ApiError> {
+    authorize_capability_read(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::MEMBERSHIP_MEDALS_READ,
+    )
+    .await?;
+    let Path(user_id) =
+        path.map_err(|_| validation_error(request_id, "user_id", "用户 UID 格式无效"))?;
+    ensure_admin_user_exists(&database, user_id, request_id).await?;
+    let state = database
+        .membership_medal_state(user_id)
+        .await
+        .map_err(|e| database_error(request_id, e, "勋章状态读取失败"))?;
+    let medals = state
+        .medals
+        .into_iter()
+        .map(map_membership_medal)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|()| invalid_record(request_id))?;
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok((
+        headers,
+        Json(ApiResponse::new(
+            MembershipMedalState {
+                user_id,
+                revision: state.revision,
+                medals,
+            },
+            request_id,
+        )),
+    ))
+}
+
+#[utoipa::path(get, path = "/api/v1/admin/membership/users/{user_id}/medal-requests/{key}", operation_id = "getAdminMedalReceipt", tag = "admin",
+    params(("user_id" = Uuid, Path), ("key" = String, Path)), responses(
+    (status = 200, body = ApiResponse<MembershipMedalReceipt>, headers(("x-request-id" = String))),
+    (status = 401, body = ErrorResponse, headers(("x-request-id" = String))), (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+    (status = 404, body = ErrorResponse, headers(("x-request-id" = String))), (status = 422, body = ErrorResponse, headers(("x-request-id" = String))),
+    (status = 503, body = ErrorResponse, headers(("x-request-id" = String))) ))]
+pub(crate) async fn get_admin_medal_receipt(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    path: Result<Path<(Uuid, String)>, axum::extract::rejection::PathRejection>,
+) -> Result<(HeaderMap, Json<ApiResponse<MembershipMedalReceipt>>), ApiError> {
+    authorize_capability_read(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::MEMBERSHIP_MEDALS_READ,
+    )
+    .await?;
+    let Path((user_id, key)) =
+        path.map_err(|_| validation_error(request_id, "user_id", "用户 UID 或请求编号格式无效"))?;
+    validate_medal_command(0, &key).map_err(|(f, m)| validation_error(request_id, f, m))?;
+    ensure_admin_user_exists(&database, user_id, request_id).await?;
+    let receipt = database
+        .membership_medal_receipt(user_id, &key)
+        .await
+        .map_err(|e| database_error(request_id, e, "勋章回执读取失败"))?
+        .ok_or_else(|| {
+            admin_error(
+                StatusCode::NOT_FOUND,
+                "membership.medal_receipt_not_found",
+                "尚未找到操作回执，请保留原请求核验",
+                request_id,
+            )
+        })?;
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok((
+        headers,
+        Json(ApiResponse::new(
+            map_medal_receipt(receipt).map_err(|()| invalid_record(request_id))?,
+            request_id,
+        )),
+    ))
+}
+
+#[utoipa::path(
+    post, path = "/api/v1/admin/entitlements/{entitlement_id}/renew",
+    operation_id = "renewStandardEntitlement", tag = "admin",
+    params(("entitlement_id" = Uuid, Path), ("x-csrf-token" = String, Header)),
+    request_body = RenewStandardEntitlementRequest,
+    responses(
+        (status = 200, body = ApiResponse<StandardEntitlementRenewal>, headers(("x-request-id" = String))),
+        (status = 400, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 404, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 409, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 422, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn renew_standard_entitlement(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    path: Result<Path<Uuid>, axum::extract::rejection::PathRejection>,
+    request: Result<Json<RenewStandardEntitlementRequest>, JsonRejection>,
+) -> Result<(HeaderMap, Json<ApiResponse<StandardEntitlementRenewal>>), ApiError> {
+    let session = authorize_capability_write(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::ENTITLEMENT_GRANTS_WRITE,
+    )
+    .await?;
+    let Path(entitlement_id) =
+        path.map_err(|_| validation_error(request_id, "entitlement_id", "权益编号格式无效"))?;
+    let Json(request) =
+        request.map_err(|_| validation_error(request_id, "body", "请求体格式不正确"))?;
+    if request.expected_revision < 1 {
+        return Err(validation_error(
+            request_id,
+            "expected_revision",
+            "权益版本必须是正整数",
+        ));
+    }
+    if !valid_entitlement_renewal_key(&request.idempotency_key) {
+        return Err(validation_error(
+            request_id,
+            "idempotency_key",
+            "续期请求编号必须是 1–64 位 ASCII 可见字符",
+        ));
+    }
+    let ends_at = parse_admin_timestamp(&request.ends_at)
+        .map_err(|()| validation_error(request_id, "ends_at", "新到期时间必须是 RFC 3339"))?;
+    let result = database
+        .renew_standard_entitlement(RenewStandardEntitlementRecord {
+            user_id: request.user_id,
+            entitlement_id,
+            actor_id: session.user.id,
+            expected_revision: request.expected_revision,
+            ends_at,
+            reason: request.reason,
+            idempotency_key: request.idempotency_key,
+            request_id: request_id.into(),
+        })
+        .await
+        .map_err(|error| standard_entitlement_error(request_id, error))?;
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok((
+        headers,
+        Json(ApiResponse::new(
+            StandardEntitlementRenewal {
+                receipt: map_entitlement_renewal_receipt(result.receipt),
+                entitlement: map_standard_entitlement(result.entitlement),
+                replayed: result.replayed,
+            },
+            request_id,
+        )),
+    ))
+}
+
+#[utoipa::path(
+    get, path = "/api/v1/admin/entitlements/users/{user_id}/renewal-requests/{key}",
+    operation_id = "getStandardEntitlementRenewalReceipt", tag = "admin",
+    params(("user_id" = Uuid, Path), ("key" = String, Path)),
+    responses(
+        (status = 200, body = ApiResponse<StandardEntitlementRenewalReceipt>, headers(("x-request-id" = String))),
+        (status = 400, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 401, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 403, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 404, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 422, body = ErrorResponse, headers(("x-request-id" = String))),
+        (status = 503, body = ErrorResponse, headers(("x-request-id" = String)))
+    )
+)]
+pub(crate) async fn get_standard_entitlement_renewal_receipt(
+    State(database): State<Database>,
+    Extension(request_id): Extension<RequestId>,
+    Extension(runtime): Extension<AuthRuntime>,
+    headers: HeaderMap,
+    path: Result<Path<(Uuid, String)>, axum::extract::rejection::PathRejection>,
+) -> Result<
+    (
+        HeaderMap,
+        Json<ApiResponse<StandardEntitlementRenewalReceipt>>,
+    ),
+    ApiError,
+> {
+    authorize_capability_read(
+        &database,
+        &runtime,
+        &headers,
+        request_id,
+        permission_keys::ENTITLEMENT_GRANTS_READ,
+    )
+    .await?;
+    let Path((user_id, key)) =
+        path.map_err(|_| validation_error(request_id, "user_id", "用户 UID 或请求编号格式无效"))?;
+    if !valid_entitlement_renewal_key(&key) {
+        return Err(validation_error(
+            request_id,
+            "idempotency_key",
+            "续期请求编号必须是 1–64 位 ASCII 可见字符",
+        ));
+    }
+    ensure_admin_user_exists(&database, user_id, request_id).await?;
+    let receipt = database
+        .get_standard_entitlement_renewal_request(user_id, &key)
+        .await
+        .map_err(|error| database_error(request_id, error, "续期回执读取失败"))?
+        .ok_or_else(|| {
+            admin_error(
+                StatusCode::NOT_FOUND,
+                error_codes::ENTITLEMENT_NOT_FOUND,
+                "尚未找到续期回执，请继续保留原请求核验",
+                request_id,
+            )
+        })?;
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok((
+        headers,
+        Json(ApiResponse::new(
+            map_entitlement_renewal_receipt(receipt),
+            request_id,
+        )),
+    ))
+}
+
+fn valid_entitlement_renewal_key(key: &str) -> bool {
+    (1..=64).contains(&key.len()) && key.bytes().all(|byte| (b'!'..=b'~').contains(&byte))
+}
+
+fn map_entitlement_renewal_receipt(
+    row: StandardEntitlementRenewalReceiptRecord,
+) -> StandardEntitlementRenewalReceipt {
+    StandardEntitlementRenewalReceipt {
+        id: row.id,
+        user_id: row.user_id,
+        entitlement_id: row.entitlement_id,
+        actor_id: row.actor_id,
+        expected_revision: row.expected_revision,
+        previous_ends_at: format_time(row.previous_ends_at),
+        ends_at: format_time(row.ends_at),
+        reason: row.reason,
+        idempotency_key: row.idempotency_key,
+        revision: row.revision,
+        audit_id: row.audit_id,
+        request_id: row.request_id,
+        type_version: row.type_version,
+        starts_at: format_time(row.starts_at),
+        permission_snapshot: row.permission_snapshot,
+        quota_snapshot: row.quota_snapshot.0,
+        created_at: format_time(row.created_at),
+    }
 }

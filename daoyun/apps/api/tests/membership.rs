@@ -160,7 +160,7 @@ async fn medal_image_upload_validates_access_and_updates_public_assets(pool: PgP
         .oneshot(json_request(
             Method::POST,
             "/api/v1/admin/membership/medals",
-            json!({"user_id":owner,"medal_key":medal_key,"reason":"operator.award"}),
+            json!({"user_id":owner,"medal_key":medal_key,"reason":"operator.award","expected_revision":0,"idempotency_key":"upload-award"}),
             &cookies,
             Some(&csrf),
         ))
@@ -1505,7 +1505,7 @@ async fn admin_medals_support_operations_and_revocation(pool: PgPool) {
         .oneshot(json_request(
             Method::POST,
             "/api/v1/admin/membership/medals",
-            json!({"user_id": member_id, "medal_key": "medal_01", "reason": "operator.award"}),
+            json!({"user_id": member_id, "medal_key": "medal_01", "reason": "operator.award", "expected_revision":0,"idempotency_key":"grant-member"}),
             &owner_cookies,
             Some(&owner_csrf),
         ))
@@ -1541,7 +1541,7 @@ async fn admin_medals_support_operations_and_revocation(pool: PgPool) {
         .oneshot(json_request(
             Method::POST,
             "/api/v1/admin/membership/medal-revocations",
-            json!({"user_id": member_id, "medal_key": "medal_01", "reason": "operator.revoke"}),
+            json!({"user_id": member_id, "medal_key": "medal_01", "reason": "operator.revoke", "expected_revision":1,"idempotency_key":"revoke-member"}),
             &owner_cookies,
             Some(&owner_csrf),
         ))
@@ -1555,7 +1555,7 @@ async fn admin_medals_support_operations_and_revocation(pool: PgPool) {
         .oneshot(json_request(
             Method::POST,
             "/api/v1/admin/membership/medal-revocations",
-            json!({"user_id": member_id, "medal_key": "medal_01", "reason": "operator.revoke"}),
+            json!({"user_id": member_id, "medal_key": "medal_01", "reason": "operator.revoke", "expected_revision":2,"idempotency_key":"revoke-member-noop"}),
             &owner_cookies,
             Some(&owner_csrf),
         ))
@@ -1690,7 +1690,7 @@ async fn medal_catalog_crud_is_authorized_and_updates_public_metadata(pool: PgPo
         .oneshot(json_request(
             Method::POST,
             "/api/v1/admin/membership/medals",
-            json!({"user_id": owner, "medal_key": key, "reason": "operator.award"}),
+            json!({"user_id": owner, "medal_key": key, "reason": "operator.award", "expected_revision":0,"idempotency_key":"grant-catalog"}),
             &cookies,
             Some(&csrf),
         ))
@@ -1768,7 +1768,7 @@ async fn medal_catalog_crud_is_authorized_and_updates_public_metadata(pool: PgPo
         .oneshot(json_request(
             Method::POST,
             "/api/v1/admin/membership/medals",
-            json!({"user_id": owner, "medal_key": key, "reason": "operator.award"}),
+            json!({"user_id": owner, "medal_key": key, "reason": "operator.award", "expected_revision":1,"idempotency_key":"deleted-catalog"}),
             &cookies,
             Some(&csrf),
         ))
@@ -2180,20 +2180,67 @@ async fn concurrent_medal_revocation_appends_exactly_one_fact(pool: PgPool) {
         .fetch_one(&pool)
         .await
         .unwrap();
-    db.grant_membership_medal(actor, actor, "medal_01", "operator.award")
-        .await
-        .unwrap();
+    db.grant_membership_medal(
+        actor,
+        actor,
+        "medal_01",
+        "operator.award",
+        infrastructure::MedalCommandContext {
+            expected_revision: 0,
+            idempotency_key: "concurrent-grant",
+            request_id: Uuid::now_v7(),
+        },
+    )
+    .await
+    .unwrap();
     let (first, second) = tokio::join!(
-        db.revoke_membership_medal(actor, actor, "medal_01", "operator.revoke"),
-        db.revoke_membership_medal(actor, actor, "medal_01", "operator.revoke")
+        db.revoke_membership_medal(
+            actor,
+            actor,
+            "medal_01",
+            "operator.revoke",
+            infrastructure::MedalCommandContext {
+                expected_revision: 1,
+                idempotency_key: "concurrent-revoke",
+                request_id: Uuid::now_v7()
+            }
+        ),
+        db.revoke_membership_medal(
+            actor,
+            actor,
+            "medal_01",
+            "operator.revoke",
+            infrastructure::MedalCommandContext {
+                expected_revision: 1,
+                idempotency_key: "concurrent-revoke",
+                request_id: Uuid::now_v7()
+            }
+        )
     );
-    let results = [first.unwrap().revoked, second.unwrap().revoked];
-    assert_eq!(results.iter().filter(|revoked| **revoked).count(), 1);
+    let results = [first.unwrap(), second.unwrap()];
+    assert!(results.iter().all(|result| result.revoked));
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| result.receipt.replayed)
+            .count(),
+        1
+    );
     assert!(
-        !db.revoke_membership_medal(actor, actor, "medal_01", "operator.revoke")
-            .await
-            .unwrap()
-            .revoked
+        !db.revoke_membership_medal(
+            actor,
+            actor,
+            "medal_01",
+            "operator.revoke",
+            infrastructure::MedalCommandContext {
+                expected_revision: 2,
+                idempotency_key: "concurrent-noop",
+                request_id: Uuid::now_v7()
+            }
+        )
+        .await
+        .unwrap()
+        .revoked
     );
     let facts: i64=sqlx::query_scalar("SELECT count(*) FROM admin_audit_log WHERE resource_id=$1 AND action='membership.medal.revoke'").bind(actor).fetch_one(&pool).await.unwrap();
     assert_eq!(facts, 1);

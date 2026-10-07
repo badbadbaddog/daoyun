@@ -1,0 +1,2 @@
+DROP TABLE membership_medal_command_receipts;
+DROP TABLE membership_medal_states;

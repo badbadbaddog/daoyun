@@ -404,12 +404,19 @@ impl Database {
         )
         .await?;
         if let Some(existing) = existing {
-            if existing.entitlement_type_id == input.entitlement_type_id
+            let granted_ends_at = sqlx::query_scalar::<_, Option<OffsetDateTime>>(
+                "SELECT granted_ends_at FROM user_standard_entitlements WHERE id=$1",
+            )
+            .bind(existing.id)
+            .fetch_one(&mut *transaction)
+            .await?;
+            if existing.granted_by == input.actor_id
+                && existing.entitlement_type_id == input.entitlement_type_id
                 && existing.source == input.source
                 && existing.source_reference_id == input.source_reference_id
                 && existing.reason == input.reason
                 && same_postgres_timestamp(existing.starts_at, input.starts_at)
-                && same_optional_postgres_timestamp(existing.ends_at, input.ends_at)
+                && same_optional_postgres_timestamp(granted_ends_at, input.ends_at)
             {
                 transaction.commit().await?;
                 return Ok(StandardEntitlementGrantResult {
@@ -1008,4 +1015,199 @@ pub(crate) async fn list_active_standard_entitlements_with_executor(
                 "invalid standard entitlement projection".to_owned(),
             )),
         })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenewStandardEntitlementRecord {
+    pub user_id: Uuid,
+    pub entitlement_id: Uuid,
+    pub actor_id: Uuid,
+    pub expected_revision: i64,
+    pub ends_at: OffsetDateTime,
+    pub reason: String,
+    pub idempotency_key: String,
+    pub request_id: Uuid,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
+pub struct StandardEntitlementRenewalReceiptRecord {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub entitlement_id: Uuid,
+    pub actor_id: Uuid,
+    pub expected_revision: i64,
+    pub previous_ends_at: OffsetDateTime,
+    pub ends_at: OffsetDateTime,
+    pub reason: String,
+    pub idempotency_key: String,
+    pub revision: i64,
+    pub audit_id: Uuid,
+    pub request_id: Uuid,
+    pub type_version: i32,
+    pub starts_at: OffsetDateTime,
+    pub permission_snapshot: Vec<String>,
+    pub quota_snapshot: sqlx::types::Json<BTreeMap<String, i64>>,
+    pub created_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StandardEntitlementRenewalResult {
+    pub receipt: StandardEntitlementRenewalReceiptRecord,
+    pub entitlement: StandardEntitlementRecord,
+    pub replayed: bool,
+}
+
+async fn read_renewal_receipt(
+    connection: &mut sqlx::PgConnection,
+    user_id: Uuid,
+    key: &str,
+) -> Result<Option<StandardEntitlementRenewalReceiptRecord>, sqlx::Error> {
+    sqlx::query_as("SELECT * FROM standard_entitlement_renewal_receipts WHERE user_id=$1 AND idempotency_key=$2")
+        .bind(user_id).bind(key).fetch_optional(connection).await
+}
+
+impl Database {
+    pub async fn get_standard_entitlement_renewal_request(
+        &self,
+        user_id: Uuid,
+        key: &str,
+    ) -> Result<Option<StandardEntitlementRenewalReceiptRecord>, DatabaseError> {
+        let mut connection = self.pool.acquire().await?;
+        Ok(read_renewal_receipt(&mut connection, user_id, key).await?)
+    }
+
+    pub async fn renew_standard_entitlement(
+        &self,
+        input: RenewStandardEntitlementRecord,
+    ) -> Result<StandardEntitlementRenewalResult, StandardEntitlementMutationError> {
+        if input.expected_revision < 1
+            || input.reason.trim() != input.reason
+            || !(1..=200).contains(&input.reason.chars().count())
+            || input.reason.chars().any(char::is_control)
+            || !(1..=64).contains(&input.idempotency_key.len())
+            || !input
+                .idempotency_key
+                .bytes()
+                .all(|byte| (b'!'..=b'~').contains(&byte))
+        {
+            return Err(StandardEntitlementMutationError::InvalidInput);
+        }
+        let mut transaction = self.pool.begin().await?;
+        if !has_permission_with_executor(
+            &mut transaction,
+            input.actor_id,
+            permission_keys::ENTITLEMENT_GRANTS_WRITE,
+            None,
+        )
+        .await?
+        {
+            return Err(StandardEntitlementMutationError::Forbidden);
+        }
+        // PostgreSQL locks serialize same-UID keys and return the latest target row after a wait.
+        // https://www.postgresql.org/docs/16/explicit-locking.html#LOCKING-ROWS
+        sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM users WHERE id=$1 AND status IN ('active','restricted') FOR UPDATE",
+        )
+        .bind(input.user_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or(StandardEntitlementMutationError::UserNotFound)?;
+        let receipt =
+            read_renewal_receipt(&mut transaction, input.user_id, &input.idempotency_key).await?;
+        let row = sqlx::query_as::<_, EntitlementRow>(
+            "SELECT * FROM user_standard_entitlements WHERE id=$1 AND user_id=$2 FOR UPDATE",
+        )
+        .bind(input.entitlement_id)
+        .bind(input.user_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or(StandardEntitlementMutationError::EntitlementNotFound)?;
+        if !has_permission_with_executor(
+            &mut transaction,
+            input.actor_id,
+            permission_keys::ENTITLEMENT_GRANTS_WRITE,
+            None,
+        )
+        .await?
+        {
+            return Err(StandardEntitlementMutationError::Forbidden);
+        }
+        if let Some(receipt) = receipt {
+            if receipt.entitlement_id != input.entitlement_id
+                || receipt.actor_id != input.actor_id
+                || receipt.expected_revision != input.expected_revision
+                || receipt.reason != input.reason
+                || !same_postgres_timestamp(receipt.ends_at, input.ends_at)
+            {
+                return Err(StandardEntitlementMutationError::IdempotencyConflict);
+            }
+            let entitlement = map_entitlement_row(row)?;
+            transaction.commit().await?;
+            return Ok(StandardEntitlementRenewalResult {
+                receipt,
+                entitlement,
+                replayed: true,
+            });
+        }
+        let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
+            .fetch_one(&mut *transaction)
+            .await?;
+        let previous_end = row
+            .ends_at
+            .ok_or(StandardEntitlementMutationError::RevisionConflict)?;
+        if row.revision != input.expected_revision
+            || row.revoked_at.is_some()
+            || previous_end <= now
+        {
+            return Err(StandardEntitlementMutationError::RevisionConflict);
+        }
+        if input.ends_at <= previous_end || same_postgres_timestamp(input.ends_at, previous_end) {
+            return Err(StandardEntitlementMutationError::InvalidInput);
+        }
+        let entitlement = map_entitlement_row(sqlx::query_as::<_, EntitlementRow>(
+            "UPDATE user_standard_entitlements SET ends_at=$2,revision=revision+1,updated_at=clock_timestamp() WHERE id=$1 RETURNING *")
+            .bind(input.entitlement_id).bind(input.ends_at).fetch_one(&mut *transaction).await?)?;
+        let receipt_id = Uuid::now_v7();
+        let audit_id = insert_audit(&mut transaction, input.actor_id, "standard_entitlement.renew", "standard_entitlement",
+            Some(entitlement.id), json!({"user_id":input.user_id,"receipt_id":receipt_id,
+                "expected_revision":input.expected_revision,"revision":entitlement.revision,
+                "previous_ends_at_unix":previous_end.unix_timestamp(),"ends_at_unix":entitlement.ends_at.map(OffsetDateTime::unix_timestamp),
+                "reason":input.reason,"idempotency_key":input.idempotency_key,"request_id":input.request_id})).await?;
+        let receipt = sqlx::query_as::<_, StandardEntitlementRenewalReceiptRecord>(
+            "INSERT INTO standard_entitlement_renewal_receipts
+             (id,user_id,entitlement_id,actor_id,expected_revision,previous_ends_at,ends_at,reason,idempotency_key,
+              revision,audit_id,request_id,type_version,starts_at,permission_snapshot,quota_snapshot)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *")
+            .bind(receipt_id).bind(input.user_id).bind(entitlement.id).bind(input.actor_id)
+            .bind(input.expected_revision).bind(previous_end).bind(entitlement.ends_at.unwrap())
+            .bind(&input.reason).bind(&input.idempotency_key).bind(entitlement.revision)
+            .bind(audit_id).bind(input.request_id).bind(entitlement.type_version).bind(entitlement.starts_at)
+            .bind(&entitlement.permission_snapshot).bind(sqlx::types::Json(&entitlement.quota_snapshot))
+            .fetch_one(&mut *transaction).await?;
+        let dedupe_key = format!("renewal:{}:{}", input.user_id, input.idempotency_key);
+        for (event_type, aggregate_type, aggregate_id) in [
+            (
+                "standard_entitlement.renewed",
+                "standard_entitlement",
+                entitlement.id,
+            ),
+            ("entitlement.changed", "user", input.user_id),
+        ] {
+            self.enqueue_outbox_event_in_transaction(&mut transaction, NewOutboxEvent {
+                id: Uuid::now_v7(), event_type: event_type.into(), aggregate_type: aggregate_type.into(), aggregate_id,
+                dedupe_key: dedupe_key.clone(), payload: json!({"operation":"renewed","receipt_id":receipt.id,
+                    "entitlement_id":entitlement.id,"user_id":input.user_id,"entitlement_key":entitlement.entitlement_key,
+                    "type_version":entitlement.type_version,"permission_snapshot":entitlement.permission_snapshot,
+                    "quota_snapshot":entitlement.quota_snapshot,"starts_at_unix":entitlement.starts_at.unix_timestamp(),
+                    "ends_at_unix":receipt.ends_at.unix_timestamp(),"revision":receipt.revision,"request_id":input.request_id}),
+                max_attempts: 10,
+            }).await?;
+        }
+        transaction.commit().await?;
+        Ok(StandardEntitlementRenewalResult {
+            receipt,
+            entitlement,
+            replayed: false,
+        })
+    }
 }

@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-const ACTIONS: [(&str, &str, Option<&str>); 5] = [
+const ACTIONS: [(&str, &str, Option<&str>); 10] = [
     ("browse", "board.read", None),
     ("topic_create", "topic.create", Some("topic.create.daily")),
     ("reply_create", "reply.create", Some("reply.create.daily")),
@@ -21,6 +21,11 @@ const ACTIONS: [(&str, &str, Option<&str>); 5] = [
         "attachment.download",
         Some("attachment.download.bytes.daily"),
     ),
+    ("moderation_browse", "moderation.topic", None),
+    ("topic_pin", "moderation.topic.pin", None),
+    ("topic_feature", "moderation.topic.feature", None),
+    ("topic_lock", "moderation.topic.lock", None),
+    ("topic_move", "moderation.topic.move", None),
 ];
 
 #[derive(Debug)]
@@ -47,6 +52,7 @@ pub struct BoardPermissionMatrixRecord {
     pub visibility: String,
     pub policy_revision: Option<i64>,
     pub evaluated_at: OffsetDateTime,
+    pub topic_revision: Option<i64>,
     pub scenarios: Vec<PermissionMatrixScenarioRecord>,
 }
 pub struct PermissionMatrixScenarioRecord {
@@ -54,6 +60,7 @@ pub struct PermissionMatrixScenarioRecord {
     pub kind: &'static str,
     pub display_name: String,
     pub complete: bool,
+    pub account_status: Option<String>,
     pub actions: Vec<PermissionMatrixActionRecord>,
     pub sources: Vec<PermissionMatrixSourceRecord>,
     pub quotas: Vec<PermissionMatrixQuotaRecord>,
@@ -66,8 +73,22 @@ pub struct PermissionMatrixSourceRecord {
     pub permission_keys: BTreeSet<String>,
     pub quotas: BTreeMap<String, i64>,
     pub type_version: Option<i32>,
+    pub membership_kind: Option<String>,
+    pub role: Option<PermissionMatrixRoleRecord>,
     pub starts_at: Option<OffsetDateTime>,
     pub ends_at: Option<OffsetDateTime>,
+}
+#[derive(FromRow)]
+pub struct PermissionMatrixRoleRecord {
+    pub id: Uuid,
+    pub revision: i64,
+    pub scope: String,
+    pub scope_id: Option<Uuid>,
+    pub scope_mode: String,
+    pub scope_matches: bool,
+    pub target_scope_matches: Option<bool>,
+    pub is_system: bool,
+    pub assigned_by: Uuid,
 }
 pub struct PermissionMatrixActionRecord {
     pub action: &'static str,
@@ -83,11 +104,28 @@ pub struct PermissionMatrixQuotaRecord {
     pub source_ids: Vec<Uuid>,
 }
 #[derive(FromRow)]
+struct MatrixAssignment {
+    id: Uuid,
+    key: String,
+    display_name: String,
+    created_at: OffsetDateTime,
+    role_id: Uuid,
+    revision: i64,
+    scope: String,
+    scope_id: Option<Uuid>,
+    scope_mode: String,
+    scope_matches: bool,
+    is_system: bool,
+    assigned_by: Uuid,
+    permission_keys: Vec<String>,
+}
+#[derive(FromRow)]
 struct MatrixGroup {
     id: Uuid,
     internal_key: String,
     display_name: String,
     status: String,
+    is_base: bool,
 }
 
 impl Database {
@@ -126,7 +164,7 @@ impl Database {
         let mut scenarios = Vec::new();
         for id in group_ids {
             let group = sqlx::query_as::<_, MatrixGroup>(
-                "SELECT id, internal_key, display_name, status FROM community_groups WHERE id = $1",
+                "SELECT id, internal_key, display_name, status, is_base FROM community_groups WHERE id = $1",
             )
             .bind(id)
             .fetch_optional(&mut *tx)
@@ -145,14 +183,19 @@ impl Database {
                 permission_keys,
                 quotas,
                 type_version: None,
+                membership_kind: Some(if group.is_base { "base" } else { "additional" }.into()),
+                role: None,
                 starts_at: None,
                 ends_at: None,
             };
             let actions = ACTIONS
                 .iter()
                 .map(|(action, permission, _)| {
-                    let provided = source.permission_keys.contains(*permission);
-                    let (decision, reason) = if group.status != "active" {
+                    let governance = permission.starts_with("moderation.");
+                    let provided = !governance && source.permission_keys.contains(*permission);
+                    let (decision, reason) = if governance {
+                        ("not_applicable", "governance.role_required")
+                    } else if group.status != "active" {
                         ("not_applicable", "group.inactive")
                     } else if visibility != "public" {
                         ("denied", "board.hidden")
@@ -181,6 +224,7 @@ impl Database {
                 kind: "group",
                 display_name: group.display_name,
                 complete: false,
+                account_status: None,
                 actions,
                 sources: vec![source],
                 quotas: quota_rows,
@@ -196,11 +240,13 @@ impl Database {
             visibility,
             policy_revision,
             evaluated_at,
+            topic_revision: None,
             scenarios,
         })
     }
     /// Uses the same source snapshot and resource predicates as real community operations.
     /// The read-only transaction cannot consume quota or authorize a later request.
+    #[allow(clippy::too_many_arguments)]
     pub async fn permission_check(
         &self,
         board_id: Uuid,
@@ -209,6 +255,7 @@ impl Database {
         topic_id: Option<Uuid>,
         attachment_id: Option<Uuid>,
         file_bytes: Option<i64>,
+        target_board_id: Option<Uuid>,
     ) -> Result<BoardPermissionMatrixRecord, PermissionMatrixError> {
         if !ACTIONS.iter().any(|entry| entry.0 == action)
             || file_bytes
@@ -216,6 +263,7 @@ impl Database {
             || (file_bytes.is_some() && action != "attachment_upload")
             || (attachment_id.is_some() && action != "attachment_download")
             || (topic_id.is_some() && action == "topic_create")
+            || (target_board_id.is_some() && action != "topic_move")
         {
             return Err(PermissionMatrixError::InvalidScenario);
         }
@@ -252,6 +300,87 @@ impl Database {
             .position(|entry| entry.action == action)
             .ok_or(PermissionMatrixError::InvalidScenario)?;
         let mut result = scenario.actions.remove(index);
+        if ACTIONS
+            .iter()
+            .any(|(key, permission, _)| *key == action && permission.starts_with("moderation."))
+        {
+            if let Some(target) = target_board_id {
+                let scopes = sqlx::query_as::<_, (Uuid,bool)>(
+                    "SELECT a.id,((r.scope IN ('instance','site') AND a.scope_id IS NULL) OR
+                      (r.scope='board' AND a.scope_id IS NOT NULL AND daoyun_board_scope_covers(a.scope_id,a.scope_mode,$2)))
+                     FROM role_assignments a JOIN roles r ON r.id=a.role_id WHERE a.user_id=$1")
+                    .bind(user_id).bind(target).fetch_all(&mut *tx).await?;
+                for source in &mut scenario.sources {
+                    if let Some(role) = &mut source.role {
+                        role.target_scope_matches = scopes
+                            .iter()
+                            .find(|(id, _)| *id == source.id)
+                            .map(|(_, covers)| *covers);
+                    }
+                }
+            }
+            let mut topic_revision = None;
+            if let Some(topic_id) = topic_id {
+                let topic = sqlx::query_as::<_, (Uuid, bool, bool, i64)>(
+                    "SELECT t.board_id,t.status='published' AND t.deleted_at IS NULL,
+                            u.status IN ('active','restricted'),t.governance_revision
+                     FROM topics t JOIN users u ON u.id=t.author_id WHERE t.id=$1",
+                )
+                .bind(topic_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+                if topic.as_ref().is_some_and(|t| t.0 != board_id) {
+                    return Err(PermissionMatrixError::InvalidScenario);
+                }
+                topic_revision = topic.as_ref().map(|t| t.3);
+                if result.decision != "denied" {
+                    (result.decision, result.reason) = match topic {
+                        None | Some((_, false, _, _)) => ("denied", "resource.unavailable"),
+                        Some((_, _, false, _)) if action == "moderation_browse" => {
+                            ("denied", "resource.unavailable")
+                        }
+                        Some(_) if action == "topic_move" && target_board_id.is_none() => {
+                            ("missing_context", "resource.context_required")
+                        }
+                        Some(_) if action == "topic_move" && target_board_id == Some(board_id) => {
+                            ("not_applicable", "governance.same_board")
+                        }
+                        Some(_) => ("allowed", "governance.conditions_matched"),
+                    };
+                    if action == "topic_move" && result.decision == "allowed" {
+                        let target =
+                            target_board_id.ok_or(PermissionMatrixError::InvalidScenario)?;
+                        let permitted = crate::authorization::query_permission_with_executor(
+                            &mut tx,
+                            user_id,
+                            "moderation.topic.move",
+                            Some(target),
+                            false,
+                        )
+                        .await?;
+                        let target_public = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM boards WHERE id=$1 AND visibility='public' AND deleted_at IS NULL)")
+                            .bind(target).fetch_one(&mut *tx).await?;
+                        (result.decision, result.reason) = if !permitted {
+                            ("denied", "governance.target_permission_not_provided")
+                        } else if visibility != "public" || !target_public {
+                            ("denied", "resource.unavailable")
+                        } else {
+                            ("allowed", "governance.conditions_matched")
+                        };
+                    }
+                }
+            }
+            scenario.actions = vec![result];
+            tx.commit().await?;
+            return Ok(BoardPermissionMatrixRecord {
+                board_id,
+                visibility,
+                policy_revision,
+                evaluated_at: at,
+                topic_revision,
+                scenarios: vec![scenario],
+            });
+        }
         let quota = |key: &str| scenario.quotas.iter().find(|quota| quota.key == key);
         let fits = |key: &str, bytes: i64| {
             quota(key).is_some_and(|q| {
@@ -357,6 +486,7 @@ impl Database {
             visibility,
             policy_revision,
             evaluated_at: at,
+            topic_revision: None,
             scenarios: vec![scenario],
         })
     }
@@ -377,7 +507,7 @@ async fn user_scenario(
     let count: i64 = sqlx::query_scalar("SELECT (
         SELECT count(*) FROM community_group_memberships m JOIN community_groups g ON g.id = m.group_id
         WHERE m.user_id = $1 AND m.revoked_at IS NULL AND m.starts_at <= $2 AND (m.ends_at IS NULL OR m.ends_at > $2) AND g.status = 'active'
-    ) + (SELECT count(*) FROM user_standard_entitlements WHERE user_id = $1 AND revoked_at IS NULL AND starts_at <= $2 AND (ends_at IS NULL OR ends_at > $2))")
+    ) + (SELECT count(*) FROM user_standard_entitlements WHERE user_id = $1 AND revoked_at IS NULL AND starts_at <= $2 AND (ends_at IS NULL OR ends_at > $2)) + (SELECT count(*) FROM role_assignments WHERE user_id=$1)")
         .bind(user_id).bind(at).fetch_one(&mut *connection).await?;
     if count > 128 {
         return Err(PermissionMatrixError::SourceLimit);
@@ -407,6 +537,8 @@ async fn user_scenario(
             permission_keys: source.permission_keys.clone(),
             quotas: source.quotas.clone(),
             type_version: None,
+            membership_kind: membership.map(|m| m.membership_kind.clone()),
+            role: None,
             starts_at: membership.map(|m| m.starts_at),
             ends_at: membership.and_then(|m| m.ends_at),
         });
@@ -429,8 +561,42 @@ async fn user_scenario(
             permission_keys: source.permission_keys.clone(),
             quotas: source.quotas.clone(),
             type_version: Some(source.type_version),
+            membership_kind: None,
+            role: None,
             starts_at: entitlement.map(|e| e.starts_at),
             ends_at: entitlement.and_then(|e| e.ends_at),
+        });
+    }
+    let assignments = sqlx::query_as::<_, MatrixAssignment>(
+        "SELECT a.id,r.key,r.name AS display_name,a.created_at,r.id AS role_id,r.revision,r.scope,a.scope_id,a.scope_mode,r.is_system,a.assigned_by,
+            ((r.scope IN ('instance','site') AND a.scope_id IS NULL) OR
+             (r.scope='board' AND a.scope_id IS NOT NULL AND daoyun_board_scope_covers(a.scope_id,a.scope_mode,$2))) AS scope_matches,
+            ARRAY(SELECT p.permission_key FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=r.id ORDER BY p.permission_key) AS permission_keys
+         FROM role_assignments a JOIN roles r ON r.id=a.role_id WHERE a.user_id=$1 ORDER BY a.created_at,a.id")
+        .bind(user_id).bind(board_id).fetch_all(&mut *connection).await?;
+    for a in assignments {
+        sources.push(PermissionMatrixSourceRecord {
+            id: a.id,
+            kind: "role",
+            key: a.key,
+            display_name: a.display_name,
+            permission_keys: a.permission_keys.into_iter().collect(),
+            quotas: BTreeMap::new(),
+            type_version: None,
+            membership_kind: None,
+            starts_at: Some(a.created_at),
+            ends_at: None,
+            role: Some(PermissionMatrixRoleRecord {
+                id: a.role_id,
+                revision: a.revision,
+                scope: a.scope,
+                scope_id: a.scope_id,
+                scope_mode: a.scope_mode,
+                scope_matches: a.scope_matches,
+                target_scope_matches: None,
+                is_system: a.is_system,
+                assigned_by: a.assigned_by,
+            }),
         });
     }
     let mut used: BTreeMap<String, i64> = sqlx::query_as::<_, (String, i64)>(
@@ -455,12 +621,45 @@ async fn user_scenario(
         crate::attachments::has_instance_super_admin_role(connection, user_id).await?;
     let mut actions = Vec::new();
     for (action, permission, daily) in ACTIONS {
+        let governance = permission.starts_with("moderation.");
         let source_ids = sources
             .iter()
-            .filter(|s| s.permission_keys.contains(permission))
+            .filter(|s| {
+                s.permission_keys.contains(permission)
+                    && if governance {
+                        s.role.as_ref().is_some_and(|r| r.scope_matches)
+                    } else {
+                        s.kind != "role"
+                    }
+            })
             .map(|s| s.id)
             .collect::<Vec<_>>();
         let provided = !source_ids.is_empty();
+        if governance {
+            let allowed = crate::authorization::query_permission_with_executor(
+                connection,
+                user_id,
+                permission,
+                Some(board_id),
+                false,
+            )
+            .await?;
+            let (decision, reason) = if snapshot.denied {
+                ("denied", "account.inactive")
+            } else if !allowed {
+                ("denied", "governance.permission_not_provided")
+            } else {
+                ("missing_context", "resource.context_required")
+            };
+            actions.push(PermissionMatrixActionRecord {
+                action,
+                decision,
+                reason,
+                permission_provided: allowed,
+                source_ids,
+            });
+            continue;
+        }
         let allowed = snapshot.permission_keys.contains(permission);
         let restricted = if matches!(
             permission,
@@ -489,7 +688,9 @@ async fn user_scenario(
                     .get("attachment.storage.bytes")
                     .copied()
                     .unwrap_or(0);
-        let (decision, reason) = if action == "browse" {
+        let (decision, reason) = if snapshot.denied {
+            ("denied", "account.inactive")
+        } else if action == "browse" {
             if board_read {
                 ("allowed", "board.access_policy_matched")
             } else {
@@ -502,8 +703,6 @@ async fn user_scenario(
                     },
                 )
             }
-        } else if snapshot.denied {
-            ("denied", "account.inactive")
         } else if snapshot.blocked_permission_keys.contains(permission) {
             ("denied", "account.restricted")
         } else if !allowed {
@@ -549,6 +748,7 @@ async fn user_scenario(
         kind: "user",
         display_name,
         complete: true,
+        account_status: Some(snapshot.account_status),
         actions,
         sources,
         quotas,
@@ -572,7 +772,7 @@ fn quota_rows(
                     .then(|| used.get(key).copied().unwrap_or(0)),
                 source_ids: sources
                     .iter()
-                    .filter(|s| s.quotas.get(key).copied() == Some(limit))
+                    .filter(|s| s.kind != "role" && s.quotas.get(key).copied() == Some(limit))
                     .map(|s| s.id)
                     .collect(),
             }

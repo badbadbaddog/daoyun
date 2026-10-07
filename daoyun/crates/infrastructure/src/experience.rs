@@ -97,11 +97,41 @@ pub enum MutateGrowthLevelError {
 pub struct ExperienceLedgerResult {
     pub account: ExperienceAccountRecord,
     pub entry_id: Uuid,
+    pub entry: ExperienceLedgerEntryRecord,
     pub replayed: bool,
+}
+
+#[derive(Clone, Debug, FromRow)]
+pub struct ExperienceLedgerEntryRecord {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub amount: i64,
+    pub reason: String,
+    pub details: Option<String>,
+    pub source_resource_id: Option<Uuid>,
+    pub reversal_of: Option<Uuid>,
+    pub balance_after: i64,
+    pub revision_after: Option<i64>,
+    pub actor_id: Option<Uuid>,
+    pub actor_username: Option<String>,
+    pub actor_display_name: Option<String>,
+    pub operation_request_id: Option<Uuid>,
+    pub audit_id: Option<Uuid>,
+    pub created_at: OffsetDateTime,
+}
+
+#[derive(Debug)]
+pub struct AdminExperienceContext<'a> {
+    pub actor_id: Uuid,
+    pub expected_revision: i64,
+    pub details: &'a str,
+    pub request_id: Uuid,
 }
 
 #[derive(Debug)]
 pub enum AppendExperienceError {
+    Forbidden,
+    RevisionConflict,
     InvalidAmount,
     InvalidReason,
     InvalidIdempotencyKey,
@@ -373,6 +403,15 @@ impl Database {
         &self,
         user_id: Uuid,
     ) -> Result<ExperienceAccountRecord, sqlx::Error> {
+        self.find_experience_account(user_id)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound)
+    }
+
+    pub async fn find_experience_account(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Option<ExperienceAccountRecord>, sqlx::Error> {
         sqlx::query_as::<_, ExperienceAccountRecord>(
             "SELECT account.user_id, account.experience, account.current_level_id,
                     level.internal_key, level.level_order, level.display_name,
@@ -383,7 +422,82 @@ impl Database {
              WHERE account.user_id = $1",
         )
         .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await
+    }
+
+    pub async fn experience_ledger_cursor_exists(
+        &self,
+        user_id: Uuid,
+        cursor: Uuid,
+    ) -> Result<bool, sqlx::Error> {
+        sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM experience_ledger_entries WHERE user_id=$1 AND id=$2)",
+        )
+        .bind(user_id)
+        .bind(cursor)
         .fetch_one(&self.pool)
+        .await
+    }
+
+    pub async fn list_experience_ledger(
+        &self,
+        user_id: Uuid,
+        cursor: Option<Uuid>,
+        limit: i64,
+    ) -> Result<Vec<ExperienceLedgerEntryRecord>, sqlx::Error> {
+        let query: &str = "SELECT entry.id, entry.user_id, entry.amount, entry.reason, entry.details,
+    entry.source_resource_id, entry.reversal_of, entry.balance_after, entry.revision_after, entry.actor_id,
+    actor.username AS actor_username, actor.display_name AS actor_display_name,
+    entry.operation_request_id, entry.audit_id, entry.created_at
+    FROM experience_ledger_entries AS entry LEFT JOIN users AS actor ON actor.id = entry.actor_id
+            LEFT JOIN experience_ledger_entries AS cursor_entry ON cursor_entry.user_id=$1 AND cursor_entry.id=$2
+            WHERE entry.user_id=$1 AND ($2::uuid IS NULL OR (entry.created_at,entry.id)<(cursor_entry.created_at,cursor_entry.id))
+            ORDER BY entry.created_at DESC,entry.id DESC LIMIT $3";
+        sqlx::query_as(query)
+            .bind(user_id)
+            .bind(cursor)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn adjust_admin_experience(
+        &self,
+        user_id: Uuid,
+        amount: i64,
+        idempotency_key: &str,
+        reversal_of: Option<Uuid>,
+        context: AdminExperienceContext<'_>,
+    ) -> Result<ExperienceLedgerResult, AppendExperienceError> {
+        if context.expected_revision < 1
+            || context.details.trim() != context.details
+            || !(2..=500).contains(&context.details.chars().count())
+            || context.details.chars().any(char::is_control)
+        {
+            return Err(AppendExperienceError::InvalidReason);
+        }
+        if !(1..=64).contains(&idempotency_key.len()) || !valid_idempotency_key(idempotency_key) {
+            return Err(AppendExperienceError::InvalidIdempotencyKey);
+        }
+        if amount == 0 || amount.unsigned_abs() > 1_000_000 {
+            return Err(AppendExperienceError::InvalidAmount);
+        }
+        let reason = if amount > 0 {
+            "admin.adjustment"
+        } else {
+            "admin.reversal"
+        };
+        self.append_experience_command(
+            user_id,
+            amount,
+            reason,
+            None,
+            &format!("admin:{idempotency_key}"),
+            reversal_of,
+            Some(context),
+        )
         .await
     }
 
@@ -396,6 +510,29 @@ impl Database {
         source_resource_id: Option<Uuid>,
         idempotency_key: &str,
         reversal_of: Option<Uuid>,
+    ) -> Result<ExperienceLedgerResult, AppendExperienceError> {
+        self.append_experience_command(
+            user_id,
+            amount,
+            reason,
+            source_resource_id,
+            idempotency_key,
+            reversal_of,
+            None,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn append_experience_command(
+        &self,
+        user_id: Uuid,
+        amount: i64,
+        reason: &str,
+        source_resource_id: Option<Uuid>,
+        idempotency_key: &str,
+        reversal_of: Option<Uuid>,
+        context: Option<AdminExperienceContext<'_>>,
     ) -> Result<ExperienceLedgerResult, AppendExperienceError> {
         if amount == 0 {
             return Err(AppendExperienceError::InvalidAmount);
@@ -426,8 +563,20 @@ impl Database {
         .await?
         .ok_or(AppendExperienceError::AccountNotFound)?;
 
+        if let Some(context) = &context
+            && !has_permission_with_executor(
+                &mut transaction,
+                context.actor_id,
+                permission_keys::MEMBERSHIP_RULES_WRITE,
+                None,
+            )
+            .await?
+        {
+            return Err(AppendExperienceError::Forbidden);
+        }
+
         if let Some(existing) = sqlx::query_as::<_, ExistingExperienceEntry>(
-            "SELECT id, amount, reason, source_resource_id, reversal_of
+            "SELECT id, amount, reason, source_resource_id, reversal_of, actor_id, details, revision_after
              FROM experience_ledger_entries
              WHERE user_id = $1 AND idempotency_key = $2",
         )
@@ -440,21 +589,33 @@ impl Database {
                 || existing.reason != reason
                 || existing.source_resource_id != source_resource_id
                 || existing.reversal_of != reversal_of
+                || existing.actor_id != context.as_ref().map(|c|c.actor_id)
+                || existing.details.as_deref() != context.as_ref().map(|c|c.details)
+                || context.as_ref().is_some_and(|c| c.expected_revision.checked_add(1) != existing.revision_after)
             {
                 return Err(AppendExperienceError::IdempotencyConflict);
             }
+            let entry=experience_entry_in_transaction(&mut transaction,user_id,existing.id).await?;
             transaction.commit().await?;
             return Ok(ExperienceLedgerResult {
                 account,
                 entry_id: existing.id,
+                entry,
                 replayed: true,
             });
+        }
+
+        if context
+            .as_ref()
+            .is_some_and(|c| c.expected_revision != account.revision)
+        {
+            return Err(AppendExperienceError::RevisionConflict);
         }
 
         if let Some(original_id) = reversal_of {
             let original_amount = sqlx::query_scalar::<_, i64>(
                 "SELECT amount FROM experience_ledger_entries
-                 WHERE id = $1 AND user_id = $2",
+                 WHERE id = $1 AND user_id = $2 AND amount > 0 AND reversal_of IS NULL",
             )
             .bind(original_id)
             .bind(user_id)
@@ -570,17 +731,46 @@ impl Database {
         )
         .await?;
 
+        let audit_id = if let Some(context) = &context {
+            Some(insert_audit(&mut transaction,context.actor_id,"membership.experience.adjust","experience_account",Some(user_id),serde_json::json!({"ledger_entry_id":entry_id,"amount":amount,"reason":reason,"details":context.details,"balance_before":account.experience,"balance_after":updated.experience,"revision_before":account.revision,"revision_after":updated.revision,"reversal_of":reversal_of,"request_id":context.request_id})).await?)
+        } else {
+            None
+        };
+        sqlx::query("UPDATE experience_ledger_entries SET actor_id=$2,details=$3,operation_request_id=$4,audit_id=$5,revision_after=$6 WHERE id=$1")
+            .bind(entry_id).bind(context.as_ref().map(|c|c.actor_id)).bind(context.as_ref().map(|c|c.details)).bind(context.as_ref().map(|c|c.request_id)).bind(audit_id).bind(updated.revision).execute(&mut *transaction).await?;
+        let entry = experience_entry_in_transaction(&mut transaction, user_id, entry_id).await?;
         transaction.commit().await?;
         Ok(ExperienceLedgerResult {
             account: updated,
             entry_id,
+            entry,
             replayed: false,
         })
     }
 }
 
+async fn experience_entry_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_id: Uuid,
+    entry_id: Uuid,
+) -> Result<ExperienceLedgerEntryRecord, sqlx::Error> {
+    let query: &str = "SELECT entry.id, entry.user_id, entry.amount, entry.reason, entry.details,
+    entry.source_resource_id, entry.reversal_of, entry.balance_after, entry.revision_after, entry.actor_id,
+    actor.username AS actor_username, actor.display_name AS actor_display_name,
+    entry.operation_request_id, entry.audit_id, entry.created_at
+    FROM experience_ledger_entries AS entry LEFT JOIN users AS actor ON actor.id = entry.actor_id WHERE entry.user_id=$1 AND entry.id=$2";
+    sqlx::query_as(query)
+        .bind(user_id)
+        .bind(entry_id)
+        .fetch_one(&mut **transaction)
+        .await
+}
+
 #[derive(Debug, FromRow)]
 struct ExistingExperienceEntry {
+    actor_id: Option<Uuid>,
+    details: Option<String>,
+    revision_after: Option<i64>,
     id: Uuid,
     amount: i64,
     reason: String,
@@ -688,6 +878,8 @@ impl From<sqlx::Error> for AppendExperienceError {
 impl fmt::Display for AppendExperienceError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Forbidden => formatter.write_str("experience adjustment is forbidden"),
+            Self::RevisionConflict => formatter.write_str("experience revision conflicts"),
             Self::InvalidAmount => formatter.write_str("experience amount is invalid"),
             Self::InvalidReason => formatter.write_str("experience reason is invalid"),
             Self::InvalidIdempotencyKey => {

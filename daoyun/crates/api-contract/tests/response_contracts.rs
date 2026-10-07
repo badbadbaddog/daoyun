@@ -973,6 +973,7 @@ fn admin_user_contracts_expose_management_context_without_private_identity_field
         avatar_url: None,
         status: AdminUserStatus::Active,
         primary_role: Some("站长".to_owned()),
+        membership: None,
         topic_count: 7,
         post_count: 12,
         report_count: 2,
