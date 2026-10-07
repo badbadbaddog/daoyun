@@ -9527,4 +9527,8 @@ body:has(.membership-growth-dialog-backdrop) { overflow: hidden; }
   .dialog-backdrop > [role="alertdialog"] {
     max-height: calc(var(--app-visible-height, 100dvh) - 24px);
   }
+  .dialog-backdrop.image-preview-backdrop > .image-preview-dialog {
+    height: var(--app-visible-height, 100dvh);
+    max-height: var(--app-visible-height, 100dvh);
+  }
 }

@@ -47,6 +47,7 @@ export function AuthorizationAdminPanel({ csrfToken, boards, capabilityKeys, que
   const canWriteRoles = canReadRoles && capabilityKeys.includes("authorization.roles.write")
   const canWriteAssignments = canReadAssignments && capabilityKeys.includes("authorization.assignments.write")
   const canSearchUsers = capabilityKeys.includes("admin.users.read")
+  const canAppoint = canReadRoles && canWriteAssignments && canSearchUsers
   const requestRef = useRef<AbortController | null>(null)
   const listingKey = filters.scopeId + ":" + filters.roleId + ":" + filters.username
   const listingKeyRef = useRef(listingKey)
@@ -83,7 +84,10 @@ export function AuthorizationAdminPanel({ csrfToken, boards, capabilityKeys, que
     setLoading(true)
     setError("")
     setAssignments([]); setNextCursor(null)
-    if (!canReadRoles) { setRoles([]); setPermissions([]) }
+    if (!canReadRoles) {
+      setRoles([]); setPermissions([]); setEditingRoleId(null); setRoleDraft(emptyRole); setTemplateKey("")
+      setView(current => current === "edit" ? "roles" : current)
+    }
     try {
       const [loadedPermissions, loadedRoles, loadedAssignments] = await Promise.all([
         canReadRoles ? listAuthorizationPermissions(signal) : Promise.resolve([]),
@@ -109,8 +113,8 @@ export function AuthorizationAdminPanel({ csrfToken, boards, capabilityKeys, que
   useEffect(() => {
     if (!canWriteRoles) setRoleConfirmation(null)
     setConfirmation(current => current && (current.kind === "role" ? !canWriteRoles : !canWriteAssignments) ? null : current)
-    if (!canWriteAssignments || !canSearchUsers) setAssignmentOpen(false)
-  }, [canWriteRoles, canWriteAssignments, canSearchUsers])
+    if (!canAppoint) setAssignmentOpen(false)
+  }, [canWriteRoles, canWriteAssignments, canAppoint])
 
   useEffect(() => {
     if (!assignmentFocusPendingRef.current || loading || busy || assignmentOpen) return
@@ -268,13 +272,15 @@ export function AuthorizationAdminPanel({ csrfToken, boards, capabilityKeys, que
     <div className={`admin-panel authorization-admin-panel authorization-admin-panel--focused admin-catalog${view === "edit" ? " authorization-admin-panel--editing" : ""}`}>
       <h2 className="sr-only">角色与权限</h2>
       {view !== "edit" ? <nav className="admin-catalog-tabs" aria-label="权限管理分类">
-        <button type="button" aria-pressed={view === "roles"} disabled={busy} onClick={() => setView("roles")}>角色目录<span>{roles.length}</span></button>
+        <button type="button" aria-pressed={view === "roles"} disabled={busy} onClick={() => setView("roles")}>角色目录<span>{canReadRoles ? roles.length : 0}</span></button>
         <button type="button" aria-pressed={view === "assignments"} disabled={busy} onClick={() => setView("assignments")}>人员授权</button>
         <button className="admin-catalog-refresh" type="button" onClick={() => void loadData()} disabled={busy} aria-label="刷新角色与权限" title="刷新"><RefreshCw size={16} aria-hidden="true" /></button>
       </nav> : <div className="admin-role-editor-heading"><button className="secondary-button" type="button" disabled={busy} onClick={cancelRoleEdit}><ArrowLeft size={15} aria-hidden="true" />返回角色目录</button><span>{readOnlyRole ? "角色权限 · 只读" : editingRoleId ? "编辑角色" : "新建角色"}</span></div>}
       {error && !assignmentOpen && !confirmation && <p className="form-alert" role="alert">{error}</p>}
       {message && <p className="admin-success" role="status">{message}</p>}
-      {view === "roles" && <section className="authorization-section" aria-label="角色目录">
+      <p>管理角色决定治理与后台管理能力。普通社区能力来自用户组和标准权益，账号限制仍优先。</p>
+      {view === "roles" && !canReadRoles && <p>没有读取角色与权限的权限。</p>}
+      {view === "roles" && canReadRoles && <section className="authorization-section" aria-label="角色目录">
         <div className="admin-catalog-toolbar">
           <label className="admin-catalog-search"><Search size={16} aria-hidden="true" /><input type="search" aria-label="搜索角色" placeholder="搜索角色名称或标识" value={roleQuery} onChange={(event) => setRoleQuery(event.target.value)} /></label>
           <select aria-label="角色类型" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}><option value="all">全部角色</option><option value="system">系统角色</option><option value="custom">自定义角色</option></select>
@@ -298,7 +304,7 @@ export function AuthorizationAdminPanel({ csrfToken, boards, capabilityKeys, que
         {visibleRoles.length === 0 && <p className="admin-empty" role="status">没有匹配的角色，请调整搜索或筛选条件。</p>}
         <footer className="admin-catalog-footer"><span>共 {roles.length} 个角色 · {customRoles.length} 个自定义</span><span>系统角色可查看，自定义角色可编辑与分配。</span></footer>
       </section>}
-      {view === "edit" && <section className="authorization-section authorization-editor">
+      {view === "edit" && canReadRoles && <section className="authorization-section authorization-editor">
         <form className="admin-form authorization-role-form" onSubmit={saveRole}>
           <div className="authorization-editor-intro"><h3>{readOnlyRole ? editingRole?.name : editingRoleId ? "编辑自定义角色" : "新建自定义角色"}</h3><p>{readOnlyRole ? "当前角色权限只读，不能在这里修改。" : "先定义角色与作用范围，再选择需要的权限。创建后可在人员授权中分配给成员。"}</p></div>
           <label className="admin-role-template"><span>职务模板</span><select aria-label="职务模板" value={templateKey} disabled={busy || readOnlyRole} onChange={event => chooseTemplate(event.target.value)}>
@@ -307,7 +313,7 @@ export function AuthorizationAdminPanel({ csrfToken, boards, capabilityKeys, que
           <fieldset className="authorization-basic-fields" disabled={busy || readOnlyRole}>
             <legend>基本信息</legend>
             <div className="admin-form__grid"><label><span>角色名称</span><input value={roleDraft.name} onChange={(event) => setRoleDraft({ ...roleDraft, name: event.target.value })} maxLength={80} required placeholder="例如：内容审核员" /></label><label><span>角色键</span><input aria-label="角色键" value={roleDraft.key} onChange={(event) => setRoleDraft({ ...roleDraft, key: event.target.value })} pattern="[a-z][a-z0-9_]{2,63}" required disabled={Boolean(editingRoleId)} placeholder="content_reviewer" /><small>英文标识，创建后不可修改。</small></label></div>
-            <label><span>作用域</span><select aria-label="作用域" value={roleDraft.scope} onChange={(event) => setRoleDraft({ ...roleDraft, scope: event.target.value as AuthorizationRoleScope })} disabled={Boolean(editingRoleId)}><option value="instance">实例</option><option value="site">站点</option><option value="board">板块</option></select><small>{roleDraft.scope === "board" ? "授权时选择版块及是否包含子版块；资源请求按真实范围核验。" : "授权后在对应管理范围内生效，请按实际职责分配。"}</small></label>
+            <label><span>作用域</span><select aria-label="作用域" value={roleDraft.scope} onChange={(event) => setRoleDraft({ ...roleDraft, scope: event.target.value as AuthorizationRoleScope })} disabled={Boolean(editingRoleId)}><option value="instance">实例</option><option value="site">站点</option><option value="board">板块</option></select><small>{roleDraft.scope === "board" ? "授权时选择仅本版块或包含全部子版块；包含子版块的范围随当前版块树变化，移动版块后重新核验。" : "授权后在对应管理范围内生效，请按实际职责分配。"}</small></label>
           </fieldset>
           <fieldset className="authorization-permission-fieldset">
             <legend>权限清单 <span>已选择 {roleDraft.permissionKeys.length} 项</span></legend>
@@ -316,7 +322,7 @@ export function AuthorizationAdminPanel({ csrfToken, boards, capabilityKeys, que
               <div className="authorization-permission-content">
                 <label className="admin-catalog-search"><Search size={15} aria-hidden="true" /><input type="search" aria-label="搜索权限" placeholder="搜索全部权限" value={permissionQuery} onChange={(event) => setPermissionQuery(event.target.value)} /></label>
                 {!readOnlyRole && visiblePermissions.length > 0 && <label className="authorization-select-group"><input type="checkbox" disabled={busy} checked={visiblePermissions.every((permission) => roleDraft.permissionKeys.includes(permission.key))} onChange={(event) => setRoleDraft((current) => ({ ...current, permissionKeys: event.target.checked ? [...new Set([...current.permissionKeys, ...visiblePermissions.map((permission) => permission.key)])] : current.permissionKeys.filter((key) => !visiblePermissions.some((permission) => permission.key === key)) }))} /><span>选择当前显示的 {visiblePermissions.length} 项权限</span></label>}
-                <div className="authorization-permission-grid">{visiblePermissions.map((permission) => <label key={permission.key} className={roleDraft.permissionKeys.includes(permission.key) ? "is-selected" : ""}><input type="checkbox" disabled={busy || readOnlyRole} aria-label={`${permission.name} ${permission.key}`} checked={roleDraft.permissionKeys.includes(permission.key)} onChange={(event) => setRoleDraft((current) => ({ ...current, permissionKeys: event.target.checked ? [...current.permissionKeys, permission.key] : current.permissionKeys.filter((key) => key !== permission.key) }))} /><span><strong title={permission.key}>{permission.name}</strong><small>{permission.description}</small></span></label>)}</div>
+                <div className="authorization-permission-grid" role="region" aria-label="角色权限清单" tabIndex={0}>{visiblePermissions.map((permission) => <label key={permission.key} className={roleDraft.permissionKeys.includes(permission.key) ? "is-selected" : ""}><input type="checkbox" disabled={busy || readOnlyRole} aria-label={`${permission.name} ${permission.key}`} checked={roleDraft.permissionKeys.includes(permission.key)} onChange={(event) => setRoleDraft((current) => ({ ...current, permissionKeys: event.target.checked ? [...current.permissionKeys, permission.key] : current.permissionKeys.filter((key) => key !== permission.key) }))} /><span><strong title={permission.key}>{permission.name}</strong><small>{permission.description}</small></span></label>)}</div>
                 {visiblePermissions.length === 0 && <p className="admin-empty">没有匹配的权限。</p>}
               </div>
             </div>
@@ -326,19 +332,19 @@ export function AuthorizationAdminPanel({ csrfToken, boards, capabilityKeys, que
       </section>}
 
       {view === "assignments" && <section className="authorization-section" aria-labelledby="authorization-assignment-heading">
-        <div className="admin-form__heading"><h3 id="authorization-assignment-heading">管理人员</h3><button ref={assignmentTriggerRef} className="primary-button" type="button" disabled={!canWriteAssignments || !canSearchUsers || busy} onClick={() => { if (canWriteAssignments && canSearchUsers) setAssignmentOpen(true) }}><UserPlus size={15} aria-hidden="true" />新增授权</button></div>
+        <div className="admin-form__heading"><h3 id="authorization-assignment-heading">管理人员</h3><button ref={assignmentTriggerRef} className="primary-button" type="button" disabled={!canAppoint || busy} onClick={() => { if (canAppoint) setAssignmentOpen(true) }}><UserPlus size={15} aria-hidden="true" />新增授权</button></div>
         <form className="admin-team-filters" onSubmit={event => { event.preventDefault(); changeTeamFilters({ ...filters, username: usernameFilterDraft.trim() }) }}>
           <label><span>精确用户名筛选</span><input type="search" value={usernameFilterDraft} maxLength={40} disabled={busy} onChange={event => setUsernameFilterDraft(event.target.value)} /></label>
-          <label><span>按职务筛选</span><select value={filters.roleId} disabled={busy} onChange={event => changeTeamFilters({ ...filters, roleId: event.target.value })}><option value="">全部职务</option>{roles.map(role => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label>
+          <label><span>按职务筛选</span><select value={filters.roleId} disabled={busy} onChange={event => changeTeamFilters({ ...filters, roleId: event.target.value })}><option value="">全部职务</option>{canReadRoles && roles.map(role => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label>
           <label><span>按任命版块筛选</span><select value={filters.scopeId} disabled={busy} onChange={event => changeTeamFilters({ ...filters, scopeId: event.target.value })}><option value="">全部范围</option>{boards.map(board => <option key={board.id} value={board.id}>{board.name}</option>)}</select></label>
           <button type="submit" className="secondary-button" disabled={busy}>筛选人员授权</button>
         </form>
         <p>按任命时选择的版块筛选。包含子版的范围按当前树计算；当前版块的祖先任命不会被这个筛选列入。</p>
-        {assignmentOpen && <AdminActionDialog title="分配角色" onClose={() => { if (!busyRef.current) setAssignmentOpen(false) }} busy={busy}>
+        {assignmentOpen && canAppoint && <AdminActionDialog title="分配角色" onClose={() => { if (!busyRef.current) setAssignmentOpen(false) }} busy={busy}>
           <TeamAppointmentForm boards={boards} roles={roles} permissions={permissions} csrfToken={csrfToken} initialScopeId={filters.scopeId} canWrite={canWriteAssignments} canSearchUsers={canSearchUsers} onBusyChange={value => { busyRef.current = value; setBusy(value) }} onCreated={() => { assignmentFocusPendingRef.current = true; setAssignmentOpen(false); setMessage("角色已分配"); void loadData() }} />
         </AdminActionDialog>}
         {!canReadAssignments ? <p>没有读取人员授权的权限。</p> : assignments.length === 0 ? <div className="admin-empty" role="status"><KeyRound size={21} aria-hidden="true" /><span>{error ? "人员授权暂不可用，请刷新。" : "没有匹配的人员授权"}</span></div> :
-          <div className="authorization-assignment-list">{assignments.map(assignment => <article className="authorization-assignment-row" key={assignment.id}><div><strong>{assignment.user.displayName} @{assignment.user.username}</strong><span>{assignment.role.name} · {assignment.scopeId ? boardName(boards, assignment.scopeId) + " · " + (assignment.scopeMode === "subtree" ? "当前及全部后代" : "仅本版块") : scopeLabel(assignment.role.scope)}</span><small>长期（当前契约不支持到期任命）</small><small>任命者：{assignment.assignedBy.displayName} @{assignment.assignedBy.username} · {new Date(assignment.createdAt).toLocaleString("zh-CN")}</small></div>
+          <div className="authorization-assignment-list">{assignments.map(assignment => <article className="authorization-assignment-row" key={assignment.id}><div><strong>{assignment.user.displayName} @{assignment.user.username}</strong><span>{assignment.role.name} · {assignment.scopeId ? boardName(boards, assignment.scopeId) + " · " + (assignment.scopeMode === "subtree" ? "当前及全部后代" : "仅本版块") : scopeLabel(assignment.role.scope)}</span><small>长期任命</small><small>任命者：{assignment.assignedBy.displayName} @{assignment.assignedBy.username} · {new Date(assignment.createdAt).toLocaleString("zh-CN")}</small></div>
             {assignment.role.isSystem ? <span>系统任命受保护</span> : <button className="secondary-button" type="button" onClick={event => { if (!canWriteAssignments) return; confirmationReturnFocusRef.current = event.currentTarget; setConfirmation({ kind: "assignment", assignment }) }} disabled={!canWriteAssignments || busy}><Trash2 size={14} aria-hidden="true" />撤销</button>}</article>)}</div>}
         <p>当前已加载 {assignments.length} 条任命{nextCursor ? "，还有后续页。" : "。"}角色模板只组合管理能力，不改变会员身份。</p>
         {nextCursor && <button className="secondary-button authorization-load-more" type="button" onClick={() => void loadMore()} disabled={busy}>加载更多分配</button>}
@@ -349,7 +355,7 @@ export function AuthorizationAdminPanel({ csrfToken, boards, capabilityKeys, que
         <ul className="admin-team-capability-preview" tabIndex={0} aria-label="高危能力变化">{roleConfirmation.changedRisk.map(key => <li key={key}>{roleConfirmation.draft.permissionKeys.includes(key) ? "新增" : "撤除"}：{permissions.find(permission => permission.key === key)?.name ?? key} · {key}</li>)}</ul>
         {error && <p role="alert" className="form-alert">{error}</p>}
       </ConfirmDialog>}
-      {confirmation && <ConfirmDialog
+      {confirmation && (confirmation.kind === "role" ? canReadRoles : canReadAssignments) && <ConfirmDialog
         title={confirmation.kind === "role" ? `删除角色“${confirmation.role.name}”` : "撤销角色分配"}
         confirmLabel={confirmation.kind === "role" ? "确认删除角色" : "确认撤销角色"}
         busy={busy}

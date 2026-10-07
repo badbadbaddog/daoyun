@@ -502,6 +502,7 @@ function BoardEditor({ csrfToken, capabilityKeys, onGovernanceBusy, canWrite, ed
       </fieldset>}
       {editor.section === "access" && <fieldset disabled={busy || !canWriteAccess}>
         <legend>谁可以访问这个版块</legend>
+        <p>治理主体只是访问条件，不会授予置顶、精华、锁定或移动权限；这些动作仍需独立角色任命。</p>
         <p>选择允许访问的成员范围，保存的是这个版块的访问策略。隐藏版块不会出现在公共目录，直接访问也会被拒绝。可见状态和访问策略分别保存。</p>
         <p>可见状态仅作用于本版块，不会自动隐藏子版块；子版块需分别设置。</p>
         <p>树层级不会自动继承版块访问策略；子版块需分别设置。主题、回复和附件仍须满足所属版块及自身内容的访问条件。</p>

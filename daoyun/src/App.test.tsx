@@ -1047,7 +1047,7 @@ describe("DaoYun community home", () => {
     const search = await screen.findByRole("searchbox", { name: "搜索社区内容" })
     fireEvent.keyDown(window, { key: "k", ctrlKey: true })
 
-    expect(search).toHaveFocus()
+    await waitFor(() => expect(search).toHaveFocus())
   })
 
   it("renders boards loaded from the public API", async () => {

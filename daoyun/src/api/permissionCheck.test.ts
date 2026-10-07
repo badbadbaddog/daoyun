@@ -6,8 +6,8 @@ const topicId = "019fc900-0000-7000-8000-000000000501"
 const input = { board_id: boardId, user_id: userId, action: "attachment_upload" as const, topic_id: topicId, file_bytes: 68 }
 const quotaKeys = ["topic.create.daily", "reply.create.daily", "message.send.daily", "attachment.upload.daily", "attachment.file.bytes", "attachment.storage.bytes", "attachment.download.bytes.daily", "content.external_link.daily"]
 function payload() { return { meta: { request_id: "check-request" }, data: {
-  board_id: boardId, topic_id: topicId, attachment_id: null, file_bytes: 68, evaluated_at: "2026-10-03T00:00:00Z",
-  scenario: { id: userId, kind: "user", complete: true, display_name: "指定用户", sources: [],
+  board_id: boardId, topic_id: topicId, attachment_id: null, file_bytes: 68, target_board_id: null, policy_revision: null, topic_revision: null, evaluated_at: "2026-10-03T00:00:00Z",
+  scenario: { id: userId, kind: "user", account_status: "active", complete: true, display_name: "指定用户", sources: [],
     actions: [{ action: "attachment_upload", decision: "allowed", reason: "resource.conditions_matched", permission_provided: true, source_ids: [] as string[] }],
     quotas: quotaKeys.map(key => ({ key, limit: 0, used: 0, source_ids: [] as string[] })) }
 } } }

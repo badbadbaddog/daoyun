@@ -123,3 +123,13 @@ it.each([false, true])("recaptures Tab when a child redirects focus outside the 
   await user.tab({ shift: reverse })
   expect(screen.getByRole("button", { name: reverse ? "保存详情" : "关闭抽屉" })).toHaveFocus()
 })
+
+it('traps focus among visible controls when inactive panels remain mounted',async()=>{
+  const user=userEvent.setup();render(<Drawer title="用户详情" onClose={vi.fn()}><button>当前面板末项</button><div hidden><button>隐藏面板末项</button></div></Drawer>)
+  screen.getByRole('button',{name:'当前面板末项'}).focus();await user.tab();expect(screen.getByRole('button',{name:'关闭抽屉'})).toHaveFocus()
+  await user.tab({shift:true});expect(screen.getByRole('button',{name:'当前面板末项'})).toHaveFocus()
+})
+it('supports a level two title below the page heading for the user detail',()=>{
+  render(<Drawer title="用户详情" headingLevel={2} onClose={vi.fn()}><p>资料</p></Drawer>)
+  expect(screen.getByRole('heading',{name:'用户详情',level:2})).toBeInTheDocument()
+})

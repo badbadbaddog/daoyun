@@ -429,7 +429,7 @@ describe("admin API", () => {
         meta: { request_id: requestId, next_cursor: cursor },
       }))
       .mockResolvedValueOnce(jsonResponse({
-        data: { user_id: memberId, medal_key: "medal_01", revoked: true },
+        data: { user_id: memberId, medal_key: "medal_01", revoked: true, receipt:{id:operationId,user_id:memberId,medal_key:"medal_01",medal_display_name:"勋章 01",operation:"revoke",reason:"运营调整",actor_id:userDto().id,idempotency_key:"revoke-test",expected_revision:1,revision:2,affected:true,owned_after:false,audit_id:operationId,operation_request_id:requestId,created_at:"2026-08-22T02:00:00Z",replayed:false} },
         meta: { request_id: requestId },
       }))
 
@@ -437,7 +437,7 @@ describe("admin API", () => {
       operations: [expect.objectContaining({ id: operationId, operation: "grant", userId: memberId, medalDisplayName: "勋章 01" })],
       nextCursor: cursor,
     })
-    await expect(revokeMembershipMedal({ userId: memberId, medalKey: "medal_01", reason: "运营调整" }, "csrf")).resolves.toEqual({
+    await expect(revokeMembershipMedal({ userId: memberId, medalKey: "medal_01", reason: "运营调整", expectedRevision:1,idempotencyKey:"revoke-test" }, "csrf")).resolves.toMatchObject({
       userId: memberId,
       medalKey: "medal_01",
       revoked: true,
@@ -450,7 +450,7 @@ describe("admin API", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/admin/membership/medal-revocations", expect.objectContaining({
       method: "POST",
       headers: expect.objectContaining({ "x-csrf-token": "csrf" }),
-      body: JSON.stringify({ user_id: memberId, medal_key: "medal_01", reason: "运营调整" }),
+      body: JSON.stringify({ user_id: memberId, medal_key: "medal_01", reason: "运营调整",expected_revision:1,idempotency_key:"revoke-test" }),
     }))
   })
 
@@ -611,7 +611,7 @@ function authorizationAssignmentDto() {
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "x-request-id": requestId } })
 }
 
 it("sends the explicit exact board scope for a local appointment", async () => {

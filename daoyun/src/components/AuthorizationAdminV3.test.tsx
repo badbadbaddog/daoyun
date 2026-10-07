@@ -84,11 +84,11 @@ describe("V3 management team", () => {
     expect(createAuthorizationRole).not.toHaveBeenCalled()
     expect(screen.getByLabelText("角色名称")).toHaveValue("配置管理")
   })
-  it("shows stored subtree scope and the actual unsupported-expiry limit", async () => {
+  it("shows stored subtree scope and long-term appointment facts", async () => {
     vi.mocked(listAuthorizationAssignments).mockResolvedValue({ assignments: [assignment], nextCursor: null })
     render(<AuthorizationAdminPanel {...props} query={"scope_id=" + board.id} />)
     await screen.findByText(/当前及全部后代/)
-    expect(screen.getByText("长期（当前契约不支持到期任命）")).toBeInTheDocument()
+    expect(screen.getByText("长期任命")).toBeInTheDocument()
   })
   it("does not silently remove an unavailable capability from a template", async () => {
     const user = userEvent.setup(); vi.mocked(listAuthorizationPermissions).mockResolvedValue(catalog.filter(p => p.key !== "moderation.topic.move"))
@@ -197,4 +197,49 @@ it("restores appointment trigger focus after the loading screen replaces the ori
   const currentTrigger = await screen.findByRole("button", { name: "新增授权" })
   await waitFor(() => expect(currentTrigger).toHaveFocus())
   expect(createAuthorizationAssignment).toHaveBeenCalledTimes(1)
+})
+
+
+it("hides and discards an editing role after role read permission is withdrawn", async () => {
+  const user = userEvent.setup(); const view = render(<AuthorizationAdminPanel {...props} />)
+  await user.click(await screen.findByRole("button", { name: "编辑角色：版主" }))
+  expect(screen.getByLabelText("角色名称")).toHaveValue("版主")
+  view.rerender(<AuthorizationAdminPanel {...props} capabilityKeys={capabilityKeys.filter(key => key !== "authorization.roles.read")} />)
+  await screen.findByText("没有读取角色与权限的权限。")
+  expect(screen.queryByLabelText("角色名称")).not.toBeInTheDocument()
+  expect(screen.queryByText("版主")).not.toBeInTheDocument()
+  view.rerender(<AuthorizationAdminPanel {...props} />)
+  await screen.findByRole("button", { name: "新建角色" })
+  expect(screen.queryByLabelText("角色名称")).not.toBeInTheDocument()
+  expect(updateAuthorizationRole).not.toHaveBeenCalled()
+})
+
+
+it("closes an appointment preview when role catalog read is withdrawn", async () => {
+  const user = userEvent.setup(); const view = render(<AuthorizationAdminPanel {...props} query="view=assignments" />)
+  await user.click(await screen.findByRole("button", { name: "新增授权" }))
+  const dialog = screen.getByRole("dialog", { name: "分配角色" })
+  await user.type(within(dialog).getByLabelText("搜索用户"), "tester")
+  await user.click(await within(dialog).findByRole("button", { name: "选择指定会员 @tester" }))
+  await user.selectOptions(within(dialog).getByLabelText("自定义角色"), role.id)
+  await user.selectOptions(within(dialog).getByLabelText("作用板块"), board.id)
+  await user.click(within(dialog).getByRole("button", { name: "预览任命" }))
+  expect(screen.getByRole("alertdialog", { name: "确认任命管理人员" })).toBeInTheDocument()
+  view.rerender(<AuthorizationAdminPanel {...props} query="view=assignments" capabilityKeys={capabilityKeys.filter(key => key !== "authorization.roles.read")} />)
+  await screen.findByRole("button", { name: "新增授权" })
+  expect(screen.queryByRole("dialog", { name: "分配角色" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "新增授权" })).toBeDisabled()
+  expect(createAuthorizationAssignment).not.toHaveBeenCalled()
+})
+
+
+it("lets keyboard users scroll a system role's read-only permission list", async () => {
+  vi.mocked(listAuthorizationRoles).mockResolvedValue([{ ...role, isSystem: true }])
+  const user = userEvent.setup(); render(<AuthorizationAdminPanel {...props} />)
+  await user.click(await screen.findByRole("button", { name: "查看权限：版主" }))
+  screen.getByRole("searchbox", { name: "搜索权限" }).focus()
+  await user.tab()
+  expect(screen.getByRole("region", { name: "角色权限清单" })).toHaveFocus()
+  expect(screen.queryByRole("button", { name: "保存角色" })).not.toBeInTheDocument()
 })

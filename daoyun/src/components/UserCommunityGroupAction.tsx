@@ -5,13 +5,14 @@ import { AdminApiError, listAdminCommunityGroups, type AdminCommunityGroup } fro
 import type { AdminUserSummary } from "../api/adminUsers"
 import { CommunityGroupMembershipManager } from "./CommunityGroupMembershipManager"
 
-export function UserCommunityGroupAction({ user, csrfToken, canWrite, onBusyChange }: { user: AdminUserSummary; csrfToken: string; canWrite: boolean; onBusyChange: (busy: boolean) => void }) {
+export function UserCommunityGroupAction({ user, csrfToken, canWrite, canRead = true, onBusyChange, onChanged }: { user: AdminUserSummary; csrfToken: string; canWrite: boolean; canRead?: boolean; onBusyChange: (busy: boolean) => void; onChanged?: () => void }) {
   const [groups, setGroups] = useState<AdminCommunityGroup[]>([])
   const [state, setState] = useState<"loading" | "ready" | "error">("loading")
   const [error, setError] = useState("")
   const [reload, setReload] = useState(0)
 
   useEffect(() => {
+    if (!canRead) { setGroups([]); setState("ready"); return }
     const controller = new AbortController()
     setState("loading"); setError("")
     listAdminCommunityGroups(controller.signal).then(result => {
@@ -20,9 +21,9 @@ export function UserCommunityGroupAction({ user, csrfToken, canWrite, onBusyChan
       if (!controller.signal.aborted) { setError(reason instanceof AdminApiError ? reason.message : "用户组目录暂时无法加载"); setState("error") }
     })
     return () => controller.abort()
-  }, [reload, user.id])
+  }, [reload, user.id, canRead])
 
   if (state === "loading") return <div className="admin-state" role="status"><LoaderCircle className="topic-loading__spinner" size={18} aria-hidden="true" />正在读取用户组目录</div>
   if (state === "error") return <div className="admin-state" role="alert">{error}<button className="secondary-button" onClick={() => setReload(value => value + 1)} type="button">重试用户组目录</button></div>
-  return <CommunityGroupMembershipManager key={user.id} groups={groups} user={user} csrfToken={csrfToken} canWrite={canWrite} onBusyChange={onBusyChange} />
+  return <CommunityGroupMembershipManager key={user.id} groups={groups} user={user} csrfToken={csrfToken} canWrite={canWrite && canRead} canRead={canRead} onBusyChange={onBusyChange} onChanged={onChanged} />
 }

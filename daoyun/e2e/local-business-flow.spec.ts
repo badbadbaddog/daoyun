@@ -261,7 +261,8 @@ test.describe("local real business flow", () => {
 
     await loginThroughUi(page, "demo_admin")
     await page.goto("/#admin/membership", { waitUntil: "networkidle" })
-    await expect(page.getByRole("heading", { name: "会员经济", level: 1 })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "会员体系", level: 1 })).toBeVisible()
+    await page.getByRole("tab", { name: "成长等级", exact: true }).click()
     const growthWorkspace = page.locator("#membership-growth-workspace")
     await expect(growthWorkspace.getByText(/草稿|已发布|已停用|已归档/)).toHaveCount(0)
     await growthWorkspace.getByRole("button", { name: "新增等级" }).click()
@@ -279,7 +280,7 @@ test.describe("local real business flow", () => {
 
     for (const width of [320, 768, 1024, 1440]) {
       await page.setViewportSize({ width, height: 900 })
-      await page.getByRole("tab", { name: "成长运营" }).click()
+      await page.getByRole("tab", { name: "成长等级" }).click()
       await expect(page.getByRole("list", { name: "成长等级列表" })).toBeVisible()
       await assertNoHorizontalOverflow(page)
       await page.getByRole("button", { name: "新增等级" }).click()
@@ -295,7 +296,7 @@ test.describe("local real business flow", () => {
       }
       await responsiveDialog.getByRole("button", { name: "取消" }).click()
 
-      await page.getByRole("tab", { name: "勋章运营" }).click()
+      await page.getByRole("tab", { name: "勋章管理" }).click()
       await expect(page.getByRole("list", { name: "勋章规则列表" })).toBeVisible()
       await assertNoHorizontalOverflow(page)
     }

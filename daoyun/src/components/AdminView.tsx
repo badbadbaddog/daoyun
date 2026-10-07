@@ -14,6 +14,7 @@ import {
   Check,
   Flag,
   Gavel,
+  House,
   Gem,
   KeyRound,
   LayoutDashboard,
@@ -90,7 +91,7 @@ interface AdminModuleDefinition {
 }
 
 const adminModules: AdminModuleDefinition[] = [
-  { tab: "dashboard", label: "工作台", description: "查看社区近况，优先处理需要关注的事项。", icon: LayoutDashboard, requirements: [] },
+  { tab: "dashboard", label: "管理首页", description: "查看社区近况，优先处理需要关注的事项。", icon: LayoutDashboard, requirements: [] },
   { tab: "users", label: "用户管理", description: "检索用户并处理账号与角色。", icon: Users, requirements: ["admin.users.read"] },
   { tab: "boards", label: "版块管理", description: "维护社区结构、可见性与展示信息。", icon: PanelsTopLeft, requirements: ["admin.configuration.read"] },
   { tab: "reports", label: "举报处理", description: "集中核查举报并记录治理结论。", icon: Flag, requirements: ["governance.reports.read"] },
@@ -98,25 +99,25 @@ const adminModules: AdminModuleDefinition[] = [
   { tab: "comments", label: "评论管理", description: "检索评论，查看上下文并处理可见性。", icon: MessageSquare, requirements: ["moderation.topic"] },
   { tab: "reviews", label: "内容审核", description: "核对主题与回复的待审编辑，记录审核结论。", icon: ClipboardCheck, requirements: ["moderation.topic"] },
   { tab: "risk", label: "风控告警", description: "查看风险信号并调整自动治理策略。", icon: ShieldAlert, requirements: ["governance.policy.read", "governance.alerts.read"] },
-  { tab: "membership", label: "会员经济", description: "配置成长、积分、勋章、用户组与标准权益。", icon: Gem, requirements: ["membership.rules.read", "membership.rules.write", "membership.medals.read", "membership.medals.rules.write", "membership.points.grant", "membership.medals.grant", "community.groups.read", "entitlements.types.read", "entitlements.types.write", "entitlements.grants.read", "entitlements.grants.write", "membership.redemptions.read"], requirementMode: "any" },
+  { tab: "membership", label: "会员体系", description: "管理用户组、成长等级、积分、勋章、会员权益与兑换商品。", icon: Gem, requirements: ["membership.rules.read", "membership.rules.write", "membership.medals.read", "membership.medals.rules.write", "membership.points.grant", "membership.medals.grant", "community.groups.read", "entitlements.types.read", "entitlements.types.write", "entitlements.grants.read", "entitlements.grants.write", "membership.redemptions.read"], requirementMode: "any" },
   { tab: "branding", label: "品牌配置", description: "统一站点品牌、主题与导航展示。", icon: Palette, requirements: ["admin.configuration.read"] },
   { tab: "email", label: "邮件服务", description: "配置 SMTP 发信与注册邮箱验证。", icon: MailCheck, requirements: ["admin.configuration.read"] },
   { tab: "authorization", label: "角色与权限", description: "管理角色能力与人员授权范围。", icon: KeyRound, requirements: ["authorization.roles.read", "authorization.assignments.read"] },
-  { tab: "inspect", label: "权限检查", description: "只读核对当前用户、资源和动作的有效权限条件。", icon: Search, requirements: ["content.access_policies.read", "community.groups.read", "admin.users.read", "community.memberships.read", "entitlements.grants.read", "entitlements.types.read", "authorization.assignments.read"] },
+  { tab: "inspect", label: "权限检查", description: "只读核对当前用户、资源和动作的有效权限条件。", icon: Search, requirements: ["content.access_policies.read", "community.groups.read", "admin.users.read", "community.memberships.read", "entitlements.grants.read", "entitlements.types.read", "authorization.assignments.read", "authorization.roles.read"] },
   { tab: "analytics", label: "数据总览", description: "查看社区增长、参与和积分收支。", icon: ChartNoAxesCombined, requirements: ["community.analytics.read"] },
   { tab: "storage", label: "附件存储", description: "核对新写入位置、历史读取与备份要求。", icon: Database, requirements: ["admin.configuration.read"] },
   { tab: "operations", label: "运维监控", description: "观察服务状态、告警与运行规则。", icon: Activity, requirements: ["operations.read"] },
   { tab: "plugins", label: "插件管理", description: "管理插件安装、启停与能力边界。", icon: Plug, requirements: ["plugins.read"] },
 ]
 const tabOrder = adminModules.map(({ tab }) => tab)
-const adminGroups: { label: string; tabs: AdminTab[] }[] = [
-  { label: "工作台", tabs: ["dashboard"] },
-  { label: "内容治理", tabs: ["moderation", "comments", "reports", "reviews", "risk"] },
-  { label: "版块管理", tabs: ["boards"] },
-  { label: "用户与会员", tabs: ["users", "membership"] },
-  { label: "管理团队", tabs: ["authorization", "inspect"] },
-  { label: "扩展与数据", tabs: ["plugins", "analytics"] },
-  { label: "站点设置", tabs: ["branding", "email", "storage", "operations"] },
+const adminGroups: { label: string; category: string; tabs: AdminTab[] }[] = [
+  { label: "管理首页", category: "首页", tabs: ["dashboard"] },
+  { label: "内容治理", category: "内容", tabs: ["moderation", "comments", "reports", "reviews", "risk"] },
+  { label: "版块管理", category: "论坛", tabs: ["boards"] },
+  { label: "用户与会员", category: "用户", tabs: ["users", "membership"] },
+  { label: "权限与治理", category: "权限", tabs: ["authorization", "inspect"] },
+  { label: "扩展与数据", category: "应用", tabs: ["plugins", "analytics"] },
+  { label: "站点设置", category: "全局", tabs: ["branding", "email", "storage", "operations"] },
 ]
 
 interface AdminViewProps {
@@ -277,7 +278,7 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
     <>
       <nav className="system-admin-nav" aria-label="站点管理导航">
         {navigationGroups.map((group) => (
-          <div className="system-admin-nav__group" role="group" aria-label={group.label || "工作台入口"} key={group.label || "dashboard"}>
+          <div className="system-admin-nav__group" role="group" aria-label={group.label || "管理首页入口"} data-active={tab === "dashboard" || group.tabs.includes(tab)} key={group.label || "dashboard"}>
             {group.label && <p>{group.label}</p>}
             {group.modules.map((module) => (
               <div className="system-admin-nav__item" key={module.tab}>
@@ -308,13 +309,14 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
       onBack={onBack}
       navigation={navigation}
       modules={availableModules}
+      currentTab={tab}
       onNavigate={navigateTo}
       hidePageHeading={tab === "moderation" || tab === "users"}
       pageTitle={activeModule.label}
       pageDescription={activeModule.description}
       variant={tab === "moderation" ? "moderation" : tab === "dashboard" ? "dashboard" : tab === "users" ? "users" : "default"}
     >
-      {new URLSearchParams(requestedQuery).get("return_to") === "dashboard" && tab !== "dashboard" && <a className="secondary-button" href={`#admin/dashboard?scroll=${adminScroll(new URLSearchParams(requestedQuery).get("return_scroll")) ?? 0}`}><ArrowLeft size={15} aria-hidden="true" />返回工作台</a>}
+      {new URLSearchParams(requestedQuery).get("return_to") === "dashboard" && tab !== "dashboard" && <a className="secondary-button" href={`#admin/dashboard?scroll=${adminScroll(new URLSearchParams(requestedQuery).get("return_scroll")) ?? 0}`}><ArrowLeft size={15} aria-hidden="true" />返回管理首页</a>}
       {needsBoards && boardsStatus === "error" && (tab === "users" || tab === "authorization" || tab === "inspect") && <p className="form-alert" role="alert">版块选项暂时无法加载。<button className="secondary-button" type="button" onClick={() => setBoardsReload((value) => value + 1)}>重试版块选项</button></p>}
       <Suspense fallback={<AdminState kind="loading" />}>
       {tab === "dashboard" ? (
@@ -324,7 +326,7 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
           boards={boards}
           boardsStatus={boardsStatus}
           onRetryBoards={() => setBoardsReload((value) => value + 1)}
-          shortcuts={availableModules.filter(({ tab }) => ["users", "boards", "moderation", "branding", "plugins", "operations"].includes(tab))}
+          shortcuts={availableModules.filter(({ tab }) => ["users", "membership", "authorization", "inspect", "boards", "moderation", "branding", "plugins", "operations"].includes(tab))}
           onNavigate={(nextTab, query) => {
             navigateTo(nextTab)
             const params = new URLSearchParams(query)
@@ -443,7 +445,7 @@ export function AdminView({ session, onBack, onAccessChange, requestedTab, reque
   )
 }
 
-function AdminShell({ session, children, onBack, navigation, modules = [], onNavigate, hidePageHeading = false, pageTitle = "站点管理", pageDescription = "管理社区配置与治理任务。", variant = "default" }: { session: AuthSession | null | undefined; children: React.ReactNode; onBack: () => void; navigation?: React.ReactNode; modules?: AdminModuleDefinition[]; onNavigate?: (tab: AdminTab) => void; hidePageHeading?: boolean; pageTitle?: string; pageDescription?: string; variant?: "default" | "moderation" | "dashboard" | "users" }) {
+function AdminShell({ session, children, onBack, navigation, modules = [], currentTab, onNavigate, hidePageHeading = false, pageTitle = "站点管理", pageDescription = "管理社区配置与治理任务。", variant = "default" }: { session: AuthSession | null | undefined; children: React.ReactNode; onBack: () => void; navigation?: React.ReactNode; modules?: AdminModuleDefinition[]; currentTab?: AdminTab; onNavigate?: (tab: AdminTab) => void; hidePageHeading?: boolean; pageTitle?: string; pageDescription?: string; variant?: "default" | "moderation" | "dashboard" | "users" }) {
   const [collapsed, setCollapsed] = useState(() => {
     try { return window.localStorage.getItem("daoyun-admin-sidebar-collapsed") === "true" }
     catch { return false }
@@ -452,6 +454,7 @@ function AdminShell({ session, children, onBack, navigation, modules = [], onNav
     try { window.localStorage.setItem("daoyun-admin-sidebar-collapsed", String(collapsed)) }
     catch { /* 本机偏好存储不可用时，菜单仍可正常展开与收起。 */ }
   }, [collapsed])
+  const mainRef = useRef<HTMLElement>(null)
   const [search, setSearch] = useState("")
   const [searchMessage, setSearchMessage] = useState("")
   const [theme, setTheme] = useState<"light" | "dark">(() => {
@@ -468,10 +471,21 @@ function AdminShell({ session, children, onBack, navigation, modules = [], onNav
     catch { /* 本机偏好不可写时主题切换仍有效。 */ }
   }, [theme])
 
+  const categories = adminGroups.map(group => ({ ...group, modules: group.tabs.flatMap(groupTab => modules.filter(module => module.tab === groupTab)) })).filter(group => group.modules.length > 0)
+  const currentCategory = categories.find(group => group.tabs.includes(currentTab as AdminTab))
+
   return (
     <div className={`admin-view admin-view--system${collapsed ? " admin-view--collapsed" : ""}${variant !== "default" ? ` admin-view--${variant}` : ""}`}>
+      <a className="system-admin-skip-link" href="#admin-main" onClick={(event) => { event.preventDefault(); mainRef.current?.focus() }}>跳过导航，进入管理内容</a>
       <header className="system-admin-header">
-        <div className="system-admin-brand"><span aria-hidden="true">刀</span><div><strong>刀云站点管理</strong><small>管理后台</small></div></div>
+        <div className="system-admin-brand">
+          <img src="/favicon.svg" alt="" width={40} height={40} />
+          <div><strong>DaoYun</strong><small>让社区更有价值</small></div>
+          <div className="sr-only">刀云站点管理</div><small className="sr-only">管理后台</small>
+        </div>
+        <nav className="system-admin-categories" aria-label="后台分类导航">
+          {categories.map(group => <button key={group.label} type="button" aria-current={currentCategory?.label === group.label ? "page" : undefined} onClick={() => { if (currentCategory?.label !== group.label) onNavigate?.(group.modules[0].tab) }}>{group.category}</button>)}
+        </nav>
         <form className="system-admin-search" role="search" aria-label="管理模块搜索" onSubmit={(event) => {
           event.preventDefault()
           const query = search.trim().toLocaleLowerCase()
@@ -487,27 +501,34 @@ function AdminShell({ session, children, onBack, navigation, modules = [], onNav
             {searchMessage && <span role="status">{searchMessage}</span>}
           </>}
         </form>
+        <div className="system-admin-header-actions">
         <button className="system-admin-back" type="button" onClick={onBack}><ArrowLeft size={15} aria-hidden="true" />返回社区</button>
         <button className="system-admin-theme" type="button" onClick={() => setTheme((current) => current === "light" ? "dark" : "light")} aria-label={theme === "light" ? "切换为深色主题" : "切换为浅色主题"} title={theme === "light" ? "深色主题" : "浅色主题"}>{theme === "light" ? <Moon size={15} aria-hidden="true" /> : <Sun size={15} aria-hidden="true" />}</button>
         <div className="system-admin-account"><span className="system-admin-account__avatar" aria-hidden="true">{(session?.user.displayName ?? "管").slice(0, 1)}</span><div><span>{session?.user.displayName ?? "未登录"}</span><small>{session ? `@${session.user.username}` : "需要管理员会话"}</small></div></div>
+        </div>
       </header>
       <div className="system-admin-layout">
         <aside className="system-admin-sidebar">
           {navigation}
-          {navigation && <button className="system-admin-collapse" type="button" aria-label={collapsed ? "展开菜单" : "收起菜单"} title={collapsed ? "展开菜单" : "收起菜单"} aria-expanded={!collapsed} onClick={() => setCollapsed((value) => !value)}>{collapsed ? <ChevronRight size={17} aria-hidden="true" /> : <ChevronLeft size={17} aria-hidden="true" />}<span>收起菜单</span></button>}
-          {variant === "moderation" ? (
-            <div className="system-admin-sidebar-account" role="group" aria-label="当前管理员" hidden aria-hidden="true">
-              <span className="system-admin-sidebar-account__avatar" aria-hidden="true">{(session?.user.displayName ?? "管").slice(0, 1)}</span>
-              <div><strong>{session?.user.displayName ?? "未登录"}</strong><small>{session ? `@${session.user.username}` : "需要管理员会话"}</small></div>
-            </div>
-          ) : null}
+          <footer className="system-admin-sidebar-footer"><strong>DaoYun</strong><span>自托管社区管理</span><small>© {new Date().getFullYear()} DaoYun 社区</small></footer>
+          {navigation && <button className="system-admin-collapse" type="button" aria-label={collapsed ? "展开菜单" : "收起菜单"} title={collapsed ? "展开菜单" : "收起菜单"} aria-expanded={!collapsed} onClick={() => setCollapsed(value => !value)}>{collapsed ? <ChevronRight size={17} aria-hidden="true" /> : <ChevronLeft size={17} aria-hidden="true" />}<span>收起菜单</span></button>}
         </aside>
-        <main className="system-admin-main">
-          {!hidePageHeading && <header className="system-admin-page-heading">
-            <div><h1 id="admin-heading">{pageTitle}</h1><p>{pageDescription}</p></div>
-            {variant === "dashboard" && <time className="system-admin-date" dateTime={new Date().toISOString()}>{new Date().toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long" })}</time>}
-          </header>}
-          <div className="system-admin-content">{children}</div>
+        <main ref={mainRef} id="admin-main" className="system-admin-main" aria-label={pageTitle} tabIndex={-1}>
+          <div className="system-admin-toolbar">
+            <nav className="system-admin-breadcrumb" aria-label="当前位置">
+              <button type="button" aria-label="返回后台首页" title="返回后台首页" disabled={!modules.some(module => module.tab === "dashboard")} onClick={() => onNavigate?.("dashboard")}><House size={16} aria-hidden="true" /></button>
+              {currentCategory && <><span>{currentCategory.category}</span><ChevronRight size={12} aria-hidden="true" /></>}
+              <span aria-current="page">{pageTitle}</span>
+            </nav>
+
+          </div>
+          <div className="system-admin-workspace">
+            {!hidePageHeading && <header className="system-admin-page-heading">
+              <div><h1 id="admin-heading">{pageTitle}</h1><p>{pageDescription}</p></div>
+              {variant === "dashboard" && <time className="system-admin-date" dateTime={new Date().toISOString()}>{new Date().toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long" })}</time>}
+            </header>}
+            <div className="system-admin-content">{children}</div>
+          </div>
         </main>
       </div>
     </div>

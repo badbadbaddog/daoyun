@@ -1,4 +1,5 @@
 import type { components } from "./generated"
+import { isAdminCommunityGroupMembershipDto, isAdminStandardEntitlementDto, isMembershipMedalDto, mapAdminCommunityGroupMembership, mapAdminStandardEntitlement, type AdminCommunityGroupMembership, type AdminStandardEntitlement, type AdminGrowthLevel, type MembershipMedal } from "./admin"
 
 export type AdminUserStatus = components["schemas"]["AdminUserStatus"]
 export type AdminUserContentKind = components["schemas"]["AdminUserContentKind"]
@@ -11,6 +12,7 @@ export interface AdminUserSummary {
   avatarUrl: string | null
   status: AdminUserStatus
   primaryRole: string | null
+  membership?: AdminUserMembershipOverview | null
   topicCount: number
   postCount: number
   reportCount: number
@@ -55,6 +57,12 @@ export interface ListAdminUsersOptions {
   roleId?: string
   registeredAfter?: string
   registeredBefore?: string
+  baseGroupId?: string
+  additionalGroupId?: string
+  growthLevelId?: string
+  entitlementTypeId?: string
+  lastActiveAfter?: string
+  lastActiveBefore?: string
   cursor?: string
   limit?: number
   signal?: AbortSignal
@@ -88,7 +96,7 @@ export interface AdminUserStatusUpdate {
   changedAt: string
 }
 
-type SummaryDto = Required<components["schemas"]["AdminUserSummary"]>
+type SummaryDto = Omit<Required<components["schemas"]["AdminUserSummary"]>, "membership"> & { membership?: OverviewDto | null }
 type DetailDto = SummaryDto & {
   bio: string
   location: string | null
@@ -131,6 +139,7 @@ export async function listAdminUsers(options: ListAdminUsersOptions = {}): Promi
   if (options.roleId) params.set("role_id", options.roleId)
   if (options.registeredAfter) params.set("registered_after", options.registeredAfter)
   if (options.registeredBefore) params.set("registered_before", options.registeredBefore)
+  for (const [key, value] of [["base_group_id", options.baseGroupId], ["additional_group_id", options.additionalGroupId], ["growth_level_id", options.growthLevelId], ["entitlement_type_id", options.entitlementTypeId], ["last_active_after", options.lastActiveAfter], ["last_active_before", options.lastActiveBefore]]) if (value) params.set(key!, value)
   if (options.cursor) params.set("cursor", options.cursor)
   if (options.limit !== undefined) params.set("limit", String(options.limit))
   const response = await fetch(`/api/v1/admin/users${params.size ? `?${params}` : ""}`, {
@@ -190,6 +199,7 @@ function mapSummary(value: SummaryDto): AdminUserSummary {
     avatarUrl: value.avatar_url, status: value.status, primaryRole: value.primary_role,
     topicCount: value.topic_count, postCount: value.post_count, reportCount: value.report_count,
     createdAt: value.created_at, lastSeenAt: value.last_seen_at,
+    ...(value.membership !== undefined ? { membership: value.membership ? mapMembershipOverview(value.membership) : null } : {}),
   }
 }
 
@@ -234,6 +244,7 @@ function isSummaryDto(value: unknown): value is SummaryDto {
     && userStatuses.has(value.status as AdminUserStatus) && (value.primary_role === null || typeof value.primary_role === "string")
     && isCount(value.topic_count) && isCount(value.post_count) && isCount(value.report_count)
     && isDateTime(value.created_at) && (value.last_seen_at === null || isDateTime(value.last_seen_at))
+    && (value.membership == null || isMembershipOverviewDto(value.membership))
 }
 
 function isDetailDto(value: unknown): value is DetailDto {
@@ -292,4 +303,92 @@ function toApiError(status: number, payload: unknown): AdminUsersApiError {
   if (!isRecord(payload) || !isRecord(payload.error)) return new AdminUsersApiError(status, "response.invalid", "用户管理服务响应格式无效")
   const error = payload.error as ErrorDto["error"]
   return new AdminUsersApiError(status, typeof error.code === "string" ? error.code : "response.invalid", typeof error.message === "string" ? error.message : "用户管理请求失败", isRecord(error.fields) ? error.fields as Record<string, string[]> : {})
+}
+
+export type AdminUserMembershipSection = 'groups' | 'experience' | 'points' | 'medals' | 'entitlements'
+export type AdminUserGrowthLevel = Pick<AdminGrowthLevel, 'id' | 'internalKey' | 'levelOrder' | 'displayName' | 'requiredExperience' | 'iconAssetId' | 'color' | 'description'>
+export interface AdminUserPoints { userId: string; pointsBalance: number; lifetimePoints: number; revision: number; updatedAt: string }
+export interface AdminUserMembershipSummary {
+  account: AdminUserDetail
+  groups: AdminCommunityGroupMembership[] | null
+  experience: { userId: string; experience: number; currentLevel: AdminUserGrowthLevel; revision: number; updatedAt: string } | null
+  nextLevel: AdminUserGrowthLevel | null
+  points: AdminUserPoints | null
+  medals: MembershipMedal[] | null
+  entitlements: AdminStandardEntitlement[] | null
+  readableSections: AdminUserMembershipSection[]
+}
+type MembershipSummaryDto = Required<components['schemas']['AdminUserMembershipSummary']>
+type GrowthDto = components['schemas']['GrowthLevel']
+const membershipSections: AdminUserMembershipSection[] = ['groups', 'experience', 'points', 'medals', 'entitlements']
+
+export async function getAdminUserMembershipSummary(userId: string, signal?: AbortSignal): Promise<AdminUserMembershipSummary> {
+  if (!isUuid(userId)) throw new AdminUsersApiError(422, 'validation.failed', '用户标识格式无效')
+  const response = await fetch('/api/v1/admin/users/' + encodeURIComponent(userId) + '/membership-summary', { headers: { Accept: 'application/json' }, credentials: 'include', signal })
+  const payload = await readJson(response)
+  if (!response.ok) throw toApiError(response.status, payload)
+  if (!isEnvelope(payload) || !isMembershipSummaryDto(payload.data, userId)) throw invalidResponse(response.status)
+  const value = payload.data
+  return {
+    account: mapDetail(value.account as DetailDto),
+    groups: value.groups?.map(mapAdminCommunityGroupMembership) ?? null,
+    experience: value.experience ? { userId: value.experience.user_id, experience: value.experience.experience, currentLevel: mapAdminUserGrowth(value.experience.current_level), revision: value.experience.revision, updatedAt: value.experience.updated_at } : null,
+    nextLevel: value.next_level ? mapAdminUserGrowth(value.next_level) : null,
+    points: value.points ? { userId: value.points.user_id, pointsBalance: value.points.points_balance, lifetimePoints: value.points.lifetime_points, revision: value.points.revision, updatedAt: value.points.updated_at } : null,
+    medals: value.medals?.map(medal => ({ key: medal.key, displayName: medal.display_name, assetUrl: medal.asset_url, sha256: medal.sha256, grantedAt: medal.granted_at })) ?? null,
+    entitlements: value.entitlements?.map(mapAdminStandardEntitlement) ?? null,
+    readableSections: value.readable_sections,
+  }
+}
+
+function isMembershipSummaryDto(value: unknown, userId: string): value is MembershipSummaryDto {
+  if (!isRecord(value) || !isDetailDto(value.account) || value.account.id !== userId || !Array.isArray(value.readable_sections)
+    || !value.readable_sections.every(section => membershipSections.includes(section)) || new Set(value.readable_sections).size !== value.readable_sections.length) return false
+  const readable = new Set(value.readable_sections)
+  if (!membershipSections.every(section => readable.has(section) || value[section] === null)) return false
+  if (readable.has('groups') && (!Array.isArray(value.groups) || !value.groups.every(group => isAdminCommunityGroupMembershipDto(group) && group.user_id === userId))) return false
+  if (value.experience !== null && (!isRecord(value.experience) || value.experience.user_id !== userId || !isCount(value.experience.experience) || !isGrowthDto(value.experience.current_level) || !isCount(value.experience.revision) || !isDateTime(value.experience.updated_at))) return false
+  if (value.points !== null && (!isRecord(value.points) || value.points.user_id !== userId || !isCount(value.points.points_balance) || !isCount(value.points.lifetime_points) || !isCount(value.points.revision) || !isDateTime(value.points.updated_at))) return false
+  if (readable.has('medals') && (!Array.isArray(value.medals) || !value.medals.every(medal => isMembershipMedalDto(medal) && isDateTime(medal.granted_at)))) return false
+  if (readable.has('entitlements') && (!Array.isArray(value.entitlements) || !value.entitlements.every(entitlement => isAdminStandardEntitlementDto(entitlement) && entitlement.user_id === userId))) return false
+  return value.next_level === null || (readable.has('experience') && value.experience !== null && isGrowthDto(value.next_level))
+}
+
+function isGrowthDto(value: unknown): value is GrowthDto {
+  return isRecord(value) && isUuid(value.id) && typeof value.internal_key === 'string' && typeof value.display_name === 'string'
+    && isCount(value.level_order) && value.level_order > 0 && isCount(value.required_experience)
+    && (value.icon_asset_id == null || isUuid(value.icon_asset_id)) && (value.color == null || typeof value.color === 'string') && typeof value.description === 'string'
+}
+function mapAdminUserGrowth(value: GrowthDto): AdminUserGrowthLevel {
+  return { id: value.id, internalKey: value.internal_key, levelOrder: value.level_order, displayName: value.display_name, requiredExperience: value.required_experience, iconAssetId: value.icon_asset_id ?? null, color: value.color ?? null, description: value.description }
+}
+
+export interface AdminUserMembershipOverview {
+  groups: { id: string; displayName: string; membershipKind: 'base' | 'additional' }[] | null
+  experience: number | null
+  level: { id: string; displayName: string; levelOrder: number } | null
+  pointsBalance: number | null
+  entitlements: { typeId: string; internalKey: string; displayName: string }[] | null
+  medalCount: number | null
+  readableSections: AdminUserMembershipSection[]
+}
+
+type OverviewDto = Required<components['schemas']['AdminUserMembershipOverview']>
+function isMembershipOverviewDto(value: unknown): value is OverviewDto {
+  if (!isRecord(value) || !Array.isArray(value.readable_sections) || !value.readable_sections.every(section => ['groups', 'experience', 'points', 'medals', 'entitlements'].includes(section)) || new Set(value.readable_sections).size !== value.readable_sections.length) return false
+  const readable = (section: string) => value.readable_sections instanceof Array && value.readable_sections.includes(section)
+  if (!readable('groups') ? value.groups !== null : !Array.isArray(value.groups) || !value.groups.every(group => isRecord(group) && isUuid(group.id) && typeof group.display_name === 'string' && ['base', 'additional'].includes(String(group.membership_kind)))) return false
+  if (!readable('experience') ? value.experience !== null || value.level !== null : !((value.experience === null && value.level === null) || (isCount(value.experience) && isRecord(value.level) && isUuid(value.level.id) && typeof value.level.display_name === 'string' && isCount(value.level.level_order)))) return false
+  if (!readable('points') ? value.points_balance !== null : value.points_balance !== null && !isCount(value.points_balance)) return false
+  if (!readable('medals') ? value.medal_count !== null : !isCount(value.medal_count)) return false
+  return !readable('entitlements') ? value.entitlements === null : Array.isArray(value.entitlements) && value.entitlements.every(entitlement => isRecord(entitlement) && isUuid(entitlement.type_id) && typeof entitlement.internal_key === 'string' && typeof entitlement.display_name === 'string')
+}
+function mapMembershipOverview(value: OverviewDto): AdminUserMembershipOverview {
+  return {
+    groups: value.groups?.map(group => ({ id: group.id, displayName: group.display_name, membershipKind: group.membership_kind as 'base' | 'additional' })) ?? null,
+    experience: value.experience, level: value.level ? { id: value.level.id, displayName: value.level.display_name, levelOrder: value.level.level_order } : null,
+    pointsBalance: value.points_balance, medalCount: value.medal_count,
+    entitlements: value.entitlements?.map(entitlement => ({ typeId: entitlement.type_id, internalKey: entitlement.internal_key, displayName: entitlement.display_name })) ?? null,
+    readableSections: value.readable_sections,
+  }
 }

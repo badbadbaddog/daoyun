@@ -6,6 +6,7 @@ import { AdminApiError, listAdminAudit, type AdminAuditEntry, type ListAdminAudi
 interface RelatedAuditLogProps {
   filter: Pick<ListAdminAuditOptions, "userId" | "reportId" | "resourceId">
   title?: string
+  headingLevel?: 3 | 4
 }
 
 const actionLabels: Record<string, string> = {
@@ -31,7 +32,8 @@ const resourceLabels: Record<string, string> = {
   board: "版块",
 }
 
-export function RelatedAuditLog({ filter, title = "相关操作记录" }: RelatedAuditLogProps) {
+export function RelatedAuditLog({ filter, title = "相关操作记录", headingLevel = 4 }: RelatedAuditLogProps) {
+  const Heading = headingLevel === 3 ? "h3" : "h4"
   const [entries, setEntries] = useState<AdminAuditEntry[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [state, setState] = useState<"loading" | "ready" | "error">("loading")
@@ -85,7 +87,7 @@ export function RelatedAuditLog({ filter, title = "相关操作记录" }: Relate
   }
 
   return <section className="related-audit-log" aria-labelledby={`audit-${title}`}>
-    <h4 id={`audit-${title}`}><History size={15} aria-hidden="true" />{title}</h4>
+    <Heading id={`audit-${title}`}><History size={15} aria-hidden="true" />{title}</Heading>
     {state === "loading" ? <div className="related-audit-log__state" role="status"><LoaderCircle className="topic-loading__spinner" size={18} aria-hidden="true" />正在读取操作记录</div> : null}
     {state === "error" ? <div className="related-audit-log__state" role="alert"><AlertCircle size={18} aria-hidden="true" />{error}<button className="secondary-button" type="button" onClick={() => setReload((value) => value + 1)}><RefreshCw size={14} aria-hidden="true" />重试</button></div> : null}
     {state === "ready" && entries.length === 0 ? <p role="status">暂无相关操作记录。</p> : null}

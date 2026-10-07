@@ -2,19 +2,19 @@ import { act, cleanup, render, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { createAuthorizationAssignment, deleteAuthorizationAssignment, listAdminAudit, listAuthorizationAssignments, listAuthorizationRoles, listAdminCommunityGroups, listAdminCommunityGroupMemberships } from "../api/admin"
-import { AdminUsersApiError, getAdminUser, listAdminUserContent, listAdminUsers, updateAdminUserStatus } from "../api/adminUsers"
+import { getAdminExperience, listAdminExperienceLedger, adjustAdminExperience, listAdminPointsLedger, grantMembershipPoints, createAuthorizationAssignment, deleteAuthorizationAssignment, listAdminAudit, listAuthorizationAssignments, listAuthorizationRoles, listAdminCommunityGroups, listAdminCommunityGroupMemberships, getAdminGrowthLevels, listStandardEntitlementTypes } from "../api/admin"
+import { AdminUsersApiError, getAdminUserMembershipSummary, type AdminUserMembershipSummary, getAdminUser, listAdminUserContent, listAdminUsers, updateAdminUserStatus } from "../api/adminUsers"
 import { listAdminUserReports } from "../api/reports"
 import { UserAdminPanel } from "./UserAdminPanel"
 
 vi.mock("../api/adminUsers", async () => {
   const actual = await vi.importActual<typeof import("../api/adminUsers")>("../api/adminUsers")
-  return { ...actual, getAdminUser: vi.fn(), listAdminUserContent: vi.fn(), listAdminUsers: vi.fn(), updateAdminUserStatus: vi.fn() }
+  return { ...actual, getAdminUser: vi.fn(), getAdminUserMembershipSummary: vi.fn(), listAdminUserContent: vi.fn(), listAdminUsers: vi.fn(), updateAdminUserStatus: vi.fn() }
 })
 
 vi.mock("../api/admin", async () => {
   const actual = await vi.importActual<typeof import("../api/admin")>("../api/admin")
-  return { ...actual, createAuthorizationAssignment: vi.fn(), deleteAuthorizationAssignment: vi.fn(), listAdminAudit: vi.fn(), listAuthorizationAssignments: vi.fn(), listAuthorizationRoles: vi.fn(), listAdminCommunityGroups: vi.fn(), listAdminCommunityGroupMemberships: vi.fn() }
+  return { ...actual, getAdminExperience: vi.fn(), listAdminExperienceLedger: vi.fn(), adjustAdminExperience: vi.fn(), listAdminPointsLedger: vi.fn(), grantMembershipPoints: vi.fn(), createAuthorizationAssignment: vi.fn(), deleteAuthorizationAssignment: vi.fn(), listAdminAudit: vi.fn(), listAuthorizationAssignments: vi.fn(), listAuthorizationRoles: vi.fn(), getAdminGrowthLevels: vi.fn(), listStandardEntitlementTypes: vi.fn(), listAdminCommunityGroups: vi.fn(), listAdminCommunityGroupMemberships: vi.fn() }
 })
 
 vi.mock("../api/reports", async () => {
@@ -36,14 +36,21 @@ const detail = {
 }
 
 beforeEach(() => {
+  vi.mocked(getAdminExperience).mockReset().mockResolvedValue(membershipSummary.experience)
+  vi.mocked(listAdminExperienceLedger).mockReset().mockResolvedValue({entries:[],nextCursor:null})
+  vi.mocked(adjustAdminExperience).mockReset()
+  vi.mocked(listAdminPointsLedger).mockReset().mockResolvedValue({entries:[],nextCursor:null})
   vi.mocked(listAdminUsers).mockReset().mockResolvedValue({ users: [summary], nextCursor: null })
   vi.mocked(getAdminUser).mockReset().mockResolvedValue(detail)
+  vi.mocked(getAdminUserMembershipSummary).mockReset().mockImplementation(async id => ({ ...membershipSummary, account: { ...detail, id } }))
   vi.mocked(listAdminUserContent).mockReset().mockResolvedValue({ items: [{ id: userId, kind: "topic", topicId: userId, title: "社区主题", excerpt: "摘要", status: "published", createdAt: "2026-08-03T10:00:00Z" }], nextCursor: null })
   vi.mocked(listAdminUserReports).mockReset().mockResolvedValue({ reports: [], nextCursor: null })
   vi.mocked(updateAdminUserStatus).mockReset().mockResolvedValue({
     userId, status: "suspended", reason: "严重违规", expiresAt: null, revision: 3,
     auditId: secondUserId, actor: { id: secondUserId, username: "owner", displayName: "站长", avatarUrl: null }, changedAt: "2026-08-12T08:00:00Z",
   })
+  vi.mocked(getAdminGrowthLevels).mockReset().mockResolvedValue([])
+  vi.mocked(listStandardEntitlementTypes).mockReset().mockResolvedValue([])
   vi.mocked(listAdminCommunityGroups).mockReset().mockResolvedValue([])
   vi.mocked(listAdminCommunityGroupMemberships).mockReset().mockResolvedValue([])
   vi.mocked(listAuthorizationRoles).mockReset().mockResolvedValue([])
@@ -68,10 +75,11 @@ describe("UserAdminPanel", () => {
     const user = userEvent.setup()
     render(<UserAdminPanel canReadGroups canReadGroupMemberships canWriteGroupMemberships csrfToken="csrf-token" />)
     await user.click(await screen.findByRole("button", { name: /社区成员/ }))
-    const tab = await screen.findByRole("tab", { name: "用户组" })
+    const tab = await screen.findByRole("tab", { name: "会员身份" })
     expect(tab).toHaveAttribute("aria-selected", "false")
     expect(screen.queryByRole("button", { name: "管理权限角色" })).not.toBeInTheDocument()
-    expect(listAdminCommunityGroups).not.toHaveBeenCalled()
+    expect(listAdminCommunityGroups).toHaveBeenCalledTimes(1)
+    expect(listAdminCommunityGroupMemberships).not.toHaveBeenCalled()
     await user.click(tab)
     expect(tab).toHaveAttribute("aria-selected", "true")
     await waitFor(() => expect(listAdminCommunityGroupMemberships).toHaveBeenCalledWith(userId, expect.any(AbortSignal)))
@@ -87,6 +95,7 @@ describe("UserAdminPanel", () => {
     expect(screen.queryByLabelText("添加角色")).not.toBeInTheDocument()
     await user.click(opener)
     expect(await screen.findByRole("dialog", { name: "用户详情" })).toBeInTheDocument()
+    await user.click(await screen.findByRole("tab", { name: "账号安全" }))
     await user.click(await screen.findByRole("button", { name: "管理账号状态" }))
     expect(screen.getByRole("dialog", { name: "管理账号状态" })).toContainElement(screen.getByLabelText("账号动作"))
     await user.keyboard("{Escape}")
@@ -107,11 +116,13 @@ describe("UserAdminPanel", () => {
 
     await user.click(screen.getByRole("button", { name: /社区成员/ }))
     expect(await screen.findByRole("heading", { name: "社区成员" })).toBeInTheDocument()
+    await user.click(screen.getByRole("tab", { name: "账号安全" }))
     expect(screen.getByText("等待人工复核")).toBeInTheDocument()
+    await user.click(screen.getByRole("tab", { name: "概览" }))
     expect(within(screen.getByRole("dialog", { name: "用户详情" })).getByText("版主")).toBeInTheDocument()
     const overviewTab = screen.getByRole("tab", { name: "概览" })
-    const contentTab = screen.getByRole("tab", { name: "最近内容" })
-    const reportsTab = screen.getByRole("tab", { name: "相关举报" })
+    const contentTab = screen.getByRole("tab", { name: "内容" })
+    const securityTab = screen.getByRole("tab", { name: "账号安全" })
     const overviewPanel = screen.getByRole("tabpanel")
     expect(overviewTab).toHaveAttribute("aria-controls", overviewPanel.id)
     expect(overviewPanel).toHaveAttribute("aria-labelledby", overviewTab.id)
@@ -120,14 +131,14 @@ describe("UserAdminPanel", () => {
 
     overviewTab.focus()
     await user.keyboard("{ArrowRight}")
-    expect(contentTab).toHaveFocus()
+    expect(screen.getByRole("tab", { name: "会员身份" })).toHaveFocus()
+    await user.click(contentTab)
     expect(contentTab).toHaveAttribute("aria-selected", "true")
     expect(screen.getByRole("heading", { name: "社区主题" })).toBeInTheDocument()
 
     await user.keyboard("{End}")
-    expect(reportsTab).toHaveFocus()
-    expect(reportsTab).toHaveAttribute("aria-selected", "true")
-    expect(screen.getByText("暂无相关举报")).toBeInTheDocument()
+    expect(securityTab).toHaveFocus()
+    expect(securityTab).toHaveAttribute("aria-selected", "true")
 
     await user.keyboard("{Home}")
     expect(overviewTab).toHaveFocus()
@@ -193,6 +204,7 @@ describe("UserAdminPanel", () => {
     expect(screen.queryByRole("button", { name: "管理账号状态" })).not.toBeInTheDocument()
 
     rerender(<UserAdminPanel canModerate csrfToken="csrf-token" />)
+    await user.click(await screen.findByRole("tab", { name: "账号安全" }))
     await user.click(screen.getByRole("button", { name: "管理账号状态" }))
     await user.selectOptions(screen.getByLabelText("账号动作"), "suspended")
     await user.clear(screen.getByLabelText("操作原因"))
@@ -226,6 +238,7 @@ describe("UserAdminPanel", () => {
     const user = userEvent.setup()
     render(<UserAdminPanel canModerate csrfToken="csrf-token" />)
     await user.click(await screen.findByRole("button", { name: /社区成员/ }))
+    await user.click(await screen.findByRole("tab", { name: "账号安全" }))
     await user.click(await screen.findByRole("button", { name: "管理账号状态" }))
 
     expect(screen.getByLabelText("账号动作")).toHaveValue("restricted")
@@ -248,6 +261,7 @@ describe("UserAdminPanel", () => {
     render(<UserAdminPanel canAssignRoles csrfToken="csrf-token" />)
     await user.click(await screen.findByRole("button", { name: /社区成员/ }))
     expect(await screen.findByRole("heading", { name: "社区成员" })).toBeInTheDocument()
+    await user.click(await screen.findByRole("tab", { name: "账号安全" }))
     await user.click(await screen.findByRole("checkbox", { name: "内容版主" }))
     await user.click(screen.getByRole("button", { name: "保存角色" }))
     await user.click(screen.getByRole("button", { name: "确认保存角色" }))
@@ -274,17 +288,21 @@ describe("UserAdminPanel", () => {
     render(<UserAdminPanel canAssignRoles csrfToken="csrf-token" />)
     await user.click(await screen.findByRole("button", { name: /社区成员/ }))
 
+    await user.click(await screen.findByRole("tab", { name: "账号安全" }))
     await user.click(await screen.findByRole("checkbox", { name: "版主" }))
     await user.click(screen.getByRole("button", { name: "保存角色" }))
     const dialog = screen.getByRole("alertdialog", { name: "确认角色变更" })
     expect(within(dialog).getByRole("button", { name: "取消" })).toHaveFocus()
     expect(deleteAuthorizationAssignment).not.toHaveBeenCalled()
 
-    vi.mocked(listAdminUsers).mockResolvedValue({ users: [{ ...summary, primaryRole: null }], nextCursor: null })
+    const listCallsBeforeSave = vi.mocked(listAdminUsers).mock.calls.length
+    vi.mocked(listAdminUsers).mockResolvedValue({ users: [{ ...summary, primaryRole: null, membership: { ...listMembership, readableSections: [...listMembership.readableSections] } }], nextCursor: null })
     await user.click(within(dialog).getByRole("button", { name: "确认保存角色" }))
     await waitFor(() => expect(deleteAuthorizationAssignment).toHaveBeenCalledWith(assignmentId, "csrf-token"))
     expect(await screen.findByText("角色已保存")).toBeInTheDocument()
-    await waitFor(() => expect(within(screen.getByRole("table", { name: "用户列表" })).getByText("普通成员")).toBeInTheDocument())
+    await waitFor(() => expect(vi.mocked(listAdminUsers).mock.calls.length).toBeGreaterThan(listCallsBeforeSave))
+    expect(await within(screen.getByRole("table", { name: "用户列表" })).findByText("注册会员")).toBeInTheDocument()
+    expect(within(screen.getByRole("table", { name: "用户列表" })).queryByText("版主")).not.toBeInTheDocument()
   })
 
   it("shows capability-protected management records without rendering internal summaries", async () => {
@@ -365,7 +383,7 @@ it("loads more activity without duplicating items and links replies to their ori
   vi.mocked(listAdminUserContent).mockResolvedValueOnce({ items: [first], nextCursor: userId }).mockResolvedValueOnce({ items: [first], nextCursor: userId }).mockResolvedValueOnce({ items: [first, { ...first, id: secondUserId, kind: "reply", title: "第二页回复" }], nextCursor: null })
   render(<UserAdminPanel />)
   await user.click(await screen.findByRole("button", { name: /社区成员/ }))
-  await user.click(await screen.findByRole("tab", { name: "最近内容" }))
+  await user.click(await screen.findByRole("tab", { name: "内容" }))
   await user.click(await screen.findByRole("button", { name: "加载更多内容" }))
   expect(await screen.findByRole("link", { name: "第二页回复" })).toHaveAttribute("href", "#topic/" + userId + "?reply=" + secondUserId)
   expect(screen.getAllByRole("link", { name: "第一页主题" })).toHaveLength(1)
@@ -380,7 +398,7 @@ it("preserves loaded activity after a later page fails and retries that cursor",
   vi.mocked(listAdminUserContent).mockResolvedValueOnce({ items: [item], nextCursor: userId }).mockResolvedValueOnce({ items: [item], nextCursor: userId }).mockRejectedValueOnce(new AdminUsersApiError(503, "unavailable", "后续内容暂时不可用")).mockResolvedValueOnce({ items: [{ ...item, id: secondUserId, title: "后续主题" }], nextCursor: null })
   render(<UserAdminPanel />)
   await user.click(await screen.findByRole("button", { name: /社区成员/ }))
-  await user.click(await screen.findByRole("tab", { name: "最近内容" }))
+  await user.click(await screen.findByRole("tab", { name: "内容" }))
   await user.click(await screen.findByRole("button", { name: "加载更多内容" }))
   expect(await screen.findByRole("alert")).toHaveTextContent("后续内容暂时不可用")
   expect(screen.getByRole("link", { name: "已加载主题" })).toBeInTheDocument()
@@ -395,15 +413,15 @@ it("aborts activity requests when leaving their tab and loads reports only on de
   vi.mocked(listAdminUserContent).mockResolvedValueOnce({ items: [], nextCursor: null }).mockReturnValueOnce(slow.promise)
   render(<UserAdminPanel />)
   await user.click(await screen.findByRole("button", { name: /社区成员/ }))
-  await user.click(await screen.findByRole("tab", { name: "最近内容" }))
+  await user.click(await screen.findByRole("tab", { name: "内容" }))
   const signal = vi.mocked(listAdminUserContent).mock.calls[1][2]
-  await user.click(screen.getByRole("tab", { name: "相关举报" }))
+  await user.click(screen.getByRole("button", { name: "相关举报" }))
   expect(signal?.aborted).toBe(true)
   expect(await screen.findByText("暂无相关举报")).toBeInTheDocument()
   expect(listAdminUserReports).toHaveBeenCalledTimes(1)
   slow.resolve({ items: [], nextCursor: null })
   await Promise.resolve()
-  expect(screen.getByRole("tab", { name: "相关举报" })).toHaveAttribute("aria-selected", "true")
+  expect(screen.getByRole("button", { name: "相关举报" })).toHaveAttribute("aria-pressed", "true")
 })
 
 
@@ -412,6 +430,7 @@ it("refreshes a status conflict without discarding the user's draft", async () =
   vi.mocked(updateAdminUserStatus).mockRejectedValueOnce(new AdminUsersApiError(409, "user.revision_conflict", "账号已被其他管理员更新"))
   render(<UserAdminPanel canModerate csrfToken="csrf-token" />)
   await user.click(await screen.findByRole("button", { name: /社区成员/ }))
+  await user.click(await screen.findByRole("tab", { name: "账号安全" }))
   await user.click(await screen.findByRole("button", { name: "管理账号状态" }))
   await user.selectOptions(screen.getByLabelText("账号动作"), "suspended")
   await user.clear(screen.getByLabelText("操作原因"))
@@ -442,6 +461,7 @@ it("locks account fields and dismissal until the status mutation completes", asy
   vi.mocked(updateAdminUserStatus).mockReturnValue(pending.promise)
   render(<UserAdminPanel canModerate csrfToken="csrf-token" />)
   await user.click(await screen.findByRole("button", { name: /社区成员/ }))
+  await user.click(await screen.findByRole("tab", { name: "账号安全" }))
   await user.click(await screen.findByRole("button", { name: "管理账号状态" }))
   await user.click(screen.getByRole("button", { name: "确认提交" }))
   await user.dblClick(screen.getByRole("button", { name: "确认恢复账号" }))
@@ -459,6 +479,7 @@ it("retries role data failures within the detail drawer", async () => {
   vi.mocked(listAuthorizationAssignments).mockRejectedValueOnce(new Error("offline"))
   render(<UserAdminPanel canAssignRoles csrfToken="csrf-token" />)
   await user.click(await screen.findByRole("button", { name: /社区成员/ }))
+  await user.click(await screen.findByRole("tab", { name: "账号安全" }))
   await user.click(await screen.findByRole("button", { name: "重试角色数据" }))
   expect(await screen.findByText("暂无可分配的自定义角色")).toBeInTheDocument()
   expect(listAuthorizationAssignments).toHaveBeenCalledTimes(2)
@@ -473,6 +494,7 @@ it("locks role assignment fields and rejects duplicate submissions until complet
   vi.mocked(createAuthorizationAssignment).mockReturnValue(pending.promise)
   render(<UserAdminPanel canAssignRoles csrfToken="csrf-token" />)
   await user.click(await screen.findByRole("button", { name: /社区成员/ }))
+  await user.click(await screen.findByRole("tab", { name: "账号安全" }))
   await user.click(await screen.findByRole("checkbox", { name: "协管员" }))
   await user.click(screen.getByRole("button", { name: "保存角色" }))
   await user.dblClick(screen.getByRole("button", { name: "确认保存角色" }))
@@ -501,13 +523,14 @@ it("shows a compact recent activity preview and copies the user ID", async () =>
   expect(await screen.findByText("用户 ID 已复制")).toBeInTheDocument()
   await user.click(screen.getByRole("button", { name: "查看全部动态" }))
   expect(await screen.findByRole("link", { name: "最近动态 3" })).toBeInTheDocument()
-  expect(screen.getByRole("tab", { name: "最近内容" })).toHaveFocus()
+  expect(screen.getByRole("tab", { name: "内容" })).toHaveFocus()
 })
 
 it("opens the requested quick account action without submitting it", async () => {
   const user = userEvent.setup()
   render(<UserAdminPanel canModerate csrfToken="csrf-token" />)
   await user.click(await screen.findByRole("button", { name: /社区成员/ }))
+  await user.click(await screen.findByRole("tab", { name: "账号安全" }))
   await user.click(await screen.findByRole("button", { name: /^暂停账号$/ }))
   expect(screen.getByLabelText("账号动作")).toHaveValue("suspended")
   expect(updateAdminUserStatus).not.toHaveBeenCalled()
@@ -611,6 +634,7 @@ it("does not apply a previous user's pending status result to a new detail", asy
   vi.mocked(getAdminUser).mockImplementation(async id => id === userId ? detail : { ...detail, id: secondUserId, username: "second", displayName: "第二位成员", status: "active", restrictionReason: null })
   const view = render(<UserAdminPanel canModerate csrfToken="csrf" requestedQuery={"user_id=" + userId} />)
   const user = userEvent.setup()
+  await user.click(await screen.findByRole("tab", { name: "账号安全" }))
   await user.click(await screen.findByRole("button", { name: "管理账号状态" }))
   await user.selectOptions(screen.getByLabelText("账号动作"), "suspended")
   await user.clear(screen.getByLabelText("操作原因"))
@@ -637,7 +661,7 @@ it.each([[true, false], [false, true]])("requires both group and membership read
 
 it("loads final permission sources only from a separate authorized user-detail tab",async()=>{
   const user=userEvent.setup()
-  const keys=["content.access_policies.read","community.groups.read","admin.users.read","community.memberships.read","entitlements.types.read","entitlements.grants.read","authorization.assignments.read"]
+  const keys=["content.access_policies.read","community.groups.read","admin.users.read","community.memberships.read","entitlements.types.read","entitlements.grants.read","authorization.assignments.read","authorization.roles.read"]
   const view=render(<UserAdminPanel capabilityKeys={keys} />)
   await user.click(await screen.findByRole("button",{name:/社区成员/}))
   await user.click(await screen.findByRole("tab",{name:"有效权限"}))
@@ -648,4 +672,304 @@ it("loads final permission sources only from a separate authorized user-detail t
   view.rerender(<UserAdminPanel capabilityKeys={keys.filter(key=>key!=="entitlements.grants.read")} />)
   expect(screen.queryByRole("region",{name:"只读权限检查"})).not.toBeInTheDocument()
   expect(screen.queryByRole("tab",{name:"有效权限"})).not.toBeInTheDocument()
+})
+
+const listMembership = { groups: [{ id: userId, displayName: '注册会员', membershipKind: 'base' as const }, { id: secondUserId, displayName: '摄影达人', membershipKind: 'additional' as const }], experience: 120, level: { id: userId, displayName: '成长二级', levelOrder: 2 }, pointsBalance: 77, entitlements: [{ typeId: userId, internalKey: 'premium', displayName: '高级会员' }], medalCount: 3, readableSections: ['groups', 'experience', 'points', 'medals', 'entitlements'] as const }
+
+it('prioritizes real community identity and membership fields over governance role and content counts', async () => {
+  vi.mocked(listAdminUsers).mockResolvedValue({ users: [{ ...summary, membership: { ...listMembership, readableSections: [...listMembership.readableSections] } }], nextCursor: null })
+  render(<UserAdminPanel />)
+  const table = await screen.findByRole('table', { name: '用户列表' })
+  expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['', '用户', '基础身份 / 附加身份', '成长等级 / EXP', '积分', '会员权益', '账号状态', '注册时间', '最后活跃', '操作'])
+  for (const text of ['注册会员', '摄影达人', 'Lv.2 · 成长二级', 'EXP 120', '77', '高级会员']) expect(within(table).getByText(text)).toBeInTheDocument()
+  expect(within(table).queryByText('版主')).not.toBeInTheDocument()
+  expect(within(table).queryByRole('columnheader', { name: '主题' })).not.toBeInTheDocument()
+})
+
+it('does not invent membership identity or zero points for redacted server fields', async () => {
+  vi.mocked(listAdminUsers).mockResolvedValue({ users: [{ ...summary, membership: { groups: null, experience: null, level: null, pointsBalance: null, entitlements: null, medalCount: null, readableSections: [] } }], nextCursor: null })
+  render(<UserAdminPanel />)
+  const table = await screen.findByRole('table', { name: '用户列表' })
+  expect(within(table).getAllByText('无权查看')).toHaveLength(4)
+  expect(within(table).queryByText('普通成员')).not.toBeInTheDocument()
+  expect(within(table).queryByText('0')).not.toBeInTheDocument()
+})
+
+it('restores membership and activity URL facets and sends them with a pagination cursor', async () => {
+  const user = userEvent.setup()
+  const onQueryChange = vi.fn()
+  vi.mocked(listAdminUsers).mockResolvedValue({ users: [summary], nextCursor: secondUserId })
+  render(<UserAdminPanel requestedQuery={'base_group=' + userId + '&additional_group=' + secondUserId + '&growth_level=' + userId + '&entitlement_type=' + secondUserId + '&active_from=2026-09-01&active_through=2026-09-02'} canReadGroups canReadGroupMemberships capabilityKeys={['membership.rules.read', 'entitlements.types.read', 'entitlements.grants.read']} onQueryChange={onQueryChange} />)
+  await screen.findByRole('table', { name: '用户列表' })
+  await waitFor(() => expect(listAdminUsers).toHaveBeenLastCalledWith(expect.objectContaining({ baseGroupId: userId, additionalGroupId: secondUserId, growthLevelId: userId, entitlementTypeId: secondUserId, lastActiveAfter: new Date('2026-09-01T00:00:00').toISOString(), lastActiveBefore: new Date('2026-09-03T00:00:00').toISOString() })))
+  await user.click(screen.getByRole('button', { name: '加载更多用户' }))
+  await waitFor(() => expect(listAdminUsers).toHaveBeenLastCalledWith(expect.objectContaining({ baseGroupId: userId, additionalGroupId: secondUserId, growthLevelId: userId, entitlementTypeId: secondUserId, cursor: secondUserId })))
+  await user.click(screen.getByRole('button', { name: '重置' }))
+  await waitFor(() => expect(listAdminUsers).toHaveBeenLastCalledWith(expect.objectContaining({ baseGroupId: undefined, additionalGroupId: undefined, growthLevelId: undefined, entitlementTypeId: undefined, lastActiveAfter: undefined, lastActiveBefore: undefined })))
+})
+
+it('recovers real membership filter catalog failures without affecting user records', async () => {
+  vi.mocked(listAdminCommunityGroups).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce([])
+  const user = userEvent.setup()
+  render(<UserAdminPanel canReadGroups canReadGroupMemberships />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('用户组筛选暂时无法加载')
+  await user.click(screen.getByRole('button', { name: '重试会员筛选目录' }))
+  await waitFor(() => expect(screen.queryByText('用户组筛选暂时无法加载')).not.toBeInTheDocument())
+  expect(listAdminCommunityGroups).toHaveBeenCalledTimes(2)
+  expect(await screen.findByRole('table', { name: '用户列表' })).toBeInTheDocument()
+})
+
+const growthLevel = { id: userId, internalKey: 'growth_2', levelOrder: 2, displayName: '成长二级', requiredExperience: 100, iconAssetId: null, color: null, description: '', status: 'published' as const, revision: 1, publishedAt: summary.createdAt, createdAt: summary.createdAt, updatedAt: summary.createdAt }
+const nextGrowthLevel = { ...growthLevel, id: secondUserId, internalKey: 'growth_3', levelOrder: 3, displayName: '成长三级', requiredExperience: 300 }
+const readableMembership = { ...listMembership, readableSections: [...listMembership.readableSections] }
+
+it('shows Lv, EXP and progress together using the existing published growth catalog', async () => {
+  vi.mocked(listAdminUsers).mockResolvedValue({ users: [{ ...summary, membership: readableMembership }], nextCursor: null })
+  vi.mocked(getAdminGrowthLevels).mockResolvedValue([nextGrowthLevel, { ...nextGrowthLevel, id: '019fc800-0000-7000-8000-000000000004', levelOrder: 4, requiredExperience: 150, status: 'draft' }, growthLevel])
+  render(<UserAdminPanel capabilityKeys={['membership.rules.read']} />)
+  const table = await screen.findByRole('table', { name: '用户列表' })
+  const growthCell = within(table).getByRole('cell', { name: /Lv.2 · 成长二级/ })
+  expect(within(growthCell).getByText('EXP 120')).toBeInTheDocument()
+  expect(await within(growthCell).findByRole('progressbar', { name: '成长等级进度' })).toHaveAttribute('value', '10')
+  expect(within(growthCell).getByText('距成长三级还需 180 EXP')).toBeInTheDocument()
+  expect(getAdminGrowthLevels).toHaveBeenCalledTimes(1)
+  expect(getAdminUser).not.toHaveBeenCalled()
+})
+
+it('keeps the assigned Lv when reversed EXP falls below its threshold', async () => {
+  vi.mocked(listAdminUsers).mockResolvedValue({ users: [{ ...summary, membership: { ...readableMembership, experience: 0, pointsBalance: 7777 } }], nextCursor: null })
+  vi.mocked(getAdminGrowthLevels).mockResolvedValue([growthLevel, nextGrowthLevel])
+  render(<UserAdminPanel capabilityKeys={['membership.rules.read']} />)
+  const table = await screen.findByRole('table', { name: '用户列表' })
+  expect(within(table).getByText('Lv.2 · 成长二级')).toBeInTheDocument()
+  expect(within(table).getByText('EXP 0')).toBeInTheDocument()
+  expect(await within(table).findByRole('progressbar')).toHaveAttribute('value', '0')
+  expect(within(table).getByText('7,777')).toBeInTheDocument()
+})
+
+it('marks the highest published growth stage without deriving a new Lv from EXP', async () => {
+  vi.mocked(listAdminUsers).mockResolvedValue({ users: [{ ...summary, membership: { ...readableMembership, experience: 500 } }], nextCursor: null })
+  vi.mocked(getAdminGrowthLevels).mockResolvedValue([growthLevel, { ...nextGrowthLevel, status: 'draft' }])
+  render(<UserAdminPanel capabilityKeys={['membership.rules.read']} />)
+  const table = await screen.findByRole('table', { name: '用户列表' })
+  expect(await within(table).findByRole('progressbar')).toHaveAttribute('value', '100')
+  expect(within(table).getByText('已达到当前最高成长阶段')).toBeInTheDocument()
+  expect(within(table).getByText('Lv.2 · 成长二级')).toBeInTheDocument()
+})
+
+it('retains Lv and EXP while the shared catalog loads and uses it for paginated users', async () => {
+  const catalog = deferred<Awaited<ReturnType<typeof getAdminGrowthLevels>>>()
+  vi.mocked(getAdminGrowthLevels).mockReturnValue(catalog.promise)
+  vi.mocked(listAdminUsers).mockResolvedValueOnce({ users: [{ ...summary, membership: readableMembership }], nextCursor: secondUserId }).mockResolvedValueOnce({ users: [{ ...summary, id: secondUserId, username: 'second', membership: { ...readableMembership, experience: 200 } }], nextCursor: null })
+  const user = userEvent.setup()
+  render(<UserAdminPanel capabilityKeys={['membership.rules.read']} />)
+  const table = await screen.findByRole('table', { name: '用户列表' })
+  expect(within(table).getByText('EXP 120')).toBeInTheDocument()
+  expect(within(table).getByText('进度暂不可用')).toBeInTheDocument()
+  expect(within(table).queryByRole('progressbar')).not.toBeInTheDocument()
+  await act(async () => catalog.resolve([growthLevel, nextGrowthLevel]))
+  expect(await within(table).findByRole('progressbar')).toHaveAttribute('value', '10')
+  await user.click(screen.getByRole('button', { name: '加载更多用户' }))
+  await waitFor(() => expect(within(table).getAllByRole('progressbar')).toHaveLength(2))
+  expect(within(table).getAllByRole('progressbar').map(bar => bar.getAttribute('value'))).toEqual(['10', '50'])
+  expect(getAdminGrowthLevels).toHaveBeenCalledTimes(1)
+  expect(getAdminUser).not.toHaveBeenCalled()
+})
+
+it('recovers growth progress through the existing catalog retry without replacing user rows', async () => {
+  vi.mocked(listAdminUsers).mockResolvedValue({ users: [{ ...summary, membership: readableMembership }], nextCursor: null })
+  vi.mocked(getAdminGrowthLevels).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce([growthLevel, nextGrowthLevel])
+  const user = userEvent.setup()
+  render(<UserAdminPanel capabilityKeys={['membership.rules.read']} />)
+  const table = await screen.findByRole('table', { name: '用户列表' })
+  expect(await screen.findByRole('alert')).toHaveTextContent('成长等级筛选暂时无法加载')
+  expect(within(table).getByText('EXP 120')).toBeInTheDocument()
+  expect(within(table).queryByRole('progressbar')).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: '重试会员筛选目录' }))
+  expect(await within(table).findByRole('progressbar')).toHaveAttribute('value', '10')
+  expect(listAdminUsers).toHaveBeenCalledTimes(1)
+})
+
+it('does not mark progress complete when the current level is missing from the catalog', async () => {
+  vi.mocked(listAdminUsers).mockResolvedValue({ users: [{ ...summary, membership: readableMembership }], nextCursor: null })
+  vi.mocked(getAdminGrowthLevels).mockResolvedValue([nextGrowthLevel])
+  render(<UserAdminPanel capabilityKeys={['membership.rules.read']} />)
+  const table = await screen.findByRole('table', { name: '用户列表' })
+  expect(within(table).getByText('进度暂不可用')).toBeInTheDocument()
+  expect(within(table).queryByRole('progressbar')).not.toBeInTheDocument()
+})
+
+it('distinguishes an uninitialized growth account from redacted or absent membership', async () => {
+  vi.mocked(listAdminUsers).mockResolvedValue({ users: [{ ...summary, membership: { ...readableMembership, experience: null, level: null } }], nextCursor: null })
+  vi.mocked(getAdminGrowthLevels).mockResolvedValue([growthLevel, nextGrowthLevel])
+  render(<UserAdminPanel capabilityKeys={['membership.rules.read']} />)
+  const table = await screen.findByRole('table', { name: '用户列表' })
+  expect(within(table).getAllByText('未初始化')).toHaveLength(1)
+  expect(within(table).queryByRole('progressbar')).not.toBeInTheDocument()
+  expect(within(table).queryByText('EXP 0')).not.toBeInTheDocument()
+})
+
+it('drops catalog-based progress when growth capability is withdrawn', async () => {
+  vi.mocked(listAdminUsers).mockResolvedValue({ users: [{ ...summary, membership: readableMembership }], nextCursor: null })
+  vi.mocked(getAdminGrowthLevels).mockResolvedValue([growthLevel, nextGrowthLevel])
+  const view = render(<UserAdminPanel capabilityKeys={['membership.rules.read']} />)
+  const table = await screen.findByRole('table', { name: '用户列表' })
+  await within(table).findByRole('progressbar')
+  view.rerender(<UserAdminPanel capabilityKeys={[]} />)
+  expect(within(table).queryByRole('progressbar')).not.toBeInTheDocument()
+  expect(getAdminGrowthLevels).toHaveBeenCalledTimes(1)
+})
+
+it('exports selected membership values with separate Lv and EXP fields and redacts denied sections', async () => {
+  vi.mocked(listAdminUsers).mockResolvedValue({ users: [{ ...summary, membership: readableMembership }, { ...summary, id: secondUserId, username: 'redacted', displayName: '不可读用户', membership: { ...readableMembership, experience: null, level: null, groups: null, pointsBalance: null, entitlements: null, readableSections: [] } }], nextCursor: null })
+  const createObjectURL = vi.fn((_blob: Blob) => 'blob:users')
+  vi.stubGlobal('URL', class extends URL { static createObjectURL = createObjectURL; static revokeObjectURL = vi.fn() })
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  try {
+    const user = userEvent.setup()
+    render(<UserAdminPanel />)
+    await screen.findByRole('table', { name: '用户列表' })
+    await user.click(screen.getByRole('checkbox', { name: '选择用户：redacted' }))
+    await user.click(screen.getByRole('button', { name: '导出选中 1 位' }))
+    const csv = await new Promise<string>(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result as string); reader.readAsText(createObjectURL.mock.calls[0][0] as Blob) })
+    expect(csv).toContain('"成长等级","EXP","积分"')
+    expect(csv).toContain('"不可读用户","redacted","无权查看","无权查看","无权查看","无权查看","无权查看"')
+    expect(csv).not.toContain('成长二级')
+    expect(csv).not.toContain('摄影达人')
+    expect(click).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:users'), { timeout: 1500 })
+  } finally { click.mockRestore(); vi.unstubAllGlobals() }
+})
+
+const growthIdentity = { id: userId, internalKey: 'level_2', levelOrder: 2, displayName: '成长二级', requiredExperience: 100, iconAssetId: null, color: null, description: '' }
+const membershipSummary: AdminUserMembershipSummary = { account: detail, groups: [], experience: { userId, experience: 120, currentLevel: growthIdentity, revision: 1, updatedAt: summary.createdAt }, nextLevel: { ...growthIdentity, id: secondUserId, internalKey: 'level_3', levelOrder: 3, displayName: '成长三级', requiredExperience: 300 }, points: { userId, pointsBalance: 777, lifetimePoints: 888, revision: 1, updatedAt: summary.createdAt }, medals: [], entitlements: [], readableSections: ['groups','experience','points','medals','entitlements'] }
+
+it('loads an independent membership summary and presents the new six detail categories', async () => {
+  const user=userEvent.setup()
+  const keys=['membership.rules.read','membership.points.grant','membership.medals.read','content.access_policies.read','community.groups.read','admin.users.read','community.memberships.read','entitlements.types.read','entitlements.grants.read','authorization.assignments.read','authorization.roles.read']
+  render(<UserAdminPanel canReadGroups canReadGroupMemberships canReadAudit capabilityKeys={keys} />)
+  await user.click(await screen.findByRole('button',{name:/社区成员/}))
+  const dialog=await screen.findByRole('dialog',{name:'用户详情'})
+  await waitFor(()=>expect(getAdminUserMembershipSummary).toHaveBeenCalledWith(userId,expect.any(AbortSignal)))
+  expect(within(dialog).getAllByRole('tab').map(item=>item.textContent)).toEqual(['概览','会员身份','有效权限','内容','账号安全','管理记录'])
+  expect(within(dialog).getByRole('region',{name:'会员身份摘要'})).toHaveTextContent('Lv.2 · 成长二级')
+  expect(within(dialog).getByRole('region',{name:'会员身份摘要'})).toHaveTextContent('777')
+  expect(within(dialog).getByRole('progressbar')).toHaveAttribute('value','10')
+  for(const tab of within(dialog).getAllByRole('tab')) expect(document.getElementById(tab.getAttribute('aria-controls')!)).toBeInTheDocument()
+})
+it('retries only the membership summary while retaining account details',async()=>{
+  vi.mocked(getAdminUserMembershipSummary).mockRejectedValueOnce(new Error('offline')).mockResolvedValue(membershipSummary)
+  const user=userEvent.setup(); render(<UserAdminPanel capabilityKeys={['membership.rules.read']} />)
+  await user.click(await screen.findByRole('button',{name:/社区成员/}))
+  expect(await screen.findByRole('heading',{name:'社区成员'})).toBeInTheDocument()
+  await user.click(await screen.findByRole('button',{name:'重试会员档案'}))
+  expect(await screen.findByRole('progressbar')).toHaveAttribute('value','10')
+  expect(getAdminUser).toHaveBeenCalledTimes(1)
+})
+it('redacts a readable server snapshot immediately when local capabilities are withdrawn',async()=>{
+  const user=userEvent.setup();const view=render(<UserAdminPanel capabilityKeys={['membership.rules.read','membership.points.grant']} />)
+  await user.click(await screen.findByRole('button',{name:/社区成员/}))
+  expect(await screen.findByRole('progressbar')).toBeInTheDocument()
+  const pending=deferred<AdminUserMembershipSummary>();vi.mocked(getAdminUserMembershipSummary).mockReturnValueOnce(pending.promise)
+  view.rerender(<UserAdminPanel capabilityKeys={[]} />)
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+  pending.resolve(membershipSummary)
+  await waitFor(()=>expect(within(screen.getByRole('region',{name:'会员身份摘要'})).getAllByText('无权查看').length).toBeGreaterThan(0))
+  expect(screen.queryByText('777')).not.toBeInTheDocument()
+})
+it('ignores a late membership response after switching UID',async()=>{
+  const pending=deferred<AdminUserMembershipSummary>()
+  vi.mocked(listAdminUsers).mockResolvedValue({users:[summary,{...summary,id:secondUserId,displayName:'第二位成员',username:'second'}],nextCursor:null})
+  vi.mocked(getAdminUser).mockImplementation(async id=>id===userId?detail:{...detail,id:secondUserId,displayName:'第二位成员',username:'second'})
+  vi.mocked(getAdminUserMembershipSummary).mockImplementation(id=>id===userId?pending.promise:Promise.resolve({...membershipSummary,account:{...detail,id:secondUserId},points:{...membershipSummary.points!,userId:secondUserId,pointsBalance:42}}))
+  const user=userEvent.setup();render(<UserAdminPanel capabilityKeys={['membership.points.grant']} />)
+  await user.click(await screen.findByRole('button',{name:/社区成员/}))
+  await screen.findByRole('heading',{name:'社区成员'})
+  await user.click(screen.getByRole('button',{name:'下一位用户'}))
+  expect(await screen.findByRole('heading',{name:'第二位成员'})).toBeInTheDocument()
+  await act(async()=>pending.resolve(membershipSummary))
+  expect(screen.getByRole('region',{name:'会员身份摘要'})).toHaveTextContent('42')
+  expect(screen.getByRole('region',{name:'会员身份摘要'})).not.toHaveTextContent('777')
+})
+
+it('writes points only for the current UID, refreshes identity and retains the immutable receipt across tabs',async()=>{
+  const saved={account:{userId,pointsBalance:807,lifetimePoints:918,levelKey:'legacy_1',levelNumber:1,levelDisplayName:'兼容等级',revision:2,updatedAt:summary.createdAt},created:true,auditId:secondUserId,ledgerEntryId:secondUserId,balanceBefore:777,balanceAfter:807,requestId:'request-1'}
+  vi.mocked(grantMembershipPoints).mockImplementation(async()=>{vi.mocked(getAdminUserMembershipSummary).mockResolvedValue({...membershipSummary,points:{...membershipSummary.points!,pointsBalance:807}});return saved})
+  const user=userEvent.setup();render(<UserAdminPanel csrfToken="csrf" capabilityKeys={['membership.points.grant','membership.rules.read']} />)
+  await user.click(await screen.findByRole('button',{name:/社区成员/}));await user.click(await screen.findByRole('tab',{name:'会员身份'}))
+  await user.type(await screen.findByRole('spinbutton',{name:'积分数量'}),'30');await user.selectOptions(screen.getByRole('combobox',{name:'运营原因'}),'operations.community_reward');await user.click(screen.getByRole('button',{name:'确认积分操作'}))
+  expect(await screen.findByLabelText('积分操作回执')).toHaveTextContent('777 → 807')
+  await waitFor(()=>expect(screen.getByRole('region',{name:'会员身份摘要'})).toHaveTextContent('807'))
+  expect(screen.getByRole('region',{name:'会员身份摘要'})).toHaveTextContent('EXP 120')
+  expect(grantMembershipPoints).toHaveBeenCalledWith(expect.objectContaining({userId,amount:30,idempotencyKey:expect.any(String)}),'csrf')
+  await waitFor(()=>expect(listAdminUsers).toHaveBeenCalledTimes(2))
+  await user.click(screen.getByRole('tab',{name:'概览'}));await user.click(screen.getByRole('tab',{name:'会员身份'}))
+  expect(screen.getByLabelText('积分操作回执')).toHaveTextContent('request-1')
+})
+it('blocks leaving a detail until an unknown points request is confirmed with the same key',async()=>{
+  vi.mocked(grantMembershipPoints).mockRejectedValueOnce(new Error('offline')).mockResolvedValue({account:{userId,pointsBalance:807,lifetimePoints:918,levelKey:'legacy_1',levelNumber:1,levelDisplayName:'兼容等级',revision:2,updatedAt:summary.createdAt},created:true,auditId:null,ledgerEntryId:null,balanceBefore:777,balanceAfter:807})
+  const user=userEvent.setup();render(<UserAdminPanel csrfToken="csrf" capabilityKeys={['membership.points.grant']} />)
+  await user.click(await screen.findByRole('button',{name:/社区成员/}));await user.click(await screen.findByRole('tab',{name:'会员身份'}));await user.type(await screen.findByRole('spinbutton',{name:'积分数量'}),'30');await user.selectOptions(screen.getByRole('combobox',{name:'运营原因'}),'operations.community_reward');await user.click(screen.getByRole('button',{name:'确认积分操作'}));await screen.findByRole('alert')
+  expect(screen.getByRole('button',{name:'返回列表'})).toBeDisabled();expect(screen.getByRole('tab',{name:'概览'})).toBeDisabled()
+  await user.keyboard('{Escape}');expect(screen.getByRole('dialog',{name:'用户详情'})).toBeInTheDocument()
+  await user.click(screen.getByRole('button',{name:'确认积分操作'}));await screen.findByText('积分操作完成')
+  expect(vi.mocked(grantMembershipPoints).mock.calls[1][0].idempotencyKey).toBe(vi.mocked(grantMembershipPoints).mock.calls[0][0].idempotencyKey)
+  await waitFor(()=>expect(screen.getByRole('button',{name:'返回列表'})).toBeEnabled())
+})
+
+it('updates account details from a newer aggregate account revision',async()=>{
+  vi.mocked(getAdminUserMembershipSummary).mockResolvedValue({...membershipSummary,account:{...detail,status:'active',restrictionReason:null,revision:9}})
+  const user=userEvent.setup();render(<UserAdminPanel />);await user.click(await screen.findByRole('button',{name:/社区成员/}))
+  await waitFor(()=>expect(within(screen.getByRole('dialog',{name:'用户详情'})).getByText('正常')).toBeInTheDocument())
+  expect(within(screen.getByRole('dialog',{name:'用户详情'})).queryByText('等待人工复核')).not.toBeInTheDocument()
+})
+it('honors server redaction even when local membership capabilities are available',async()=>{
+  vi.mocked(getAdminUserMembershipSummary).mockResolvedValue({...membershipSummary,groups:null,experience:null,nextLevel:null,points:null,medals:null,entitlements:null,readableSections:[]})
+  const user=userEvent.setup();render(<UserAdminPanel canReadGroups canReadGroupMemberships capabilityKeys={['membership.rules.read','membership.points.grant','membership.medals.read','entitlements.grants.read']} />)
+  await user.click(await screen.findByRole('button',{name:/社区成员/}));await user.click(await screen.findByRole('tab',{name:'会员身份'}))
+  await waitFor(()=>expect(within(screen.getByRole('region',{name:'会员身份摘要'})).getAllByText('无权查看')).toHaveLength(5))
+  expect(screen.queryByRole('spinbutton',{name:'积分数量'})).not.toBeInTheDocument();expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();expect(screen.queryByText('777')).not.toBeInTheDocument()
+})
+it('distinguishes uninitialized growth and points from legitimate empty honors and identities',async()=>{
+  vi.mocked(getAdminUserMembershipSummary).mockResolvedValue({...membershipSummary,experience:null,nextLevel:null,points:null})
+  const user=userEvent.setup();render(<UserAdminPanel canReadGroups canReadGroupMemberships capabilityKeys={['membership.rules.read','membership.points.grant','membership.medals.read']} />)
+  await user.click(await screen.findByRole('button',{name:/社区成员/}))
+  await waitFor(()=>expect(within(screen.getByRole('region',{name:'会员身份摘要'})).getAllByText('未初始化')).toHaveLength(2))
+  expect(screen.getByRole('region',{name:'会员身份摘要'})).toHaveTextContent('无有效身份');expect(screen.getByRole('region',{name:'会员身份摘要'})).toHaveTextContent('勋章数量0');expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+})
+
+it('rejects an aggregate account revision older than a completed status mutation',async()=>{
+  const pending=deferred<AdminUserMembershipSummary>();vi.mocked(getAdminUserMembershipSummary).mockReturnValueOnce(pending.promise)
+  vi.mocked(updateAdminUserStatus).mockResolvedValue({userId,status:'suspended',reason:'违规复核',expiresAt:null,revision:4,auditId:secondUserId,actor:{id:secondUserId,username:'owner',displayName:'站长',avatarUrl:null},changedAt:summary.createdAt})
+  const user=userEvent.setup();render(<UserAdminPanel canModerate csrfToken="csrf" />);await user.click(await screen.findByRole('button',{name:/社区成员/}));await user.click(await screen.findByRole('tab',{name:'账号安全'}));await user.click(await screen.findByRole('button',{name:'管理账号状态'}));await user.selectOptions(screen.getByLabelText('账号动作'),'suspended');await user.clear(screen.getByLabelText('操作原因'));await user.type(screen.getByLabelText('操作原因'),'违规复核');await user.click(screen.getByRole('button',{name:'确认提交'}));await user.click(screen.getByRole('button',{name:'确认暂停账号'}));await screen.findByText('审计编号')
+  await act(async()=>pending.resolve({...membershipSummary,account:{...detail,status:'active',restrictionReason:null,revision:3}}))
+  expect(within(screen.getByRole('dialog',{name:'用户详情'})).getByText('已暂停',{exact:true})).toBeInTheDocument()
+})
+
+it('retains an unconfirmed points attempt when the requested UID changes externally',async()=>{
+  vi.mocked(grantMembershipPoints).mockRejectedValue(new Error('offline'))
+  vi.mocked(getAdminUser).mockImplementation(async id=>id===userId?detail:{...detail,id:secondUserId,displayName:'第二位成员',username:'second'})
+  const user=userEvent.setup(),publish=vi.fn(),keys=['membership.points.grant'];const view=render(<UserAdminPanel requestedQuery={'user_id='+userId} onQueryChange={publish} csrfToken="csrf" capabilityKeys={keys} />)
+  await user.click(await screen.findByRole('tab',{name:'会员身份'}));await user.type(await screen.findByRole('spinbutton',{name:'积分数量'}),'30');await user.selectOptions(screen.getByLabelText('运营原因'),'operations.community_reward');await user.click(screen.getByRole('button',{name:'确认积分操作'}));await screen.findByRole('alert');await waitFor(()=>expect(screen.getByRole('button',{name:'返回列表'})).toBeDisabled())
+  view.rerender(<UserAdminPanel requestedQuery={'user_id='+secondUserId} onQueryChange={publish} csrfToken="csrf" capabilityKeys={keys} />)
+  await waitFor(()=>expect(publish).toHaveBeenLastCalledWith('user_id='+userId))
+  expect(screen.getByRole('heading',{name:'社区成员'})).toBeInTheDocument();expect(screen.getByRole('spinbutton',{name:'积分数量'})).toHaveValue(30)
+  const leave = new MouseEvent('click', { bubbles: true, cancelable: true })
+  act(() => { screen.getByRole('link', { name: '查看用户主页' }).dispatchEvent(leave) })
+  expect(leave.defaultPrevented).toBe(true)
+})
+
+it('locks other membership writes and UID navigation while EXP is unconfirmed',async()=>{
+  vi.mocked(adjustAdminExperience).mockRejectedValue(new Error('offline'))
+  const user=userEvent.setup();render(<UserAdminPanel csrfToken="csrf" capabilityKeys={['membership.points.grant','membership.rules.read','membership.rules.write']} />)
+  await user.click(await screen.findByRole('button',{name:/社区成员/}));await user.click(await screen.findByRole('tab',{name:'会员身份'}))
+  await user.type(await screen.findByRole('spinbutton',{name:'积分数量'}),'30')
+  await user.type(await screen.findByRole('spinbutton',{name:'增加 EXP 数量'}),'10');await user.type(screen.getByRole('textbox',{name:'EXP 调整原因'}),'补记贡献')
+  await user.click(screen.getByRole('button',{name:'确认 EXP 调整'}))
+  await screen.findByText(/EXP 操作结果尚未确认/)
+  expect(screen.getByRole('button',{name:'确认积分操作'})).toBeDisabled()
+  expect(screen.getByRole('button',{name:'返回列表'})).toBeDisabled()
+  expect(screen.getByRole('tab',{name:'概览'})).toBeDisabled()
+  expect(screen.getByRole('button',{name:'使用原请求重试确认'})).toBeEnabled()
+  expect(grantMembershipPoints).not.toHaveBeenCalled()
 })

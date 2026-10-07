@@ -144,6 +144,14 @@ export function RichTextEditor({
   useEffect(() => {
     if (!editor || !autoFocus || disabled || autoFocusedEditorRef.current === editor) return
     if (document.querySelector("[role='alertdialog'][aria-modal='true']")) return
+    const outsideInputHasFocus = () => {
+      const active = document.activeElement
+      return active instanceof HTMLElement
+        && active.matches("input, textarea, select, [contenteditable='true']")
+        && !editor.view.dom.contains(active)
+    }
+    // 自动聚焦只消费一次；用户已经开始输入时保留其选择的位置。
+    if (outsideInputHasFocus()) { autoFocusedEditorRef.current = editor; return }
     editor.view.dispatch(editor.state.tr.setSelection(Selection.atStart(editor.state.doc)))
     if (isiOS() || isAndroid()) { editor.view.dom.focus(); autoFocusedEditorRef.current = editor }
     else if (isSafari()) { editor.view.dom.focus({ preventScroll: true }); autoFocusedEditorRef.current = editor }
@@ -151,6 +159,7 @@ export function RichTextEditor({
     const frame = requestAnimationFrame(() => {
       if (editor.isDestroyed || !editor.isEditable || document.querySelector("[role='alertdialog'][aria-modal='true']")) return
       autoFocusedEditorRef.current = editor
+      if (outsideInputHasFocus()) return
       editor.view.focus()
       editor.commands.scrollIntoView()
     })

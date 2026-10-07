@@ -401,6 +401,8 @@ export interface MembershipMedalRule {
 }
 
 export interface MembershipMedalGrantInput {
+  expectedRevision: number
+  idempotencyKey: string
   userId: string
   medalKey: string
   reason: string
@@ -415,6 +417,7 @@ export interface MembershipMedal {
 }
 
 export interface MembershipMedalGrant {
+  receipt: MembershipMedalReceipt
   medal: MembershipMedal
   created: boolean
 }
@@ -445,12 +448,15 @@ export interface ListMembershipMedalOperationsOptions {
 }
 
 export interface RevokeMembershipMedalInput {
+  expectedRevision: number
+  idempotencyKey: string
   userId: string
   medalKey: string
   reason: string
 }
 
 export interface MembershipMedalRevocation {
+  receipt: MembershipMedalReceipt
   userId: string
   medalKey: string
   revoked: boolean
@@ -1241,9 +1247,99 @@ export async function updateMembershipMedalRule(key: string, input: MembershipMe
 export async function grantMembershipMedal(input: MembershipMedalGrantInput, csrfToken: string, signal?: AbortSignal): Promise<MembershipMedalGrant> {
   const response = await fetch("/api/v1/admin/membership/medals", {
     method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken }, credentials: "include",
-    body: JSON.stringify({ user_id: input.userId, medal_key: input.medalKey, reason: input.reason }), signal,
+    body: JSON.stringify({ user_id: input.userId, medal_key: input.medalKey, reason: input.reason, expected_revision: input.expectedRevision, idempotency_key: input.idempotencyKey }), signal,
   })
-  return parseResponse(response, isMembershipMedalGrantDto)
+  const result = await parseResponse<MembershipMedalGrant>(response, value => isMembershipMedalGrantDto(value) && receiptMatches(value.receipt,input,"grant"), true)
+  return result
+}
+
+export interface AdminExperienceAccount {
+  userId: string
+  experience: number
+  currentLevel: Pick<AdminGrowthLevel,"id"|"internalKey"|"levelOrder"|"displayName"|"requiredExperience"|"iconAssetId"|"color"|"description">
+  revision: number
+  updatedAt: string
+}
+export interface AdminExperienceLedgerEntry extends AdminPointsLedgerEntry {
+  userId: string
+  details: string | null
+  sourceResourceId: string | null
+  reversalOf: string | null
+  revisionAfter: number | null
+  auditId: string | null
+}
+export interface AdminExperienceInput {userId: string; amount: number; reason: string; expectedRevision: number; idempotencyKey: string; reversalOf: string | null}
+export interface AdminExperienceAdjustment {account: AdminExperienceAccount; entry: AdminExperienceLedgerEntry; replayed: boolean; requestId: string}
+
+export async function getAdminExperience(userId: string, signal?: AbortSignal): Promise<AdminExperienceAccount | null> {
+  const response=await fetch(`/api/v1/admin/membership/users/${encodeURIComponent(userId)}/experience`,{headers:{Accept:"application/json"},credentials:"include",signal})
+  const payload=await readJson(response)
+  if(!response.ok) throw toApiError(response.status,payload)
+  if(!isEnvelope(payload) || (payload.data !== null && (!isAdminExperienceDto(payload.data) || payload.data.user_id !== userId)) || !operationRequestIdMatches(response,payload)) throw new AdminApiError(response.status,"response.invalid","EXP 账户响应格式无效")
+  return payload.data === null ? null : mapAdminExperience(payload.data as ExperienceAccountDto)
+}
+
+export async function listAdminExperienceLedger(userId: string, options: {cursor?: string; limit?: number; signal?: AbortSignal} = {}): Promise<{entries: AdminExperienceLedgerEntry[]; nextCursor: string | null}> {
+  const params=new URLSearchParams({limit:String(options.limit??20)}); if(options.cursor) params.set("cursor",options.cursor)
+  const response=await fetch(`/api/v1/admin/membership/users/${encodeURIComponent(userId)}/experience/ledger?${params}`,{headers:{Accept:"application/json"},credentials:"include",signal:options.signal})
+  const payload=await readJson(response)
+  if(!response.ok) throw toApiError(response.status,payload)
+  if(!isPageEnvelope(payload) || (payload.meta.next_cursor !== null && !isUuid(payload.meta.next_cursor)) || !payload.data.every(item=>isExperienceLedgerEntryDto(item) && item.user_id===userId) || !operationRequestIdMatches(response,payload)) throw new AdminApiError(response.status,"response.invalid","EXP 流水响应格式无效")
+  return {entries:(payload.data as ExperienceLedgerEntryDto[]).map(mapExperienceEntry),nextCursor:payload.meta.next_cursor}
+}
+
+export async function adjustAdminExperience(input:AdminExperienceInput, csrfToken:string, signal?:AbortSignal):Promise<AdminExperienceAdjustment> {
+  const response=await fetch("/api/v1/admin/membership/experience",{method:"POST",headers:{Accept:"application/json","Content-Type":"application/json","x-csrf-token":csrfToken},credentials:"include",body:JSON.stringify({user_id:input.userId,amount:input.amount,reason:input.reason,expected_revision:input.expectedRevision,idempotency_key:input.idempotencyKey,reversal_of:input.reversalOf}),signal})
+  const payload=await readJson(response)
+  if(!response.ok) throw toApiError(response.status,payload)
+  if(!isEnvelope(payload) || !isRecord(payload.data) || !isAdminExperienceDto(payload.data.account) || payload.data.account.user_id!==input.userId || !isExperienceLedgerEntryDto(payload.data.entry) || payload.data.entry.user_id!==input.userId || payload.data.entry.amount!==input.amount || payload.data.entry.reversal_of!==input.reversalOf || payload.data.entry.details!==input.reason || typeof payload.data.replayed!=="boolean" || !operationRequestIdMatches(response,payload)) throw new AdminApiError(response.status,"response.invalid","EXP 调整回执格式无效")
+  return {account:mapAdminExperience(payload.data.account),entry:mapExperienceEntry(payload.data.entry),replayed:payload.data.replayed,requestId:payload.meta.request_id}
+}
+
+type ExperienceAccountDto=components["schemas"]["ExperienceAccount"]
+type ExperienceLedgerEntryDto=components["schemas"]["ExperienceLedgerEntry"] & {details:string|null;source_resource_id:string|null;reversal_of:string|null;revision_after:number|null;audit_id:string|null}
+function isAdminExperienceDto(value:unknown):value is ExperienceAccountDto {
+  if(!isRecord(value) || !isUuid(value.user_id) || !isSafeCount(value.experience) || !Number.isSafeInteger(value.revision) || value.revision<1 || !isTimestamp(value.updated_at) || !isRecord(value.current_level)) return false
+  const level=value.current_level
+  return isUuid(level.id) && isNonEmptyString(level.internal_key) && Number.isSafeInteger(level.level_order) && level.level_order>0 && isNonEmptyString(level.display_name) && isSafeCount(level.required_experience) && (level.icon_asset_id===null || isUuid(level.icon_asset_id)) && (level.color===null || (typeof level.color==="string" && /^#[a-f0-9]{6}$/i.test(level.color))) && typeof level.description==="string"
+}
+function isExperienceLedgerEntryDto(value:unknown):value is ExperienceLedgerEntryDto {
+  return isRecord(value) && isUuid(value.user_id) && (value.details===null || typeof value.details==="string") && (value.source_resource_id===null || isUuid(value.source_resource_id)) && (value.reversal_of===null || isUuid(value.reversal_of)) && (value.audit_id===null || isUuid(value.audit_id)) && (value.revision_after===null || (Number.isSafeInteger(value.revision_after) && value.revision_after>0)) && isAdminPointsLedgerEntryDto(value)
+}
+function mapAdminExperience(value:ExperienceAccountDto):AdminExperienceAccount {
+ const level=value.current_level
+ return {userId:value.user_id,experience:value.experience,revision:value.revision,updatedAt:value.updated_at,currentLevel:{id:level.id,internalKey:level.internal_key,levelOrder:level.level_order,displayName:level.display_name,requiredExperience:level.required_experience,iconAssetId:level.icon_asset_id??null,color:level.color??null,description:level.description}}
+}
+function mapExperienceEntry(value:ExperienceLedgerEntryDto):AdminExperienceLedgerEntry {
+ return {id:value.id,userId:value.user_id,amount:value.amount,reason:value.reason,details:value.details,sourceResourceId:value.source_resource_id,reversalOf:value.reversal_of,balanceAfter:value.balance_after,revisionAfter:value.revision_after,actorId:value.actor_id??null,actorUsername:value.actor_username??null,actorDisplayName:value.actor_display_name??null,operationRequestId:value.operation_request_id??null,auditId:value.audit_id,createdAt:value.created_at}
+}
+function operationRequestIdMatches(response:Response,payload:{meta:{request_id:string}}):boolean {return response.headers.get("x-request-id")===payload.meta.request_id}
+
+export interface AdminPointsLedgerEntry {
+  id: string
+  amount: number
+  reason: string
+  balanceAfter: number
+  actorId: string | null
+  actorUsername: string | null
+  actorDisplayName: string | null
+  operationRequestId: string | null
+  createdAt: string
+}
+
+export async function listAdminPointsLedger(userId: string, options: {cursor?: string; limit?: number; signal?: AbortSignal} = {}): Promise<{entries: AdminPointsLedgerEntry[]; nextCursor: string | null}> {
+  if (!isUuid(userId)) throw new AdminApiError(422, "validation.failed", "用户 UID 无效")
+  const params=new URLSearchParams({limit:String(options.limit ?? 20)})
+  if (options.cursor) params.set("cursor",options.cursor)
+  const response=await fetch(`/api/v1/admin/membership/users/${encodeURIComponent(userId)}/points/ledger?${params}`,{headers:{Accept:"application/json"},credentials:"include",signal:options.signal})
+  const payload=await readJson(response)
+  if (!response.ok) throw toApiError(response.status,payload)
+  if (!isPageEnvelope(payload) || (payload.meta.next_cursor !== null && !isUuid(payload.meta.next_cursor)) || !payload.data.every(isAdminPointsLedgerEntryDto) || !operationRequestIdMatches(response,payload)) throw new AdminApiError(response.status,"response.invalid","积分流水响应格式无效")
+  return {entries:payload.data.map(item=>({id:item.id,amount:item.amount,reason:item.reason,balanceAfter:item.balance_after,actorId:item.actor_id??null,actorUsername:item.actor_username??null,actorDisplayName:item.actor_display_name??null,operationRequestId:item.operation_request_id??null,createdAt:item.created_at})),nextCursor:payload.meta.next_cursor}
+}
+
+function isAdminPointsLedgerEntryDto(value:unknown): value is components["schemas"]["PointsLedgerEntry"] {
+  return isRecord(value) && isUuid(value.id) && Number.isSafeInteger(value.amount) && value.amount !== 0 && isNonEmptyString(value.reason) && isSafeCount(value.balance_after) && (value.actor_id === null || isUuid(value.actor_id)) && (value.actor_username === null || typeof value.actor_username === "string") && (value.actor_display_name === null || typeof value.actor_display_name === "string") && (value.operation_request_id === null || isUuid(value.operation_request_id)) && isTimestamp(value.created_at)
 }
 
 export async function getAdminMembershipAccount(userId: string, signal?: AbortSignal): Promise<MembershipAccount> {
@@ -1267,7 +1363,7 @@ export async function listMembershipMedalOperations(options: ListMembershipMedal
   })
   const payload = await readJson(response)
   if (!response.ok) throw toApiError(response.status, payload)
-  if (!isMembershipMedalOperationPage(payload)) throw new AdminApiError(response.status, "response.invalid", "勋章操作记录响应格式无效")
+  if (!isMembershipMedalOperationPage(payload) || !operationRequestIdMatches(response,payload)) throw new AdminApiError(response.status, "response.invalid", "勋章操作记录响应格式无效")
   return { operations: payload.data.map(mapMembershipMedalOperation), nextCursor: payload.meta.next_cursor }
 }
 
@@ -1277,10 +1373,10 @@ export async function revokeMembershipMedal(input: RevokeMembershipMedalInput, c
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken },
     credentials: "include",
-    body: JSON.stringify({ user_id: input.userId, medal_key: input.medalKey, reason: input.reason }),
+    body: JSON.stringify({ user_id: input.userId, medal_key: input.medalKey, reason: input.reason, expected_revision: input.expectedRevision, idempotency_key: input.idempotencyKey }),
     signal,
   })
-  return parseResponse(response, isMembershipMedalRevocationDto)
+  return parseResponse(response, value => isMembershipMedalRevocationDto(value) && receiptMatches(value.receipt,input,"revoke"), true)
 }
 
 export async function listAuthorizationPermissions(signal?: AbortSignal): Promise<AuthorizationPermission[]> {
@@ -1492,7 +1588,7 @@ type MembershipPointsGrantDto = components["schemas"]["MembershipPointsGrant"] &
 type MembershipAccountDto = components["schemas"]["MembershipAccount"]
 type MembershipMedalRuleDto = { asset_key: string; asset_url: string; revision: number; key: string; display_name: string; enabled: boolean; required_lifetime_points: number | null; updated_at: string }
 type MembershipMedalDto = { key: string; display_name: string; asset_url: string; sha256: string; granted_at: string }
-type MembershipMedalGrantDto = { medal: MembershipMedalDto; created: boolean }
+type MembershipMedalGrantDto = { medal: MembershipMedalDto; created: boolean; receipt: MembershipMedalReceiptDto }
 type MembershipMedalOperationDto = {
   id: string
   operation: MembershipMedalOperationKind
@@ -1507,7 +1603,7 @@ type MembershipMedalOperationDto = {
   actor_display_name: string
   created_at: string
 }
-type MembershipMedalRevocationDto = { user_id: string; medal_key: string; revoked: boolean }
+type MembershipMedalRevocationDto = { user_id: string; medal_key: string; revoked: boolean; receipt: MembershipMedalReceiptDto }
 type AuthorizationPermissionDto = components["schemas"]["AuthorizationPermission"]
 type AuthorizationRoleDto = components["schemas"]["AuthorizationRole"]
 type AuthorizationAssignedRoleDto = components["schemas"]["AuthorizationAssignedRole"]
@@ -1526,10 +1622,10 @@ type OperationsAlertDto = Omit<components["schemas"]["OperationsAlert"], "acknow
 type UpdateOperationsAlertRuleRequestDto = components["schemas"]["UpdateOperationsAlertRuleRequest"]
 type UpdateOperationsAlertRequestDto = components["schemas"]["UpdateOperationsAlertRequest"]
 
-async function parseResponse<T>(response: Response, guard: (value: unknown) => boolean): Promise<T> {
+async function parseResponse<T>(response: Response, guard: (value: unknown) => boolean, requireRequestId = false): Promise<T> {
   const payload = await readJson(response)
   if (!response.ok) throw toApiError(response.status, payload)
-  if (!isEnvelope(payload) || !guard(payload.data)) throw new AdminApiError(response.status, "response.invalid", "管理服务响应格式无效")
+  if (!isEnvelope(payload) || ((requireRequestId || response.headers.has("x-request-id")) && !operationRequestIdMatches(response,payload)) || !guard(payload.data)) throw new AdminApiError(response.status, "response.invalid", "管理服务响应格式无效")
   return mapValue(payload.data) as T
 }
 
@@ -1554,13 +1650,15 @@ function mapValue(value: unknown): unknown {
   if (isStandardEntitlementTypeDto(value)) return mapStandardEntitlementType(value)
   if (isStandardEntitlementVersionDto(value)) return mapStandardEntitlementVersion(value)
   if (isAdminStandardEntitlementDto(value)) return mapAdminStandardEntitlement(value)
+  if (isEntitlementRenewalDto(value)) return { receipt: mapEntitlementRenewalReceipt(value.receipt), entitlement: mapAdminStandardEntitlement(value.entitlement), replayed: value.replayed }
+  if (isEntitlementRenewalReceiptDto(value)) return mapEntitlementRenewalReceipt(value)
   if (isStandardEntitlementMutationDto(value)) return { entitlement: mapAdminStandardEntitlement(value.entitlement), replayed: value.replayed }
   if (isMembershipLevelRuleDto(value)) return { levelKey: value.level_key, levelNumber: value.level_number, levelDisplayName: value.level_display_name, requiredLifetimePoints: value.required_lifetime_points, enabled: value.enabled, updatedAt: value.updated_at }
   if (isMembershipPointsGrantDto(value)) return { account: mapValue(value.account) as MembershipAccount, created: value.created, auditId: value.audit_id ?? null, ledgerEntryId: value.ledger_entry_id ?? null, balanceBefore: value.balance_before ?? null, balanceAfter: value.balance_after ?? null }
   if (isMembershipAccountDto(value)) return { userId: value.user_id, pointsBalance: value.points_balance, lifetimePoints: value.lifetime_points, levelKey: value.level_key, levelNumber: value.level_number, levelDisplayName: value.level_display_name, revision: value.revision, updatedAt: value.updated_at }
   if (isMembershipMedalRuleDto(value)) return { assetKey: value.asset_key, assetUrl: value.asset_url, revision: value.revision, key: value.key, displayName: value.display_name, enabled: value.enabled, requiredLifetimePoints: value.required_lifetime_points, updatedAt: value.updated_at }
-  if (isMembershipMedalGrantDto(value)) return { medal: mapValue(value.medal) as MembershipMedal, created: value.created }
-  if (isMembershipMedalRevocationDto(value)) return { userId: value.user_id, medalKey: value.medal_key, revoked: value.revoked }
+  if (isMembershipMedalGrantDto(value)) return { medal: mapValue(value.medal) as MembershipMedal, created: value.created, receipt: mapMedalReceipt(value.receipt) }
+  if (isMembershipMedalRevocationDto(value)) return { userId: value.user_id, medalKey: value.medal_key, revoked: value.revoked, receipt: mapMedalReceipt(value.receipt) }
   if (isMembershipMedalDto(value)) return { key: value.key, displayName: value.display_name, assetUrl: value.asset_url, sha256: value.sha256, grantedAt: value.granted_at }
   if (isAuthorizationRoleAssignmentDto(value)) return { id: value.id, user: mapAuthorizationUser(value.user), role: { id: value.role.id, key: value.role.key, name: value.role.name, scope: value.role.scope, isSystem: value.role.is_system, revision: value.role.revision }, scopeId: value.scope_id ?? null, scopeMode: value.scope_mode, assignedBy: mapAuthorizationUser(value.assigned_by), createdAt: value.created_at }
   if (isAuthorizationRoleDto(value)) return { id: value.id, key: value.key, name: value.name, scope: value.scope, isSystem: value.is_system, permissionKeys: value.permission_keys, assignmentCount: value.assignment_count, revision: value.revision, createdAt: value.created_at, updatedAt: value.updated_at }
@@ -1601,16 +1699,16 @@ function isGovernancePolicy(value: unknown): value is GovernancePolicy { return 
 function isGovernancePolicyDto(value: unknown): value is GovernancePolicyDto { return isRecord(value) && typeof value.enabled === "boolean" && Number.isSafeInteger(value.alert_score_threshold) && value.alert_score_threshold >= 1 && value.alert_score_threshold <= 100 && Number.isSafeInteger(value.reporter_window_minutes) && value.reporter_window_minutes >= 1 && value.reporter_window_minutes <= 1440 && Number.isSafeInteger(value.reporter_alert_limit) && value.reporter_alert_limit >= 1 && value.reporter_alert_limit <= 100 }
 function isAdminGrowthLevelDto(value: unknown): value is AdminGrowthLevelDto { return isRecord(value) && isUuid(value.id) && typeof value.internal_key === "string" && /^[a-z][a-z0-9_]{2,63}$/.test(value.internal_key) && Number.isSafeInteger(value.level_order) && value.level_order >= 1 && isValidGrowthText(value.display_name, 1, 80, true) && Number.isSafeInteger(value.required_experience) && value.required_experience >= 0 && (value.icon_asset_id === null || value.icon_asset_id === undefined || isUuid(value.icon_asset_id)) && (value.color === null || value.color === undefined || (typeof value.color === "string" && /^#[0-9a-f]{6}$/i.test(value.color))) && isValidGrowthText(value.description, 0, 500, false) && isGrowthLevelStatus(value.status) && Number.isSafeInteger(value.revision) && value.revision >= 1 && (value.published_at === null || value.published_at === undefined || isTimestamp(value.published_at)) && isTimestamp(value.created_at) && isTimestamp(value.updated_at) }
 function isAdminCommunityGroupDto(value: unknown): value is AdminCommunityGroupDto { return isRecord(value) && isUuid(value.id) && /^[a-z][a-z0-9_]{2,63}$/.test(value.internal_key) && isValidGrowthText(value.display_name, 1, 80, true) && isValidGrowthText(value.description, 0, 500, false) && Number.isSafeInteger(value.display_order) && value.display_order >= 0 && typeof value.is_base === "boolean" && typeof value.is_default === "boolean" && (!value.is_default || (value.is_base && value.status === "active")) && isCommunityGroupStatus(value.status) && Array.isArray(value.permission_keys) && value.permission_keys.every((key: unknown) => typeof key === "string" && capabilityKeyPattern.test(key)) && isQuotaMap(value.quotas) && Number.isSafeInteger(value.revision) && value.revision >= 1 && isTimestamp(value.created_at) && isTimestamp(value.updated_at) && isOptionalNonNegativeInteger(value.member_count) && isOptionalNonNegativeInteger(value.expiring_member_count) && isOptionalNonNegativeInteger(value.access_policy_reference_count) }
-function isAdminCommunityGroupMembershipDto(value: unknown): value is AdminCommunityGroupMembershipDto { return isRecord(value) && isUuid(value.id) && isUuid(value.user_id) && isRecord(value.group) && isUuid(value.group.id) && typeof value.group.internal_key === "string" && typeof value.group.display_name === "string" && (value.membership_kind === "base" || value.membership_kind === "additional") && typeof value.source === "string" && (value.source_reference_id === undefined || value.source_reference_id === null || isUuid(value.source_reference_id)) && typeof value.reason === "string" && isTimestamp(value.starts_at) && (value.ends_at === undefined || value.ends_at === null || isTimestamp(value.ends_at)) && (value.revoked_at === undefined || value.revoked_at === null || isTimestamp(value.revoked_at)) && (value.revocation_reason === undefined || value.revocation_reason === null || typeof value.revocation_reason === "string") && Number.isSafeInteger(value.revision) && value.revision >= 1 }
+export function isAdminCommunityGroupMembershipDto(value: unknown): value is AdminCommunityGroupMembershipDto { return isRecord(value) && isUuid(value.id) && isUuid(value.user_id) && isRecord(value.group) && isUuid(value.group.id) && typeof value.group.internal_key === "string" && typeof value.group.display_name === "string" && (value.membership_kind === "base" || value.membership_kind === "additional") && typeof value.source === "string" && (value.source_reference_id === undefined || value.source_reference_id === null || isUuid(value.source_reference_id)) && typeof value.reason === "string" && isTimestamp(value.starts_at) && (value.ends_at === undefined || value.ends_at === null || isTimestamp(value.ends_at)) && (value.revoked_at === undefined || value.revoked_at === null || isTimestamp(value.revoked_at)) && (value.revocation_reason === undefined || value.revocation_reason === null || typeof value.revocation_reason === "string") && Number.isSafeInteger(value.revision) && value.revision >= 1 }
 function isCommunityGroupMembershipMutationDto(value: unknown): value is CommunityGroupMembershipMutationDto { return isRecord(value) && isAdminCommunityGroupMembershipDto(value.membership) && typeof value.replayed === "boolean" }
-function mapAdminCommunityGroupMembership(value: AdminCommunityGroupMembershipDto): AdminCommunityGroupMembership { return { id: value.id, userId: value.user_id, group: { id: value.group.id, internalKey: value.group.internal_key, displayName: value.group.display_name }, membershipKind: value.membership_kind as "base" | "additional", source: value.source, sourceReferenceId: value.source_reference_id ?? null, reason: value.reason, startsAt: value.starts_at, endsAt: value.ends_at ?? null, revokedAt: value.revoked_at ?? null, revocationReason: value.revocation_reason ?? null, revision: value.revision } }
+export function mapAdminCommunityGroupMembership(value: AdminCommunityGroupMembershipDto): AdminCommunityGroupMembership { return { id: value.id, userId: value.user_id, group: { id: value.group.id, internalKey: value.group.internal_key, displayName: value.group.display_name }, membershipKind: value.membership_kind as "base" | "additional", source: value.source, sourceReferenceId: value.source_reference_id ?? null, reason: value.reason, startsAt: value.starts_at, endsAt: value.ends_at ?? null, revokedAt: value.revoked_at ?? null, revocationReason: value.revocation_reason ?? null, revision: value.revision } }
 function isStandardEntitlementTypeDto(value: unknown): value is StandardEntitlementTypeDto { return isRecord(value) && isUuid(value.id) && typeof value.internal_key === "string" && internalKeyPattern.test(value.internal_key) && isValidGrowthText(value.display_name, 1, 80, true) && isCommunityGroupStatus(value.status) && Number.isSafeInteger(value.current_version) && Number(value.current_version) >= 1 && Array.isArray(value.permission_keys) && value.permission_keys.every((key: unknown) => typeof key === "string" && capabilityKeyPattern.test(key)) && isQuotaMap(value.quotas) && Number.isSafeInteger(value.revision) && Number(value.revision) >= 1 && isTimestamp(value.created_at) && isTimestamp(value.updated_at) }
 function isStandardEntitlementVersionDto(value: unknown): value is StandardEntitlementVersionDto { return isRecord(value) && isUuid(value.id) && isUuid(value.entitlement_type_id) && Number.isSafeInteger(value.version) && Number(value.version) >= 1 && Array.isArray(value.permission_keys) && value.permission_keys.every((key: unknown) => typeof key === "string" && capabilityKeyPattern.test(key)) && isQuotaMap(value.quotas) && isUuid(value.created_by) && isTimestamp(value.created_at) }
-function isAdminStandardEntitlementDto(value: unknown): value is AdminStandardEntitlementDto { return isRecord(value) && isUuid(value.id) && isUuid(value.user_id) && isUuid(value.entitlement_type_id) && typeof value.entitlement_key === "string" && internalKeyPattern.test(value.entitlement_key) && Number.isSafeInteger(value.type_version) && Number(value.type_version) >= 1 && Array.isArray(value.permission_snapshot) && value.permission_snapshot.every((key: unknown) => typeof key === "string" && capabilityKeyPattern.test(key)) && isQuotaMap(value.quota_snapshot) && typeof value.source === "string" && (value.source_reference_id === null || value.source_reference_id === undefined || typeof value.source_reference_id === "string") && typeof value.reason === "string" && isTimestamp(value.starts_at) && (value.ends_at === null || value.ends_at === undefined || isTimestamp(value.ends_at)) && (value.revoked_at === null || value.revoked_at === undefined || isTimestamp(value.revoked_at)) && (value.revoked_by === null || value.revoked_by === undefined || isUuid(value.revoked_by)) && (value.revocation_reason === null || value.revocation_reason === undefined || typeof value.revocation_reason === "string") && Number.isSafeInteger(value.revision) && Number(value.revision) >= 1 && isUuid(value.granted_by) && isTimestamp(value.created_at) && isTimestamp(value.updated_at) }
+export function isAdminStandardEntitlementDto(value: unknown): value is AdminStandardEntitlementDto { return isRecord(value) && isUuid(value.id) && isUuid(value.user_id) && isUuid(value.entitlement_type_id) && typeof value.entitlement_key === "string" && internalKeyPattern.test(value.entitlement_key) && Number.isSafeInteger(value.type_version) && Number(value.type_version) >= 1 && Array.isArray(value.permission_snapshot) && value.permission_snapshot.every((key: unknown) => typeof key === "string" && capabilityKeyPattern.test(key)) && isQuotaMap(value.quota_snapshot) && typeof value.source === "string" && (value.source_reference_id === null || value.source_reference_id === undefined || typeof value.source_reference_id === "string") && typeof value.reason === "string" && isTimestamp(value.starts_at) && (value.ends_at === null || value.ends_at === undefined || isTimestamp(value.ends_at)) && (value.revoked_at === null || value.revoked_at === undefined || isTimestamp(value.revoked_at)) && (value.revoked_by === null || value.revoked_by === undefined || isUuid(value.revoked_by)) && (value.revocation_reason === null || value.revocation_reason === undefined || typeof value.revocation_reason === "string") && Number.isSafeInteger(value.revision) && Number(value.revision) >= 1 && isUuid(value.granted_by) && isTimestamp(value.created_at) && isTimestamp(value.updated_at) }
 function isStandardEntitlementMutationDto(value: unknown): value is StandardEntitlementMutationDto { return isRecord(value) && isAdminStandardEntitlementDto(value.entitlement) && typeof value.replayed === "boolean" }
 function mapStandardEntitlementType(value: StandardEntitlementTypeDto): StandardEntitlementType { return { id: value.id, internalKey: value.internal_key, displayName: value.display_name, status: value.status as CommunityGroupStatus, currentVersion: value.current_version, permissionKeys: value.permission_keys, quotas: value.quotas, revision: value.revision, createdAt: value.created_at, updatedAt: value.updated_at } }
 function mapStandardEntitlementVersion(value: StandardEntitlementVersionDto): StandardEntitlementVersion { return { id: value.id, entitlementTypeId: value.entitlement_type_id, version: value.version, permissionKeys: value.permission_keys, quotas: value.quotas, createdBy: value.created_by, createdAt: value.created_at } }
-function mapAdminStandardEntitlement(value: AdminStandardEntitlementDto): AdminStandardEntitlement { return { id: value.id, userId: value.user_id, entitlementTypeId: value.entitlement_type_id, entitlementKey: value.entitlement_key, typeVersion: value.type_version, permissionSnapshot: value.permission_snapshot, quotaSnapshot: value.quota_snapshot, source: value.source, sourceReferenceId: value.source_reference_id ?? null, reason: value.reason, startsAt: value.starts_at, endsAt: value.ends_at ?? null, revokedAt: value.revoked_at ?? null, revokedBy: value.revoked_by ?? null, revocationReason: value.revocation_reason ?? null, revision: value.revision, grantedBy: value.granted_by, createdAt: value.created_at, updatedAt: value.updated_at } }
+export function mapAdminStandardEntitlement(value: AdminStandardEntitlementDto): AdminStandardEntitlement { return { id: value.id, userId: value.user_id, entitlementTypeId: value.entitlement_type_id, entitlementKey: value.entitlement_key, typeVersion: value.type_version, permissionSnapshot: value.permission_snapshot, quotaSnapshot: value.quota_snapshot, source: value.source, sourceReferenceId: value.source_reference_id ?? null, reason: value.reason, startsAt: value.starts_at, endsAt: value.ends_at ?? null, revokedAt: value.revoked_at ?? null, revokedBy: value.revoked_by ?? null, revocationReason: value.revocation_reason ?? null, revision: value.revision, grantedBy: value.granted_by, createdAt: value.created_at, updatedAt: value.updated_at } }
 function isCommunityGroupStatus(value: unknown): value is CommunityGroupStatus { return value === "active" || value === "disabled" || value === "archived" }
 function isQuotaMap(value: unknown): value is Record<string, number> { return isRecord(value) && Object.entries(value).every(([key, quota]) => capabilityKeyPattern.test(key) && Number.isSafeInteger(quota) && quota >= 0) }
 function isOptionalNonNegativeInteger(value: unknown): value is number | undefined { return value === undefined || (Number.isSafeInteger(value) && Number(value) >= 0) }
@@ -1620,11 +1718,11 @@ function isMembershipLevelRuleDto(value: unknown): value is MembershipLevelRuleD
 function isMembershipAccountDto(value: unknown): value is MembershipAccountDto { return isRecord(value) && isUuid(value.user_id) && Number.isSafeInteger(value.points_balance) && value.points_balance >= 0 && Number.isSafeInteger(value.lifetime_points) && value.lifetime_points >= 0 && typeof value.level_key === "string" && /^[a-z][a-z0-9_]{1,63}$/.test(value.level_key) && Number.isSafeInteger(value.level_number) && value.level_number >= 1 && typeof value.level_display_name === "string" && value.level_display_name.trim().length > 0 && Number.isSafeInteger(value.revision) && value.revision >= 0 && typeof value.updated_at === "string" }
 function isMembershipPointsGrantDto(value: unknown): value is MembershipPointsGrantDto { return isRecord(value) && typeof value.created === "boolean" && isMembershipAccountDto(value.account) && (value.audit_id === undefined || value.audit_id === null || isUuid(value.audit_id)) && (value.ledger_entry_id == null || isUuid(value.ledger_entry_id)) && (value.balance_before == null || (Number.isSafeInteger(value.balance_before) && value.balance_before >= 0)) && (value.balance_after == null || (Number.isSafeInteger(value.balance_after) && value.balance_after >= 0)) }
 function isMembershipMedalRuleDto(value: unknown): value is MembershipMedalRuleDto { return isRecord(value) && typeof value.asset_key === "string" && /^(?:medal_(?:0[1-9]|1[0-7])|upload_[a-f0-9]{64})$/.test(value.asset_key) && typeof value.asset_url === "string" && (/^(?:\/assets\/membership\/medals\/medal(?:[1-9]|1[0-7])\.gif|\/api\/v1\/membership\/medal-assets\/upload_[a-f0-9]{64})$/.test(value.asset_url)) && Number.isSafeInteger(value.revision) && value.revision >= 1 && typeof value.key === "string" && membershipMedalPattern.test(value.key) && isNonEmptyString(value.display_name) && typeof value.enabled === "boolean" && (value.required_lifetime_points === null || (Number.isSafeInteger(value.required_lifetime_points) && value.required_lifetime_points >= 0)) && typeof value.updated_at === "string" }
-function isMembershipMedalDto(value: unknown): value is MembershipMedalDto { return isRecord(value) && typeof value.key === "string" && membershipMedalPattern.test(value.key) && isNonEmptyString(value.display_name) && typeof value.asset_url === "string" && (/^(?:\/assets\/membership\/medals\/medal(?:[1-9]|1[0-7])\.gif|\/api\/v1\/membership\/medal-assets\/upload_[a-f0-9]{64})$/.test(value.asset_url)) && typeof value.sha256 === "string" && /^[0-9a-f]{64}$/.test(value.sha256) && typeof value.granted_at === "string" }
-function isMembershipMedalGrantDto(value: unknown): value is MembershipMedalGrantDto { return isRecord(value) && typeof value.created === "boolean" && isMembershipMedalDto(value.medal) }
+export function isMembershipMedalDto(value: unknown): value is MembershipMedalDto { return isRecord(value) && typeof value.key === "string" && membershipMedalPattern.test(value.key) && isNonEmptyString(value.display_name) && typeof value.asset_url === "string" && (/^(?:\/assets\/membership\/medals\/medal(?:[1-9]|1[0-7])\.gif|\/api\/v1\/membership\/medal-assets\/upload_[a-f0-9]{64})$/.test(value.asset_url)) && typeof value.sha256 === "string" && /^[0-9a-f]{64}$/.test(value.sha256) && typeof value.granted_at === "string" }
+function isMembershipMedalGrantDto(value: unknown): value is MembershipMedalGrantDto { return isRecord(value) && typeof value.created === "boolean" && isMembershipMedalDto(value.medal) && isMedalReceiptDto(value.receipt) && value.created === value.receipt.affected && value.medal.key === value.receipt.medal_key }
 function isMembershipMedalOperationDto(value: unknown): value is MembershipMedalOperationDto { return isRecord(value) && isUuid(value.id) && (value.operation === "grant" || value.operation === "automatic_grant" || value.operation === "revoke") && isUuid(value.user_id) && isNonEmptyString(value.username) && isNonEmptyString(value.user_display_name) && typeof value.medal_key === "string" && membershipMedalPattern.test(value.medal_key) && isNonEmptyString(value.medal_display_name) && typeof value.reason === "string" && value.reason.length <= 64 && isUuid(value.actor_id) && isNonEmptyString(value.actor_username) && isNonEmptyString(value.actor_display_name) && isTimestamp(value.created_at) }
 function isMembershipMedalOperationPage(value: unknown): value is { data: MembershipMedalOperationDto[]; meta: { request_id: string; next_cursor: string | null } } { return isPageEnvelope(value) && value.data.every(isMembershipMedalOperationDto) }
-function isMembershipMedalRevocationDto(value: unknown): value is MembershipMedalRevocationDto { return isRecord(value) && isUuid(value.user_id) && typeof value.medal_key === "string" && membershipMedalPattern.test(value.medal_key) && typeof value.revoked === "boolean" }
+function isMembershipMedalRevocationDto(value: unknown): value is MembershipMedalRevocationDto { return isRecord(value) && isUuid(value.user_id) && typeof value.medal_key === "string" && membershipMedalPattern.test(value.medal_key) && typeof value.revoked === "boolean" && isMedalReceiptDto(value.receipt) && value.revoked === value.receipt.affected && value.user_id === value.receipt.user_id && value.medal_key === value.receipt.medal_key }
 function mapMembershipMedalOperation(value: MembershipMedalOperationDto): MembershipMedalOperation { return { id: value.id, operation: value.operation, userId: value.user_id, username: value.username, userDisplayName: value.user_display_name, medalKey: value.medal_key, medalDisplayName: value.medal_display_name, reason: value.reason, actorId: value.actor_id, actorUsername: value.actor_username, actorDisplayName: value.actor_display_name, createdAt: value.created_at } }
 function isAuthorizationRoleScope(value: unknown): value is AuthorizationRoleScope { return value === "instance" || value === "site" || value === "board" }
 function isAuthorizationPermissionDto(value: unknown): value is AuthorizationPermissionDto { return isRecord(value) && isNonEmptyString(value.key) && isNonEmptyString(value.name) && typeof value.description === "string" }
@@ -1655,3 +1753,157 @@ function isError(value: unknown): value is ErrorDto { return isRecord(value) && 
 function isFieldErrors(value: unknown): value is Record<string, string[]> { return isRecord(value) && Object.values(value).every((messages) => Array.isArray(messages) && messages.length > 0 && messages.every((message) => typeof message === "string" && message.trim().length > 0)) }
 function toApiError(status: number, payload: unknown): AdminApiError { return isError(payload) ? new AdminApiError(status, payload.error.code, payload.error.message, payload.error.fields ?? {}) : new AdminApiError(status, "response.invalid", "管理服务响应格式无效") }
 async function readJson(response: Response): Promise<unknown> { try { return await response.json() as unknown } catch { return undefined } }
+
+export interface MembershipMedalReceipt {
+  id: string
+  userId: string
+  medalKey: string
+  medalDisplayName: string
+  operation: "grant" | "revoke"
+  reason: string
+  actorId: string
+  idempotencyKey: string
+  expectedRevision: number
+  revision: number
+  affected: boolean
+  ownedAfter: boolean
+  auditId: string | null
+  operationRequestId: string
+  createdAt: string
+  replayed: boolean
+}
+export interface AdminMedalState { userId: string; revision: number; medals: MembershipMedal[] }
+type MembershipMedalReceiptDto = Omit<components["schemas"]["MembershipMedalReceipt"], "operation" | "audit_id"> & {operation:"grant"|"revoke";audit_id:string|null}
+function isMedalReceiptDto(value: unknown): value is MembershipMedalReceiptDto {
+  return isRecord(value) && isUuid(value.id) && isUuid(value.user_id) && isUuid(value.actor_id) && isUuid(value.operation_request_id)
+    && typeof value.medal_key === "string" && membershipMedalPattern.test(value.medal_key) && isNonEmptyString(value.medal_display_name)
+    && (value.operation === "grant" || value.operation === "revoke") && isNonEmptyString(value.reason) && typeof value.idempotency_key === "string" && /^[!-~]{1,64}$/.test(value.idempotency_key)
+    && Number.isSafeInteger(value.expected_revision) && value.expected_revision >= 0 && Number.isSafeInteger(value.revision)
+    && value.revision === value.expected_revision + Number(value.affected) && typeof value.affected === "boolean" && typeof value.owned_after === "boolean"
+    && value.owned_after === (value.operation === "grant") && (value.audit_id === null || isUuid(value.audit_id)) && value.affected === (value.audit_id !== null)
+    && isTimestamp(value.created_at) && typeof value.replayed === "boolean"
+}
+function receiptMatches(receipt:MembershipMedalReceiptDto,input:MembershipMedalGrantInput,operation:"grant"|"revoke") {
+  return receipt.user_id === input.userId && receipt.medal_key === input.medalKey && receipt.reason === input.reason && receipt.idempotency_key === input.idempotencyKey && receipt.expected_revision === input.expectedRevision && receipt.operation === operation
+}
+function mapMedalReceipt(value:MembershipMedalReceiptDto):MembershipMedalReceipt {
+  return {id:value.id,userId:value.user_id,medalKey:value.medal_key,medalDisplayName:value.medal_display_name,operation:value.operation,reason:value.reason,actorId:value.actor_id,idempotencyKey:value.idempotency_key,expectedRevision:value.expected_revision,revision:value.revision,affected:value.affected,ownedAfter:value.owned_after,auditId:value.audit_id,operationRequestId:value.operation_request_id,createdAt:value.created_at,replayed:value.replayed}
+}
+export async function getAdminMedalState(userId:string,signal?:AbortSignal):Promise<AdminMedalState> {
+  const response=await fetch('/api/v1/admin/membership/users/'+encodeURIComponent(userId)+'/medals',{headers:{Accept:"application/json"},credentials:"include",signal})
+  const payload=await readJson(response)
+  if(!response.ok) throw toApiError(response.status,payload)
+  if(!isEnvelope(payload) || !operationRequestIdMatches(response,payload) || !isRecord(payload.data) || payload.data.user_id!==userId || !Number.isSafeInteger(payload.data.revision) || payload.data.revision<0 || !Array.isArray(payload.data.medals) || !payload.data.medals.every(isMembershipMedalDto)) throw new AdminApiError(response.status,"response.invalid","勋章状态响应格式无效")
+  return {userId,revision:payload.data.revision,medals:payload.data.medals.map(value=>mapValue(value) as MembershipMedal)}
+}
+export async function getAdminMedalReceipt(userId:string,key:string,signal?:AbortSignal):Promise<MembershipMedalReceipt> {
+  const response=await fetch('/api/v1/admin/membership/users/'+encodeURIComponent(userId)+'/medal-requests/'+encodeURIComponent(key),{headers:{Accept:"application/json"},credentials:"include",signal})
+  const payload=await readJson(response)
+  if(!response.ok) throw toApiError(response.status,payload)
+  if(!isEnvelope(payload) || !operationRequestIdMatches(response,payload) || !isMedalReceiptDto(payload.data) || payload.data.user_id!==userId || payload.data.idempotency_key!==key) throw new AdminApiError(response.status,"response.invalid","勋章回执响应格式无效")
+  return mapMedalReceipt(payload.data)
+}
+
+export interface RenewStandardEntitlementInput {
+  userId: string
+  expectedRevision: number
+  endsAt: string
+  reason: string
+  idempotencyKey: string
+}
+export interface StandardEntitlementRenewalReceipt {
+  id: string
+  userId: string
+  entitlementId: string
+  actorId: string
+  expectedRevision: number
+  previousEndsAt: string
+  endsAt: string
+  reason: string
+  idempotencyKey: string
+  revision: number
+  auditId: string
+  requestId: string
+  typeVersion: number
+  startsAt: string
+  permissionSnapshot: string[]
+  quotaSnapshot: Record<string, number>
+  createdAt: string
+}
+export interface StandardEntitlementRenewal {
+  receipt: StandardEntitlementRenewalReceipt
+  entitlement: AdminStandardEntitlement
+  replayed: boolean
+}
+type EntitlementRenewalReceiptDto = components["schemas"]["StandardEntitlementRenewalReceipt"]
+type EntitlementRenewalDto = components["schemas"]["StandardEntitlementRenewal"]
+
+export async function renewStandardEntitlement(entitlementId: string, input: RenewStandardEntitlementInput, csrfToken: string, signal?: AbortSignal): Promise<StandardEntitlementRenewal> {
+  if (!isUuid(entitlementId) || !isUuid(input.userId) || !isSafeCount(input.expectedRevision) || input.expectedRevision < 1
+    || !isTimestamp(input.endsAt) || !isValidGrowthText(input.reason, 1, 200, true) || !validRenewalKey(input.idempotencyKey)) {
+    throw new AdminApiError(422, "validation.failed", "续期参数格式无效")
+  }
+  const response = await fetch("/api/v1/admin/entitlements/" + encodeURIComponent(entitlementId) + "/renew", {
+    method: "POST", credentials: "include",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "x-csrf-token": csrfToken },
+    body: JSON.stringify({ user_id: input.userId, expected_revision: input.expectedRevision, ends_at: input.endsAt, reason: input.reason, idempotency_key: input.idempotencyKey }), signal,
+  })
+  return parseRenewalResponse(response, value => isEntitlementRenewalDto(value) && renewalCommandMatches(value.receipt, entitlementId, input))
+}
+
+export async function getStandardEntitlementRenewalReceipt(userId: string, key: string, signal?: AbortSignal): Promise<StandardEntitlementRenewalReceipt> {
+  if (!isUuid(userId) || !validRenewalKey(key)) throw new AdminApiError(422, "validation.failed", "用户 UID 或续期编号格式无效")
+  const response = await fetch("/api/v1/admin/entitlements/users/" + encodeURIComponent(userId) + "/renewal-requests/" + encodeURIComponent(key), {
+    credentials: "include", headers: { Accept: "application/json" }, signal,
+  })
+  return parseRenewalResponse(response, value => isEntitlementRenewalReceiptDto(value) && value.user_id === userId && value.idempotency_key === key)
+}
+
+async function parseRenewalResponse<T>(response: Response, guard: (value: unknown) => boolean): Promise<T> {
+  const payload = await readJson(response)
+  // Unknown transport results retain the original command even when an error body claims a known failure.
+  if (!isRecord(payload) || !isRecord(payload.meta) || !isUuid(payload.meta.request_id)
+    || !operationRequestIdMatches(response, { meta: { request_id: payload.meta.request_id } })) {
+    throw new AdminApiError(response.status, "response.invalid", "续期响应请求号无效")
+  }
+  if (!response.ok) {
+    if (!isError(payload)) throw new AdminApiError(response.status, "response.invalid", "续期错误响应格式无效")
+    throw toApiError(response.status, payload)
+  }
+  if (!isEnvelope(payload) || !guard(payload.data)) throw new AdminApiError(response.status, "response.invalid", "续期回执与原命令不一致")
+  return mapValue(payload.data) as T
+}
+function validRenewalKey(value: string): boolean { return /^[!-~]{1,64}$/.test(value) }
+function isEntitlementRenewalReceiptDto(value: unknown): value is EntitlementRenewalReceiptDto {
+  return isRecord(value) && isUuid(value.id) && isUuid(value.user_id) && isUuid(value.entitlement_id) && isUuid(value.actor_id)
+    && isSafeCount(value.expected_revision) && value.expected_revision >= 1 && isSafeCount(value.revision) && value.revision === value.expected_revision + 1
+    && isTimestamp(value.previous_ends_at) && isTimestamp(value.ends_at) && Date.parse(value.ends_at) > Date.parse(value.previous_ends_at)
+    && isValidGrowthText(value.reason, 1, 200, true) && typeof value.idempotency_key === "string" && validRenewalKey(value.idempotency_key)
+    && isUuid(value.audit_id) && isUuid(value.request_id) && isSafeCount(value.type_version) && value.type_version >= 1
+    && isTimestamp(value.starts_at) && Date.parse(value.previous_ends_at) > Date.parse(value.starts_at)
+    && Array.isArray(value.permission_snapshot) && value.permission_snapshot.every((key: unknown) => typeof key === "string" && capabilityKeyPattern.test(key))
+    && isQuotaMap(value.quota_snapshot) && isTimestamp(value.created_at)
+}
+function isEntitlementRenewalDto(value: unknown): value is EntitlementRenewalDto {
+  if (!isRecord(value) || !isEntitlementRenewalReceiptDto(value.receipt) || !isAdminStandardEntitlementDto(value.entitlement) || typeof value.replayed !== "boolean") return false
+  const r = value.receipt, e = value.entitlement
+  return r.user_id === e.user_id && r.entitlement_id === e.id && r.type_version === e.type_version && e.revision >= r.revision
+    && typeof e.ends_at === "string" && Date.parse(e.ends_at) >= Date.parse(r.ends_at)
+    && (e.revision !== r.revision || (e.revoked_at === null && Date.parse(e.ends_at) === Date.parse(r.ends_at)))
+    && (value.replayed || (e.revision === r.revision && e.revoked_at === null && Date.parse(e.ends_at) === Date.parse(r.ends_at)))
+    && Date.parse(r.starts_at) === Date.parse(e.starts_at) && JSON.stringify(r.permission_snapshot) === JSON.stringify(e.permission_snapshot)
+    && Object.keys(r.quota_snapshot).length === Object.keys(e.quota_snapshot).length
+    && Object.entries(r.quota_snapshot).every(([key, quota]) => e.quota_snapshot[key] === quota)
+}
+function renewalCommandMatches(receipt: EntitlementRenewalReceiptDto, entitlementId: string, input: RenewStandardEntitlementInput): boolean {
+  return receipt.user_id === input.userId && receipt.entitlement_id === entitlementId
+    && receipt.expected_revision === input.expectedRevision && receipt.reason === input.reason
+    && receipt.idempotency_key === input.idempotencyKey && Date.parse(receipt.ends_at) === Date.parse(input.endsAt)
+}
+function mapEntitlementRenewalReceipt(value: EntitlementRenewalReceiptDto): StandardEntitlementRenewalReceipt {
+  return { id: value.id, userId: value.user_id, entitlementId: value.entitlement_id, actorId: value.actor_id,
+    expectedRevision: value.expected_revision, previousEndsAt: value.previous_ends_at, endsAt: value.ends_at,
+    reason: value.reason, idempotencyKey: value.idempotency_key, revision: value.revision, auditId: value.audit_id,
+    requestId: value.request_id, typeVersion: value.type_version, startsAt: value.starts_at,
+    permissionSnapshot: value.permission_snapshot, quotaSnapshot: value.quota_snapshot, createdAt: value.created_at }
+}

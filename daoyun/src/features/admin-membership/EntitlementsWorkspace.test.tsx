@@ -19,7 +19,7 @@ describe("EntitlementsWorkspace", () => {
     const user = userEvent.setup()
     render(<EntitlementsWorkspace />)
 
-    expect(screen.getByRole("heading", { name: "标准权益" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "会员权益" })).toBeInTheDocument()
     const typesTab = screen.getByRole("tab", { name: "权益类型" })
     const usersTab = screen.getByRole("tab", { name: "用户权益" })
     expect(typesTab).toHaveAttribute("tabindex", "0")
@@ -34,7 +34,7 @@ describe("EntitlementsWorkspace", () => {
     expect(usersTab).toHaveAttribute("aria-controls", usersPanel.id)
     expect(usersPanel).toHaveAttribute("aria-labelledby", usersTab.id)
     expect(screen.getByRole("searchbox", { name: "搜索权益用户" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "发放标准权益" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "发放会员权益" })).toBeInTheDocument()
 
     await user.keyboard("{Home}")
     expect(typesTab).toHaveFocus()
@@ -82,8 +82,8 @@ describe("EntitlementsWorkspace", () => {
     await userEvent.click(await screen.findByRole("button", { name: "查看月度会员版本历史" }))
     const history = await screen.findByRole("region", { name: "月度会员版本历史" })
     expect(within(history).getByText("版本 2")).toBeInTheDocument()
-    expect(within(history).getByText("attachment.upload")).toBeInTheDocument()
-    expect(within(history).getByText("attachment.upload.daily = 20")).toBeInTheDocument()
+    expect(within(history).getByText("上传附件")).toBeInTheDocument()
+    expect(within(history).getByText("每日上传数量：20 个")).toBeInTheDocument()
     expect(fetchMock.mock.calls[1][0]).toBe("/api/v1/admin/entitlements/types/vip_monthly/versions")
   })
 
@@ -161,9 +161,9 @@ describe("EntitlementsWorkspace", () => {
     await user.click(await screen.findByRole("button", { name: "选择演示成员 @demo_member" }))
     await user.click(screen.getByRole("button", { name: "选择第二成员 @second_member" }))
 
-    expect(await screen.findByRole("region", { name: "第二成员的标准权益" })).toHaveTextContent("第二用户奖励")
+    expect(await screen.findByRole("region", { name: "第二成员的会员权益" })).toHaveTextContent("第二用户奖励")
     resolveFirstUser(jsonResponse([entitlementDto({ reason: "第一用户迟到奖励" })]))
-    await waitFor(() => expect(screen.getByRole("region", { name: "第二成员的标准权益" })).not.toHaveTextContent("第一用户迟到奖励"))
+    await waitFor(() => expect(screen.getByRole("region", { name: "第二成员的会员权益" })).not.toHaveTextContent("第一用户迟到奖励"))
   })
 
   it("blocks a duplicate entitlement grant while the first request is pending", async () => {
@@ -183,11 +183,11 @@ describe("EntitlementsWorkspace", () => {
     await user.click(screen.getByRole("button", { name: "搜索用户" }))
     await user.click(await screen.findByRole("button", { name: "选择演示成员 @demo_member" }))
     await screen.findByText("活动奖励")
-    await user.click(screen.getByRole("button", { name: "发放标准权益" }))
+    await user.click(screen.getByRole("button", { name: "发放会员权益" }))
     await user.type(screen.getByRole("textbox", { name: "发放来源" }), "operator")
     await user.type(screen.getByRole("textbox", { name: "发放原因" }), "防重复发放")
     await user.type(screen.getByLabelText("开始时间"), "2026-08-28T10:00")
-    const dialog = screen.getByRole("dialog", { name: "发放标准权益" }) as HTMLFormElement
+    const dialog = screen.getByRole("dialog", { name: "发放会员权益" }) as HTMLFormElement
 
     act(() => {
       dialog.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
@@ -197,7 +197,7 @@ describe("EntitlementsWorkspace", () => {
     expect(screen.getByRole("button", { name: "确认发放" })).toBeDisabled()
 
     resolveGrant(jsonResponse({ entitlement: entitlementDto({ id: "019fc900-0000-7000-8000-000000000813", reason: "防重复发放" }), replayed: false }))
-    expect(await screen.findByRole("status")).toHaveTextContent("标准权益已安全发放")
+    expect(await screen.findByRole("status")).toHaveTextContent("会员权益已安全发放")
   })
 
   it("refreshes a revoke target revision after a conflict and keeps the revoke reason", async () => {
@@ -207,7 +207,7 @@ describe("EntitlementsWorkspace", () => {
       .mockResolvedValueOnce(jsonResponse([entitlementTypeDto()]))
       .mockResolvedValueOnce(jsonPageResponse([userDto()]))
       .mockResolvedValueOnce(jsonResponse([entitlementDto()]))
-      .mockResolvedValueOnce(jsonError(409, "entitlement.conflict", "标准权益已更新"))
+      .mockResolvedValueOnce(jsonError(409, "entitlement.conflict", "会员权益已更新"))
       .mockResolvedValueOnce(jsonResponse([latestEntitlement]))
       .mockResolvedValueOnce(jsonResponse({ entitlement: entitlementDto({ revision: 3, revoked_at: "2026-08-28T10:00:00Z", revoked_by: "019fc900-0000-7000-8000-000000000004", revocation_reason: "资格变化" }), replayed: false }))
     vi.stubGlobal("fetch", fetchMock)
@@ -251,7 +251,7 @@ describe("EntitlementsWorkspace", () => {
     await user.click(await screen.findByRole("button", { name: "选择演示成员 @demo_member" }))
 
     expect(await screen.findByText("活动奖励")).toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "发放标准权益" }))
+    await user.click(screen.getByRole("button", { name: "发放会员权益" }))
     await user.selectOptions(screen.getByRole("combobox", { name: "权益类型" }), typeId)
     await user.type(screen.getByRole("textbox", { name: "发放来源" }), "operator")
     await user.type(screen.getByRole("textbox", { name: "发放原因" }), "运营补发")
@@ -332,8 +332,8 @@ it("shows missing grant fields instead of silently ignoring submission", async (
   await user.type(screen.getByLabelText("搜索权益用户"), "member")
   await user.click(screen.getByRole("button", { name: "搜索用户" }))
   await user.click(await screen.findByRole("button", { name: "选择演示成员 @demo_member" }))
-  await user.click(screen.getByRole("button", { name: "发放标准权益" }))
-  const dialog = screen.getByRole("dialog", { name: "发放标准权益" })
+  await user.click(screen.getByRole("button", { name: "发放会员权益" }))
+  const dialog = screen.getByRole("dialog", { name: "发放会员权益" })
   act(() => dialog.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
   expect(within(dialog).getByRole("alert")).toHaveTextContent("请填写发放来源、发放原因和开始时间")
   expect(screen.getByLabelText("发放原因")).toBeRequired()
@@ -345,7 +345,7 @@ it("distinguishes a failed type load from an empty catalog and allows retry", as
   render(<EntitlementsWorkspace />)
   await userEvent.click(await screen.findByRole("button", { name: "重新加载权益类型" }))
   expect(await screen.findByRole("button", { name: "查看月度会员版本历史" })).toBeInTheDocument()
-  expect(screen.queryByText("尚未配置标准权益类型。")).not.toBeInTheDocument()
+  expect(screen.queryByText("尚未配置会员权益类型。")).not.toBeInTheDocument()
 })
 
 it("retries an uncertain grant with the original frozen payload after closing and reopening",async()=>{
@@ -361,7 +361,7 @@ it("retries an uncertain grant with the original frozen payload after closing an
   await user.type(screen.getByRole("searchbox",{name:"搜索权益用户"}),"demo_member")
   await user.click(screen.getByRole("button",{name:"搜索用户"}))
   await user.click(await screen.findByRole("button",{name:"选择演示成员 @demo_member"}))
-  await user.click(screen.getByRole("button",{name:"发放标准权益"}))
+  await user.click(screen.getByRole("button",{name:"发放会员权益"}))
   await user.type(screen.getByLabelText("发放来源"),"operator")
   await user.type(screen.getByLabelText("发放原因"),"补发会员")
   await user.type(screen.getByLabelText("开始时间"),"2026-10-03T10:00")
@@ -370,7 +370,7 @@ it("retries an uncertain grant with the original frozen payload after closing an
   expect(screen.getByLabelText("发放原因")).toBeDisabled()
   const original=JSON.parse(String(fetchMock.mock.calls[3][1].body))
   await user.click(screen.getByRole("button",{name:"取消"}))
-  await user.click(screen.getByRole("button",{name:"发放标准权益"}))
+  await user.click(screen.getByRole("button",{name:"发放会员权益"}))
   await user.click(screen.getByRole("button",{name:"确认发放"}))
   expect(await screen.findByRole("alert")).toHaveTextContent("没有发放权限")
   expect(screen.getByLabelText("发放原因")).toBeDisabled()
@@ -379,4 +379,41 @@ it("retries an uncertain grant with the original frozen payload after closing an
   await screen.findByText("权益发放已幂等重放")
   expect(JSON.parse(String(fetchMock.mock.calls[5][1].body))).toEqual(original)
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+})
+
+const fixedUser = { id:userId, username:'demo_member', displayName:'演示成员', avatarUrl:null, status:'active' as const, primaryRole:null, topicCount:2,postCount:5,reportCount:0,createdAt:'2026-08-23T10:00:00Z',lastSeenAt:null }
+it('opens fixed UID entitlements directly without catalog editing or user searching',async()=>{
+  const fetchMock=vi.fn().mockImplementation(async(url:string)=>url.includes('/types')?jsonResponse([entitlementTypeDto()]):jsonResponse([entitlementDto()]))
+  vi.stubGlobal('fetch',fetchMock)
+  render(<EntitlementsWorkspace fixedUser={fixedUser} canWriteTypes={false} csrfToken="csrf" />)
+  expect(await screen.findByText('活动奖励')).toBeInTheDocument()
+  expect(screen.queryByRole('searchbox',{name:'搜索权益用户'})).not.toBeInTheDocument()
+  expect(screen.queryByRole('button',{name:'创建权益类型'})).not.toBeInTheDocument()
+  expect(fetchMock.mock.calls.some(([url])=>url.includes('user_id='+userId))).toBe(true)
+})
+it('locks fixed user navigation and date fields while verifying an unknown grant with its original key',async()=>{
+  let fail=true;const bodies:string[]=[],busy=vi.fn(),changed=vi.fn()
+  vi.stubGlobal('fetch',vi.fn().mockImplementation(async(url:string,init?:RequestInit)=>{
+    if(init?.method==='POST'){bodies.push(init.body as string);if(fail){fail=false;throw new Error('offline')}return jsonResponse({entitlement:entitlementDto(),replayed:true})}
+    return url.includes('/types')?jsonResponse([entitlementTypeDto()]):jsonResponse([])
+  }))
+  const user=userEvent.setup();render(<EntitlementsWorkspace fixedUser={fixedUser} canWriteTypes={false} csrfToken="csrf" onBusyChange={busy} onChanged={changed} />)
+  await waitFor(()=>expect(screen.getByRole('button',{name:'发放会员权益'})).toBeEnabled());await user.click(screen.getByRole('button',{name:'发放会员权益'}))
+  await user.type(screen.getByLabelText('发放来源'),'operator');await user.type(screen.getByLabelText('发放原因'),'当前成员奖励')
+  const starts=screen.getByLabelText('开始时间');act(()=>{const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!;setter.call(starts,'2026-10-06T10:00');starts.dispatchEvent(new Event('input',{bubbles:true}));starts.dispatchEvent(new Event('change',{bubbles:true}))})
+  await user.click(screen.getByRole('button',{name:'确认发放'}));await screen.findByRole('alert')
+  expect(busy).toHaveBeenLastCalledWith(true);expect(starts).toBeDisabled();expect(screen.getByLabelText('结束时间')).toBeDisabled();expect(changed).not.toHaveBeenCalled()
+  await user.click(screen.getByRole('button',{name:'确认发放'}));await waitFor(()=>expect(changed).toHaveBeenCalledTimes(1))
+  expect(bodies[1]).toBe(bodies[0]);expect(busy).toHaveBeenLastCalledWith(false)
+})
+it('retains the exact unknown revocation request and notifies fixed-user refresh after confirmation',async()=>{
+  let fail=true;const bodies:string[]=[],busy=vi.fn(),changed=vi.fn()
+  vi.stubGlobal('fetch',vi.fn().mockImplementation(async(url:string,init?:RequestInit)=>{
+    if(init?.method==='POST'){bodies.push(init.body as string);if(fail){fail=false;throw new Error('offline')}return jsonResponse({entitlement:entitlementDto({revoked_at:'2026-10-06T01:00:00Z',revocation_reason:'资格取消',revision:2}),replayed:true})}
+    return url.includes('/types')?jsonResponse([entitlementTypeDto()]):jsonResponse([entitlementDto()])
+  }))
+  const user=userEvent.setup();render(<EntitlementsWorkspace fixedUser={fixedUser} canWriteTypes={false} csrfToken="csrf" onBusyChange={busy} onChanged={changed} />)
+  await user.click(await screen.findByRole('button',{name:'撤销月度会员'}));await user.type(screen.getByLabelText('撤销原因'),'资格取消');await user.click(screen.getByRole('button',{name:'确认撤销'}));await screen.findByRole('alert')
+  expect(screen.getByLabelText('撤销原因')).toBeDisabled();expect(busy).toHaveBeenLastCalledWith(true)
+  await user.click(screen.getByRole('button',{name:'确认撤销'}));await waitFor(()=>expect(changed).toHaveBeenCalledTimes(1));expect(bodies[1]).toBe(bodies[0]);expect(busy).toHaveBeenLastCalledWith(false)
 })

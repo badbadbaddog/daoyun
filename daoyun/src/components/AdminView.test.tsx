@@ -14,6 +14,8 @@ import {
   getAdminSiteBranding,
   getSmtpSettings,
   getAdminGrowthLevels,
+  getAdminMedalState,
+  listAdminPointsLedger,
   getAdminMembershipAccount,
   listMembershipMedalOperations,
   getMembershipMedalRules,
@@ -52,6 +54,8 @@ vi.mock("../api/admin", async () => {
     updateSmtpSettings: vi.fn(),
     testSmtpSettings: vi.fn(),
     getAdminGrowthLevels: vi.fn(),
+    getAdminMedalState: vi.fn(),
+    listAdminPointsLedger: vi.fn(),
     getAdminMembershipAccount: vi.fn(),
     getMembershipMedalRules: vi.fn(),
     listMembershipMedalOperations: vi.fn(),
@@ -105,7 +109,7 @@ vi.mock("./CommentAdminPanel", () => ({ CommentAdminPanel: () => <section>评论
 vi.mock("./ContentReviewAdminPanel", () => ({ ContentReviewAdminPanel: () => <section>内容审核工作区</section> }))
 
 vi.mock("./AdminDashboard", () => ({
-  AdminDashboard: ({ capabilityKeys }: { capabilityKeys: string[] }) => <section><h2>今天需要处理什么</h2><p>{capabilityKeys.join(",")}</p></section>,
+  AdminDashboard: ({ capabilityKeys, shortcuts = [], onNavigate }: { capabilityKeys: string[]; shortcuts?: { tab: string; label: string }[]; onNavigate: (tab: string, query: string) => void }) => <section><h2>今天需要处理什么</h2><p>{capabilityKeys.join(",")}</p>{shortcuts.map(shortcut => <button type="button" key={shortcut.tab} onClick={() => onNavigate(shortcut.tab, "")}>{`前往${shortcut.label}`}</button>)}</section>,
 }))
 
 const session: AuthSession = {
@@ -199,6 +203,8 @@ beforeEach(() => {
     users: [{ id: memberId, username: "member", displayName: "会员", avatarUrl: null }],
     nextCursor: null,
   })
+  vi.mocked(getAdminMedalState).mockResolvedValue({userId:memberId,revision:1,medals:[{key:"medal_01",displayName:"勋章 01",assetUrl:"/assets/membership/medals/medal1.gif",sha256:"a".repeat(64),grantedAt:"2026-08-22T02:00:00Z"}]})
+  vi.mocked(listAdminPointsLedger).mockResolvedValue({entries:[],nextCursor:null})
   vi.mocked(getMembershipMedalRules).mockResolvedValue(medalRules)
   vi.mocked(listMembershipMedalOperations).mockResolvedValue({ operations: medalOperations, nextCursor: null })
   vi.mocked(createAdminGrowthLevel).mockResolvedValue(growthLevels[0])
@@ -208,6 +214,7 @@ beforeEach(() => {
   vi.mocked(grantMembershipMedal).mockResolvedValue({
     medal: { key: "medal_01", displayName: "勋章 01", assetUrl: "/assets/membership/medals/medal1.gif", sha256: "a".repeat(64), grantedAt: "2026-08-22T02:00:00Z" },
     created: true,
+    receipt:{id:memberId,userId:memberId,medalKey:"medal_01",medalDisplayName:"勋章 01",operation:"grant" as const,reason:"operator.award",actorId:memberId,idempotencyKey:"fixture",expectedRevision:0,revision:1,affected:true,ownedAfter:true,auditId:memberId,operationRequestId:memberId,createdAt:"2026-08-22T02:00:00Z",replayed:false},
   })
   vi.mocked(grantMembershipPoints).mockResolvedValue({
     created: true,
@@ -395,7 +402,7 @@ describe("AdminView", () => {
     render(<AdminView session={session} onBack={vi.fn()} requestedTab="reports" onTabChange={onTabChange} />)
 
     expect(await screen.findByRole("heading", { name: "今天需要处理什么" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "工作台" })).toHaveAttribute("aria-current", "page")
+    expect(screen.getByRole("button", { name: "管理首页" })).toHaveAttribute("aria-current", "page")
     await waitFor(() => expect(onTabChange).toHaveBeenCalledWith("dashboard"))
   })
 
@@ -427,8 +434,8 @@ describe("AdminView", () => {
     const user = userEvent.setup()
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    await user.click(await screen.findByRole("button", { name: "会员经济" }))
-    expect(await screen.findByRole("heading", { name: "会员经济", level: 1 })).toBeInTheDocument()
+    await user.click(await screen.findByRole("button", { name: "会员体系" }))
+    expect(await screen.findByRole("heading", { name: "会员体系", level: 1 })).toBeInTheDocument()
     expect(await screen.findByRole("heading", { name: "成长等级（EXP）" })).toBeInTheDocument()
     expect(screen.queryByText("已发布")).not.toBeInTheDocument()
     expect(screen.queryByLabelText("traveler 状态")).not.toBeInTheDocument()
@@ -478,7 +485,7 @@ describe("AdminView", () => {
     const user = userEvent.setup()
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(await screen.findByRole("button", { name: "会员体系" }))
     await user.click(screen.getByRole("button", { name: "编辑 traveler" }))
     const dialog = screen.getByRole("dialog", { name: "编辑成长等级" })
     const preview = within(dialog).getByRole("region", { name: "等级预览" })
@@ -499,7 +506,7 @@ describe("AdminView", () => {
     expect(preview).toHaveTextContent("远行者")
     expect(preview).toHaveTextContent("360 EXP")
   })
-  vi.mocked(revokeMembershipMedal).mockResolvedValue({ userId: memberId, medalKey: "medal_01", revoked: true })
+  vi.mocked(revokeMembershipMedal).mockResolvedValue({ userId: memberId, medalKey: "medal_01", revoked: true, receipt:{...{id:memberId,userId:memberId,medalKey:"medal_01",medalDisplayName:"勋章 01",operation:"grant" as const,reason:"operator.award",actorId:memberId,idempotencyKey:"fixture",expectedRevision:0,revision:1,affected:true,ownedAfter:true,auditId:memberId,operationRequestId:memberId,createdAt:"2026-08-22T02:00:00Z",replayed:false},operation:"revoke",ownedAfter:false,expectedRevision:1,revision:2} })
 
   it("shows every growth level without a status filter", async () => {
     const user = userEvent.setup()
@@ -517,7 +524,7 @@ describe("AdminView", () => {
     ])
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(await screen.findByRole("button", { name: "会员体系" }))
     expect(await screen.findByText("共 2 个等级")).toBeInTheDocument()
     expect(screen.getByText("explorer")).toBeInTheDocument()
     expect(screen.queryByLabelText("筛选成长等级")).not.toBeInTheDocument()
@@ -528,24 +535,24 @@ describe("AdminView", () => {
     const user = userEvent.setup()
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(await screen.findByRole("button", { name: "会员体系" }))
     expect(await screen.findByRole("heading", { name: "成长等级（EXP）" })).toBeInTheDocument()
     expect(screen.queryByRole("heading", { name: "积分操作" })).not.toBeInTheDocument()
     expect(screen.queryByRole("heading", { name: "勋章" })).not.toBeInTheDocument()
-    const growthTab = screen.getByRole("tab", { name: "成长运营" })
+    const growthTab = screen.getByRole("tab", { name: "成长等级" })
     expect(growthTab).toHaveAttribute("tabindex", "0")
-    expect(screen.getByRole("tabpanel", { name: "成长运营" })).toBeInTheDocument()
+    expect(screen.getByRole("tabpanel", { name: "成长等级" })).toBeInTheDocument()
 
     growthTab.focus()
     await user.keyboard("{ArrowRight}")
-    expect(screen.getByRole("tab", { name: "积分运营" })).toHaveFocus()
-    expect(screen.getByRole("tab", { name: "积分运营" })).toHaveAttribute("aria-selected", "true")
+    expect(screen.getByRole("tab", { name: "积分管理" })).toHaveFocus()
+    expect(screen.getByRole("tab", { name: "积分管理" })).toHaveAttribute("aria-selected", "true")
 
-    await user.click(screen.getByRole("tab", { name: "积分运营" }))
+    await user.click(screen.getByRole("tab", { name: "积分管理" }))
     expect(screen.getByRole("heading", { name: "积分操作" })).toBeInTheDocument()
     expect(screen.queryByRole("heading", { name: "成长等级（EXP）" })).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole("tab", { name: "勋章运营" }))
+    await user.click(screen.getByRole("tab", { name: "勋章管理" }))
     expect(screen.getByRole("heading", { name: "勋章" })).toBeInTheDocument()
     expect(screen.queryByRole("heading", { name: "标准权益" })).not.toBeInTheDocument()
     expect(screen.queryByLabelText("lv_1 累计积分阈值")).not.toBeInTheDocument()
@@ -555,11 +562,11 @@ describe("AdminView", () => {
     const user = userEvent.setup()
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(await screen.findByRole("button", { name: "会员体系" }))
     const growthList = await screen.findByRole("list", { name: "成长等级列表" })
     expect(within(growthList).getAllByRole("listitem")).toHaveLength(growthLevels.length)
 
-    await user.click(screen.getByRole("tab", { name: "勋章运营" }))
+    await user.click(screen.getByRole("tab", { name: "勋章管理" }))
     const medalList = await screen.findByRole("list", { name: "勋章规则列表" })
     expect(within(medalList).getAllByRole("listitem")).toHaveLength(medalRules.length)
   })
@@ -568,8 +575,8 @@ describe("AdminView", () => {
     const user = userEvent.setup()
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    await user.click(await screen.findByRole("button", { name: "会员经济" }))
-    await user.click(screen.getByRole("tab", { name: "勋章运营" }))
+    await user.click(await screen.findByRole("button", { name: "会员体系" }))
+    await user.click(screen.getByRole("tab", { name: "勋章管理" }))
 
     expect(await screen.findByRole("img", { name: "勋章 01" })).toHaveAttribute("src", "/assets/membership/medals/medal1.gif")
     expect(screen.getByRole("button", { name: "新增勋章" })).toBeInTheDocument()
@@ -580,8 +587,8 @@ describe("AdminView", () => {
     const user = userEvent.setup()
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    await user.click(await screen.findByRole("button", { name: "会员经济" }))
-    await user.click(screen.getByRole("tab", { name: "勋章运营" }))
+    await user.click(await screen.findByRole("button", { name: "会员体系" }))
+    await user.click(screen.getByRole("tab", { name: "勋章管理" }))
     await user.click(screen.getByRole("button", { name: "操作记录" }))
     expect(await screen.findByText("勋章成员")).toBeInTheDocument()
     expect(listMembershipMedalOperations).toHaveBeenCalledWith(expect.objectContaining({ limit: 25, signal: expect.any(AbortSignal) }))
@@ -590,33 +597,32 @@ describe("AdminView", () => {
     await user.type(screen.getByLabelText("撤销原因"), "运营调整")
     await user.click(screen.getByRole("button", { name: "确认撤销" }))
 
-    expect(revokeMembershipMedal).toHaveBeenCalledWith({ userId: memberId, medalKey: "medal_01", reason: "运营调整" }, session.csrfToken)
-    expect(await screen.findByText("勋章已撤销")).toBeInTheDocument()
-    expect(listMembershipMedalOperations).toHaveBeenCalledTimes(2)
+    expect(revokeMembershipMedal).toHaveBeenCalledWith(expect.objectContaining({ userId: memberId, medalKey: "medal_01", reason: "运营调整",expectedRevision:1,idempotencyKey:expect.any(String) }), session.csrfToken)
+    expect(await screen.findByLabelText("勋章操作回执")).toHaveTextContent("撤销")
+    expect(vi.mocked(listMembershipMedalOperations).mock.calls.length).toBeGreaterThan(2)
   })
 
   it("clears the previous medal recipient when reopening the grant dialog", async () => {
     const user = userEvent.setup()
     render(<AdminView session={session} onBack={vi.fn()} />)
-    await user.click(await screen.findByRole("button", { name: "会员经济" }))
-    await user.click(screen.getByRole("tab", { name: "勋章运营" }))
+    await user.click(await screen.findByRole("button", { name: "会员体系" }))
+    await user.click(screen.getByRole("tab", { name: "勋章管理" }))
     await user.click(screen.getByRole("button", { name: "发放勋章" }))
     await user.type(screen.getByRole("searchbox", { name: "搜索用户" }), "member")
     await user.click(await screen.findByRole("button", { name: "选择会员 @member" }))
     await user.keyboard("{Escape}")
     await user.click(screen.getByRole("button", { name: "发放勋章" }))
     expect(screen.getByRole("searchbox", { name: "搜索用户" })).toHaveValue("")
-    await user.click(screen.getByRole("button", { name: "手动发放勋章" }))
-    expect(await screen.findByText("请搜索并选择要发放勋章的成员。")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "确认发放勋章" })).not.toBeInTheDocument()
     expect(grantMembershipMedal).not.toHaveBeenCalled()
   })
 
   it("clears the previous revocation error when reopening its dialog", async () => {
     const user = userEvent.setup()
-    vi.mocked(revokeMembershipMedal).mockRejectedValueOnce(new AdminApiError(500, "internal.error", "本次撤销失败"))
+    vi.mocked(revokeMembershipMedal).mockRejectedValueOnce(new AdminApiError(422, "validation.failed", "本次撤销失败"))
     render(<AdminView session={session} onBack={vi.fn()} />)
-    await user.click(await screen.findByRole("button", { name: "会员经济" }))
-    await user.click(screen.getByRole("tab", { name: "勋章运营" }))
+    await user.click(await screen.findByRole("button", { name: "会员体系" }))
+    await user.click(screen.getByRole("tab", { name: "勋章管理" }))
     await user.click(screen.getByRole("button", { name: "操作记录" }))
     await user.click(await screen.findByRole("button", { name: "撤销 勋章 01" }))
     await user.type(screen.getByLabelText("撤销原因"), "运营调整")
@@ -637,17 +643,11 @@ describe("AdminView", () => {
       .mockResolvedValueOnce({ operations: [refreshedOperation], nextCursor: null })
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    await user.click(await screen.findByRole("button", { name: "会员经济" }))
-    await user.click(screen.getByRole("tab", { name: "勋章运营" }))
+    await user.click(await screen.findByRole("button", { name: "会员体系" }))
+    await user.click(screen.getByRole("tab", { name: "勋章管理" }))
     await user.click(screen.getByRole("button", { name: "操作记录" }))
     await waitFor(() => expect(listMembershipMedalOperations).toHaveBeenCalledTimes(1))
-    await user.click(screen.getByRole("button", { name: "发放勋章" }))
-    await user.type(screen.getByRole("searchbox", { name: "搜索用户" }), "member")
-    await user.click(await screen.findByRole("button", { name: "选择会员 @member" }))
-    await user.clear(screen.getByLabelText("勋章授予理由"))
-    await user.type(screen.getByLabelText("勋章授予理由"), "latest.award")
-    await user.click(screen.getByRole("button", { name: "手动发放勋章" }))
-
+    await user.click(screen.getByRole("button", { name: "筛选记录" }))
     expect(await screen.findByText("latest.award", { exact: false })).toBeInTheDocument()
     resolveInitial({ operations: medalOperations, nextCursor: null })
     await waitFor(() => expect(screen.getByText("latest.award", { exact: false })).toBeInTheDocument())
@@ -666,7 +666,7 @@ describe("AdminView", () => {
     })
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(await screen.findByRole("button", { name: "会员体系" }))
     expect(screen.queryByLabelText("内部键")).not.toBeInTheDocument()
     const createTrigger = screen.getByRole("button", { name: "新增等级" })
     await user.click(createTrigger)
@@ -710,7 +710,7 @@ describe("AdminView", () => {
       .mockResolvedValueOnce(saved)
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(await screen.findByRole("button", { name: "会员体系" }))
     await user.click(screen.getByRole("button", { name: "编辑 traveler" }))
     const dialog = screen.getByRole("dialog", { name: "编辑成长等级" })
     const name = within(dialog).getByLabelText("展示名称")
@@ -733,7 +733,7 @@ describe("AdminView", () => {
     const user = userEvent.setup()
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(await screen.findByRole("button", { name: "会员体系" }))
     const editTrigger = screen.getByRole("button", { name: "编辑 traveler" })
     await user.click(editTrigger)
     expect(screen.getByRole("dialog", { name: "编辑成长等级" })).toBeInTheDocument()
@@ -749,7 +749,7 @@ describe("AdminView", () => {
     const user = userEvent.setup()
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(await screen.findByRole("button", { name: "会员体系" }))
     await user.click(screen.getByRole("button", { name: "新增等级" }))
     const dialog = screen.getByRole("dialog", { name: "新增成长等级" })
     const background = document.querySelector(".membership-admin-panel")
@@ -772,7 +772,7 @@ describe("AdminView", () => {
     }))
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(await screen.findByRole("button", { name: "会员体系" }))
     await user.click(screen.getByRole("button", { name: "新增等级" }))
     const dialog = screen.getByRole("dialog", { name: "新增成长等级" })
     await user.type(within(dialog).getByLabelText("内部键"), "explorer")
@@ -794,7 +794,7 @@ describe("AdminView", () => {
     const user = userEvent.setup()
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(await screen.findByRole("button", { name: "会员体系" }))
     await user.click(screen.getByRole("button", { name: "删除 traveler" }))
     const dialog = screen.getByRole("dialog", { name: "删除成长等级" })
     expect(within(dialog).getByText("旅者", { exact: false })).toBeInTheDocument()
@@ -821,7 +821,7 @@ describe("AdminView", () => {
     }))
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    await user.click(await screen.findByRole("button", { name: "会员经济" }))
+    await user.click(await screen.findByRole("button", { name: "会员体系" }))
     await user.click(screen.getByRole("button", { name: "删除 traveler" }))
     await user.click(screen.getByRole("button", { name: "确认删除" }))
 
@@ -838,9 +838,9 @@ describe("AdminView", () => {
     const user = userEvent.setup()
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    await user.click(await screen.findByRole("button", { name: "会员经济" }))
-    await screen.findByRole("heading", { name: "会员经济", level: 1 })
-    await user.click(screen.getByRole("tab", { name: "积分运营" }))
+    await user.click(await screen.findByRole("button", { name: "会员体系" }))
+    await screen.findByRole("heading", { name: "会员体系", level: 1 })
+    await user.click(screen.getByRole("tab", { name: "积分管理" }))
     await user.type(screen.getByRole("searchbox", { name: "搜索用户" }), "会员")
     await user.click(await screen.findByRole("button", { name: "选择会员 @member" }))
     expect(await within(screen.getByLabelText("已选用户")).findByText("50")).toBeInTheDocument()
@@ -858,7 +858,7 @@ describe("AdminView", () => {
     vi.mocked(getAdminAccess).mockResolvedValueOnce({ capabilityKeys: ["membership.points.grant"] })
     render(<AdminView session={session} onBack={vi.fn()} requestedTab="membership" />)
 
-    expect(await screen.findByRole("heading", { name: "会员经济", level: 1 })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "会员体系", level: 1 })).toBeInTheDocument()
     expect(screen.getByRole("searchbox", { name: "搜索用户" })).toBeInTheDocument()
     expect(screen.queryByLabelText("勋章目标用户 UUID")).not.toBeInTheDocument()
     expect(getAdminGrowthLevels).not.toHaveBeenCalled()
@@ -868,7 +868,7 @@ describe("AdminView", () => {
     vi.mocked(getAdminAccess).mockResolvedValueOnce({ capabilityKeys: ["membership.rules.write"] })
     render(<AdminView session={session} onBack={vi.fn()} requestedTab="membership" />)
 
-    expect(await screen.findByRole("heading", { name: "会员经济", level: 1 })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "会员体系", level: 1 })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "新增等级" })).toBeInTheDocument()
     expect(screen.getByText("当前账号可创建成长等级，但不具备等级目录读取权限。")).toBeInTheDocument()
     expect(getAdminGrowthLevels).not.toHaveBeenCalled()
@@ -890,7 +890,7 @@ describe("AdminView", () => {
   it("shows system and governance tasks in one capability-filtered navigation", async () => {
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    expect(await screen.findByRole("heading", { name: "工作台" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "管理首页" })).toBeInTheDocument()
     expect(screen.getByText("查看社区近况，优先处理需要关注的事项。")).toBeInTheDocument()
     expect(screen.getByRole("navigation", { name: "站点管理导航" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "品牌配置" })).toBeInTheDocument()
@@ -914,7 +914,7 @@ describe("AdminView", () => {
   it("does not require a separate sensitive-operation verification panel", async () => {
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    expect(await screen.findByRole("heading", { name: "工作台" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "管理首页" })).toBeInTheDocument()
     expect(screen.queryByRole("heading", { name: "敏感管理操作" })).not.toBeInTheDocument()
   })
 
@@ -922,7 +922,7 @@ describe("AdminView", () => {
     vi.mocked(getAdminAccess).mockResolvedValueOnce({ capabilityKeys: ["governance.reports.read"] })
     render(<AdminView session={session} onBack={vi.fn()} />)
 
-    expect(await screen.findByRole("heading", { name: "工作台" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "管理首页" })).toBeInTheDocument()
     expect(screen.getByRole("navigation", { name: "站点管理导航" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "举报处理" })).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "品牌配置" })).not.toBeInTheDocument()
@@ -1012,7 +1012,7 @@ it("organizes available tasks into the same groups on desktop and mobile", async
   render(<AdminView session={session} onBack={vi.fn()} />)
   const navigation = await screen.findByRole("navigation", { name: "站点管理导航" })
   const expected = [
-    ["工作台", ["工作台"]],
+    ["管理首页", ["管理首页"]],
     ["内容治理", ["主题管理", "评论管理", "举报处理", "内容审核"]],
     ["版块管理", ["版块管理"]],
     ["用户与会员", ["用户管理"]],
@@ -1025,14 +1025,14 @@ it("organizes available tasks into the same groups on desktop and mobile", async
   }
   const mobile = screen.getByRole("combobox", { name: "管理模块" })
   expect(within(mobile).getAllByRole("option").map((option) => option.textContent)).toEqual(expected.flatMap(([, labels]) => [...labels]))
-  expect(within(mobile).getAllByRole("group").map((group) => group.getAttribute("label"))).toEqual(["工作台", "内容治理", "版块管理", "用户与会员", "扩展与数据", "站点设置"])
+  expect(within(mobile).getAllByRole("group").map((group) => group.getAttribute("label"))).toEqual(["管理首页", "内容治理", "版块管理", "用户与会员", "扩展与数据", "站点设置"])
 })
 
 it("omits empty navigation groups for a restricted operator", async () => {
   vi.mocked(getAdminAccess).mockResolvedValue({ capabilityKeys: ["operations.read"] })
   render(<AdminView session={session} onBack={vi.fn()} />)
   const navigation = await screen.findByRole("navigation", { name: "站点管理导航" })
-  expect(within(navigation).getAllByRole("group").map((group) => group.getAttribute("aria-label"))).toEqual(["工作台", "站点设置"])
+  expect(within(navigation).getAllByRole("group").map((group) => group.getAttribute("aria-label"))).toEqual(["管理首页", "站点设置"])
   expect(within(navigation).getAllByRole("button")).toHaveLength(2)
 })
 
@@ -1048,7 +1048,7 @@ it.each([["comments", "评论管理"], ["reviews", "内容审核"]])("opens %s f
 it("offers a return to the exact dashboard position for a task deep link", async () => {
   vi.mocked(getAdminAccess).mockResolvedValueOnce({ capabilityKeys: ["admin.users.read"] })
   render(<AdminView session={session} onBack={vi.fn()} requestedTab="users" requestedQuery="status=restricted&user_id=019fc800-0000-7000-8000-000000000002&return_to=dashboard&return_scroll=420" />)
-  expect(await screen.findByRole("link", { name: "返回工作台" })).toHaveAttribute("href", "#admin/dashboard?scroll=420")
+  expect(await screen.findByRole("link", { name: "返回管理首页" })).toHaveAttribute("href", "#admin/dashboard?scroll=420")
 })
 
 it("loads the report workspace without SMTP, branding or board configuration", async () => {
@@ -1073,7 +1073,7 @@ it("maps all sixteen modules into the seven V3 navigation groups", async () => {
   vi.mocked(listModerationBoards).mockResolvedValue([{ id: board.id, slug: board.slug, name: board.name, tone: board.tone, capabilityKeys: ["moderation.topic"] }])
   render(<AdminView session={session} onBack={vi.fn()} />)
   const navigation = await screen.findByRole("navigation", { name: "站点管理导航" })
-  expect(within(navigation).getAllByRole("group").map(group => group.getAttribute("aria-label"))).toEqual(["工作台", "内容治理", "版块管理", "用户与会员", "管理团队", "扩展与数据", "站点设置"])
+  expect(within(navigation).getAllByRole("group").map(group => group.getAttribute("aria-label"))).toEqual(["管理首页", "内容治理", "版块管理", "用户与会员", "权限与治理", "扩展与数据", "站点设置"])
   expect(within(navigation).getAllByRole("button")).toHaveLength(16)
   expect(within(screen.getByLabelText("管理模块")).getAllByRole("option")).toHaveLength(16)
 })
@@ -1091,7 +1091,7 @@ it.each(["getItem", "setItem"] as const)("keeps the common admin shell usable wh
 })
 
 it("offers a standalone permission check only with every sensitive read capability", async () => {
-  vi.mocked(getAdminAccess).mockResolvedValue({ capabilityKeys: ["content.access_policies.read", "community.groups.read", "admin.users.read", "community.memberships.read", "entitlements.grants.read", "entitlements.types.read", "authorization.assignments.read"] })
+  vi.mocked(getAdminAccess).mockResolvedValue({ capabilityKeys: ["content.access_policies.read", "community.groups.read", "admin.users.read", "community.memberships.read", "entitlements.grants.read", "entitlements.types.read", "authorization.assignments.read", "authorization.roles.read"] })
   render(<AdminView session={session} requestedTab="inspect" onBack={vi.fn()} />)
   expect(await screen.findByRole("button", { name: "权限检查" })).toHaveAttribute("aria-current", "page")
   expect(await screen.findByLabelText("选择操作用户")).toBeInTheDocument()
@@ -1134,4 +1134,74 @@ it("keeps unavailable report and audit controls out of read-only risk navigation
   expect(screen.queryByRole("link", { name: "查看关联举报" })).not.toBeInTheDocument()
   expect(screen.queryByRole("button", { name: "查看告警审计" })).not.toBeInTheDocument()
   expect(listAdminAudit).not.toHaveBeenCalled()
+})
+
+
+it("navigates the reference header categories using authorized modules only", async () => {
+  vi.mocked(getAdminAccess).mockResolvedValue({ capabilityKeys: ["admin.users.read", "admin.configuration.read"] })
+  const onTabChange = vi.fn()
+  const user = userEvent.setup()
+  render(<AdminView session={session} requestedTab="branding" onBack={vi.fn()} onTabChange={onTabChange} />)
+  const categories = await screen.findByRole("navigation", { name: "后台分类导航" })
+  expect(within(categories).getAllByRole("button").map(button => button.textContent)).toEqual(["首页", "论坛", "用户", "全局"])
+  expect(within(categories).getByRole("button", { name: "全局" })).toHaveAttribute("aria-current", "page")
+  await user.click(within(categories).getByRole("button", { name: "用户" }))
+  expect(onTabChange).toHaveBeenCalledWith("users")
+  expect(within(categories).getByRole("button", { name: "用户" })).toHaveAttribute("aria-current", "page")
+  const breadcrumb = screen.getByRole("navigation", { name: "当前位置" })
+  expect(within(breadcrumb).getByText("用户管理")).toHaveAttribute("aria-current", "page")
+  const sidebar = screen.getByRole("navigation", { name: "站点管理导航" })
+  expect(within(sidebar).getByRole("group", { name: "用户与会员" })).toHaveAttribute("data-active", "true")
+  expect(within(sidebar).getByRole("group", { name: "站点设置" })).toHaveAttribute("data-active", "false")
+  await user.click(within(breadcrumb).getByRole("button", { name: "返回后台首页" }))
+  expect(onTabChange).toHaveBeenLastCalledWith("dashboard")
+})
+
+
+it("uses membership and governance names in authorized navigation and module search", async () => {
+  vi.mocked(getAdminAccess).mockResolvedValue({ capabilityKeys: ["membership.rules.read", "authorization.roles.read", "authorization.assignments.read"] })
+  const user = userEvent.setup()
+  const onTabChange = vi.fn()
+  render(<AdminView session={session} requestedTab="membership" onBack={vi.fn()} onTabChange={onTabChange} />)
+  expect(await screen.findByRole("heading", { name: "会员体系", level: 1 })).toBeInTheDocument()
+  expect(within(screen.getByRole("navigation", { name: "站点管理导航" })).getByRole("group", { name: "权限与治理" })).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "会员体系" })).toBeInTheDocument()
+  await user.type(screen.getByLabelText("搜索管理模块"), "角色与权限{Enter}")
+  expect(onTabChange).toHaveBeenLastCalledWith("authorization")
+  expect(await screen.findByRole("heading", { name: "角色与权限", level: 1 })).toBeInTheDocument()
+})
+
+
+it("offers authorized membership and role shortcuts without exposing permission checks", async () => {
+  vi.mocked(getAdminAccess).mockResolvedValue({ capabilityKeys: ["membership.rules.read", "authorization.roles.read", "authorization.assignments.read"] })
+  const onTabChange = vi.fn()
+  const user = userEvent.setup()
+  render(<AdminView session={session} requestedTab="dashboard" onBack={vi.fn()} onTabChange={onTabChange} />)
+  const membershipShortcut = await screen.findByRole("button", { name: "前往会员体系" })
+  expect(screen.getByRole("button", { name: "前往角色与权限" })).toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "前往权限检查" })).not.toBeInTheDocument()
+  await user.click(membershipShortcut)
+  expect(onTabChange).toHaveBeenCalledWith("membership")
+})
+
+it("uses the management home name in navigation, selector and breadcrumb without changing its route", async () => {
+  render(<AdminView session={session} onBack={vi.fn()} requestedTab="dashboard" />)
+  expect(await screen.findByRole("heading", { name: "管理首页", level: 1 })).toBeInTheDocument()
+  expect(within(screen.getByRole("navigation", { name: "站点管理导航" })).getByRole("button", { name: "管理首页" })).toHaveAttribute("aria-current", "page")
+  expect(screen.getByRole("option", { name: "管理首页" })).toHaveValue("dashboard")
+  expect(within(screen.getByRole("navigation", { name: "当前位置" })).getByText("管理首页")).toHaveAttribute("aria-current", "page")
+})
+
+it.each(["dashboard", "users"])("skips repeated navigation to the named %s content using the keyboard", async requestedTab => {
+  vi.mocked(getAdminAccess).mockResolvedValue({ capabilityKeys: ["admin.users.read"] })
+  const user = userEvent.setup()
+  render(<AdminView session={session} onBack={vi.fn()} requestedTab={requestedTab} />)
+  await screen.findByRole("navigation", { name: "站点管理导航" })
+  const main = screen.getByRole("main", { name: requestedTab === "dashboard" ? "管理首页" : "用户管理" })
+  const skip = screen.getByRole("link", { name: "跳过导航，进入管理内容" })
+  expect(skip).toHaveAttribute("href", "#admin-main")
+  skip.focus()
+  await user.keyboard("{Enter}")
+  expect(main).toHaveFocus()
+  expect(main).toHaveAttribute("tabindex", "-1")
 })

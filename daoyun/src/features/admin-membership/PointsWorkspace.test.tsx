@@ -105,3 +105,13 @@ it("keeps the unresolved operation input and key fixed until its result is confi
   await user.click(screen.getByRole("button",{name:"确认积分操作"})); await screen.findByText("积分操作完成")
   expect(screen.getByLabelText("积分数量")).toBeEnabled(); expect(onGrant.mock.calls[1][0].idempotencyKey).toBe(onGrant.mock.calls[0][0].idempotencyKey)
 })
+
+it('keeps parent navigation locked until an unknown points result is confirmed',async()=>{
+  const grant=vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({balance:80}), busy=vi.fn(),user=userEvent.setup()
+  render(<PointsWorkspace selectedUser={member} balance={50} onGrant={grant} onBusyChange={busy} />)
+  await user.type(screen.getByLabelText('积分数量'),'30');await user.selectOptions(screen.getByLabelText('运营原因'),'operations.community_reward');await user.click(screen.getByRole('button',{name:'确认积分操作'}))
+  await screen.findByRole('alert')
+  expect(busy).toHaveBeenLastCalledWith(true)
+  await user.click(screen.getByRole('button',{name:'确认积分操作'}));await screen.findByText('积分操作完成')
+  expect(busy).toHaveBeenLastCalledWith(false)
+})

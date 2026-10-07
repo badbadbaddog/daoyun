@@ -116,3 +116,40 @@
     --header-height: 54px;
   }
 }
+
+/* 后台参考素材的语义令牌；公开社区继续使用原有主题。 */
+:root {
+  --admin-primary: #1469d2;
+  --admin-primary-hover: #0b59ba;
+  --admin-link: #075cc4;
+  --admin-primary-soft: #e5f1ff;
+  --admin-background: #f0f7ff;
+  --admin-surface: #ffffff;
+  --admin-surface-soft: #f3f8ff;
+  --admin-text: #142447;
+  --admin-text-soft: #4d6591;
+  --admin-text-muted: #5b7298;
+  --admin-border: #dce9f8;
+  --admin-border-strong: #bdd2ee;
+  --admin-header-start: #1b5fb5;
+  --admin-header-end: #086cda;
+  --admin-header-active: #246bc7;
+  --admin-header-text: #ffffff;
+}
+:root[data-theme="dark"] {
+  --admin-primary: #246bc7;
+  --admin-primary-hover: #195ab1;
+  --admin-link: #8abaff;
+  --admin-primary-soft: #203859;
+  --admin-background: #101c30;
+  --admin-surface: #152238;
+  --admin-surface-soft: #1b2d47;
+  --admin-text: #edf4ff;
+  --admin-text-soft: #bfd0e9;
+  --admin-text-muted: #a6bbd8;
+  --admin-border: #304665;
+  --admin-border-strong: #526d90;
+  --admin-header-start: #143c71;
+  --admin-header-end: #1757a3;
+  --admin-header-active: #246bc7;
+}

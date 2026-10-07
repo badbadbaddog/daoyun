@@ -4,7 +4,8 @@ import { useBodyScrollLock } from "./useBodyScrollLock"
 
 const focusableSelector = "button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [href], [tabindex]:not([tabindex='-1'])"
 
-export function Drawer({ title, description, onClose, children, busy = false }: { title: string; description?: string; onClose: () => void; children: ReactNode; busy?: boolean }) {
+export function Drawer({ title, description, onClose, children, busy = false, headingLevel = 3 }: { title: string; description?: string; onClose: () => void; children: ReactNode; busy?: boolean; headingLevel?: 2 | 3 }) {
+  const Heading = headingLevel === 2 ? "h2" : "h3"
   const ref = useRef<HTMLElement | null>(null)
   const returnFocusRef = useRef<HTMLElement | null>(null)
   const titleId = useId()
@@ -37,7 +38,7 @@ export function Drawer({ title, description, onClose, children, busy = false }: 
     if (event.key !== "Tab") return
     event.stopPropagation()
     const activeInside = ref.current?.contains(document.activeElement) ?? false
-    const controls = [...(ref.current?.querySelectorAll<HTMLElement>(focusableSelector) ?? [])]
+    const controls = [...(ref.current?.querySelectorAll<HTMLElement>(focusableSelector) ?? [])].filter(control => !control.closest("[hidden]"))
     const first = controls[0]
     const last = controls.at(-1)
     if (!first || !last) {
@@ -64,7 +65,7 @@ export function Drawer({ title, description, onClose, children, busy = false }: 
       <section ref={ref} tabIndex={-1} className="drawer-panel" role="dialog" aria-modal="true" aria-busy={busy} aria-labelledby={titleId} aria-describedby={description ? descriptionId : undefined} onKeyDown={onKeyDown}>
         <header className="drawer-header">
           <div>
-            <h3 id={titleId}>{title}</h3>
+            <Heading id={titleId}>{title}</Heading>
             {description && <p id={descriptionId}>{description}</p>}
           </div>
           <button className="icon-button" type="button" aria-label="关闭抽屉" title="关闭" disabled={busy} onClick={onClose}>

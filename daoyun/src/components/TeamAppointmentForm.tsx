@@ -64,8 +64,8 @@ export function TeamAppointmentForm({ boards, roles, permissions, csrfToken, ini
       <label><span>包含子版块</span><select value={role?.scope === "board" ? scopeMode : "exact"} disabled={role?.scope !== "board"} onChange={event => { if (event.target.value === "exact" || event.target.value === "subtree") setScopeMode(event.target.value) }}><option value="exact">否 · 仅本版块</option><option value="subtree">是 · 当前及全部后代</option></select></label>
       <p>{role?.scope === "board" ? "包含子版块按当前树计算，子版移动后范围随树变化。" : "全站与站点任命使用自身范围，子版块选项不适用。"}</p>
       <label><span>任命到期时间</span><input type="datetime-local" disabled aria-describedby="team-expiry-support" /></label>
-      <p id="team-expiry-support">当前契约不支持到期任命，只能长期任命。</p>
-      <label><span>任命原因</span><textarea disabled rows={2} placeholder="当前契约未支持独立任命原因" /></label>
+      <p id="team-expiry-support">本次任命为长期任命，到期时间不可设置。</p>
+      <label><span>任命原因</span><textarea disabled rows={2} placeholder="本次任命不单独填写原因" /></label>
     </fieldset>
     {!canWrite && <p>没有人员任命写入权限。</p>}
     {error && !preview && <p role="alert" className="form-alert">{error}</p>}
@@ -74,7 +74,7 @@ export function TeamAppointmentForm({ boards, roles, permissions, csrfToken, ini
       <p>人员：{selectedUser.displayName} @{selectedUser.username} · {selectedUser.id}</p>
       <p>职务：{role.name} · {role.id}</p>
       <p>管理范围：{role.scope === "board" ? (scopeBoard?.name + " · " + (scopeMode === "subtree" ? "当前及全部后代" : "仅本版块")) : role.scope === "site" ? "站点" : "全站"}。</p>
-      <p>期限：长期（当前契约不支持到期任命）</p>
+      <p>期限：长期任命</p>
       <p>授予以下 {role.permissionKeys.length} 项管理能力。服务器重新检查授权上限、角色与真实范围。</p>
       <ul className="admin-team-capability-preview" tabIndex={0} aria-label="任命能力清单">{role.permissionKeys.map(key => <li key={key}>{permissions.find(permission => permission.key === key)?.name ?? key} · {key}</li>)}</ul>
       {role.permissionKeys.some(isHighRiskAuthorizationPermission) && <p className="form-alert">包含内容治理或其他高危能力，请逐项核对人员与范围。</p>}

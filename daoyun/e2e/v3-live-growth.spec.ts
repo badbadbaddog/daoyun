@@ -42,7 +42,7 @@ async function remove(request: APIRequestContext, csrf: string, id: string) { aw
 async function open(page: Page) {
   await page.goto("/#admin/membership")
   await page.reload()
-  await page.getByRole("tab", { name: "成长运营", exact: true }).click()
+  await page.getByRole("tab", { name: "成长等级", exact: true }).click()
   await expect(page.getByRole("heading", { name: "成长等级（EXP）", exact: true })).toBeVisible()
 }
 async function ledgerSnapshot() {

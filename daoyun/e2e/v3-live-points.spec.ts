@@ -40,7 +40,7 @@ test("replays a committed adjustment after its response is lost and traces the o
   const customer = await playwright.request.newContext({ baseURL: process.env.DAOYUN_WEB_URL }); const target = await member(customer, info, "adjustment")
   try {
     const csrf = await login(page.request)
-    await page.goto("/#admin/membership"); await page.reload(); await page.getByRole("tab", { name: "积分运营", exact: true }).click()
+    await page.goto("/#admin/membership"); await page.reload(); await page.getByRole("tab", { name: "积分管理", exact: true }).click()
     await page.getByRole("searchbox", { name: "搜索用户", exact: true }).fill(target.username)
     await page.getByRole("button", { name: "选择积分验收成员 @" + target.username, exact: true }).click()
     await expect(page.getByRole("button", { name: "确认积分操作" })).toBeEnabled()

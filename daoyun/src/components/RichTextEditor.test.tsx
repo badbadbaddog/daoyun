@@ -43,6 +43,35 @@ describe("RichTextEditor", () => {
     expect(screen.getByRole("textbox", { name: "正文" })).toHaveTextContent("会话中的正文")
   })
 
+  it("preserves the title focus when delayed autofocus runs after typing starts", async () => {
+    const frames = new Map<number, FrameRequestCallback>()
+    let nextFrame = 0
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.set(++nextFrame, callback)
+      return nextFrame
+    })
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id))
+    render(<>
+      <input aria-label="标题" />
+      <RichTextEditor value={plainTextDocument("正文")} onChange={vi.fn()}
+        ariaLabel="正文" placeholder="输入正文" maxCharacters={1_000} autoFocus />
+    </>)
+    await screen.findByRole("textbox", { name: "正文" })
+    await waitFor(() => expect(frames.size).toBeGreaterThan(0))
+    const title = screen.getByRole("textbox", { name: "标题" })
+    title.focus()
+    await userEvent.setup().type(title, "发", { skipClick: true })
+    await act(async () => {
+      const pending = [...frames.values()]
+      frames.clear()
+      pending.forEach(callback => callback(performance.now()))
+    })
+    expect(title).toHaveFocus()
+    await userEvent.setup().type(title, "布主题", { skipClick: true })
+    expect(title).toHaveValue("发布主题")
+    expect(screen.getByRole("textbox", { name: "正文" })).toHaveTextContent("正文")
+  })
+
   it("highlights hashtags while keeping them as plain rich-text content", async () => {
     render(
       <RichTextEditor

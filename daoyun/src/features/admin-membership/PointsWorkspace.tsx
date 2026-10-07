@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react"
 
+import { OperationalLedger } from "./OperationalLedger"
 import { AdminApiError } from "../../api/admin"
 
 import type { AdminUserCandidate } from "../../components/admin/AdminUserPicker"
@@ -26,6 +27,8 @@ interface PointsGrantResult {
 }
 
 interface PointsWorkspaceProps {
+  canReadLedger?: boolean
+  canWrite?: boolean
   selectedUser: AdminUserCandidate | null
   balance: number | null
   balanceLoading?: boolean
@@ -35,7 +38,7 @@ interface PointsWorkspaceProps {
   onGrant: (input: PointsGrantDraft) => Promise<PointsGrantResult>
 }
 
-export function PointsWorkspace({ selectedUser, balance, balanceLoading = false, balanceError = "", onRetryBalance, onBusyChange, onGrant }: PointsWorkspaceProps) {
+export function PointsWorkspace({ selectedUser, balance, balanceLoading = false, balanceError = "", canReadLedger = false, canWrite = true, onRetryBalance, onBusyChange, onGrant }: PointsWorkspaceProps) {
   const [amount, setAmount] = useState("")
   const [direction, setDirection] = useState("add")
   const [reason, setReason] = useState("")
@@ -43,7 +46,10 @@ export function PointsWorkspace({ selectedUser, balance, balanceLoading = false,
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [unconfirmed, setUnconfirmed] = useState(false)
+  const [ledgerRefresh,setLedgerRefresh] = useState(0)
   const [result, setResult] = useState<PointsGrantResult | null>(null)
+  useEffect(() => { onBusyChange?.(busy || unconfirmed) }, [busy, unconfirmed, onBusyChange])
+  useEffect(() => () => onBusyChange?.(false), [onBusyChange])
   const pending = useRef(false)
   const attempt = useRef<{ fingerprint: string; key: string } | null>(null)
   const selection = useRef(0)
@@ -60,7 +66,7 @@ export function PointsWorkspace({ selectedUser, balance, balanceLoading = false,
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    if (!selectedUser || pending.current || balance === null || balanceLoading || balanceError) return
+    if (!canWrite || !selectedUser || pending.current || balance === null || balanceLoading || balanceError) return
     if (!validQuantity || !reason) { setError("请选择运营原因并填写正整数积分。"); return }
     if (!unconfirmed && (projected === null || !Number.isSafeInteger(projected))) { setError("积分数量超出可用范围。"); return }
     if (!unconfirmed && projected !== null && projected < 0) { setError("余额不足，扣减数量不能超过当前余额。"); return }
@@ -69,11 +75,11 @@ export function PointsWorkspace({ selectedUser, balance, balanceLoading = false,
     if (attempt.current?.fingerprint !== fingerprint) attempt.current = { fingerprint, key: newIdempotencyKey() }
     const requestSelection = selection.current
     pending.current = true
-    setBusy(true); onBusyChange?.(true); setError(""); setResult(null)
+    setBusy(true); setError(""); setResult(null)
     try {
       const saved = await onGrant({ ...input, idempotencyKey: attempt.current.key })
       if (requestSelection !== selection.current) return
-      setResult(saved); setUnconfirmed(false); setAmount(""); setReason(""); setDetails(""); attempt.current = null
+      setLedgerRefresh(current=>current+1);setResult(saved); setUnconfirmed(false); setAmount(""); setReason(""); setDetails(""); attempt.current = null
     } catch (failure) {
       if (requestSelection === selection.current) {
         const unknown = unconfirmed || !(failure instanceof AdminApiError && failure.status >= 400 && failure.status < 500)
@@ -82,7 +88,7 @@ export function PointsWorkspace({ selectedUser, balance, balanceLoading = false,
       }
     } finally {
       pending.current = false
-      setBusy(false); onBusyChange?.(false)
+      setBusy(false)
     }
   }
 
@@ -93,10 +99,10 @@ export function PointsWorkspace({ selectedUser, balance, balanceLoading = false,
       {balanceError && <div className="membership-feedback"><p className="form-alert" role="alert">{balanceError}</p><button type="button" className="secondary-button" onClick={onRetryBalance} disabled={balanceLoading || busy}>重新读取余额</button></div>}
       <form className="admin-form points-form" onSubmit={event => void submit(event)}>
         <div className="membership-fields">
-          <label>操作类型<select aria-label="操作类型" value={direction} disabled={busy || unconfirmed} onChange={event => { setDirection(event.target.value); setError("") }}><option value="add">增加积分</option><option value="deduct">扣减积分</option></select></label>
-          <label>积分数量<input type="number" aria-label="积分数量" min={1} max={Number.MAX_SAFE_INTEGER} step={1} value={amount} disabled={busy || unconfirmed} onChange={event => { setAmount(event.target.value); setError("") }} /><small>填写正整数，增减方向由操作类型决定。</small></label>
+          <label>操作类型<select aria-label="操作类型" value={direction} disabled={!canWrite || busy || unconfirmed} onChange={event => { setDirection(event.target.value); setError("") }}><option value="add">增加积分</option><option value="deduct">扣减积分</option></select></label>
+          <label>积分数量<input type="number" aria-label="积分数量" min={1} max={Number.MAX_SAFE_INTEGER} step={1} value={amount} disabled={!canWrite || busy || unconfirmed} onChange={event => { setAmount(event.target.value); setError("") }} /><small>填写正整数，增减方向由操作类型决定。</small></label>
         </div>
-        <AdminReasonField reason={reason} details={details} disabled={busy || unconfirmed} onReasonChange={setReason} onDetailsChange={setDetails} />
+        <AdminReasonField reason={reason} details={details} disabled={!canWrite || busy || unconfirmed} onReasonChange={setReason} onDetailsChange={setDetails} />
         <section className="points-preview" aria-label="积分变更预览" aria-live="polite">
           <strong>{selectedUser.displayName} @{selectedUser.username}</strong>
           <dl><div><dt>当前余额</dt><dd>{balance === null ? "—" : balance.toLocaleString() + " 积分"}</dd></div><div><dt>本次变更</dt><dd>{validQuantity ? (delta > 0 ? "+" : "") + delta.toLocaleString() + " 积分" : "—"}</dd></div><div><dt>预计余额</dt><dd>{projected === null || !Number.isSafeInteger(projected) ? "—" : projected.toLocaleString() + " 积分"}</dd></div></dl>
@@ -104,7 +110,7 @@ export function PointsWorkspace({ selectedUser, balance, balanceLoading = false,
         </section>
         {error && <p className="form-alert" role="alert">{error}</p>}
         {unconfirmed && attempt.current && <p className="points-attempt">重试编号 <code>{attempt.current.key}</code></p>}
-        <div className="admin-form__actions"><button className={direction === "deduct" ? "danger-button" : "primary-button"} type="submit" disabled={busy || balance === null || balanceLoading || Boolean(balanceError)}>{busy ? "正在提交" : "确认积分操作"}</button></div>
+        <div className="admin-form__actions"><button className={direction === "deduct" ? "danger-button" : "primary-button"} type="submit" disabled={!canWrite || busy || balance === null || balanceLoading || Boolean(balanceError)}>{busy ? "正在提交" : "确认积分操作"}</button></div>
       </form>
       {result && <>
         <MutationResult title="积分操作完成" message={"最新余额 " + result.balance.toLocaleString() + " 积分"} auditId={result.auditId} replayed={result.replayed} />
@@ -114,6 +120,7 @@ export function PointsWorkspace({ selectedUser, balance, balanceLoading = false,
           {result.requestId && <div><dt>本次请求号</dt><dd><code>{result.requestId}</code></dd></div>}
         </dl>
       </>}
+      <OperationalLedger key={selectedUser.id} kind="points" userId={selectedUser.id} canRead={canReadLedger} refreshKey={ledgerRefresh}/>
     </> : <div className="admin-empty"><p>请先搜索并选择用户，再填写积分变更。</p></div>}
   </section>
 }

@@ -33,7 +33,7 @@ test("retains a grant's original snapshot and private source after a lost respon
     const before=(await payload(await own.get("/api/v1/users/me/entitlements"))).data
     const csrf=await login(page.request);const key="v3_benefit_"+randomUUID().replaceAll("-","").slice(0,16);const title="权益验收 "+key.slice(-6)
     const type=(await payload(await page.request.put("/api/v1/admin/entitlements/types/"+key,{headers:{"x-csrf-token":csrf},data:{display_name:title,permission_keys:["attachment.upload"],quotas:{"attachment.upload.daily":20},expected_revision:null}}))).data
-    await page.goto("/#admin/membership");await page.reload();await page.getByRole("tab",{name:"标准权益",exact:true}).click()
+    await page.goto("/#admin/membership");await page.reload();await page.getByRole("tab",{name:"会员权益",exact:true}).click()
     await page.getByRole("tab",{name:"用户权益",exact:true}).click();await page.getByRole("searchbox",{name:"搜索权益用户"}).fill(username);await page.getByRole("button",{name:"搜索用户",exact:true}).click()
     await page.getByRole("button",{name:"选择积分验收成员 @"+username,exact:true}).click();await page.getByRole("button",{name:"发放标准权益"}).click()
     const dialog=page.getByRole("dialog",{name:"发放标准权益",exact:true})
@@ -86,7 +86,7 @@ test("keeps public medals separate from assets and records only one revocation a
   const rule=(await payload(await page.request.post("/api/v1/admin/membership/medal-rules",{headers:{"x-csrf-token":csrf},data:{display_name:name,asset_key:"medal_03",enabled:false,required_lifetime_points:null}}))).data
   await payload(await page.request.post("/api/v1/admin/membership/medals",{headers:{"x-csrf-token":csrf},data:{user_id:user.id,medal_key:rule.key,reason:"operator.award"}}))
   const held=(await payload(await page.request.get("/api/v1/users/"+username+"/membership-summary"))).data;expect(held.medals.some((m:any)=>m.key===rule.key)).toBe(true)
-  await page.goto("/#admin/membership");await page.reload();await page.getByRole("tab",{name:"勋章运营",exact:true}).click()
+  await page.goto("/#admin/membership");await page.reload();await page.getByRole("tab",{name:"勋章管理",exact:true}).click()
   await expect(page.getByText("公开展示：已授予成员的勋章会显示在公开主页与成员身份中。")).toBeVisible()
   await page.getByRole("searchbox",{name:"搜索勋章"}).fill(name);await page.getByRole("button",{name:"编辑 "+name,exact:true}).click()
   await expect(page.getByRole("img",{name:"当前勋章图标预览"})).toBeVisible()

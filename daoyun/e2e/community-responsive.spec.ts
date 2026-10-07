@@ -41,9 +41,9 @@ test("applies the accessible community blue palette and button interaction state
   })
 
   expect(palette).toEqual({
-    background: "#f7f9fc",
+    background: "#f5f7fb",
     surface: "#ffffff",
-    text: "#111827",
+    text: "#18243b",
     textSoft: "#626b78",
     border: "#e5e7eb",
     primary: "#2563eb",

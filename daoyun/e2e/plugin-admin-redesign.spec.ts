@@ -49,6 +49,8 @@ for (const width of [320, 768, 1024, 1440]) {
           expect(route.request().headers()["x-csrf-token"]).toBe("a".repeat(64))
           const manifest = route.request().postDataJSON().manifest
           expect(manifest.key).toBe("official_polls")
+          expect(manifest.capabilities).toEqual(["topic.polls", "ui.panel"])
+          expect(Buffer.from(route.request().postDataJSON().component_base64, "base64")).toEqual(Buffer.from([0, 97, 115, 109, 13, 0, 1, 0]))
           const plugin = { ...plugins[0], id: "019fc900-0000-7000-8000-000000000805", ...manifest, manifest_schema_version: 1, status: "disabled" }
           delete plugin.schema_version
           plugins.push(plugin)
@@ -64,6 +66,15 @@ for (const width of [320, 768, 1024, 1440]) {
         data = settings
       } else if (path.endsWith("/ui-contributions")) {
         data = []
+      } else if (path === "/api/v1/admin/plugins/capabilities") {
+        data = { wasm_supported: true, wasm_runtime_enabled: true, can_manage_lifecycle: true,
+          modules: definitions.map(([key, name, capability]) => ({
+            capability, name, execution: "wasm", supported: true, runtime_ready: true,
+            business_enabled: plugins.some(plugin => plugin.key === key && plugin.status === "enabled"),
+            status: plugins.some(plugin => plugin.key === key) ? (plugins.some(plugin => plugin.key === key && plugin.status === "enabled") ? "available" : "disabled") : "not_configured",
+            target_authorization_required: true,
+          })),
+        }
       } else if (path.startsWith("/api/v1/admin/plugins/")) {
         const plugin = plugins.find((item) => path.endsWith("/" + item.id))
         if (!plugin) { await route.fallback(); return }
@@ -120,15 +131,24 @@ for (const width of [320, 768, 1024, 1440]) {
     await page.getByRole("menuitem", { name: "卸载插件：单选投票" }).click()
     await page.getByRole("button", { name: "确认卸载插件" }).click()
     await expect(page.getByText("插件已卸载", { exact: true })).toBeVisible()
-    await page.getByRole("tab", { name: "官方插件", exact: true }).click()
-    await expect(page.getByRole("article", { name: "官方插件：帖子补充" }).getByText("已安装", { exact: true })).toBeVisible()
+    await page.getByRole("tab", { name: "内置模块", exact: true }).click()
+    await expect(page.getByRole("article", { name: "内置模块：帖子补充" }).getByText("已安装", { exact: true })).toBeVisible()
     await assertNoHorizontalOverflow(page)
     await page.screenshot({ path: testInfo.outputPath("plugins-official-" + width + ".png"), fullPage: true })
-    await page.getByRole("button", { name: "安装单选投票" }).click()
+    await page.getByRole("button", { name: "安装插件", exact: true }).click()
     const install = page.getByRole("dialog", { name: "安装插件", exact: true })
-    await expect(install.getByLabel("插件键", { exact: true })).toHaveValue("official_polls")
+    await install.getByLabel("插件键", { exact: true }).fill("official_polls")
+    await install.getByLabel("名称", { exact: true }).fill("单选投票")
+    await install.getByLabel("版本", { exact: true }).fill("1.0.0")
     await install.getByRole("button", { name: "下一步：能力审批" }).click()
+    await install.getByRole("checkbox", { name: "内容转换", exact: true }).uncheck()
+    await install.getByRole("checkbox", { name: "主题单选投票", exact: true }).check()
+    await install.getByRole("checkbox", { name: "静态管理面板", exact: true }).check()
     await install.getByRole("button", { name: "下一步：组件文件" }).click()
+    // The mocked API checks the installation flow; Rust contracts cover component ABI validation.
+    await install.getByLabel("WebAssembly Component 文件", { exact: true }).setInputFiles({
+      name: "polls.wasm", mimeType: "application/wasm", buffer: Buffer.from([0, 97, 115, 109, 13, 0, 1, 0]),
+    })
     await install.getByRole("button", { name: "下一步：确认安装" }).click()
     await install.getByRole("button", { name: "确认安装", exact: true }).click()
     await expect(install).toHaveCount(0)

@@ -27,7 +27,7 @@ async function snapshot(page: Page, info: TestInfo, name: string) {
 const modules = [
   ["dashboard", "工作台"], ["users", "用户管理"], ["boards", "版块管理"], ["reports", "举报处理"],
   ["moderation", "主题管理"], ["comments", "评论管理"], ["reviews", "内容审核"], ["risk", "风控告警"],
-  ["membership", "会员经济"], ["branding", "品牌配置"], ["email", "邮件服务"], ["authorization", "角色与权限"],
+  ["membership", "会员体系"], ["branding", "品牌配置"], ["email", "邮件服务"], ["authorization", "角色与权限"],
   ["analytics", "数据总览"], ["operations", "运维监控"], ["plugins", "插件管理"],
 ] as const
 
@@ -44,7 +44,7 @@ test("keeps all fifteen original admin routes in the seven V3 groups", async ({ 
     await assertNoHorizontalOverflow(page)
     routes.push(tab)
   }
-  expect(await page.locator(".system-admin-nav__group").evaluateAll(groups => groups.map(group => group.getAttribute("aria-label")))).toEqual(["工作台", "内容治理", "版块管理", "用户与会员", "管理团队", "扩展与数据", "站点设置"])
+  expect(await page.locator(".system-admin-nav__group").evaluateAll(groups => groups.map(group => group.getAttribute("aria-label")))).toEqual(["工作台", "内容治理", "版块管理", "用户与会员", "权限与治理", "扩展与数据", "站点设置"])
   await writeFile(info.outputPath("legacy-route-map.json"), JSON.stringify({ routes, pageErrors: errors.get(page) }, null, 2), "utf8")
   await snapshot(page, info, "shared-admin-shell")
 })

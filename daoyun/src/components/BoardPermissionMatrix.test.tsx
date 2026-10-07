@@ -13,16 +13,16 @@ const stamp = "2026-10-03T00:00:00Z"
 const board: AdminBoard = { id: "019fc900-0000-7000-8000-000000000101", parentId: null, slug: "development", name: "技术交流", description: "", icon: "code", tone: "blue", position: 0, visibility: "public", status: "open", mergedIntoBoardId: null, topicCount: 0, revision: 4 }
 const groups: AdminCommunityGroup[] = Array.from({ length: 5 }, (_, index) => ({ id: "019fc900-0000-7000-8000-00000000020" + index, internalKey: "matrix_" + index, displayName: index === 0 ? "注册成员" : "场景组" + index, description: "", displayOrder: index, isBase: index === 0, isDefault: index === 0, status: "active", permissionKeys: [], quotas: {}, revision: 1, createdAt: stamp, updatedAt: stamp }))
 const candidate = { id: "019fc900-0000-7000-8000-000000000401", username: "tester", displayName: "指定会员", avatarUrl: null, status: "active" as const, primaryRole: null, topicCount: 0, postCount: 0, reportCount: 0, createdAt: stamp, lastSeenAt: null }
-const keys = ["content.access_policies.read", "content.access_policies.write", "community.groups.read", "admin.users.read", "community.memberships.read", "entitlements.types.read", "entitlements.grants.read", "authorization.assignments.read"]
-const actionKeys = ["browse", "topic_create", "reply_create", "attachment_upload", "attachment_download"] as const
+const keys = ["content.access_policies.read", "content.access_policies.write", "community.groups.read", "admin.users.read", "community.memberships.read", "entitlements.types.read", "entitlements.grants.read", "authorization.assignments.read", "authorization.roles.read"]
+const actionKeys = ["browse", "topic_create", "reply_create", "attachment_upload", "attachment_download", "moderation_browse", "topic_pin", "topic_feature", "topic_lock", "topic_move"] as const
 const policy = { id: "policy-a", targetType: "board" as const, targetId: board.id, operator: "all_of" as const, subjects: [{ subjectType: "authenticated" as const, communityGroupId: null, subjectKey: null }], revision: 7, createdAt: stamp, updatedAt: stamp }
 function groupScenario(group: AdminCommunityGroup): PermissionMatrixScenario {
-  return { id: group.id, kind: "group", display_name: group.displayName, complete: false, sources: [], quotas: [], actions: actionKeys.map(action => ({ action, decision: "not_provided", reason: "scenario.other_sources_unknown", permission_provided: false, source_ids: [] })) }
+  return { id: group.id, kind: "group", account_status: null, display_name: group.displayName, complete: false, sources: [], quotas: [], actions: actionKeys.map(action => ({ action, decision: action.startsWith("topic_") && action!=="topic_create" || action==="moderation_browse" ? "not_applicable" : "not_provided", reason: action.startsWith("topic_") && action!=="topic_create" || action==="moderation_browse" ? "governance.role_required" : "scenario.other_sources_unknown", permission_provided: false, source_ids: [] })) }
 }
 function userScenario(): PermissionMatrixScenario {
   const sourceId = "019fc900-0000-7000-8000-000000000501"
-  return { id: candidate.id, kind: "user", display_name: candidate.displayName, complete: true,
-    sources: [{ id: sourceId, kind: "entitlement", key: "matrix_upload", display_name: "上传权益", permission_keys: ["attachment.upload"], quotas: { "attachment.upload.daily": 20 }, type_version: 1, starts_at: stamp, ends_at: "2030-01-01T00:00:00Z" }],
+  return { id: candidate.id, kind: "user", account_status: "active", display_name: candidate.displayName, complete: true,
+    sources: [{ id: sourceId, kind: "entitlement", key: "matrix_upload", display_name: "上传权益", permission_keys: ["attachment.upload"], quotas: { "attachment.upload.daily": 20 }, type_version: 1, membership_kind: null, role: null, starts_at: stamp, ends_at: "2030-01-01T00:00:00Z" }],
     quotas: [{ key: "attachment.upload.daily", limit: 20, used: 3, source_ids: [sourceId] }],
     actions: actionKeys.map(action => ({ action, decision: "missing_context", reason: "resource.context_required", permission_provided: action === "attachment_upload", source_ids: action === "attachment_upload" ? [sourceId] : [] })) }
 }
@@ -57,9 +57,9 @@ describe("V3 effective permission matrix", () => {
     const sources = await screen.findByRole("button", { name: "指定会员 00000401 主题附件上传 来源" })
     await user.click(sources)
     const dialog = screen.getByRole("dialog")
-    await waitFor(() => expect(within(dialog).getByRole("heading")).toHaveFocus())
+    await waitFor(() => expect(within(dialog).getByRole("heading", { name: "指定会员 · 主题附件上传来源" })).toHaveFocus())
     expect(within(dialog).getByText("权益：上传权益")).toBeInTheDocument()
-    expect(within(dialog).getByText(/上限 20 · 已用 3/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/上限 20 个 · 已用 3 个/)).toBeInTheDocument()
     expect(within(dialog).getByText(/不是最终允许/)).toBeInTheDocument()
     await user.click(within(dialog).getByRole("button", { name: "关闭来源" }))
     await waitFor(() => expect(sources).toHaveFocus())
@@ -152,4 +152,18 @@ it("changes the single scenario view without fetching or mutating and falls back
   expect(putAdminContentAccessPolicy).not.toHaveBeenCalled()
   await selectGroup(user, "场景组1")
   await waitFor(() => expect(screen.getByRole("combobox", { name: "查看权限场景" })).toHaveValue("group:" + groups[0].id))
+})
+
+it("hides an open user provenance dialog immediately when role read is withdrawn", async () => {
+  const user=userEvent.setup();const view=setup()
+  fireEvent.change(screen.getByLabelText("搜索用户"),{target:{value:"tester"}})
+  await user.click(await screen.findByRole("button",{name:"选择指定会员 @tester"}))
+  await user.click(await screen.findByRole("button",{name:"指定会员 00000401 主题附件上传 来源"}))
+  expect(screen.getByText("权益：上传权益")).toBeInTheDocument()
+  view.rerender(<BoardPermissionMatrix board={board} capabilityKeys={keys.filter(key=>key!=="authorization.roles.read")} csrfToken="csrf" onBusyChange={vi.fn()} />)
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  expect(screen.queryByText("权益：上传权益")).not.toBeInTheDocument()
+  expect(screen.queryByLabelText("搜索用户")).not.toBeInTheDocument()
+  expect(screen.queryByRole("table")).not.toBeInTheDocument()
+  expect(screen.queryByText("指定会员")).not.toBeInTheDocument()
 })

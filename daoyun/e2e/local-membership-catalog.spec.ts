@@ -16,13 +16,13 @@ test("membership catalog supports real medal CRUD and responsive dialogs", async
   await page.goto("/#admin/membership")
   for (const width of testInfo.project.name.includes("mobile") ? [320, 768] : [1024, 1440]) {
     await page.setViewportSize({ width, height: 960 })
-    for (const tab of ["成长运营", "积分运营", "勋章运营", "用户组", "标准权益"]) {
+    for (const tab of ["用户组", "成长等级", "积分管理", "勋章管理", "会员权益"]) {
       await page.getByRole("tab", { name: tab, exact: true }).click()
       await expect(page.getByRole("tabpanel", { name: tab })).toBeVisible()
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true)
-      if (tab === "成长运营") await page.screenshot({ path: testInfo.outputPath(`membership-growth-${width}.png`) })
+      if (tab === "成长等级") await page.screenshot({ path: testInfo.outputPath(`membership-growth-${width}.png`) })
     }
-    await page.getByRole("tab", { name: "勋章运营" }).click()
+    await page.getByRole("tab", { name: "勋章管理" }).click()
     await expect(page.getByRole("list", { name: "勋章规则列表" })).toBeVisible()
     await page.screenshot({ path: testInfo.outputPath(`medal-catalog-${width}.png`) })
     const create = page.getByRole("button", { name: "新增勋章", exact: true })
@@ -67,7 +67,7 @@ test("membership catalog supports real medal CRUD and responsive dialogs", async
   await page.getByRole("button", { name: "保存勋章", exact: true }).click()
   await expect(page.getByRole("dialog")).toHaveCount(0)
   await page.reload()
-  await page.getByRole("tab", { name: "勋章运营" }).click()
+  await page.getByRole("tab", { name: "勋章管理" }).click()
   await expect(page.getByRole("img", { name: `${name}-已编辑`, exact: true })).toBeVisible()
   await expect(page.getByRole("img", { name: `${name}-已编辑`, exact: true })).not.toHaveAttribute("src", firstUrl!)
   expect(await page.getByRole("img", { name: `${name}-已编辑`, exact: true }).evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true)

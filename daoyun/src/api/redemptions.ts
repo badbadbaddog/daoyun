@@ -52,6 +52,9 @@ function receipt(v: unknown): v is RedemptionReceipt {
 async function request<T>(path: string, guard: (value: unknown) => value is T, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, { credentials: "include", ...init })
   const payload: unknown = await response.json().catch(()=>null)
+  if (!object(payload) || !object(payload.meta) || !id(payload.meta.request_id) || response.headers.get("x-request-id") !== payload.meta.request_id) {
+    throw new RedemptionApiError(response.status, "response.invalid", "兑换响应格式无效")
+  }
   if (!response.ok) {
     const error = object(payload) && object(payload.error) ? payload.error : {}
     throw new RedemptionApiError(response.status, String(error.code ?? "response.invalid"), String(error.message ?? "兑换请求失败"))
@@ -73,7 +76,10 @@ export function listRedemptions(options: { cursor?: string; signal?: AbortSignal
     && Array.isArray(v.records) && v.records.every(receipt) && cursor(v.next_cursor), { signal: options.signal })
 }
 export function putRedemptionProduct(productId: string, input: PutRedemptionProduct, csrfToken: string) {
-  return request("/api/v1/admin/redemption-products/"+encodeURIComponent(productId), product, {
+  return request("/api/v1/admin/redemption-products/"+encodeURIComponent(productId), (value): value is RedemptionProduct => product(value)
+    && value.id === productId && value.revision === (input.expected_revision ?? 0) + 1
+    && value.name === input.name.trim() && value.entitlement_type_id === input.entitlement_type_id && value.type_version === input.type_version
+    && value.price === input.price && value.duration_days === input.duration_days && value.per_user_limit === input.per_user_limit && value.enabled === input.enabled, {
     method: "PUT", headers: { "Content-Type": "application/json", "x-csrf-token": csrfToken }, body: JSON.stringify(input),
   })
 }
