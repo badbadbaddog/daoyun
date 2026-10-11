@@ -33,7 +33,7 @@ for (const width of [320, 1440]) {
 
       const row = page.locator(".topic-row").filter({ has: page.getByRole("heading", { name: title, exact: true }) })
       await page.goto(listing)
-      await expect(row).toHaveAttribute("data-layout", "discussion")
+      await expect(row).toHaveAttribute(listing === "/" ? "data-variant" : "data-layout", listing === "/" ? "list" : "discussion")
       await expect(row).toHaveCSS("cursor", "pointer")
       await row.click({ position: { x: 4, y: 4 } })
       await expect(page).toHaveURL(new RegExp("/t/" + topicId))
@@ -41,7 +41,8 @@ for (const width of [320, 1440]) {
 
       await page.goto(listing)
       if (listing === "/") {
-        await row.locator(".topic-excerpt").click()
+        await row.getByRole("link", { name: title, exact: true }).focus()
+        await page.keyboard.press("Enter")
         await expect(page).toHaveURL(new RegExp("/t/" + topicId))
         await expect(page.getByText("无图帖正文", { exact: true })).toBeVisible()
         await page.goto(listing)

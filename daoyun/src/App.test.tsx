@@ -408,7 +408,7 @@ describe("DaoYun community home", () => {
 
     expect(screen.queryByTestId("site-admin-view")).not.toBeInTheDocument()
     expect(await screen.findByRole("heading", { name: "社区发现" })).toBeInTheDocument()
-    expect(screen.getByRole("navigation", { name: "常用社区" })).toBeInTheDocument()
+    expect(screen.getByRole("navigation", { name: "主导航" })).toBeInTheDocument()
   })
 
   it("renders the OIDC claim completion flow at its dedicated hash route", async () => {
@@ -491,7 +491,7 @@ describe("DaoYun community home", () => {
     expect(screen.getByRole("link", { name: "文档中心" })).toHaveAttribute("href", "/docs")
     expect(screen.getByText("天际自托管社区")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "隐私" })).toHaveAttribute("href", "#privacy")
-    expect(document.querySelector(".topic-row")).toHaveAttribute("data-layout", "discussion")
+    expect(document.querySelector(".topic-row")).toHaveAttribute("data-variant", "list")
     expect(document.querySelector('.topic-cover img[src="https://cdn.example.com/default-cover.webp"]')).not.toBeInTheDocument()
     await waitFor(() => {
       expect(document.documentElement).toHaveAttribute("data-brand-preset", "compact")
@@ -538,12 +538,11 @@ describe("DaoYun community home", () => {
     const user = userEvent.setup()
     render(<App />)
 
-    const bookmark = await screen.findByRole("button", { name: `收藏主题：${topicFixtures[0].title}` })
+    const bookmark = await topicAction(user, topicFixtures[0].title, "收藏")
     await user.click(bookmark)
 
     expect(setTopicBookmark).toHaveBeenCalledWith(topicFixtures[0].id, true, "a".repeat(64), expect.any(AbortSignal))
-    expect(await screen.findByRole("button", { name: `取消收藏主题：${topicFixtures[0].title}` }))
-      .toHaveAttribute("aria-pressed", "true")
+    expect(await topicAction(user, topicFixtures[0].title, "取消收藏")).toBeInTheDocument()
   })
 
   it("opens the authenticated bookmarks route from the sidebar", async () => {
@@ -621,12 +620,11 @@ describe("DaoYun community home", () => {
     const user = userEvent.setup()
     render(<App />)
 
-    const like = await screen.findByRole("button", { name: `点赞主题：${topicFixtures[0].title}` })
+    const like = await topicAction(user, topicFixtures[0].title, "点赞")
     await user.click(like)
 
     expect(setPostLike).toHaveBeenCalledWith(topicFixtures[0].id, true, "a".repeat(64))
-    expect(await screen.findByRole("button", { name: `取消点赞主题：${topicFixtures[0].title}` }))
-      .toHaveAttribute("aria-pressed", "true")
+    expect(await topicAction(user, topicFixtures[0].title, "取消点赞")).toBeInTheDocument()
   })
 
   it("tracks simultaneous likes per topic without clearing another pending row", async () => {
@@ -647,20 +645,20 @@ describe("DaoYun community home", () => {
     const user = userEvent.setup()
     render(<App />)
 
-    const firstLike = await screen.findByRole("button", { name: `点赞主题：${topicFixtures[0].title}` })
-    const secondLike = await screen.findByRole("button", { name: `点赞主题：${topicFixtures[1].title}` })
-    await user.click(firstLike)
-    await user.click(secondLike)
-
-    expect(firstLike).toBeDisabled()
-    expect(secondLike).toBeDisabled()
-
+    await user.click(await topicAction(user, topicFixtures[0].title, "点赞"))
+    await user.click(await topicAction(user, topicFixtures[1].title, "点赞"))
+    expect(await topicAction(user, topicFixtures[0].title, "点赞")).toBeDisabled()
+    await user.keyboard("{Escape}")
+    expect(await topicAction(user, topicFixtures[1].title, "点赞")).toBeDisabled()
+    await user.keyboard("{Escape}")
     resolveFirst({ postId: topicFixtures[0].id, liked: true, likeCount: 97 })
-    await waitFor(() => expect(firstLike).not.toBeDisabled())
-    expect(secondLike).toBeDisabled()
-
+    await waitFor(() => expect(setPostLike).toHaveBeenCalledTimes(2))
+    expect(await topicAction(user, topicFixtures[0].title, "取消点赞")).not.toBeDisabled()
+    await user.keyboard("{Escape}")
+    expect(await topicAction(user, topicFixtures[1].title, "点赞")).toBeDisabled()
+    await user.keyboard("{Escape}")
     resolveSecond({ postId: topicFixtures[1].id, liked: true, likeCount: 53 })
-    await waitFor(() => expect(secondLike).not.toBeDisabled())
+    expect(await topicAction(user, topicFixtures[1].title, "取消点赞")).not.toBeDisabled()
   })
 
   it("clears the active header search and restores the feed", async () => {
@@ -748,16 +746,16 @@ describe("DaoYun community home", () => {
     render(<App />)
 
     expect(await screen.findByRole("tab", { name: "推荐" })).toHaveAttribute("aria-selected", "true")
-    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["推荐", "关注", "最新"])
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["推荐", "最新", "热门", "精华", "关注"])
     await waitFor(() => expect(listFeed).toHaveBeenLastCalledWith("recommended", expect.objectContaining({ signal: expect.any(AbortSignal) })))
   })
 
-  it("keeps the legacy active-feed route available without adding a fourth home tab", async () => {
+  it("selects the active feed from its direct route", async () => {
     window.location.hash = "#active"
     render(<App />)
 
     await waitFor(() => expect(listTopics).toHaveBeenLastCalledWith(expect.objectContaining({ sort: "active" })))
-    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["推荐", "关注", "最新"])
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["推荐", "最新", "热门", "精华", "关注"])
   })
 
   it("requests topics ordered by popularity", async () => {
@@ -770,11 +768,11 @@ describe("DaoYun community home", () => {
     expect(listFeed).toHaveBeenLastCalledWith("recommended", expect.objectContaining({ signal: expect.any(AbortSignal) }))
   })
 
-  it("does not expose the legacy featured feed as a fourth home tab", async () => {
+  it("exposes the featured feed as a home tab", async () => {
     render(<App />)
 
     await screen.findByRole("heading", { name: "社区发现" })
-    expect(screen.queryByRole("tab", { name: "精华" })).not.toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: "精华" })).toBeInTheDocument()
   })
 
   it("filters topics by a server-provided tag", async () => {
@@ -847,7 +845,7 @@ describe("DaoYun community home", () => {
     await user.click(await screen.findByRole("link", { name: `查看 ${topicFixtures[0].author} 的主页` }))
     expect(await screen.findByRole("heading", { name: topicFixtures[0].author })).toBeInTheDocument()
 
-    const communityNavigation = screen.getByRole("complementary", { name: "社区导航" })
+    const communityNavigation = screen.getByRole("navigation", { name: "主导航" })
     await user.click(within(communityNavigation).getByRole("link", { name: "首页" }))
 
     await user.click(await screen.findByRole("tab", { name: "关注" }))
@@ -975,7 +973,7 @@ describe("DaoYun community home", () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await user.click(await screen.findByRole("button", { name: "分享此刻的想法" }))
+    await user.click(await screen.findByRole("button", { name: "从顶部发布新主题" }))
     expect(await screen.findByRole("dialog", { name: "发布内容" })).toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: "关闭发布窗口" }))
@@ -1005,11 +1003,11 @@ describe("DaoYun community home", () => {
     })
 
     render(<App />)
-    await user.click(await screen.findByRole("button", { name: "分享此刻的想法" }))
+    await user.click(await screen.findByRole("button", { name: "从顶部发布新主题" }))
     await user.type(screen.getByRole("textbox", { name: "标题（可选）" }), "真实发布主题")
     await user.type(screen.getByRole("textbox", { name: "正文" }), "真实正文")
     const composer = within(screen.getByRole("dialog", { name: "发布内容" }))
-    expect(within(screen.getByRole("navigation", { name: "常用社区" })).getByText("12")).toBeInTheDocument()
+    expect(within(screen.getByRole("region", { name: "热门版块" })).getByText("12")).toBeInTheDocument()
     const boardRequestsBeforePublish = vi.mocked(listBoards).mock.calls.length
     await user.click(composer.getByRole("button", { name: "发布" }))
 
@@ -1017,8 +1015,8 @@ describe("DaoYun community home", () => {
     await waitFor(() => expect(window.location.pathname + window.location.search).toBe(`/t/${publishedTopicId}`))
     expect(getTopic).toHaveBeenCalledWith(publishedTopicId, expect.any(AbortSignal))
     expect(screen.queryByRole("dialog", { name: "发布内容" })).not.toBeInTheDocument()
-    expect(await within(screen.getByRole("navigation", { name: "常用社区" })).findByText("13"))
-      .toBeInTheDocument()
+    await user.click(within(screen.getByRole("navigation", { name: "主导航" })).getByRole("link", { name: "首页" }))
+    expect(await within(screen.getByRole("region", { name: "热门版块" })).findByText("13")).toBeInTheDocument()
     expect(listBoards).toHaveBeenCalledTimes(boardRequestsBeforePublish + 1)
   })
 
@@ -1055,7 +1053,7 @@ describe("DaoYun community home", () => {
 
     render(<App />)
 
-    const boardNavigation = await screen.findByRole("navigation", { name: "常用社区" })
+    const boardNavigation = await screen.findByRole("region", { name: "热门版块" })
     expect(await within(boardNavigation).findByText("工程实践")).toBeInTheDocument()
     expect(within(boardNavigation).getByText("12")).toBeInTheDocument()
   })
@@ -1066,11 +1064,11 @@ describe("DaoYun community home", () => {
 
     const { rerender } = render(<App />)
 
-    expect(await screen.findByText("正在加载社区")).toBeInTheDocument()
+    expect(await screen.findByText("正在加载版块")).toBeInTheDocument()
 
     rerender(<App key="empty-boards" />)
 
-    expect(await screen.findByText("暂无常用社区")).toHaveAttribute("role", "status")
+    expect(await screen.findByText("暂无公开版块")).toHaveAttribute("role", "status")
   })
 
   it("retries the board request after a loading failure", async () => {
@@ -1081,10 +1079,10 @@ describe("DaoYun community home", () => {
 
     render(<App />)
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("社区加载失败")
-    await user.click(screen.getByRole("button", { name: "重试加载社区" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent("版块暂时无法加载")
+    await user.click(screen.getByRole("button", { name: "重试加载版块" }))
 
-    const boardNavigation = screen.getByRole("navigation", { name: "常用社区" })
+    const boardNavigation = screen.getByRole("region", { name: "热门版块" })
     expect(await within(boardNavigation).findByText("工程实践")).toBeInTheDocument()
     expect(listBoards).toHaveBeenCalledTimes(2)
   })
@@ -1099,7 +1097,7 @@ describe("DaoYun community home", () => {
       .mockImplementation(async (id, revision, content) => ({ id, revision: revision + 1, content, updated_at: new Date().toISOString() }))
     render(<App />)
     await screen.findByRole("button", { name: "打开个人菜单" })
-    await user.click(screen.getByRole("button", { name: "分享此刻的想法" }))
+    await user.click(screen.getByRole("button", { name: "从顶部发布新主题" }))
     await user.type(await screen.findByRole("textbox", { name: "正文" }), "重新登录后继续发布的正文")
     await waitFor(() => expect(within(screen.getByRole("dialog", { name: "发布内容" })).getByRole("button", { name: "发布" })).toBeEnabled())
     await user.click(within(screen.getByRole("dialog", { name: "发布内容" })).getByRole("button", { name: "发布" }))
@@ -1135,7 +1133,7 @@ describe("DaoYun community home", () => {
     vi.mocked(login).mockResolvedValue(session)
 
     render(<App />)
-    await user.click(await screen.findByRole("button", { name: "登录" }))
+    await user.click((await screen.findAllByRole("button", { name: "登录" }))[0])
     expect(screen.getByRole("dialog", { name: "登录刀云" })).toBeInTheDocument()
 
     await user.type(screen.getByRole("textbox", { name: "用户名或邮箱" }), "member")
@@ -1156,7 +1154,7 @@ describe("DaoYun community home", () => {
       .mockResolvedValueOnce(null)
     render(<App />)
     await screen.findByRole("button", { name: "打开个人菜单" })
-    await user.click(screen.getByRole("button", { name: "分享此刻的想法" }))
+    await user.click(screen.getByRole("button", { name: "从顶部发布新主题" }))
     await user.type(await screen.findByRole("textbox", { name: "正文" }), "账号 A 的私有正文")
     act(() => window.dispatchEvent(new StorageEvent("storage", { key: "daoyun:session-change", newValue: "first-change" })))
     await waitFor(() => expect(getCurrentSession).toHaveBeenCalledTimes(2))
@@ -1803,12 +1801,17 @@ it("ignores a previous account bookmark mutation after the feed changes account"
   vi.mocked(setTopicBookmark).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
   render(<App />)
   await screen.findAllByText("First owner")
-  const main = within(screen.getByRole("main"))
-  await userEvent.click(await main.findByRole("button", { name: "取消收藏主题：" + topicFixtures[0].title }))
+  const user = userEvent.setup()
+  await user.click(await topicAction(user, topicFixtures[0].title, "取消收藏"))
   vi.mocked(getCurrentSession).mockResolvedValue(second)
   const { AUTH_SESSION_CHANGE_KEY } = await import("./api/auth")
   act(() => window.dispatchEvent(new StorageEvent("storage", { key: AUTH_SESSION_CHANGE_KEY, newValue: "changed" })))
   await screen.findAllByText("Second owner")
   await act(async () => finish({ topicId: topicFixtures[0].id, bookmarked: false }))
-  expect(main.getByRole("button", { name: "取消收藏主题：" + topicFixtures[0].title })).toBeInTheDocument()
+  expect(await topicAction(user, topicFixtures[0].title, "取消收藏")).toBeInTheDocument()
 })
+
+async function topicAction(user: ReturnType<typeof userEvent.setup>, title: string, action: string) {
+  await user.click(await screen.findByRole("button", { name: "主题操作：" + title }))
+  return screen.getByRole("menuitem", { name: action })
+}

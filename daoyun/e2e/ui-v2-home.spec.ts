@@ -27,9 +27,9 @@ for (const width of [320, 390, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 })
     await mockPublicApi(page)
     await page.goto("/#hot")
-    const rows = page.locator(".topic-list > .topic-row")
+    const rows = page.locator(".topic-list > .topic-row--list")
     await expect(rows).toHaveCount(6)
-    await expect(page.locator(".home-showcase")).toHaveCount(0)
+    await expect(page.locator(".home-showcase, .composer-prompt, .topic-list .topic-cover")).toHaveCount(0)
     await expect(page.locator("h1")).toHaveCount(1)
     const layout = await page.locator(".topic-list").evaluate(element => {
       const items = [...element.querySelectorAll<HTMLElement>(".topic-row")]
@@ -40,37 +40,18 @@ for (const width of [320, 390, 768, 1024, 1440]) {
     })
     expect(layout.columns).toBe(1)
     expect(new Set(layout.positions.map(position => position.x)).size).toBe(1)
-    expect(layout.positions[0].width).toBeLessThanOrEqual(800)
-    const textRow = page.locator('.topic-list > [data-layout="discussion"]').first()
-    await expect(textRow.locator(".topic-cover")).toHaveCount(0)
-    expect(await textRow.evaluate(element => getComputedStyle(element, "::before").content)).toBe("none")
-    const mediaRow = page.locator('.topic-list > [data-layout="media"]').first()
-    const image = await mediaRow.locator(".topic-cover img").first().boundingBox()
-    expect(image).not.toBeNull()
-    expect(Math.abs(image!.width - image!.height)).toBeLessThanOrEqual(1)
-    const readingOrder = await mediaRow.evaluate(element => {
-      const metadata = element.querySelector(".topic-meta")!
-      const body = element.querySelector(".topic-title")!
-      return Boolean(metadata.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING)
-    })
-    expect(readingOrder).toBe(true)
-    await expect(mediaRow.locator('.topic-stats [title*="次浏览"]')).toHaveCount(0)
-    const controls = mediaRow.getByRole("group", { name: "主题操作" }).locator("button, a")
-    expect(await controls.evaluateAll(elements => elements.map(element => element.getAttribute("aria-label")?.split("主题")[0])))
-      .toEqual(["点赞", "回复", "收藏"])
-    if (width < 768) {
-      for (const control of await controls.all()) {
-        const rect = await control.boundingBox()
-        expect(rect!.height).toBeGreaterThanOrEqual(44)
-        expect(rect!.width).toBeGreaterThanOrEqual(44)
-      }
-      for (const control of await page.locator(".header-mobile-search-toggle, .header-actions > button:visible").all()) {
-        const rect = await control.boundingBox()
-        expect(rect!.width).toBeGreaterThanOrEqual(44)
-        expect(rect!.height).toBeGreaterThanOrEqual(44)
-      }
-      expect(await page.getByRole("button", { name: "登录", exact: true }).evaluate(element => { const text = [...element.childNodes].find(node => node.nodeType === Node.TEXT_NODE && node.textContent?.trim()); const range = document.createRange(); range.selectNodeContents(text!); return range.getClientRects().length })).toBe(1)
-      await expect(page.locator(".mobile-navigation")).toBeVisible()
+    for (const row of await rows.all()) {
+      await expect(row.locator(".topic-list-avatar")).toBeVisible()
+      await expect(row.locator(".topic-list-meta")).toBeVisible()
+      await expect(row.getByRole("group", { name: "主题统计" })).toBeVisible()
+      await expect(row.locator('.topic-list-stats [title*="次浏览"]')).toHaveCount(1)
+    }
+    const firstRow = rows.first()
+    await firstRow.getByRole("button", { name: /^主题操作：/ }).click()
+    await expect(firstRow.getByRole("menuitem", { name: "点赞", exact: true })).toBeVisible()
+    await expect(firstRow.getByRole("menuitem", { name: "收藏", exact: true })).toBeVisible()
+    await page.keyboard.press("Escape")
+    if (width < 1280) {
       const navigationTrigger = page.getByRole("button", { name: "打开导航" })
       await navigationTrigger.click()
       const navigation = page.getByRole("dialog", { name: "浏览社区" })
@@ -79,17 +60,12 @@ for (const width of [320, 390, 768, 1024, 1440]) {
       await page.keyboard.press("Escape")
       await expect(navigationTrigger).toBeFocused()
     } else {
-      await expect(page.locator(".left-sidebar")).toBeVisible()
-      const navigationBounds = await page.locator(".left-sidebar > .sidebar-nav").evaluateAll(elements => elements.slice(0, 2).map(element => { const rect = element.getBoundingClientRect(); return { top: rect.top, bottom: rect.bottom } }))
-      expect(navigationBounds[1].top).toBeGreaterThanOrEqual(navigationBounds[0].bottom)
-      if (width >= 1024) {
-        for (const label of await page.locator(".left-sidebar > .sidebar-nav:first-child .sidebar-link > span, .tag-filter > span").all()) {
-          expect(await label.evaluate(element => { const range = document.createRange(); range.selectNodeContents(element); return range.getClientRects().length })).toBe(1)
-        }
-      }
-      await expect(page.locator(".mobile-navigation")).toBeHidden()
+      await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible()
     }
-    if (width < 1280) await expect(page.locator(".right-sidebar")).toBeHidden()
+    await expect(page.locator(".left-sidebar")).toHaveCount(0)
+    if (width < 768) await expect(page.locator(".mobile-navigation")).toBeVisible()
+    else await expect(page.locator(".mobile-navigation")).toBeHidden()
+    if (width < 1024) await expect(page.locator(".right-sidebar")).toBeHidden()
     else await expect(page.locator(".right-sidebar")).toBeVisible()
     await assertNoHorizontalOverflow(page)
     await page.screenshot({ path: testInfo.outputPath(`home-${width}.png`), fullPage: true })
@@ -106,7 +82,9 @@ test("home keeps contrast, focus and layout across existing theme presets", asyn
     expect(result.violations, JSON.stringify(result.violations)).toEqual([])
     await assertNoHorizontalOverflow(page)
   }
-  await page.getByRole("button", { name: "切换深色模式" }).click()
+  if ((page.viewportSize()?.width ?? 0) < 768) await page.getByRole("button", { name: "打开导航" }).click()
+  await page.getByRole("button", { name: "切换深色模式" }).filter({ visible: true }).click()
+  if ((page.viewportSize()?.width ?? 0) < 768) await page.keyboard.press("Escape")
   const darkResult = await new AxeBuilder({ page }).analyze()
   expect(darkResult.violations, JSON.stringify(darkResult.violations)).toEqual([])
   const title = page.locator(".topic-list .topic-title").first()
@@ -117,20 +95,21 @@ test("home keeps contrast, focus and layout across existing theme presets", asyn
 })
 
 for (const count of [1, 2, 3]) {
-  test(`renders ${count} square previews without empty columns and opens the viewer`, async ({ page }) => {
+  test(`preserves ${count} profile previews without empty columns and opens the viewer`, async ({ page }) => {
     await mockPublicApi(page)
     const images = Array.from({ length: count }, (_, index) => `https://cdn.example.com/preview-${index}.svg`)
     await page.route("https://cdn.example.com/preview-*.svg", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#dbeafe"/></svg>' }))
-    await page.route("**/api/v1/feed?**", route => route.fulfill({ json: { data: [{ ...publicTopicFixture, image_urls: images, image_url: images[0], visible_image_count: images.length }], meta: { request_id: requestId, next_cursor: null } } }))
-    await page.goto("/#hot")
+    await page.route("**/api/v1/topics?author=quality_author*", route => route.fulfill({ json: { data: [{ ...publicTopicFixture, image_urls: images, image_url: images[0], visible_image_count: images.length }], meta: { request_id: requestId, next_cursor: null } } }))
+    await page.goto("/#user/quality_author")
     const preview = page.locator(".topic-list .topic-cover")
     await expect(preview.locator("img")).toHaveCount(count)
     const columns = await preview.evaluate(element => getComputedStyle(element).gridTemplateColumns.split(/\s+/).length)
     expect(columns).toBe(count)
     for (const image of await preview.locator("img").all()) {
       const bounds = await image.boundingBox()
-      expect(Math.abs(bounds!.width - bounds!.height)).toBeLessThanOrEqual(1)
-      if (count === 1) expect(bounds!.width).toBeLessThanOrEqual(240)
+      expect(bounds!.width).toBeGreaterThan(0)
+      expect(bounds!.height).toBeGreaterThan(0)
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
     }
     const trigger = preview.getByRole("button", { name: "查看第 1 张图片" })
     await trigger.click()
@@ -141,14 +120,14 @@ for (const count of [1, 2, 3]) {
   })
 }
 
-test("theme switching keeps active navigation readable on every frame",async({page})=>{
+test("theme switching keeps navigation and list text readable on every frame",async({page})=>{
   await page.setViewportSize({width:1440,height:900})
   await mockPublicApi(page)
   await page.goto("/#hot")
   await expect(page.locator(".topic-list > .topic-row")).toHaveCount(6)
   await page.evaluate(()=>{document.documentElement.dataset.brandPreset="high_contrast"})
   await page.getByRole("button",{name:"切换深色模式"}).click()
-  const ratios=await page.locator(".sidebar-link--active").evaluate(async element=>{
+  const ratios=await page.locator(".header-primary-nav > a[aria-current=page]").evaluate(async element=>{
     const canvas=document.createElement("canvas")
     canvas.width=canvas.height=1
     const context=canvas.getContext("2d",{willReadFrequently:true})!
@@ -162,12 +141,20 @@ test("theme switching keeps active navigation readable on every frame",async({pa
       })
       return channels[0]*0.2126+channels[1]*0.7152+channels[2]*0.0722
     }
+    const row=document.querySelector(".topic-list > .topic-row")!
+    const pairs=[
+      [element,document.querySelector(".site-header")!],
+      [row.querySelector(".topic-title h2")!,row],
+      [row.querySelector(".topic-list-meta a")!,row],
+    ]
     const ratios:number[]=[]
     const start=performance.now()
     while(performance.now()-start<200){
-      const style=getComputedStyle(element)
-      const foreground=luminance(style.color),background=luminance(style.backgroundColor)
-      ratios.push((Math.max(foreground,background)+0.05)/(Math.min(foreground,background)+0.05))
+      for(const [textElement,backgroundElement] of pairs){
+        const foreground=luminance(getComputedStyle(textElement).color)
+        const background=luminance(getComputedStyle(backgroundElement).backgroundColor)
+        ratios.push((Math.max(foreground,background)+0.05)/(Math.min(foreground,background)+0.05))
+      }
       await new Promise(requestAnimationFrame)
     }
     return ratios

@@ -7,7 +7,7 @@ import { SiteHeader } from "./SiteHeader"
 afterEach(cleanup)
 
 describe("SiteHeader search", () => {
-  it("keeps search and publishing in the header without duplicating primary navigation", () => {
+  it("shares screenshot navigation with every public page", () => {
     render(
       <SiteHeader
         siteName="刀云"
@@ -31,7 +31,10 @@ describe("SiteHeader search", () => {
       />,
     )
 
-    expect(screen.queryByRole("navigation", { name: "主导航" })).not.toBeInTheDocument()
+    const nav = screen.getByRole("navigation", { name: "主导航" })
+    expect(within(nav).getAllByRole("link").slice(0, 6).map(link => link.textContent)).toEqual(["首页", "社区", "交易", "中介", "发现", "活动"])
+    expect(within(nav).getByRole("link", { name: "社区" })).toHaveAttribute("href", "#boards")
+    expect(within(nav).getByRole("button", { name: "更多" })).toBeInTheDocument()
     expect(screen.getByRole("searchbox", { name: "搜索社区内容" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "从顶部发布新主题" })).toBeInTheDocument()
   })
@@ -228,4 +231,49 @@ describe("SiteHeader search", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     expect(trigger).toHaveFocus()
   })
+  it.each([
+    ["#hot", "首页"], ["#feed", "首页"], ["#active", "首页"], ["#following", "首页"],
+    ["#featured", "发现"], ["#boards?q=Rust", "社区"],
+    ["#board/engineering?sort=active", "社区"], ["#topic/example", "社区"],
+    ["#boards?q=" + encodeURIComponent("交易"), "交易"],
+  ])("keeps %s selected in both public navigation layouts", async (hash, label) => {
+    const user = userEvent.setup()
+    render(publicHeader(hash))
+    const nav = screen.getByRole("navigation", { name: "主导航" })
+    expect(within(nav).getByRole("link", { name: label })).toHaveAttribute("aria-current", "page")
+    expect(nav.querySelectorAll('[aria-current="page"]')).toHaveLength(1)
+    await user.click(screen.getByRole("button", { name: "打开导航" }))
+    const drawer = screen.getByRole("dialog", { name: "浏览社区" })
+    expect(within(drawer).getByRole("link", { name: label })).toHaveAttribute("aria-current", "page")
+    expect(drawer.querySelectorAll('[aria-current="page"]')).toHaveLength(1)
+  })
+
+  it("dismisses desktop more on outside pointer, focus departure and route changes", async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(publicHeader())
+    const trigger = screen.getByRole("button", { name: "更多" })
+    const details = trigger.closest("details")!
+    await user.click(trigger)
+    expect(details.open).toBe(true)
+    fireEvent.pointerDown(screen.getByRole("searchbox", { name: "搜索社区内容" }))
+    expect(details.open).toBe(false)
+    await user.click(trigger)
+    within(details).getByRole("link", { name: "私信" }).focus()
+    await user.tab()
+    expect(details.open).toBe(false)
+    await user.click(trigger)
+    within(details).getByRole("link", { name: "私信" }).focus()
+    await user.keyboard("{Escape}")
+    expect(details.open).toBe(false)
+    expect(trigger).toHaveFocus()
+    await user.click(trigger)
+    rerender(publicHeader("#boards"))
+    expect(details.open).toBe(false)
+  })
+
 })
+
+
+function publicHeader(currentHash = "#hot") {
+  return <SiteHeader currentHash={currentHash} siteName="刀云" logoUrl={null} darkMode={false} query="" onQueryChange={vi.fn()} onClearQuery={vi.fn()} onCompose={vi.fn()} onToggleTheme={vi.fn()} session={null} onOpenAuth={vi.fn()} onLogout={vi.fn()} authPending={false} notificationsUnread={0} onOpenNotifications={vi.fn()} systemAdminAccess="denied" managementAccess="denied" />
+}

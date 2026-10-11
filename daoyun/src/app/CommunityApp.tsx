@@ -12,13 +12,12 @@ import { listModerationBoards } from "../api/moderation"
 import type { ConversationSummary } from "../api/messages"
 import { getUnreadNotificationCount, markNotificationRead } from "../api/notifications"
 import type { Notification } from "../api/notifications"
-import { getCurrentExperience, listGrowthLevels, loadMembershipCenterData } from "../api/membership"
+import { loadMembershipCenterData } from "../api/membership"
 import { setPostLike, setTopicBookmark } from "../api/relations"
 import { listTags, listTopics } from "../api/topics"
 import { listUsers } from "../api/users"
 import type { UserSummary } from "../api/users"
 import { FeedTabs } from "../components/FeedTabs"
-import { LeftSidebar } from "../components/LeftSidebar"
 import { MobileNavigation } from "../components/MobileNavigation"
 import { RightSidebar } from "../components/RightSidebar"
 import { SiteFooter } from "../components/SiteFooter"
@@ -26,7 +25,8 @@ import { SiteHeader } from "../components/SiteHeader"
 import { TopicFeed } from "../components/TopicFeed"
 import type { BoardPageState } from "../features/boards/BoardPage"
 import type { BoardTopicSort } from "../features/boards/BoardTopicFeed"
-import type { MembershipSectionData, MembershipExperience } from "../features/membership/membershipTypes"
+import type { MembershipSectionData } from "../features/membership/membershipTypes"
+import { useHomeProfile } from "../features/feed/useHomeProfile"
 import { useFeedScrollRestoration } from "../features/feed/useFeedScrollRestoration"
 import { useSearchParams } from "../features/search/useSearchParams"
 import { useTopicFeed } from "../features/search/useTopicFeed"
@@ -108,6 +108,11 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   const [authLoadStatus, setAuthLoadStatus] = useState<AuthLoadStatus>("loading")
   const [authRequestVersion, setAuthRequestVersion] = useState(0)
   const [authPanelOpen, setAuthPanelOpen] = useState(false)
+  const [authPanelMode, setAuthPanelMode] = useState<"login" | "register">("login")
+  function openAuth(mode: "login" | "register" = "login") {
+    setAuthPanelMode(mode)
+    setAuthPanelOpen(true)
+  }
   const [systemAdminAccess, setSystemAdminAccess] = useState<AdminAccess>("unknown")
   const [managementAccess, setManagementAccess] = useState<AdminAccess>("unknown")
   const [notificationsUnread, setNotificationsUnread] = useState<number | null>(null)
@@ -132,7 +137,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
   const [membershipLoadedKey, setMembershipLoadedKey] = useState("")
   const memberTab = route.kind === "member" ? route.tab : null
   const membershipKey = `${authSession?.user.id ?? "guest"}:${memberTab}`
-  const [homeMembershipExperience, setHomeMembershipExperience] = useState<MembershipExperience | null>(null)
+  const homeProfile = useHomeProfile(authSession?.user.username ?? null, authSession?.csrfToken ?? "guest", route.kind === "feed" && authLoadStatus === "ready")
   const searchParams = useSearchParams(route, navigate)
   const searchingTopics = route.kind === "search"
     && Boolean(route.query || Object.keys(route.filters??{}).length)
@@ -228,27 +233,6 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
     })
     return () => controller.abort()
   }, [authLoadStatus, authSession, membershipRequestVersion, route.kind, memberTab, membershipKey])
-
-  useEffect(() => {
-    if (route.kind !== "feed" || authLoadStatus !== "ready" || !authSession) {
-      setHomeMembershipExperience(null)
-      return
-    }
-    const controller = new AbortController()
-    Promise.all([
-      getCurrentExperience(controller.signal),
-      listGrowthLevels(controller.signal),
-    ]).then(([account, levels]) => {
-      if (controller.signal.aborted) return
-      const nextLevel = levels
-        .filter((level) => level.requiredExperience > account.experience)
-        .sort((left, right) => left.requiredExperience - right.requiredExperience)[0] ?? null
-      setHomeMembershipExperience({ experience: account.experience, level: account.currentLevel, nextLevel })
-    }).catch(() => {
-      if (!controller.signal.aborted) setHomeMembershipExperience(null)
-    })
-    return () => controller.abort()
-  }, [authLoadStatus, authSession, route.kind])
 
   useEffect(() => {
     if (route.kind !== "search" || !route.query || (route.scope !== "all" && route.scope !== "users")) {
@@ -646,7 +630,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
 
   async function handleTopicBookmark(topicId: string) {
     if (!authSession) {
-      setAuthPanelOpen(true)
+      openAuth()
       return
     }
     if (bookmarkControllersRef.current.has(topicId)) return
@@ -677,7 +661,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
 
   async function handleTopicLike(topicId: string) {
     if (!authSession) {
-      setAuthPanelOpen(true)
+      openAuth()
       return
     }
     if (likePendingIds.has(topicId)) return
@@ -781,7 +765,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
       focusReplyId={selectedReplyId}
       session={authSession}
       onBack={closeMainView}
-      onLogin={() => setAuthPanelOpen(true)}
+      onLogin={() => openAuth()}
       onReplyPublished={handleReplyPublished}
       onReplyDeleted={handleReplyDeleted}
       onTopicUpdated={handleTopicUpdated}
@@ -793,7 +777,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
       username={selectedUsername}
       session={authSession}
       onBack={closeMainView}
-      onLogin={() => setAuthPanelOpen(true)}
+      onLogin={() => openAuth()}
       onOpenTopic={openTopic}
       onOpenConversation={(conversation) => openConversation(conversation.id, conversation)}
       onBookmarkChanged={applyTopicBookmark}
@@ -805,7 +789,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
     <BookmarksView
       session={authSession}
       onBack={closeMainView}
-      onLogin={() => setAuthPanelOpen(true)}
+      onLogin={() => openAuth()}
       onOpenTopic={openTopic}
       onBookmarkChanged={applyTopicBookmark}
     />
@@ -813,7 +797,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
     <NotificationsView
       session={authSession}
       onBack={closeMainView}
-      onLogin={() => setAuthPanelOpen(true)}
+      onLogin={() => openAuth()}
       onOpenTarget={openNotificationTarget}
       globalUnreadCount={notificationsUnread}
       onUnreadRequest={() => ++notificationCountVersion.current}
@@ -827,7 +811,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
       initialConversationOwnerId={initialConversation?.ownerId ?? null}
       onSelectConversation={openConversation}
       onBack={closeMainView}
-      onLogin={() => setAuthPanelOpen(true)}
+      onLogin={() => openAuth()}
     />
   ) : route.kind === "search" ? (
     <SearchPage
@@ -866,7 +850,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
       status={authLoadStatus === "error" ? "error" : membershipLoadedKey === membershipKey && authLoadStatus === "ready" ? membershipStatus : "loading"}
       onTabChange={(tab) => navigate({ kind: "member", tab })}
       onRetry={() => {
-        if (!authSession) setAuthPanelOpen(true)
+        if (!authSession) openAuth()
         else setMembershipRequestVersion((version) => version + 1)
       }}
     />
@@ -920,7 +904,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
         onCompose={() => openComposer()}
         onOpenTopic={openTopic}
         authenticated={Boolean(authSession)}
-        onLogin={() => setAuthPanelOpen(true)}
+        onLogin={() => openAuth()}
         onToggleBookmark={handleTopicBookmark}
         bookmarkPendingIds={bookmarkPendingIds}
         onToggleLike={handleTopicLike}
@@ -948,6 +932,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
       header={(
         <SiteHeader
           navigationLinks={branding?.navigationLinks ?? []}
+          currentHash={formatRoute(route)}
           siteName={branding?.siteName ?? "刀云"}
           logoUrl={branding?.logoUrl ?? null}
           darkMode={theme === "dark"}
@@ -964,7 +949,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
           onToggleTheme={toggleTheme}
           session={authSession}
           authPending={authLoadStatus === "loading"}
-          onOpenAuth={() => setAuthPanelOpen(true)}
+          onOpenAuth={() => openAuth()}
           onLogout={handleLogout}
           notificationsUnread={notificationsUnread ?? 0}
           onOpenNotifications={openNotifications}
@@ -980,16 +965,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
           </button>
         </div>
       ) : null}
-      leftSidebar={(
-        <LeftSidebar
-          boards={boards}
-          loadStatus={boardLoadStatus}
-          onRetry={() => setBoardRequestVersion((version) => version + 1)}
-          navigationLinks={branding?.navigationLinks ?? []}
-          active={primaryNavigationActive(route)}
-          activeBoardSlug={route.kind === "board" ? route.slug : route.kind === "topic" ? topicDetailSidebarTopic?.boardSlug : undefined}
-        />
-      )}
+      leftSidebar={null}
       main={main}
       rightSidebar={(
         <RightSidebar
@@ -1000,9 +976,17 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
           currentBoard={boardPageState.kind === "ready" ? boardPageState.board : undefined}
           currentTopic={topicDetailSidebarTopic}
           session={authSession}
-          membershipExperience={homeMembershipExperience}
+          membershipExperience={homeProfile.data?.experience}
+          homeProfile={homeProfile.data}
+          profileLoading={homeProfile.loading}
+          profileErrors={homeProfile.errors}
+          onRetryProfile={homeProfile.retry}
+          boardLoadStatus={boardLoadStatus}
+          onRetryBoards={() => setBoardRequestVersion(version => version + 1)}
+          onRegister={() => openAuth("register")}
+          siteName={branding?.siteName ?? "刀云"}
           onCompose={() => openComposer()}
-          onLogin={() => setAuthPanelOpen(true)}
+          onLogin={() => openAuth()}
           onOpenTopic={openTopic}
         />
       )}
@@ -1018,7 +1002,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
           onCompose={() => openComposer(boardPageState.kind === "ready" ? boardPageState.board.id : null)}
           showCompose={route.kind !== "board" || (boardPageState.kind === "ready" && boardPageState.board.viewer.canCreateTopic)}
           sessionUsername={authSession?.user.username ?? null}
-          onLogin={() => setAuthPanelOpen(true)}
+          onLogin={() => openAuth()}
           active={mobileNavigationActive(route)}
         />
       )}
@@ -1031,7 +1015,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
               session={authSession}
               suspended={authPanelOpen}
               onSessionExpired={handleComposerSessionExpired}
-              onLogin={() => setAuthPanelOpen(true)}
+              onLogin={() => openAuth()}
               availableTags={availableTags}
               defaultBoardId={composerBoardId}
               onClose={() => { setComposerOpen(false); setComposerBoardId(null) }}
@@ -1041,7 +1025,7 @@ export function CommunityApp({ route, navigate }: CommunityAppProps) {
           {authPanelOpen && <Suspense fallback={null}>
             <AuthPanel
               open
-              mode="login"
+              mode={authPanelMode}
               onClose={() => setAuthPanelOpen(false)}
               onAuthenticated={handleAuthenticated}
             />
@@ -1071,14 +1055,6 @@ function sameBackableView(left: CommunityPageRoute, right: CommunityPageRoute): 
   if (left.kind === "messages" && right.kind === "messages") return true
   return left.kind === "bookmarks" || left.kind === "notifications"
 }
-
-function primaryNavigationActive(route: CommunityPageRoute) {
-  if (route.kind === "board" || route.kind === "boardIndex" || route.kind === "topic") return "community" as const
-  if (route.kind === "bookmarks") return "bookmarks" as const
-  if (route.kind === "feed") return route.feed === "following" ? "following" as const : "home" as const
-  return "none" as const
-}
-
 
 function mobileNavigationActive(route: CommunityPageRoute) {
   if (route.kind === "board" || route.kind === "boardIndex" || route.kind === "topic") return "community" as const

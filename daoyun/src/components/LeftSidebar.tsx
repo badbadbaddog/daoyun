@@ -1,4 +1,4 @@
-import { Aperture, BarChart3, Bookmark, Code2, Compass, Home, LayoutGrid, MessageSquareText, RefreshCw } from "lucide-react"
+import { Aperture, BarChart3, Bookmark, Code2, Compass, Home, LayoutGrid, MessageSquareText, Plus, RefreshCw } from "lucide-react"
 
 import type { BrandLink } from "../api/admin"
 import type { Board } from "../types/community"
@@ -95,6 +95,8 @@ export function LeftSidebar({ boards, loadStatus, onRetry, navigationLinks, acti
           )
         })}
       </nav>
+
+      <a className="sidebar-link sidebar-link--discover" href="#boards"><Plus size={18} aria-hidden="true" /><span>发现更多社区</span></a>
 
       <div className="sidebar-footer">
         <a href="#guidelines">社区准则</a>

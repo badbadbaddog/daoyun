@@ -89,8 +89,8 @@ for (const width of acceptanceWidths) {
 
     await page.goto("/")
     await expect(page.getByText("一条关于 Rust 的主题").first()).toBeVisible()
-    await expect(page.locator('[data-layout="media"]').first()).toBeVisible()
-    await expect(page.locator('[data-layout="discussion"]').first()).toBeVisible()
+    await expect(page.locator('.topic-row--list')).toHaveCount(6)
+    await expect(page.locator('.topic-list .topic-cover')).toHaveCount(0)
     await assertNoHorizontalOverflow(page)
 
     const defaultDesktopLayout = width >= 1280 ? await page.evaluate(() => {
@@ -108,7 +108,7 @@ for (const width of acceptanceWidths) {
     if (width < 768) {
       await expect(page.locator(".tag-filter")).toHaveCSS("display", "none")
       await expect(page.locator(".mobile-compose")).toHaveCSS("display", "none")
-      await expect(page.locator(".composer-prompt")).toHaveCSS("display", "none")
+      await expect(page.locator(".composer-prompt")).toHaveCount(0)
       const feedHeadingStyles = await page.locator(".feed-heading-copy").evaluate((element) => {
         const styles = window.getComputedStyle(element)
         return {
@@ -126,14 +126,13 @@ for (const width of acceptanceWidths) {
       })
     }
 
+    await expect(page.locator(".left-sidebar")).toHaveCount(0)
     if (width < 768) {
       await expect(page.locator(".mobile-navigation")).toBeVisible()
-      await expect(page.locator(".left-sidebar")).toBeHidden()
     } else {
       await expect(page.locator(".mobile-navigation")).toBeHidden()
-      await expect(page.locator(".left-sidebar")).toBeVisible()
     }
-    if (width < 1280) {
+    if (width < 1024) {
       await expect(page.locator(".right-sidebar")).toBeHidden()
     } else {
       await expect(page.locator(".right-sidebar")).toBeVisible()
@@ -236,7 +235,7 @@ for (const width of acceptanceWidths) {
       expect(boardDesktopLayout).toEqual(defaultDesktopLayout)
     }
     await expect(page.locator(".right-sidebar--board-detail"))
-      .toHaveCSS("display", width >= 1280 ? "flex" : "none")
+      .toHaveCSS("display", width >= 1024 ? "grid" : "none")
     await assertNoHorizontalOverflow(page)
 
     if (width === 390 || width === 1440) {
@@ -255,8 +254,8 @@ for (const width of acceptanceWidths) {
     await expect(page.locator('.reply-list > li[data-reply-level="1"]')).toHaveCount(1)
     await expect(page.getByText("引用 #1")).toBeVisible()
     await expect(page.locator(".right-sidebar--topic-detail"))
-      .toHaveCSS("display", width >= 1280 ? "flex" : "none")
-    if (width >= 1280) {
+      .toHaveCSS("display", width >= 1024 ? "grid" : "none")
+    if (width >= 1024) {
       await expect(page.getByRole("complementary", { name: "帖子相关信息" })).toContainText("质量作者")
       await expect(page.getByRole("heading", { name: "相关版块" })).toBeVisible()
     }

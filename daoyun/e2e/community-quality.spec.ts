@@ -17,10 +17,19 @@ test.describe("public community quality", () => {
     await mockPublicApi(page)
     await page.goto("/")
     await expect(page.getByText("一条关于 Rust 的主题").first()).toBeVisible()
-    await expect(page.locator(".sidebar-nav--custom a", { hasText: "质量文档" })).toHaveAttribute("href", "#quality-docs")
+    if ((page.viewportSize()?.width ?? 0) >= 1280) {
+      await page.getByRole("button", { name: "更多", exact: true }).click()
+      await expect(page.locator(".header-more__links").getByRole("link", { name: "质量文档" })).toHaveAttribute("href", "#quality-docs")
+      await page.keyboard.press("Escape")
+    } else {
+      await page.getByRole("button", { name: "打开导航" }).click()
+      await expect(page.getByRole("dialog", { name: "浏览社区" }).getByRole("link", { name: "质量文档" })).toHaveAttribute("href", "#quality-docs")
+      await page.keyboard.press("Escape")
+    }
     await expect(page.getByText("质量回归页脚")).toBeVisible()
     await expect(page.getByRole("link", { name: "隐私说明" })).toHaveAttribute("href", "#privacy")
-    await expect(page.locator(".topic-cover img").first()).toHaveAttribute("src", "https://cdn.example.com/quality-cover.webp")
+    await expect(page.locator(".topic-row--list")).toHaveCount(6)
+    await expect(page.locator(".topic-cover img")).toHaveCount(0)
     await assertNoHorizontalOverflow(page)
 
     const accessibility = await new AxeBuilder({ page }).analyze()

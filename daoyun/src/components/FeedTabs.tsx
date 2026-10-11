@@ -2,8 +2,10 @@ import type { FeedFilter } from "../types/community"
 
 const tabs: Array<{ id: FeedFilter; label: string }> = [
   { id: "hot", label: "推荐" },
-  { id: "following", label: "关注" },
   { id: "latest", label: "最新" },
+  { id: "active", label: "热门" },
+  { id: "featured", label: "精华" },
+  { id: "following", label: "关注" },
 ]
 
 interface FeedTabsProps {

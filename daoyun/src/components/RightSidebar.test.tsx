@@ -6,6 +6,17 @@ import { RightSidebar } from "./RightSidebar"
 afterEach(cleanup)
 
 describe("RightSidebar home", () => {
+  it("provides registration, real board ranks, and working community shortcuts for guests", () => {
+    render(<RightSidebar variant="home" session={null} topics={[]} boards={[{ id: "board", parentId: null, slug: "general", name: "技术交流", description: "", icon: "messages", tone: "blue", position: 1, depth: 0, childCount: 0, topicCount: 123 }]} onCompose={vi.fn()} onLogin={vi.fn()} onOpenTopic={vi.fn()} />)
+    expect(screen.getByRole("button", { name: "立即注册" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "热门版块" })).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /技术交流/ })).toHaveAttribute("href", "#board/general")
+    expect(screen.getByRole("link", { name: /浏览社区/ })).toHaveAttribute("href", "#boards")
+    expect(screen.getByRole("link", { name: /交易市场/ })).toHaveAttribute("href", "#boards?q=%E4%BA%A4%E6%98%93")
+    expect(screen.getByRole("heading", { name: "交易市场" })).toBeInTheDocument()
+    expect(screen.getByText("暂无交易主题")).toBeInTheDocument()
+  })
+
   it("keeps the signed-in member summary and compose action visible", () => {
     render(
       <RightSidebar
@@ -39,7 +50,7 @@ describe("RightSidebar home", () => {
       />,
     )
 
-    expect(screen.getByRole("heading", { name: "你好，北岛" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "北岛" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "发布主题" })).toBeInTheDocument()
     expect(screen.queryByRole("heading", { name: "活跃版块" })).not.toBeInTheDocument()
   })
@@ -89,7 +100,7 @@ describe("RightSidebar home", () => {
     )
 
     expect(screen.getByText("Lv.3")).toHaveAccessibleName("成长等级：行者")
-    expect(screen.getByText("220 / 340")).toBeInTheDocument()
+    expect(screen.getByText(/220 \/ 340/)).toBeInTheDocument()
     expect(screen.getByRole("progressbar", { name: "成长等级进度" })).toHaveAttribute("value", "80")
     expect(screen.getByRole("progressbar", { name: "成长等级进度" })).toHaveAttribute("max", "200")
   })
@@ -218,4 +229,14 @@ it("does not present two loaded own topics as global personal totals", () => {
   expect(screen.queryByText("收到回复")).not.toBeInTheDocument()
   expect(screen.queryByText("获得喜欢")).not.toBeInTheDocument()
   expect(screen.getByRole("button", { name: "发布主题" })).toBeInTheDocument()
+})
+
+it.each(["ctrlKey", "metaKey", "shiftKey", "altKey"])("keeps native %s clicks on sidebar topic links", modifier => {
+  const onOpenTopic = vi.fn()
+  const topic = { id: "019fc700-0000-7000-8000-000000000020", title: "原生链接测试", excerpt: "内容", board: "社区广场", boardSlug: "general", boardTone: "blue" as const, authorId: "019fc700-0000-7000-8000-000000000004", authorUsername: "member", author: "北岛", avatarUrl: null, publishedAt: "刚刚", replies: 2, likes: 1, views: 10, bookmarked: false, liked: false, tags: [] }
+  render(<RightSidebar variant="home" topics={[{ ...topic, boardSlug: "market" }]} boards={[{ id: "market", parentId: null, slug: "market", name: "交易市场", description: "", icon: "messages", tone: "blue", position: 1, depth: 0, childCount: 0, topicCount: 1 }]} session={null} onCompose={vi.fn()} onLogin={vi.fn()} onOpenTopic={onOpenTopic} />)
+  const event = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, [modifier]: true })
+  screen.getByRole("link", { name: topic.title }).dispatchEvent(event)
+  expect(event.defaultPrevented).toBe(false)
+  expect(onOpenTopic).not.toHaveBeenCalled()
 })

@@ -306,7 +306,7 @@ describe("TopicRow", () => {
     expect(onOpen).toHaveBeenCalledWith(topic.id)
   })
 
-  it.each([undefined, "/cover.webp"])("keeps like, reply and bookmark in one action row without view counts (cover: %s)", async (imageUrl) => {
+  it.each([undefined, "/cover.webp"])("keeps like, reply and bookmark in one action row with read-only view counts (cover: %s)", async (imageUrl) => {
     const onOpen = vi.fn()
     render(<TopicRow topic={{ ...topic, imageUrl }} onOpen={onOpen} onToggleLike={vi.fn()} onToggleBookmark={vi.fn()} statsPlacement="footer" bookmarkPending={false} />)
     const actions = screen.getByRole("group", { name: "主题操作" })
@@ -316,7 +316,7 @@ describe("TopicRow", () => {
         `回复主题：${topic.title}`,
         `取消收藏主题：${topic.title}`,
       ])
-    expect(screen.queryByTitle(`${topic.views} 次浏览`)).not.toBeInTheDocument()
+    expect(screen.getByTitle(`${topic.views} 次浏览`)).toHaveTextContent(String(topic.views))
     await userEvent.setup().click(within(actions).getByRole("link", { name: `回复主题：${topic.title}` }))
     expect(onOpen).toHaveBeenCalledOnce()
   })
@@ -397,3 +397,23 @@ it("keeps the authorized thumbnail endpoint when opening a preview", async () =>
   await userEvent.setup().click(screen.getByRole("button", { name: "查看第 1 张图片" }));
   expect(within(screen.getByRole("dialog")).getByRole("img")).toHaveAttribute("src", thumbnail);
 });
+
+it("places tags after authorized images and adapts a non-wide single image beside its body", () => {
+  const { container } = render(<TopicRow topic={{ ...topic, imageUrl: "/square.png", tags: [{ slug: "design", name: "设计" }] }} bookmarkPending={false} />)
+  const image = container.querySelector(".topic-cover img")!
+  Object.defineProperties(image, { naturalWidth: { value: 800 }, naturalHeight: { value: 800 } })
+  fireEvent.load(image)
+  expect(screen.getByRole("article")).toHaveAttribute("data-media-layout", "thumbnail")
+  expect(container.querySelector(".topic-cover")!.compareDocumentPosition(screen.getByText("#设计")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+it.each([0, 1, 2, 3])("keeps the same identity and actions for a %i-image card without inventing media", count => {
+  const urls = Array.from({ length: count }, (_, i) => "/image-" + i + ".png")
+  const { container } = render(<TopicRow topic={{ ...topic, imageUrl: undefined, imageUrls: urls, visibleImageCount: count }} onToggleBookmark={vi.fn()} onToggleLike={vi.fn()} bookmarkPending={false} />)
+  expect(screen.getByRole("article")).toHaveAttribute("data-media-count", String(count))
+  expect(container.querySelectorAll(".topic-image-trigger")).toHaveLength(count)
+  expect(screen.getByRole("link", { name: topic.author })).toBeInTheDocument()
+  expect(screen.getByRole("group", { name: "主题操作" })).toBeInTheDocument()
+  expect(screen.getByTitle(topic.views + " 次浏览")).toBeInTheDocument()
+  if (count === 0) expect(screen.queryByRole("group", { name: "帖子图片预览" })).not.toBeInTheDocument()
+})

@@ -38,7 +38,7 @@ async function capture(page: Page, info: TestInfo, name: string, selector: strin
 function topicId(row: { id: string }) { return row.id }
 function publicRow(page: Page, id: string) { return page.locator(".topic-list > .topic-row").filter({ has: page.locator('a[href="#topic/' + id + '"]') }) }
 
-test("previews the first three authorized images of nine and keeps one-column square cards", async ({ page, playwright }, info) => {
+test("keeps authorized media private to detail views while rendering compact home rows", async ({ page, playwright }, info) => {
   const admin = await playwright.request.newContext({ baseURL: process.env.DAOYUN_WEB_URL })
   const errors: string[] = []
   page.on("pageerror", error => errors.push(error.message))
@@ -69,33 +69,22 @@ test("previews the first three authorized images of nine and keeps one-column sq
     expect(ownerDetail.visible_image_count).toBe(9)
     await page.goto("/#hot")
     for (const row of topics) await expect(publicRow(page, row.id)).toBeVisible()
-    expect(await publicRow(page, topics[0].id).locator(".topic-cover").count()).toBe(0)
-    const row = publicRow(page, topics[3].id)
-    await expect(row.locator(".topic-cover img")).toHaveCount(3)
-    expect(await row.locator(".topic-cover img").evaluateAll(images => images.map(image => image.getAttribute("src")))).toEqual(allowed.slice(0,3))
-    await expect(row.getByText("+3", { exact: true })).toBeVisible()
     for (const width of [320,390,768,1024,1440]) {
       await page.setViewportSize({ width, height: 900 })
       const list = page.locator(".topic-list").first()
       expect(await list.evaluate(element => getComputedStyle(element).gridTemplateColumns.split(/\s+/).length)).toBe(1)
-      for (let index = 1; index < 4; index++) {
-        const card = publicRow(page, topics[index].id)
-        const boxes = await card.locator(".topic-cover img").evaluateAll(images => images.map(image => { const box = image.getBoundingClientRect(); return { width: box.width, height: box.height } }))
-        expect(boxes.length).toBe(index === 3 ? 3 : index)
-        for (const box of boxes) expect(Math.abs(box.width - box.height)).toBeLessThan(2)
-        expect(await card.locator(".topic-stats > *").evaluateAll(items => items.map(item => item.getAttribute("title")))).toEqual(["点赞","0 条回复","收藏"])
+      for (const topic of topics) {
+        const row = publicRow(page, topic.id)
+        await expect(row).toHaveAttribute("data-variant", "list")
+        await expect(row.locator(".topic-cover, .topic-excerpt")).toHaveCount(0)
+        await expect(row.locator(".topic-list-avatar")).toBeVisible()
+        await expect(row.locator(".topic-list-meta")).toBeVisible()
+        await expect(row.getByRole("group", { name: "主题统计" })).toBeVisible()
       }
       await assertNoHorizontalOverflow(page)
       if (width === 320 || width === 1440) expect((await new AxeBuilder({ page }).include(".topic-list").withTags(["wcag2a","wcag2aa","wcag21aa"]).analyze()).violations).toEqual([])
-      await page.screenshot({ path: info.outputPath("public-cards-" + width + ".png"), fullPage: true })
+      await page.screenshot({ path: info.outputPath("public-list-" + width + ".png"), fullPage: true })
     }
-    await row.getByRole("button", { name: "查看第 3 张图片", exact: true }).click()
-    const viewer = page.getByRole("dialog", { name: "图片预览" })
-    await expect(viewer.getByText("3 / 6", { exact: true })).toBeVisible()
-    await page.keyboard.press("ArrowRight")
-    await expect(viewer.getByText("4 / 6", { exact: true })).toBeVisible()
-    await expect(viewer.getByRole("img")).toHaveAttribute("src", allowed[3])
-    await page.keyboard.press("Escape")
     expect(errors).toEqual([])
     await writeFile(info.outputPath("media-evidence.json"), JSON.stringify({ topicIds: topics.map(topicId), nineOrdered: nine, anonymousAllowed: allowed, preview: summary.image_urls, ownerCount: ownerDetail.visible_image_count, anonymousCount: summary.visible_image_count, pageErrors: errors }, null, 2), "utf8")
   } finally { await admin.dispose() }

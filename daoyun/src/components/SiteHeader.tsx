@@ -2,6 +2,7 @@ import {
   Award,
   Bell,
   Bookmark,
+  ChevronDown,
   LoaderCircle,
   LogIn,
   LogOut,
@@ -26,8 +27,18 @@ import { BrandMark } from "./BrandMark"
 import { PublicMemberIdentity } from "./PublicMemberIdentity"
 import { UserAvatar } from "./UserAvatar"
 
+const primaryLinks = [
+  { label: "首页", href: "#hot" },
+  { label: "社区", href: "#boards" },
+  { label: "交易", href: "#boards?q=" + encodeURIComponent("交易") },
+  { label: "中介", href: "#boards?q=" + encodeURIComponent("中介") },
+  { label: "发现", href: "#featured" },
+  { label: "活动", href: "#boards?q=" + encodeURIComponent("活动") },
+]
+
 interface SiteHeaderProps {
   navigationLinks?: BrandLink[]
+  currentHash?: string
   siteName: string
   logoUrl: string | null
   darkMode: boolean
@@ -51,6 +62,7 @@ interface SiteHeaderProps {
 
 export function SiteHeader({
   navigationLinks = [],
+  currentHash = "#hot",
   siteName,
   logoUrl,
   darkMode,
@@ -73,12 +85,32 @@ export function SiteHeader({
 }: SiteHeaderProps) {
   const navigationTitleId = useId()
   const navigationTriggerRef = useRef<HTMLButtonElement>(null)
+  const moreRef = useRef<HTMLDetailsElement>(null)
   const [navigationOpen, setNavigationOpen] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const accountMenuTriggerRef = useRef<HTMLButtonElement>(null)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
+  const currentPage = currentHash.split("?")[0]
+  const activePrimaryHref = primaryLinks.find(link => link.href === currentHash)?.href
+    ?? (["#hot", "#feed", "#active", "#following"].includes(currentPage) ? "#hot"
+      : /^#(?:boards$|board\/|topic\/)/.test(currentPage) ? "#boards" : undefined)
+
+  useEffect(() => {
+    if (moreRef.current) moreRef.current.open = false
+    setNavigationOpen(false)
+  }, [currentHash])
+
+  useEffect(() => {
+    function closeMoreFromPointer(event: PointerEvent) {
+      if (event.target instanceof Node && moreRef.current?.open && !moreRef.current.contains(event.target)) {
+        moreRef.current.open = false
+      }
+    }
+    document.addEventListener("pointerdown", closeMoreFromPointer)
+    return () => document.removeEventListener("pointerdown", closeMoreFromPointer)
+  }, [])
 
   useEffect(() => {
     function focusSearch(event: KeyboardEvent) {
@@ -185,9 +217,27 @@ export function SiteHeader({
       <div className="site-header__inner">
         <a className="wordmark" href="#hot" aria-label={`${siteName}首页`}>
           <BrandMark logoUrl={logoUrl} />
-          <span className="wordmark__text">{siteName}</span>
-          <span className="wordmark__edition">社区</span>
+          <span className="wordmark__copy"><span className="wordmark__text">{siteName === "刀云" ? "DaoYun" : siteName}</span><span className="wordmark__tagline">分享生活，发现更多可能</span></span>
         </a>
+
+        <nav className="header-primary-nav" aria-label="主导航">
+          {primaryLinks.map(link => <a key={link.label} href={link.href} aria-current={activePrimaryHref === link.href ? "page" : undefined}>{link.label}</a>)}
+          <details ref={moreRef} className="header-more"
+            onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false }}
+            onKeyDown={event => {
+              if (event.key === "Escape") {
+                event.preventDefault()
+                event.currentTarget.open = false
+                event.currentTarget.querySelector("summary")?.focus()
+              }
+            }}>
+            <summary role="button" aria-label="更多">更多<ChevronDown size={14} aria-hidden="true" /></summary>
+            <div className="header-more__links" onClick={event => { if (event.target instanceof Element && event.target.closest("a")) event.currentTarget.closest("details")?.removeAttribute("open") }}>
+              <a href="#bookmarks">收藏</a><a href="#active">排行榜</a><a href="#messages">私信</a>
+              {navigationLinks.map(link => <a href={link.url} key={link.label + link.url}>{link.label}</a>)}
+            </div>
+          </details>
+        </nav>
 
         <button
           className="header-mobile-search-toggle"
@@ -211,7 +261,7 @@ export function SiteHeader({
             type="search"
             aria-label="搜索社区内容"
             aria-keyshortcuts="Control+K Meta+K"
-            placeholder="搜索内容、社区或用户"
+            placeholder="搜索帖子、用户、版块…"
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             onKeyDown={(event) => {
@@ -239,11 +289,11 @@ export function SiteHeader({
         </div>
 
         <div className="header-actions">
-          <button className="icon-button" type="button" onClick={onToggleTheme} aria-label={darkMode ? "切换浅色模式" : "切换深色模式"} title={darkMode ? "浅色模式" : "深色模式"}>
+          <button className="icon-button header-theme-toggle" type="button" onClick={onToggleTheme} aria-label={darkMode ? "切换浅色模式" : "切换深色模式"} title={darkMode ? "浅色模式" : "深色模式"}>
             {darkMode ? <Sun size={18} /> : <Moon size={18} />}
           </button>
           <button className="icon-button header-navigation-toggle" type="button" ref={navigationTriggerRef} aria-label="打开导航" title="导航" aria-haspopup="dialog" aria-expanded={navigationOpen} onClick={() => setNavigationOpen(true)}><Menu size={18} aria-hidden="true" /></button>
-          <a className="icon-button notification-button" href="#messages" aria-label="查看私信" title="私信">
+          <a className="icon-button notification-button header-messages" href="#messages" aria-label="查看私信" title="私信">
             <MessageCircle size={18} />
           </a>
           <button className="icon-button notification-button" type="button" onClick={onOpenNotifications} aria-label={notificationsUnread > 0 ? `查看通知，${notificationsUnread} 条未读` : "查看通知"} title="通知">
@@ -283,6 +333,7 @@ export function SiteHeader({
                   avatarUrl={null}
                   size="small"
                 />
+                <ChevronDown className="avatar-button__chevron" size={14} aria-hidden="true" />
                 {showAccountSummary && (
                   <span className="avatar-button__summary" aria-hidden="true">
                     <strong>{session.user.displayName}</strong>
@@ -341,9 +392,11 @@ export function SiteHeader({
         <ModalDialog titleId={navigationTitleId} className="navigation-dialog" returnFocus={navigationTriggerRef.current} onClose={() => setNavigationOpen(false)}>
           <div className="dialog-header"><h2 id={navigationTitleId}>浏览社区</h2><button className="icon-button" type="button" aria-label="关闭导航" title="关闭导航" onClick={() => setNavigationOpen(false)}><X size={18} aria-hidden="true" /></button></div>
           <nav className="navigation-dialog__links" aria-label="社区快捷导航" onClick={event => { if (event.target instanceof Element && event.target.closest("a")) setNavigationOpen(false) }}>
-            <a href="#hot">首页</a><a href="#boards">社区</a><a href="#bookmarks">收藏</a><a href="#featured">发现</a><a href="#active">排行榜</a>
+            {primaryLinks.map(link => <a key={link.label} href={link.href} aria-current={activePrimaryHref === link.href ? "page" : undefined}>{link.label}</a>)}
+            <a href="#bookmarks">收藏</a><a href="#active">排行榜</a>
             {navigationLinks.map(link => <a href={link.url} key={`${link.label}-${link.url}`}>{link.label}</a>)}
           </nav>
+          <button className="navigation-dialog__theme secondary-button" type="button" onClick={onToggleTheme} aria-label={darkMode ? "切换浅色模式" : "切换深色模式"}>{darkMode ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}{darkMode ? "浅色模式" : "深色模式"}</button>
         </ModalDialog>, document.body,
       )}
     </header>

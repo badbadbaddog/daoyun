@@ -1,4 +1,4 @@
-import { CircleUserRound, FileSearch, Image, Link2, LoaderCircle, PenLine, RefreshCw, Users2 } from "lucide-react"
+import { FileSearch, LoaderCircle, PenLine, RefreshCw, Users2 } from "lucide-react"
 
 import type { Topic } from "../types/community"
 import type { FeedFilter, TopicTag } from "../types/community"
@@ -72,26 +72,15 @@ export function TopicFeed({
           发布
         </button>
         <label className="tag-filter">
-          <span>标签</span>
+          <span className="sr-only">标签</span>
           <select aria-label="按标签筛选" value={selectedTag} onChange={(event) => onTagChange(event.target.value)}>
-            <option value="">全部标签</option>
+            <option value="">全部</option>
             {tags.map((tag) => <option value={tag.slug} key={tag.slug}>{tag.name}</option>)}
           </select>
         </label>
       </div>
 
-      <div className="composer-prompt">
-        <span className="composer-prompt__icon" aria-hidden="true"><CircleUserRound size={18} /></span>
-        <button className="composer-prompt__text" type="button" onClick={onCompose}>分享此刻的想法</button>
-        <button className="composer-prompt__action" type="button" onClick={onCompose} aria-label="添加图片" title="添加图片">
-          <Image size={17} aria-hidden="true" />
-        </button>
-        <button className="composer-prompt__action" type="button" onClick={onCompose} aria-label="添加链接" title="添加链接">
-          <Link2 size={17} aria-hidden="true" />
-        </button>
-      </div>
-
-      <div className="topic-list" aria-live="polite" aria-busy={loadStatus === "loading"}>
+      <div className="topic-list" aria-live="polite" aria-busy={loadStatus === "loading" || loadingMore}>
         {interactionError && <p className="interaction-alert" role="alert">{interactionError}</p>}
         {newTopicCount > 0 && onRevealNewTopics && (
           <button className="new-content-button" type="button" onClick={onRevealNewTopics}>
@@ -108,16 +97,22 @@ export function TopicFeed({
             </button>
           </div>
         ) : loadStatus === "loading" ? (
-          <div className="topic-loading" role="status">
-            <LoaderCircle className="topic-loading__spinner" size={22} aria-hidden="true" />
-            <span>正在加载主题</span>
+          <div className="topic-loading topic-list-loading" role="status">
+            <span className="sr-only">正在加载主题</span>
+            <div aria-hidden="true">
+              {[0, 1, 2, 3].map(index => <div className="topic-list-skeleton" key={index}>
+                <span className="topic-list-skeleton__avatar" />
+                <div className="topic-list-skeleton__copy"><span /><span /></div>
+                <span className="topic-list-skeleton__stats" />
+              </div>)}
+            </div>
           </div>
         ) : loadStatus === "error" ? (
           <div className="empty-state" role="alert">
-            <FileSearch size={28} />
+            <FileSearch size={28} aria-hidden="true" />
             <h2>主题暂时无法加载</h2>
             <p>请检查网络连接后重试。</p>
-            <button className="secondary-button" type="button" onClick={onRetry}>
+            <button className="secondary-button empty-state__action" type="button" onClick={onRetry}>
               <RefreshCw size={15} aria-hidden="true" />
               重试加载主题
             </button>
@@ -127,6 +122,7 @@ export function TopicFeed({
             <TopicRow
               topic={topic}
               key={topic.id}
+              variant="list"
               statsPlacement="footer"
               identityVariant="feed"
               onOpen={onOpenTopic}
@@ -139,14 +135,17 @@ export function TopicFeed({
           {errorMore && <p className="interaction-alert" role="alert">{errorMore}</p>}
           {nextCursor && onLoadMore && (
             <button className="secondary-button feed-load-more" type="button" disabled={loadingMore} onClick={onLoadMore}>
-              {loadingMore ? <><LoaderCircle className="topic-loading__spinner" size={16} />正在加载</> : "加载更多"}
+              {loadingMore ? <><LoaderCircle className="topic-loading__spinner" size={16} aria-hidden="true" />正在加载</> : errorMore ? "重试加载更多" : "加载更多"}
             </button>
           )}
         </> : (
           <div className="empty-state" role="status">
-            <FileSearch size={28} />
-            <h2>{activeFeed === "following" ? "关注的人还没有发布主题" : "没有找到相关主题"}</h2>
-            <p>{activeFeed === "following" ? "关注更多成员后，新主题会出现在这里。" : "换一个关键词或 Feed 分类。"}</p>
+            <FileSearch size={28} aria-hidden="true" />
+            <h2>{!selectedTag && activeFeed === "following" ? "关注的人还没有发布主题" : "没有找到相关主题"}</h2>
+            <p>{selectedTag ? "试试其他标签，或查看全部主题。" : activeFeed === "following" ? "关注更多成员后，新主题会出现在这里。" : "切换上方分类，或分享你的第一篇主题。"}</p>
+            {selectedTag ? <button className="secondary-button empty-state__action" type="button" onClick={() => onTagChange("")}>查看全部主题</button>
+              : activeFeed === "following" ? <a className="secondary-button empty-state__action" href="#boards">浏览社区</a>
+                : <button className="primary-button empty-state__action" type="button" onClick={onCompose}><PenLine size={15} aria-hidden="true" />发布第一篇主题</button>}
           </div>
         )}
       </div>

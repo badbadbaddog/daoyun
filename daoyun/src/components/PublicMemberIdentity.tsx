@@ -24,10 +24,10 @@ export function MemberIdentityBadges({ summary, variant = "compact", maxMedals =
   const medals = variant !== "feed" && maxMedals > 0 ? summary.medals.slice(0, maxMedals) : []
 
   return (
-    <span className={`public-member-identity public-member-identity--${variant}`} aria-label={variant === "feed" && groups.length ? `公开身份 ${groups[0].displayName}` : `成长等级 ${level.displayName}`}>
-      {(variant !== "feed" || groups.length === 0) && <span className="public-member-level" title={level.description || `成长等级 ${level.displayName}`}>
-        {level.displayName}
-      </span>}
+    <span className={`public-member-identity public-member-identity--${variant}`} aria-label={`成长等级 ${level.displayName}${groups.length ? `，公开身份 ${groups[0].displayName}` : ""}`}>
+      <span className="public-member-level" title={level.description || `成长等级 ${level.displayName}`}>
+        {variant === "feed" ? `Lv.${level.levelOrder}` : level.displayName}
+      </span>
       {groups.map((group) => (
         <span className="public-member-group" key={group.id}>{group.displayName}</span>
       ))}

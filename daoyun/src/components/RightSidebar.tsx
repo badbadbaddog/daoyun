@@ -1,11 +1,13 @@
+import { type MouseEvent } from "react"
 import { ArrowUpRight, CheckCircle2, Eye, Flame, FolderOpen, LayoutGrid, LogIn, MessageCircle, MessageSquare, ShieldCheck, ThumbsUp, UserRound } from "lucide-react"
 
 import type { BoardDetail } from "../api/boards"
 import type { AuthSession } from "../api/auth"
 import type { MembershipExperience } from "../features/membership/membershipTypes"
 import type { Board, Topic } from "../types/community"
+import type { HomeProfileData } from "../features/feed/useHomeProfile"
+import { HomeCommunitySidebar } from "./HomeCommunitySidebar"
 import { topicDisplayTitle } from "../utils/topicPresentation"
-import { PublicMemberIdentity } from "./PublicMemberIdentity"
 import { UserAvatar } from "./UserAvatar"
 
 interface RightSidebarProps {
@@ -17,115 +19,34 @@ interface RightSidebarProps {
   currentTopic?: Topic | null
   session: AuthSession | null
   membershipExperience?: MembershipExperience | null
+  homeProfile?: HomeProfileData | null
+  profileLoading?: boolean
+  profileErrors?: string[]
+  onRetryProfile?: () => void
+  siteName?: string
+  boardLoadStatus?: "loading" | "ready" | "error"
+  onRetryBoards?: () => void
+  onRegister?: () => void
   onCompose: () => void
   onLogin: () => void
   onOpenTopic: (topicId: string) => void
 }
 
-export function RightSidebar({ variant = "default", topics, showDiscovery = true, boards = [], currentBoard, currentTopic, session, membershipExperience, onCompose, onLogin, onOpenTopic }: RightSidebarProps) {
-  const hotTopics = [...topics]
+export function RightSidebar({ variant = "default", topics, showDiscovery = true, boards = [], currentBoard, currentTopic, session, membershipExperience, homeProfile, profileLoading, profileErrors, onRetryProfile, siteName = "刀云", boardLoadStatus, onRetryBoards, onRegister, onCompose, onLogin, onOpenTopic }: RightSidebarProps) {
+  const orderedTopics = [...topics]
     .sort((left, right) => (right.replies * 12 + right.likes * 8) - (left.replies * 12 + left.likes * 8))
-    .slice(0, 4)
+  const hotTopics = orderedTopics.slice(0, 4)
   const activeBoards = [...boards].sort((left, right) => right.topicCount - left.topicCount).slice(0, 4)
-  const activeMembers = [...new Map(topics.map((topic) => [topic.authorUsername, {
-    username: topic.authorUsername,
-    displayName: topic.author,
-    avatarUrl: topic.avatarUrl,
-  }])).values()].slice(0, 5)
+
+
+  function handleTopicLink(event: MouseEvent<HTMLAnchorElement>, topicId: string) {
+    if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
+    event.preventDefault()
+    onOpenTopic(topicId)
+  }
 
   if (variant === "home") {
-    const levelProgressValue = membershipExperience?.nextLevel
-      ? Math.max(0, membershipExperience.experience - membershipExperience.level.requiredExperience)
-      : 1
-    const levelProgressMax = membershipExperience?.nextLevel
-      ? Math.max(1, membershipExperience.nextLevel.requiredExperience - membershipExperience.level.requiredExperience)
-      : 1
-
-    return (
-      <aside className="right-sidebar right-sidebar--home" aria-label="首页社区信息">
-        <section className="panel home-profile-panel">
-          {session ? (
-            <>
-              <a className="home-profile-panel__identity" href={`#user/${session.user.username}`}>
-                <UserAvatar username={session.user.username} displayName={session.user.displayName} avatarUrl={null} />
-                <span>
-                  <h2>你好，{session.user.displayName}</h2>
-                  <small>分享生活，发现更多可能</small>
-                </span>
-              </a>
-              {membershipExperience ? (
-                <div className="home-profile-panel__level">
-                  <span
-                    className="home-profile-panel__level-badge"
-                    aria-label={`成长等级：${membershipExperience.level.displayName}`}
-                    title={membershipExperience.level.description || membershipExperience.level.displayName}
-                  >
-                    Lv.{membershipExperience.level.levelOrder}
-                  </span>
-                  <progress aria-label="成长等级进度" value={levelProgressValue} max={levelProgressMax} />
-                  <span className="home-profile-panel__level-value">
-                    {membershipExperience.nextLevel
-                      ? `${membershipExperience.experience.toLocaleString("zh-CN")} / ${membershipExperience.nextLevel.requiredExperience.toLocaleString("zh-CN")}`
-                      : `${membershipExperience.experience.toLocaleString("zh-CN")} EXP`}
-                  </span>
-                </div>
-              ) : (
-                <div className="home-profile-panel__level home-profile-panel__level--summary">
-                  <PublicMemberIdentity username={session.user.username} maxMedals={0} />
-                </div>
-              )}
-              <button className="primary-button" type="button" onClick={onCompose} aria-label="发布主题">
-                <MessageSquare size={15} aria-hidden="true" />
-                发布主题
-              </button>
-            </>
-          ) : (
-            <div className="home-profile-panel__guest">
-              <span aria-hidden="true"><UserRound size={22} /></span>
-              <div><h2>欢迎来到刀云社区</h2><p>登录后参与讨论与收藏</p></div>
-              <button className="primary-button" type="button" onClick={onLogin}><LogIn size={15} />登录</button>
-            </div>
-          )}
-        </section>
-
-        <section className="panel home-hot-panel">
-          <div className="panel-heading">
-            <div><Flame size={16} aria-hidden="true" /><h2>今日热议</h2></div>
-          </div>
-          {hotTopics.length > 0 ? (
-            <ol className="home-hot-list">
-              {hotTopics.map((topic, index) => (
-                <li key={topic.id}>
-                  <span>{index + 1}</span>
-                  <div>
-                    <a href={`#topic/${topic.id}`} onClick={(event) => { event.preventDefault(); onOpenTopic(topic.id) }}>
-                      {topicDisplayTitle(topic)}
-                    </a>
-                    <small>{topic.replies} 回复</small>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          ) : <p className="home-sidebar-empty">暂无公开热议主题</p>}
-        </section>
-
-        {activeMembers.length > 0 && (
-          <section className="panel home-member-panel">
-            <div className="panel-heading">
-              <div><UserRound size={16} aria-hidden="true" /><h2>活跃成员</h2></div>
-            </div>
-            <p>来自近期公开内容</p>
-            <div className="home-member-list" aria-label="近期活跃成员">
-              {activeMembers.map((member) => (
-                <a href={`#user/${member.username}`} key={member.username} aria-label={`活跃成员：${member.displayName}`} title={member.displayName}>
-                  <UserAvatar username={member.username} displayName={member.displayName} avatarUrl={member.avatarUrl} size="small" />
-                </a>
-              ))}
-            </div>
-          </section>
-        )}
-      </aside>
-    )
+    return <HomeCommunitySidebar topics={topics} boards={boards} session={session} siteName={siteName} homeProfile={homeProfile} membershipExperience={membershipExperience} profileLoading={profileLoading} profileErrors={profileErrors} boardLoadStatus={boardLoadStatus} onRetryBoards={onRetryBoards} onRetryProfile={onRetryProfile} onCompose={onCompose} onLogin={onLogin} onRegister={onRegister} onOpenTopic={onOpenTopic} />
   }
 
   if (variant === "boardDirectory") {
@@ -247,7 +168,7 @@ export function RightSidebar({ variant = "default", topics, showDiscovery = true
             <ol className="board-detail-topic-list">
               {hotTopics.slice(0, 5).map((topic) => (
                 <li key={topic.id}>
-                  <a href={`#topic/${topic.id}`} onClick={(event) => { event.preventDefault(); onOpenTopic(topic.id) }}>
+                  <a href={`#topic/${topic.id}`} onClick={event => handleTopicLink(event, topic.id)}>
                     {topicDisplayTitle(topic)}
                   </a>
                   <span><MessageCircle size={12} aria-hidden="true" />{topic.replies}</span>
@@ -319,7 +240,7 @@ export function RightSidebar({ variant = "default", topics, showDiscovery = true
                 <li key={topic.id}>
                   <span>{index + 1}</span>
                   <div>
-                    <a href={`#topic/${topic.id}`} onClick={(event) => { event.preventDefault(); onOpenTopic(topic.id) }}>
+                    <a href={`#topic/${topic.id}`} onClick={event => handleTopicLink(event, topic.id)}>
                       {topicDisplayTitle(topic)}
                     </a>
                     <small>{topic.replies} 回复 · {topic.views} 浏览</small>

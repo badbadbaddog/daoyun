@@ -43,14 +43,15 @@ describe("MemberIdentityBadges", () => {
     expect(screen.queryByText(/积分|权益|额度/)).not.toBeInTheDocument()
   })
 
-  it("limits feed identity to one public group and uses the level as a fallback", () => {
+  it("shows the growth number and one public group in the feed", () => {
     const { container, rerender } = render(<MemberIdentityBadges summary={summary} variant="feed" />)
     expect(screen.getByText("产品体验官")).toBeInTheDocument()
     expect(screen.queryByText("开拓者")).not.toBeInTheDocument()
     expect(screen.queryByText("首批用户")).not.toBeInTheDocument()
-    expect(container.querySelectorAll(".public-member-group, .public-member-level")).toHaveLength(1)
+    expect(screen.getByText("Lv.12")).toBeInTheDocument()
+    expect(container.querySelectorAll(".public-member-group, .public-member-level")).toHaveLength(2)
     rerender(<MemberIdentityBadges summary={{ ...summary, publicGroups: [] }} variant="feed" />)
-    expect(screen.getByText("开拓者")).toBeInTheDocument()
+    expect(screen.getByText("Lv.12")).toHaveAttribute("title", "持续参与社区讨论")
     expect(screen.queryByText("产品体验官")).not.toBeInTheDocument()
   })
 })
